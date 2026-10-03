@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.9.0
+// @version      4.10.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -348,10 +348,65 @@
     ),
   ];
   // ถ้าพรีเซ็ตไม่ได้ใส่ {txt} แต่คลิปมีไฟล์ .txt ให้ต่อท้ายคำอธิบาย
-  function renderDesc(p, vars) {
+  function renderDescFull(p, vars) {
     let d = render(p.description, vars).trim();
     if (vars.txt && !/\{txt\}/.test(p.description || '')) d = d ? `${d}\n\n${vars.txt}` : vars.txt;
-    return clean(d).slice(0, DESC_MAX);
+    return clean(d);
+  }
+  const renderDesc = (p, vars) => renderDescFull(p, vars).slice(0, DESC_MAX);
+
+  // ===== ตรวจ tracklist ก่อนอัป (กฎ Chapters ของ YouTube) =====
+  // เช็กจากคำอธิบายที่จะอัปจริง: timestamp แรก 0:00, อย่างน้อย 3 ช่วง, เรียงจากน้อยไปมาก, แต่ละช่วง ≥ 10 วินาที,
+  // ไม่เกินความยาวคลิป และคำอธิบายไม่เกิน 5000 ตัวอักษร (เกินแล้วท้าย tracklist จะถูกตัด)
+  const fmtTs = (s) => { s = Math.round(s); const hh = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (hh ? hh + ':' + pad(m) : m) + ':' + pad(x); };
+  function checkTracklist(description, fullLength, duration) {
+    const errors = [];
+    const warnings = [];
+    const stamps = [];
+    description.split('\n').forEach((line, i) => {
+      const m = line.match(/^\s*[[(]?(?:(\d{1,2}):)?(\d{1,3}):(\d{1,2})\b[\])]?\s*[-–|.:]?\s*(.*)$/);
+      if (!m) return;
+      const [hh, mm, ss] = [m[1], m[2], m[3]].map((x) => (x === undefined ? 0 : +x));
+      if (ss > 59 || (m[1] !== undefined && mm > 59)) { errors.push(L(`บรรทัด ${i + 1}: เวลา "${line.trim().split(/\s/)[0]}" ไม่ถูกต้อง`, `Line ${i + 1}: invalid time "${line.trim().split(/\s/)[0]}"`)); return; }
+      stamps.push({ t: hh * 3600 + mm * 60 + ss, line: i + 1, name: m[4].trim() });
+    });
+    if (fullLength > DESC_MAX) warnings.push(L(`คำอธิบายยาว ${fullLength} ตัวอักษร เกิน ${DESC_MAX} — ส่วนท้ายจะถูกตัด`, `Description is ${fullLength} characters, over ${DESC_MAX} — the end will be cut off`));
+    if (!stamps.length) return { errors, warnings, count: 0 };
+    if (stamps[0].t !== 0) errors.push(L(`timestamp แรกต้องเป็น 0:00 (ตอนนี้ ${fmtTs(stamps[0].t)})`, `First timestamp must be 0:00 (currently ${fmtTs(stamps[0].t)})`));
+    if (stamps.length < 3) errors.push(L(`ต้องมีอย่างน้อย 3 timestamp (มี ${stamps.length})`, `Needs at least 3 timestamps (has ${stamps.length})`));
+    for (let k = 1; k < stamps.length; k++) {
+      const gap = stamps[k].t - stamps[k - 1].t;
+      if (gap <= 0) errors.push(L(`บรรทัด ${stamps[k].line}: ${fmtTs(stamps[k].t)} ไม่ได้มาหลัง ${fmtTs(stamps[k - 1].t)}`, `Line ${stamps[k].line}: ${fmtTs(stamps[k].t)} doesn't come after ${fmtTs(stamps[k - 1].t)}`));
+      else if (gap < 10) errors.push(L(`บรรทัด ${stamps[k - 1].line}: ช่วงยาวแค่ ${gap} วินาที (ต้อง ≥ 10)`, `Line ${stamps[k - 1].line}: chapter is only ${gap}s long (needs ≥ 10)`));
+    }
+    const last = stamps[stamps.length - 1];
+    if (duration > 0) {
+      const over = stamps.filter((s) => s.t >= duration);
+      if (over.length) errors.push(L(`${over.length} timestamp เกินความยาวคลิป (${fmtTs(duration)}) เช่นบรรทัด ${over[0].line}: ${fmtTs(over[0].t)}`, `${over.length} timestamp(s) beyond the video length (${fmtTs(duration)}), e.g. line ${over[0].line}: ${fmtTs(over[0].t)}`));
+      else if (duration - last.t < 10) errors.push(L(`ช่วงสุดท้ายยาวแค่ ${Math.floor(duration - last.t)} วินาที (ต้อง ≥ 10)`, `Last chapter is only ${Math.floor(duration - last.t)}s long (needs ≥ 10)`));
+    }
+    const seen = new Map();
+    for (const s of stamps) {
+      const k = s.name.toLowerCase().replace(/\s+/g, ' ');
+      if (k && seen.has(k)) warnings.push(L(`เพลงซ้ำ: "${s.name}" (บรรทัด ${seen.get(k)} และ ${s.line})`, `Duplicate song: "${s.name}" (lines ${seen.get(k)} and ${s.line})`));
+      else if (k) seen.set(k, s.line);
+    }
+    return { errors, warnings, count: stamps.length };
+  }
+  // ความยาวคลิปจาก metadata ของไฟล์ (อ่านแค่ส่วนหัว ไม่โหลดทั้งไฟล์) · อ่านไม่ได้ = 0 (ข้ามการเช็กความยาว)
+  function videoDuration(file) {
+    return new Promise((resolve) => {
+      const v = document.createElement('video');
+      const url = URL.createObjectURL(file);
+      let settled = false;
+      const done = (d) => { if (settled) return; settled = true; URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(Number.isFinite(d) ? d : 0); };
+      v.preload = 'metadata';
+      v.muted = true;
+      v.onloadedmetadata = () => done(v.duration);
+      v.onerror = () => done(0);
+      setTimeout(() => done(0), 15000);
+      v.src = url;
+    });
   }
 
   // ===== Studio DOM automation =====
@@ -1015,7 +1070,9 @@
     const files = [...fileList];
     const vids = files.filter(isVideo);
     for (const file of vids) {
-      queue.push({ id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null });
+      const it = { id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0 };
+      queue.push(it);
+      videoDuration(file).then((d) => { it.duration = d; if (it.ui) updateItemUI(it); }); // ใช้เช็ก timestamp เกินความยาวคลิป
     }
     const byKey = new Map();
     for (const it of queue) if (it.status !== 'done') byKey.set(baseKey(it.file.name), it);
@@ -1081,6 +1138,11 @@
 
   const itemVars = (it) =>
     buildVars(it.file.name, it.n, it.txt, { preset: presetById(it.presetId), artists: it.artistsEdited ? it.artists : '' });
+  // ผลตรวจ tracklist ของคลิปในคิว (เช็กจากคำอธิบายที่จะอัปจริง)
+  function itemTracklist(it) {
+    const full = renderDescFull(presetById(it.presetId), itemVars(it));
+    return checkTracklist(full.slice(0, DESC_MAX), full.length, it.duration || 0);
+  }
 
   function setItem(it, status, msg = '') {
     it.status = status;
@@ -1239,6 +1301,12 @@
       openDrawer();
       return toast('⛔ ' + problem);
     }
+    // tracklist ที่ YouTube จะไม่สร้าง Chapters ให้ — ถามก่อนเริ่ม (อัปไปแล้วต้องตามแก้คำอธิบายทีละคลิป)
+    assignNumbers();
+    const badTl = queue.filter((i) => i.status === 'pending' && i.txt).map((i) => [i, itemTracklist(i)]).filter(([, tc]) => tc.errors.length);
+    if (badTl.length && !confirm(L(
+      `${badTl.length} คลิปมีปัญหา tracklist (YouTube จะไม่สร้าง Chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… และอีก ${badTl.length - 5} คลิป` : ''}\n\nอัปต่อเลยไหม? (กด Cancel เพื่อกลับไปแก้ไฟล์ .txt — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด)`,
+      `${badTl.length} video(s) have tracklist problems (YouTube won't create chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… and ${badTl.length - 5} more` : ''}\n\nUpload anyway? (Cancel to go back and fix the .txt files — details are on the red badge in each card)`))) return;
     const ch = getChannel();
     if (settings.confirmStart && !confirm(L(`อัปโหลด ${pendingN} คลิป ไปที่ช่อง:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nถูกช่องใช่ไหม?`, `Upload ${pendingN} video(s) to channel:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nIs this the right channel?`))) return;
     running = true;
@@ -2218,6 +2286,24 @@
       const lines = it.txt.trim().split(/\r?\n/).length;
       kids.push(h('span', { className: 'chip', title: it.txt.slice(0, 600) }, icon('file', 13), h('span', {}, L(`${it.txtName} · ${lines} บรรทัด`, `${it.txtName} · ${lines} lines`)),
         rm(() => { it.txt = ''; it.txtName = ''; it.titleEdited = false; assignNumbers(); updateItemUI(it); })));
+    }
+    if (it.txt) {
+      const tc = itemTracklist(it);
+      const probs = [...tc.errors, ...tc.warnings];
+      if (tc.errors.length) {
+        kids.push(h('span', { className: 'chip bad', title: L('YouTube จะไม่สร้าง Chapters จนกว่าจะแก้:\n', 'YouTube won\'t create chapters until fixed:\n') + tc.errors.map((x) => '• ' + x).join('\n') + (tc.warnings.length ? '\n\n' + tc.warnings.map((x) => '• ' + x).join('\n') : '') },
+          icon('alert', 13), h('span', {}, L(`tracklist: ${tc.errors.length} ปัญหา`, `Tracklist: ${tc.errors.length} problem(s)`))));
+      } else if (tc.warnings.length) {
+        kids.push(h('span', { className: 'chip bad', title: probs.map((x) => '• ' + x).join('\n') },
+          icon('alert', 13), h('span', {}, L(`tracklist: ${tc.warnings.length} คำเตือน`, `Tracklist: ${tc.warnings.length} warning(s)`))));
+      }
+      if (tc.count && !tc.errors.length) {
+        kids.push(h('span', { className: 'chip', title: L('ผ่านกฎ Chapters ของ YouTube', 'Passes YouTube\'s chapter rules') + (it.duration ? '' : L(' (ยังไม่ได้เช็กกับความยาวคลิป)', ' (not checked against video length)')) },
+          icon('check', 13), h('span', {}, L(`Chapters ${tc.count} ช่วง`, `${tc.count} chapters`))));
+      } else if (!tc.count) {
+        kids.push(h('span', { className: 'chip bad', title: L('ไฟล์ .txt ไม่มีบรรทัดที่ขึ้นต้นด้วยเวลา เช่น 00:00 ชื่อเพลง', 'The .txt has no lines starting with a time, e.g. 00:00 Song name') },
+          icon('alert', 13), h('span', {}, L('ไม่มี timestamp — ไม่มี Chapters', 'No timestamps — no chapters'))));
+      }
     }
     if (it.thumb) {
       const big = it.thumb.size > THUMB_MAX;
