@@ -2029,6 +2029,12 @@
     #ytp-root .tbx-bar{height:6px;background:var(--surface2);border-radius:99px;margin-top:8px;overflow:hidden}
     #ytp-root .tbx-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--brand2));transition:width .4s}
     #ytp-root .tbx-bar.ind i{width:35%!important;animation:ytp-ind 1.2s infinite ease-in-out}
+    #ytp-root .act{padding:9px 14px;border-bottom:1px solid var(--line);background:var(--surface);cursor:pointer}
+    #ytp-root .act:hover{background:var(--surface2)}
+    #ytp-root .act .arow{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
+    #ytp-root .act .at{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #ytp-root .act .ap{color:var(--fg3);font-variant-numeric:tabular-nums}
+    #ytp-root .act .tbx-bar{margin-top:6px}
     #ytp-root .tbx-steps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
     #ytp-root .tbx-steps span{font-size:10.5px;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--fg3)}
     #ytp-root .tbx-steps span.done{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
@@ -2094,6 +2100,15 @@
   const footers = {};
   let currentTab = 'queue';
   const nav = h('div', { className: 'tabs' });
+  // แถบงานที่กำลังทำ — อยู่เหนือแท็บ เห็นได้ทุกแท็บ · ซ่อนตอนว่าง
+  const actIcon = h('span', { className: 'ai' });
+  const actTitle = h('span', { className: 'at' });
+  const actPct = h('span', { className: 'ap' });
+  const actFill = h('i');
+  const actBar = h('div', { className: 'act', hidden: true, onclick: () => showTab(actBar._tab || 'queue') },
+    h('div', { className: 'arow' }, actIcon, actTitle, actPct),
+    h('div', { className: 'tbx-bar' }, actFill)
+  );
   const body = h('div', { className: 'body' });
   const footWrap = h('div');
   for (const [key, label, ic] of [['queue', L('อัปโหลด', 'Upload'), 'queue'], ['presets', L('พรีเซ็ต', 'Presets'), 'layers'], ['claims', L('ลิขสิทธิ์', 'Copyright'), 'shield'], ['settings', L('ตั้งค่า', 'Settings'), 'sliders']]) {
@@ -2186,7 +2201,7 @@
       h('div', { className: 'tt' }, h('b', {}, 'Upload Studio'), h('span', {}, L('อัปโหลดหลายคลิป · พรีเซ็ตชื่อ/คำอธิบาย', 'Bulk video upload · title/description presets'))),
       iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer())
     ),
-    chanBar, chanList, nav, body, footWrap
+    chanBar, chanList, actBar, nav, body, footWrap
   );
 
   let lastChanKey = '';
@@ -2610,6 +2625,7 @@
     fabBadge.hidden = !total;
     fabBadge.textContent = running ? `${done}/${total}` : String(pending || total);
     tabCount.queue.textContent = total ? String(total) : '';
+    renderActivity(); // ทางเดียว: renderActivity ไม่เรียก updateRunUI กลับ
   }
 
   // งานที่กำลังทำอยู่ตอนนี้ (อันเดียว) — null ถ้าว่าง · ดู activityFrom() สำหรับกติกาการเลือก
@@ -2630,6 +2646,30 @@
       a.title = L(`กำลังอัปโหลด ${a.count.at}/${a.count.of}`, `Uploading ${a.count.at}/${a.count.of}`);
     }
     return a;
+  }
+
+  // วาดแถบงาน · ถูกเรียกทุก 0.8 วินาที -> ไม่มีอะไรเปลี่ยนก็ไม่แตะ DOM (แบบเดียวกับ updateChannelUI)
+  // ฟังก์ชันนี้เป็นเจ้าของ fabBadge ทั้งตอนมีงานและตอนว่าง (updateRunUI ไม่แตะป้ายนี้แล้ว)
+  let lastActSig = '';
+  function renderActivity() {
+    const a = activity();
+    const pending = queue.filter((i) => i.status === 'pending').length;
+    const total = queue.length;
+    const pct = a && a.progress !== null ? Math.round(a.progress * 100) : null;
+    // pending/total อยู่ในลายเซ็นด้วย ไม่งั้นตอนว่างป้าย FAB จะไม่อัปเดต
+    const sig = JSON.stringify([a, pending, total]);
+    if (sig === lastActSig) return;
+    lastActSig = sig;
+    actBar.hidden = !a;
+    if (a) {
+      actBar._tab = a.tab;
+      actBar.title = a.detail || '';
+      actIcon.textContent = a.icon;
+      actTitle.textContent = a.title;
+      actPct.textContent = pct === null ? '' : pct + '%';
+      actFill.parentElement.classList.toggle('ind', pct === null);
+      actFill.style.width = pct === null ? '' : pct + '%';
+    }
   }
 
   // ----- แท็บพรีเซ็ต -----
@@ -4771,7 +4811,9 @@
   let tickFailed = false;
   setInterval(() => {
     try {
+      pollUploadProgress();
       Claims.tick();
+      renderActivity();
     } catch (e) {
       console.error('[Upload Studio] tick', e);
       if (!tickFailed) {
