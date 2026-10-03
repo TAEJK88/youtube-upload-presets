@@ -1237,6 +1237,14 @@
     return el ? (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '';
   }
 
+  // ความคืบหน้าของคลิปที่กำลังอัป · อัปเดตจาก tick ทุก 0.8 วินาที (uploadOne ไม่ต้องรู้เรื่องนี้)
+  let uploadProg = null; // { pct: 0..1 | null, text: string }
+  function pollUploadProgress() {
+    if (!running) { uploadProg = null; return; }
+    const text = uploadProgressText();
+    uploadProg = { pct: parseUploadPct(text), text };
+  }
+
   // ===== ช่องที่กำลังใช้งาน (กันอัปผิดช่อง) =====
   function getChannel() {
     const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
@@ -2602,6 +2610,26 @@
     fabBadge.hidden = !total;
     fabBadge.textContent = running ? `${done}/${total}` : String(pending || total);
     tabCount.queue.textContent = total ? String(total) : '';
+  }
+
+  // งานที่กำลังทำอยู่ตอนนี้ (อันเดียว) — null ถ้าว่าง · ดู activityFrom() สำหรับกติกาการเลือก
+  function activity() {
+    const count = (st) => queue.filter((i) => i.status === st).length;
+    const q = {
+      running,
+      inFlight: queue.some((i) => i.status === 'uploading' || i.status === 'review'),
+      total: queue.length,
+      done: count('done'),
+      errors: count('error'),
+    };
+    // โมดูลลิขสิทธิ์พังไม่ควรลาก UI ของคิวไปด้วย
+    let claims = null;
+    try { claims = Claims && Claims.status ? Claims.status() : null; } catch (e) { claims = null; }
+    const a = activityFrom(q, claims, uploadProg);
+    if (a && a.task === 'upload') {
+      a.title = L(`กำลังอัปโหลด ${a.count.at}/${a.count.of}`, `Uploading ${a.count.at}/${a.count.of}`);
+    }
+    return a;
   }
 
   // ----- แท็บพรีเซ็ต -----
@@ -4737,7 +4765,7 @@
       renderStatus();
     }
 
-    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus };
+    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus };
   })();
   panes.claims = Claims.buildPane();
   let tickFailed = false;
