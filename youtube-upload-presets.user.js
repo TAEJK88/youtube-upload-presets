@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.4.0
+// @version      4.5.0
 // @description  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
 // @grant        GM_getValue
@@ -19,14 +19,14 @@
   'use strict';
 
   // ===== ตั้งค่าพื้นฐาน =====
-  const PRODUCER = 'ThaiBeats'; // ใช้แทนตัวแปร {producer}
 
   // ตัวแปรที่ใช้ได้ใน title / description / tags:
   //   {name}     ชื่อไฟล์ที่ล้างแล้ว (ตัดนามสกุล, ตัด "140bpm", แปลง _ เป็นช่องว่าง)
   //   {filename} ชื่อไฟล์ดิบ (ไม่มีนามสกุล)
   //   {bpm}      ตัวเลข BPM จากชื่อไฟล์ เช่น "Midnight 140bpm.mp4" -> 140
   //   {n}        เลขลำดับ EP (นับต่อเองแยกตามพรีเซ็ต)
-  //   {date} {year} {producer}
+  //   {date} {year}
+  //   {producer} ชื่อโปรดิวเซอร์ (แท็บตั้งค่า) เว้นว่าง = ชื่อช่องปัจจุบัน
   // ตัวแปรจากไฟล์ .txt ชื่อเดียวกับคลิป (เช่น clip01.mp4 + clip01.txt):
   //   {txt}        เนื้อหาไฟล์ทั้งหมด (เช่น tracklist + timestamp)
   //   {track1}     เพลงแรกใน tracklist (ตัด timestamp ออก)
@@ -132,6 +132,7 @@
     return v === undefined ? d : v;
   };
   const save = (k, v) => GM_setValue(k, v);
+  const existingInstall = GM_getValue('presets') !== undefined; // ติดตั้งไว้ก่อน v4.5.0 (ตอนนั้นชื่อโปรดิวเซอร์ฝังในโค้ด)
 
   let presets = load('presets', DEFAULT_PRESETS);
   // ผู้ใช้เวอร์ชันเก่า: เพิ่มพรีเซ็ต Playlist ให้ครั้งเดียว
@@ -184,6 +185,12 @@
     load('settings', {})
   );
   const saveSettings = () => save('settings', settings);
+  // ชื่อที่เคยฝังในโค้ด: เครื่องที่ติดตั้งไว้แล้วได้ค่าเดิม ส่วนผู้ใช้ใหม่เริ่มจากค่าว่าง
+  if (settings.producer === undefined) {
+    settings.producer = existingInstall ? 'ThaiBeats' : '';
+    saveSettings();
+  }
+  if (existingInstall && load('cfg', {}).ownNames === undefined) save('cfg', { ...load('cfg', {}), ownNames: 'THAIBEATS, EXMGE' });
 
   const presetById = (id) => presets.find((p) => p.id === id) || presets[0];
   const active = () => presetById(activeId);
@@ -250,7 +257,7 @@
       n: String(n),
       date: `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`,
       year: String(settings.year || d.getFullYear()),
-      producer: PRODUCER,
+      producer: settings.producer || getChannel().name,
       txt: String(txt || '').replace(/\r\n/g, '\n').trim(),
       ...tr,
       artists: manual || shown.join(', '),
@@ -2388,6 +2395,11 @@
     ),
     sec('ทั่วไป', 'sliders',
       h('div', { className: 'kv' },
+        h('div', {}, h('b', {}, 'ชื่อโปรดิวเซอร์ {producer}'), h('small', {}, 'ใช้ในชื่อคลิป/คำอธิบาย/แท็ก เช่น "Prod. by {producer}" · เว้นว่าง = ใช้ชื่อช่องปัจจุบัน')),
+        h('input', { type: 'text', value: settings.producer, placeholder: getChannel().name || 'ชื่อช่อง',
+          oninput: (e) => { settings.producer = e.target.value.trim(); saveSettings(); refreshLabels(); } })
+      ),
+      h('div', { className: 'kv' },
         h('div', {}, h('b', {}, 'หมวดหมู่'), h('small', {}, 'ข้อความตามที่ Studio แสดง เช่น Music หรือ เพลง · เว้นว่าง = ไม่ตั้ง')),
         h('input', { type: 'text', value: settings.category, oninput: (e) => { settings.category = e.target.value.trim(); saveSettings(); } })
       ),
@@ -2471,7 +2483,7 @@
       autoSaveTrim: true, // ตอนสคริปต์ตัดเอง: กด Save → ติ๊ก "I acknowledge" → Confirm changes
       autoSaveManualTrim: false, // ตอนเปิดหน้าตัดเองด้วยมือ: ให้สคริปต์กด Save ให้ (ปิดไว้ จะได้ปรับเวลาก่อนได้)
       followUpMinutes: '10',
-      ownNames: 'THAIBEATS, EXMGE',
+      ownNames: '',
       apEveryHours: '6',
       apSkipOwn: true,
       apOnlyImpact: true,
