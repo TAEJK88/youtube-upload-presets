@@ -52,7 +52,7 @@ const build = new Function(
   ${ACTIVITY}
   return { pad, parseTracks, buildVars, render, clean, renderTitle, makeTitle,
            unknownVars, renderTags, renderDesc, parseTime, fixTracklist,
-           fmtTs, checkTracklist, parseUploadPct,
+           fmtTs, checkTracklist, parseUploadPct, activityFrom,
            VARS, TITLE_MAX, DESC_MAX };`
 );
 

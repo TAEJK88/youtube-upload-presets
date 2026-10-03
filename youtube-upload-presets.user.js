@@ -592,6 +592,40 @@
     return Math.max(0, Math.min(1, +m[1] / 100));
   }
 
+  // ตัดสินว่าตอนนี้มี "งาน" อะไรกำลังทำอยู่ — คืนอันเดียว หรือ null ถ้าว่าง
+  //   q      = สรุปสถานะคิวอัปโหลด { running, inFlight, total, done, errors }
+  //   claims = ผลจาก computeStatus() ของโมดูลลิขสิทธิ์ (หรือ null)
+  //   prog   = { pct, text } ของคลิปที่กำลังอัป (หรือ null)
+  // คิวอัปโหลดมาก่อนเสมอ: สแกน claim อ่านอย่างเดียวและทับซ้อนกับการอัปได้
+  // แถบใช้ done เป็นฐาน (ความหมายเดียวกับแถบในแท็บคิว) คลิปที่ error ไม่ดันแถบ แต่ดันเลขลำดับ
+  function activityFrom(q, claims, prog) {
+    if (q.running || q.inFlight) {
+      const pct = prog && typeof prog.pct === 'number' ? prog.pct : 0;
+      return {
+        task: 'upload',
+        icon: '⬆',
+        tab: 'queue',
+        count: { at: q.done + q.errors + 1, of: q.total },
+        title: '', // ผู้เรียกเติมข้อความผ่าน L() เพราะฟังก์ชันนี้ต้องล้วน
+        detail: (prog && prog.text) || '',
+        progress: q.total ? Math.min(1, (q.done + pct) / q.total) : null,
+      };
+    }
+    // computeStatus() คืนสถานะตอนว่างด้วย ('พร้อม' / 'Auto-pilot เปิดอยู่') -> นับแค่ busy กับ wait
+    if (claims && (claims.kind === 'busy' || claims.kind === 'wait')) {
+      return {
+        task: 'claims',
+        icon: claims.icon || '',
+        tab: 'claims',
+        count: null,
+        title: claims.title || '',
+        detail: claims.detail || '',
+        progress: typeof claims.progress === 'number' ? claims.progress : null,
+      };
+    }
+    return null;
+  }
+
   // ===== Studio DOM automation =====
   // จังหวะการทำงาน: คูณเวลาพักและเวลารอทั้งหมด (หน้า Studio โหลดช้า -> เลือก "ช้า" หรือ "ช้ามาก")
   const PACE = { normal: 1, slow: 1.6, slower: 2.5 };
