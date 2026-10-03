@@ -24,28 +24,34 @@ function constLine(name) {
   return m[0];
 }
 
-const TEMPLATE = block('// ===== template =====', '// ===== ข้อความที่ Studio แสดง =====');
+const TEMPLATE = block('// ===== template =====', '// ===== ตรวจ tracklist');
+const CHAPTERS = block('const fmtTs =', 'function videoDuration');
 const TRACKLIST = block('const parseTime =', 'function showTracklistFix');
 
 export const settings = { year: '', producer: '' };
 export const channel = { name: 'Test Channel', id: 'UCtest' };
+// the script writes every UI string as L(th, en); tests read the English side
+const L = (th, en) => en;
 
 const build = new Function(
   'settings',
   'getChannel',
+  'L',
   `'use strict';
   ${constLine('VARS')}
   ${constLine('VIDEO_EXT')}
   ${constLine('TITLE_MAX')}
   ${constLine('DESC_MAX')}
   ${TEMPLATE}
+  ${CHAPTERS}
   ${TRACKLIST}
   return { pad, parseTracks, buildVars, render, clean, renderTitle, makeTitle,
            unknownVars, renderTags, renderDesc, parseTime, fixTracklist,
+           fmtTs, checkTracklist,
            VARS, TITLE_MAX, DESC_MAX };`
 );
 
-export const S = build(settings, () => channel);
+export const S = build(settings, () => channel, L);
 
 const DEFAULTS_BLOCK = block('const DEFAULT_PRESETS = [', '];');
 const STORAGE = block('// ===== storage =====', '// ===== ย้ายข้อมูลของเวอร์ชันเก่า');
@@ -59,13 +65,14 @@ export function migrate(initial = {}) {
     'GM_getValue',
     'GM_setValue',
     'console',
+    'L',
     `'use strict';
     ${DEFAULTS_BLOCK}
     ];
     ${STORAGE}
     ${SCHEMA}
-    return { presets: load('presets', DEFAULT_PRESETS), DEFAULT_PRESETS };`
+    return { presets: load('presets', structuredClone(DEFAULT_PRESETS)), DEFAULT_PRESETS };`
   );
-  const out = run((k) => store[k], (k, v) => { store[k] = v; }, console);
+  const out = run((k) => store[k], (k, v) => { store[k] = v; }, console, L);
   return { store, ...out };
 }

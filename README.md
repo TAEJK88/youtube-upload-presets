@@ -12,9 +12,9 @@ After installing, set your producer name in **Settings → General** and your ow
 
 ## Running tests
 
-The pure functions (templating, tracklist rewriting, storage migrations) are covered by
-zero-dependency tests. They slice the relevant blocks out of the userscript and run them
-with stubs, so there is no build step:
+The pure functions (templating, chapter rules, tracklist rewriting, storage migrations)
+are covered by zero-dependency tests. They slice the relevant blocks out of the userscript
+and run them with stubs, so there is no build step:
 
 ```sh
 node --test test/*.test.mjs
@@ -29,8 +29,12 @@ Everything tied to Studio's markup lives in two tables near the top of the scrip
 - `SEL` — every element name and id the script looks for
 - `TXT` — every regex matched against text Studio renders (adding a language = editing this table)
 
-With the upload dialog open on the details step, **Settings → Copy upload dialog info**
-dumps a `selectors` report listing which `SEL` entries no longer match anything on the page.
+With the upload dialog open on the details step, the **Copy upload dialog info** button in
+Settings dumps a `selectors` report listing which `SEL` entries no longer match anything on
+the page.
+
+`TXT` holds the regexes matched against text *YouTube* renders. It is separate from `L(th, en)`,
+which holds the script's own UI strings.
 
 ## Releasing a new version
 
