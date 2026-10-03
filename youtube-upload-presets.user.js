@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.6.0
+// @version      4.7.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
+// @match        https://www.youtube.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
@@ -25,6 +26,37 @@
   const LANG = (GM_getValue('settings') || {}).lang || (GM_getValue('presets') !== undefined ? 'th' : 'en');
   const L = (th, en) => (LANG === 'en' ? en : th);
   const LOCALE = LANG === 'en' ? 'en-GB' : 'th-TH';
+
+  // ===== รับคำเชิญสิทธิ์ช่องอัตโนมัติ =====
+  // เปิดลิงก์ "ACCEPT INVITATION" จากอีเมล noreply@youtube.com แล้วสคริปต์กดยอมรับให้
+  // กดเฉพาะปุ่ม Accept/ยอมรับ ที่อยู่ในกล่องข้อความที่พูดถึงคำเชิญเท่านั้น
+  function watchInvite() {
+    if ((GM_getValue('settings') || {}).autoAcceptInvite === false) return;
+    const BTN = /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i;
+    const ABOUT = /invit|เชิญ/i;
+    const visible = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+    let tries = 0;
+    const timer = setInterval(() => {
+      if (++tries > 60) return clearInterval(timer);
+      for (const b of document.querySelectorAll('button, ytcp-button, tp-yt-paper-button, yt-button-shape button, a[role="button"]')) {
+        const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
+        if (!BTN.test(label) || !visible(b) || b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
+        const box = b.closest('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main') || document.body;
+        if (!ABOUT.test(box.innerText || box.textContent || '')) continue;
+        clearInterval(timer);
+        b.click();
+        const note = document.createElement('div');
+        note.textContent = L('✅ กดยอมรับคำเชิญให้แล้ว (YouTube Upload Presets)', '✅ Invitation accepted (YouTube Upload Presets)');
+        note.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;background:#111;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui';
+        document.body.append(note);
+        setTimeout(() => note.remove(), 6000);
+        return;
+      }
+    }, 1000);
+  }
+  watchInvite();
+  // นอก Studio (เช่นหน้าคำเชิญบน www.youtube.com) ทำแค่รับคำเชิญ
+  if (location.hostname !== 'studio.youtube.com') return;
 
   // ===== ตั้งค่าพื้นฐาน =====
 
@@ -187,6 +219,7 @@
       monetization: 'on', // ขั้น Monetisation: on | off | skip
       adSuitability: 'none', // ขั้น Ad suitability: none = ติ๊ก "None of the above" แล้ว Submit rating | skip = ทำเอง
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
+      autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
       schedule: { on: false, start: '', every: 1, unit: 'day' },
     },
@@ -1281,6 +1314,8 @@
     alert: 'M12 9v4M12 17h.01M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
     send: 'M5 12h14M13 6l6 6-6 6',
     tv: 'M3 6h18a0 0 0 0 1 0 0v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM8 21h8M12 18v3',
+    swap: 'M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7',
+    ext: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
     clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3.5 2',
     shield: 'M12 3l8 3v6c0 4.8-3.4 8.3-8 9-4.6-.7-8-4.2-8-9V6z',
   };
@@ -1703,9 +1738,54 @@
       updateChannelUI();
     },
   }, lockIcon, lockTxt);
+  // รายการช่องที่เคยเข้า: คลิกแล้วเปิดช่องนั้นในแท็บใหม่ (หน้าเดียวกับที่เปิดอยู่)
+  // ใช้ได้กับช่องที่บัญชีนี้มีสิทธิ์ (เจ้าของ หรือได้รับเชิญผ่าน Permissions)
+  let channels = load('channels', []);
+  const saveChannels = () => save('channels', channels);
+  function rememberChannel(c) {
+    if (!c.id || !c.name) return;
+    const old = channels.find((x) => x.id === c.id);
+    if (old && old.name === c.name && old.avatar === c.avatar) return;
+    channels = [{ id: c.id, name: c.name, avatar: c.avatar }, ...channels.filter((x) => x.id !== c.id)];
+    saveChannels();
+    if (!chanList.hidden) renderChanList();
+  }
+  const channelUrl = (id) => {
+    const p = location.pathname;
+    return 'https://studio.youtube.com' + (/\/channel\/UC[\w-]+/.test(p) ? p.replace(/\/channel\/UC[\w-]+/, '/channel/' + id) : '/channel/' + id);
+  };
+  const chanAddIn = h('input', { type: 'text', placeholder: L('รหัสช่อง UC… หรือลิงก์ช่อง', 'Channel ID UC… or channel link'), style: 'flex:1;min-width:0' });
+  function addChannel() {
+    const id = (chanAddIn.value.match(/UC[\w-]{22}/) || [])[0];
+    if (!id) return toast(L('ไม่พบรหัสช่อง (ขึ้นต้นด้วย UC และยาว 24 ตัว)', 'No channel ID found (starts with UC, 24 characters)'));
+    if (!channels.some((x) => x.id === id)) { channels.push({ id, name: '', avatar: '' }); saveChannels(); }
+    chanAddIn.value = '';
+    renderChanList();
+  }
+  chanAddIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') addChannel(); });
+  const chanList = h('div', { className: 'sec', hidden: true, style: 'margin:0 16px 12px;padding:8px;border:1px solid var(--line);border-radius:var(--radius)' });
+  function renderChanList() {
+    const cur = getChannel().id;
+    const rows = channels.map((c) => h('div', { style: 'display:flex;align-items:center;gap:8px;padding:4px 2px' },
+      c.avatar ? h('img', { src: c.avatar, alt: '', style: 'width:22px;height:22px;border-radius:50%' }) : icon('tv', 16),
+      h('div', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: c.id },
+        h('b', {}, c.name || c.id), c.id === cur ? h('small', { style: 'color:var(--fg3)' }, L(' · ช่องนี้', ' · this tab')) : null),
+      h('button', { className: 'btn sm', title: L('เปิดช่องนี้ในแท็บใหม่', 'Open this channel in a new tab'), onclick: () => window.open(channelUrl(c.id), '_blank') }, icon('ext', 13), L('แท็บใหม่', 'New tab')),
+      iconBtn('x', L('เอาออกจากรายการ', 'Remove from list'), () => { channels = channels.filter((x) => x.id !== c.id); saveChannels(); renderChanList(); })
+    ));
+    chanList.replaceChildren(
+      ...(rows.length ? rows : [h('small', { style: 'color:var(--fg3)' }, L('ยังไม่มีช่องในรายการ — เข้า Studio ของแต่ละช่องครั้งหนึ่ง สคริปต์จะจำให้เอง หรือใส่รหัสช่องด้านล่าง', 'No channels yet — open each channel in Studio once and the script remembers it, or add a channel ID below'))]),
+      h('div', { style: 'display:flex;gap:6px;margin-top:8px' }, chanAddIn, h('button', { className: 'btn sm', onclick: addChannel }, icon('plus', 13), L('เพิ่ม', 'Add')))
+    );
+  }
+  const swBtn = iconBtn('swap', L('ช่องอื่น ๆ · เปิดในแท็บใหม่', 'Other channels · open in a new tab'), () => {
+    chanList.hidden = !chanList.hidden;
+    if (!chanList.hidden) renderChanList();
+  });
   const chanBar = h('div', { className: 'chan' },
     chanAv,
     h('div', { className: 'ct' }, h('div', { className: 'cap' }, L('กำลังอัปไปที่ช่อง', 'Uploading to channel')), chanName, chanSub),
+    swBtn,
     lockBtn
   );
 
@@ -1715,7 +1795,7 @@
       h('div', { className: 'tt' }, h('b', {}, 'Upload Studio'), h('span', {}, L('อัปโหลดหลายคลิป · พรีเซ็ตชื่อ/คำอธิบาย', 'Bulk video upload · title/description presets'))),
       iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer())
     ),
-    chanBar, nav, body, footWrap
+    chanBar, chanList, nav, body, footWrap
   );
 
   let lastChanKey = '';
@@ -1726,6 +1806,7 @@
     const key = JSON.stringify([c, problem, lock]);
     if (key === lastChanKey) return;
     lastChanKey = key;
+    rememberChannel(c);
     chanAv.replaceChildren(c.avatar ? h('img', { src: c.avatar, alt: '' }) : h('div', { className: 'ph' }, icon('tv', 18)));
     chanName.textContent = chanLabel(c);
     chanSub.textContent = problem || c.id || '—';
@@ -2388,6 +2469,7 @@
       sw('intercept', L('รับหลายไฟล์จากหน้าต่างของ YouTube', 'Take multiple files from YouTube\'s dialog'), L('เลือกหรือลากหลายไฟล์ในหน้าต่างอัปโหลดปกติของ Studio จะส่งมาเข้าคิวนี้แทน', 'Selecting or dropping multiple files in Studio\'s normal upload dialog sends them to this queue instead'))
     ),
     sec(L('ความปลอดภัย', 'Safety'), 'lock',
+      sw('autoAcceptInvite', L('กดยอมรับคำเชิญสิทธิ์ช่องให้อัตโนมัติ', 'Auto-accept channel permission invites'), L('เปิดลิงก์ ACCEPT INVITATION จากอีเมลของ YouTube แล้วสคริปต์กด Accept ให้', 'Open the ACCEPT INVITATION link from the YouTube email and the script presses Accept for you')),
       sw('confirmStart', L('ถามยืนยันชื่อช่องก่อนเริ่มคิว', 'Confirm channel name before starting the queue'), L('แสดงชื่อช่องปัจจุบันให้ยืนยันทุกครั้งที่กดเริ่ม', 'Shows the current channel name for confirmation every time you press Start')),
       h('div', { className: 'hint', style: 'margin-top:6px' }, icon('lock', 13),
         h('span', {}, L('กดปุ่ม "ล็อกช่อง" ด้านบนเพื่อให้อัปได้เฉพาะช่องนั้น ถ้าสลับช่อง คิวจะหยุดเอง', 'Press the "Lock channel" button above to upload only to that channel. If you switch channels, the queue stops automatically.')))
