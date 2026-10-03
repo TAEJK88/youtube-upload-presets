@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.11.0
+// @version      4.12.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -1759,6 +1759,8 @@
     #ytp-root .fab .fpr{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #ytp-root .fab .badge{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border-radius:999px;
       padding:2px 8px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+    #ytp-root .fab.busy{background-image:linear-gradient(90deg,var(--brand) calc(var(--p,0) * 1%),var(--surface2) 0);
+      background-repeat:no-repeat;background-size:calc(100% - 16px) 3px;background-position:8px calc(100% - 5px)}
     #ytp-root .fab.bad{border-color:var(--err);box-shadow:0 0 0 3px rgba(244,63,94,.35),0 10px 30px -6px rgba(0,0,0,.45)}
     #ytp-root .fab.bad .fch{color:#fda4af}
 
@@ -2405,6 +2407,8 @@
     const msgTxt = h('span');
     const msgIcon = h('span');
     const msg = h('div', { className: 'msg' }, msgIcon, msgTxt);
+    const upFill = h('i');
+    const upBar = h('div', { className: 'tbx-bar', hidden: true }, upFill);
     const thumbBox = h('div', { className: 'th' }, icon('film', 22), h('span', { className: 'sz' }, fmtSize(it.file.size)));
     const titleIn = h('input', {
       type: 'text', placeholder: L('ชื่อคลิป', 'Video title'),
@@ -2463,6 +2467,7 @@
         artistsBox,
         att
       ),
+      upBar,
       msg,
       attachInput
     );
@@ -2475,7 +2480,7 @@
       el.classList.remove('drag');
       attachToItem(it, e.dataTransfer.files);
     });
-    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset };
+    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset };
     return el;
   }
 
@@ -2514,6 +2519,10 @@
     u.msgTxt.textContent = it.msg;
     u.msgIcon.replaceChildren(icon(MSG_ICON[it.status], 14));
     u.msg.hidden = !it.msg;
+    // แถบความคืบหน้าของคลิปที่กำลังอัปอยู่ (เปอร์เซ็นต์จาก Studio) · อ่านไม่ได้ = ซ่อน
+    const pct = it.status === 'uploading' && uploadProg ? uploadProg.pct : null;
+    u.upBar.hidden = pct === null;
+    if (pct !== null) u.upFill.style.width = Math.round(pct * 100) + '%';
     renderAttachments(it, editable);
   }
 
@@ -2622,8 +2631,7 @@
     const pct = total ? Math.round(((done + errors) / total) * 100) : 0;
     progress.style.width = pct + '%';
     progressPct.textContent = pct + '%';
-    fabBadge.hidden = !total;
-    fabBadge.textContent = running ? `${done}/${total}` : String(pending || total);
+    // ป้าย FAB เป็นของ renderActivity() ทั้งตอนมีงานและตอนว่าง
     tabCount.queue.textContent = total ? String(total) : '';
     renderActivity(); // ทางเดียว: renderActivity ไม่เรียก updateRunUI กลับ
   }
@@ -2660,6 +2668,9 @@
     const sig = JSON.stringify([a, pending, total]);
     if (sig === lastActSig) return;
     lastActSig = sig;
+    // การ์ดของคลิปที่กำลังอัปต้องขยับตามด้วย (updateItemUI เรียกเฉพาะตอนสถานะเปลี่ยน)
+    const up = queue.find((i) => i.status === 'uploading');
+    if (up && up.ui) updateItemUI(up);
     actBar.hidden = !a;
     if (a) {
       actBar._tab = a.tab;
@@ -2670,6 +2681,12 @@
       actFill.parentElement.classList.toggle('ind', pct === null);
       actFill.style.width = pct === null ? '' : pct + '%';
     }
+    // FAB: มีงาน = ไอคอน + เปอร์เซ็นต์ และมีเส้นความคืบหน้าที่ขอบล่าง · ว่าง = จำนวนคลิปที่รอ
+    fab.classList.toggle('busy', !!a);
+    fab.style.setProperty('--p', pct === null ? 0 : pct);
+    fabBadge.hidden = !a && !total;
+    if (a) fabBadge.textContent = pct === null ? a.icon : `${a.icon} ${pct}%`;
+    else fabBadge.textContent = String(pending || total);
   }
 
   // ----- แท็บพรีเซ็ต -----
