@@ -315,7 +315,7 @@ Expected: PASS, 77 tests, 0 fail
 - [ ] **Step 6: Commit**
 
 ```bash
-git add youtube-upload-presets.user.js test/activity.test.mjs
+git add youtube-upload-presets.user.js test/activity.test.mjs test/harness.mjs
 git commit -m "Add activityFrom to pick the single running task"
 ```
 
