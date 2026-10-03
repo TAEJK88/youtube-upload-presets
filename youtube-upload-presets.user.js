@@ -1387,6 +1387,8 @@
   }
 
   function setItem(it, status, msg = '') {
+    // สลับคลิป: ค่าความคืบหน้าของคลิปก่อนหน้าใช้ต่อไม่ได้ (poll รอบถัดไปอีก 0.8 วินาที)
+    if (it.status !== status && (status === 'uploading' || it.status === 'uploading')) uploadProg = null;
     it.status = status;
     it.msg = msg;
     updateItemUI(it);
@@ -1759,7 +1761,7 @@
     #ytp-root .fab .fpr{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #ytp-root .fab .badge{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border-radius:999px;
       padding:2px 8px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
-    #ytp-root .fab.busy{background-image:linear-gradient(90deg,var(--brand) calc(var(--p,0) * 1%),var(--surface2) 0);
+    #ytp-root .fab.busy{background-image:linear-gradient(90deg,var(--brand) calc(var(--p,0) * 1%),#2a2a33 0);
       background-repeat:no-repeat;background-size:calc(100% - 16px) 3px;background-position:8px calc(100% - 5px)}
     #ytp-root .fab.bad{border-color:var(--err);box-shadow:0 0 0 3px rgba(244,63,94,.35),0 10px 30px -6px rgba(0,0,0,.45)}
     #ytp-root .fab.bad .fch{color:#fda4af}
@@ -2668,9 +2670,14 @@
     const sig = JSON.stringify([a, pending, total]);
     if (sig === lastActSig) return;
     lastActSig = sig;
-    // การ์ดของคลิปที่กำลังอัปต้องขยับตามด้วย (updateItemUI เรียกเฉพาะตอนสถานะเปลี่ยน)
+    // ขยับแค่แถบของคลิปที่กำลังอัป — ห้ามเรียก updateItemUI ที่นี่ เพราะมันลาก
+    // renderAttachments -> Claims.claimedSongsIn -> getSongs() (อ่าน songHistory ทั้งก้อน) มาทุก tick
     const up = queue.find((i) => i.status === 'uploading');
-    if (up && up.ui) updateItemUI(up);
+    if (up && up.ui) {
+      const p = uploadProg ? uploadProg.pct : null;
+      up.ui.upBar.hidden = p === null;
+      if (p !== null) up.ui.upFill.style.width = Math.round(p * 100) + '%';
+    }
     actBar.hidden = !a;
     if (a) {
       actBar._tab = a.tab;
@@ -4826,17 +4833,28 @@
   })();
   panes.claims = Claims.buildPane();
   let tickFailed = false;
+  let progressFailed = false;
   setInterval(() => {
+    // แยก try สองก้อน: ส่วนลิขสิทธิ์พังไม่ควรทำให้แถบความคืบหน้าหยุด และกลับกันด้วย
     try {
-      pollUploadProgress();
       Claims.tick();
-      renderActivity();
     } catch (e) {
       console.error('[Upload Studio] tick', e);
       if (!tickFailed) {
         tickFailed = true; // บอกครั้งเดียว ไม่ต้องเตือนทุกรอบ
         toast(L('⚠ ส่วนลิขสิทธิ์หยุดทำงาน: ' + e.message + ' — ลองรีโหลดหน้า',
           '⚠ The copyright section stopped: ' + e.message + ' — try reloading the page'));
+      }
+    }
+    try {
+      pollUploadProgress();
+      renderActivity();
+    } catch (e) {
+      console.error('[Upload Studio] progress', e);
+      if (!progressFailed) {
+        progressFailed = true;
+        toast(L('⚠ แถบความคืบหน้าหยุดทำงาน: ' + e.message + ' — ลองรีโหลดหน้า',
+          '⚠ The progress bar stopped: ' + e.message + ' — try reloading the page'));
       }
     }
   }, 800);
