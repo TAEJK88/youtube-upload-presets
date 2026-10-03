@@ -583,7 +583,10 @@ to:
 alone — only the two `fabBadge` lines go.
 
 Verify: `grep -n 'fabBadge' youtube-upload-presets.user.js`
-Expected: the declaration at :2030 plus exactly two hits inside `renderActivity()`.
+Expected: the declaration, the reference in the `fab` element tree, the ownership comment,
+and the three writes from Step 1 (`.hidden`, and `.textContent` in each branch of the
+if/else) — all inside `renderActivity()`. No `fabBadge` write anywhere else, and none left
+in `updateRunUI()`.
 
 - [ ] **Step 3: Add the bar to the clip card**
 
