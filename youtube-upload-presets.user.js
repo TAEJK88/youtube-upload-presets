@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.8.0
+// @version      4.9.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -32,8 +32,10 @@
   // กดเฉพาะปุ่ม Accept/ยอมรับ ที่อยู่ในกล่องข้อความที่พูดถึงคำเชิญเท่านั้น
   function watchInvite() {
     if ((GM_getValue('settings') || {}).autoAcceptInvite === false) return;
+    // ใน Studio ทำเฉพาะหน้าคำเชิญ (ลิงก์ Collab = /channel/<เรา>/collaboration/<เจ้าของ>) ไม่ไล่กดปุ่มทุกหน้า
+    if (location.hostname === 'studio.youtube.com' && !/invit|collaborat|permission/i.test(location.pathname)) return;
     const BTN = /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i;
-    const ABOUT = /invit|collab|เชิญ|ร่วม/i;
+    const ABOUT = /invit|collaborat|เชิญ|ผู้ร่วมสร้าง/i;
     const visible = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
     let tries = 0;
     const timer = setInterval(() => {
@@ -41,8 +43,10 @@
       for (const b of document.querySelectorAll('button, ytcp-button, tp-yt-paper-button, yt-button-shape button, a[role="button"]')) {
         const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
         if (!BTN.test(label) || !visible(b) || b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
-        const box = b.closest('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main') || document.body;
-        if (!ABOUT.test(box.innerText || box.textContent || '')) continue;
+        // หน้าคำเชิญใน Studio (เช็ก path แล้วข้างบน) อาจไม่มีกล่อง dialog — ใช้ทั้งหน้าได้; บน www.youtube.com ต้องอยู่ในกล่อง
+        const box = b.closest('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main') ||
+          (location.hostname === 'studio.youtube.com' ? document.body : null);
+        if (!box || !ABOUT.test(box.innerText || box.textContent || '')) continue;
         clearInterval(timer);
         b.click();
         const note = document.createElement('div');
@@ -174,10 +178,10 @@
   const save = (k, v) => GM_setValue(k, v);
   const existingInstall = GM_getValue('presets') !== undefined; // ติดตั้งไว้ก่อน v4.5.0 (ตอนนั้นชื่อโปรดิวเซอร์ฝังในโค้ด)
 
-  let presets = load('presets', DEFAULT_PRESETS);
+  let presets = load('presets', structuredClone(DEFAULT_PRESETS));
   // ผู้ใช้เวอร์ชันเก่า: เพิ่มพรีเซ็ต Playlist ให้ครั้งเดียว
   if (!load('addedPlaylist', false)) {
-    if (!presets.some((p) => p.id === 'playlist')) presets = [DEFAULT_PRESETS[1], ...presets];
+    if (!presets.some((p) => p.id === 'playlist')) presets = [structuredClone(DEFAULT_PRESETS[1]), ...presets];
     save('presets', presets);
     save('addedPlaylist', true);
   }
@@ -194,7 +198,7 @@
     }
   }
   if (!load('addedTrapsoul', false)) {
-    if (!presets.some((p) => p.id === 'trapsoul')) presets = [DEFAULT_PRESETS[0], ...presets];
+    if (!presets.some((p) => p.id === 'trapsoul')) presets = [structuredClone(DEFAULT_PRESETS[0]), ...presets];
     activeId = 'trapsoul';
     save('presets', presets);
     save('activeId', activeId);
@@ -235,7 +239,11 @@
     settings.lang = LANG;
     saveSettings();
   }
-  if (existingInstall && load('cfg', {}).ownNames === undefined) save('cfg', { ...load('cfg', {}), ownNames: 'THAIBEATS, EXMGE' });
+  // ทำครั้งเดียวตอนโหลดครั้งแรกของเวอร์ชันนี้ (ไม่งั้นผู้ใช้ใหม่จะโดนใส่ชื่อนี้ตอนโหลดครั้งที่ 2 เพราะตอนนั้นมีพรีเซ็ตแล้ว)
+  if (!load('migratedOwnNames', false)) {
+    if (existingInstall && load('cfg', {}).ownNames === undefined) save('cfg', { ...load('cfg', {}), ownNames: 'THAIBEATS, EXMGE' });
+    save('migratedOwnNames', true);
+  }
 
   const presetById = (id) => presets.find((p) => p.id === id) || presets[0];
   const active = () => presetById(activeId);
@@ -531,6 +539,8 @@
   // ถือว่าสำเร็จเมื่อมีภาพใหม่ (blob:/data:) ขึ้นในหน้าต่าง คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
   const THUMB_AREA = 'ytcp-thumbnails-compact-editor-uploader, ytcp-thumbnail-uploader, ytcp-video-custom-still-editor, #still-picker, ytcp-thumbnails-compact-editor, [id*="thumbnail" i]';
   const RE_UPLOAD_FILE = /^(upload file|upload thumbnail|อัปโหลดไฟล์|อัปโหลดภาพขนาดย่อ)$/i;
+  // ไฟล์ที่ Studio ไม่รับแน่ ๆ (ใหญ่เกิน / ชนิดไม่รองรับ) — ไม่ต้องรอลองซ้ำ
+  const thumbUnusable = (file) => file.size > THUMB_MAX || !/\.(jpe?g|png|gif|bmp)$/i.test(file.name);
   async function setThumbnail(file, wait = 6000) {
     if (file.size > THUMB_MAX) return L(`ภาพปกใหญ่เกิน 2MB (${(file.size / 1048576).toFixed(1)} MB)`, `Thumbnail is larger than 2MB (${(file.size / 1048576).toFixed(1)} MB)`);
     if (!/\.(jpe?g|png|gif|bmp)$/i.test(file.name)) return L('ชนิดไฟล์ไม่รองรับ ใช้ JPG / PNG / GIF / BMP', 'Unsupported file type. Use JPG / PNG / GIF / BMP');
@@ -1121,7 +1131,7 @@
         const prog = uploadProgressText();
         setItem(it, 'uploading', L(`รอใส่ภาพปก (รอบที่ ${round})${prog ? ' · ' + prog : ''}`, `Waiting to set thumbnail (round ${round})${prog ? ' · ' + prog : ''}`));
         err = await setThumbnail(it.thumb, 3000);
-        if (!err || /2MB|ชนิดไฟล์/.test(err) || stopReq || !detailsOpen() || Date.now() - t0 > limit) break;
+        if (!err || thumbUnusable(it.thumb) || stopReq || !detailsOpen() || Date.now() - t0 > limit) break;
         await sleep(7000);
       }
       if (err) note += L(` (ภาพปก: ${err}${Date.now() - t0 > limit ? ` · รอเกิน ${settings.thumbWaitMin} นาที` : ''})`, ` (thumbnail: ${err}${Date.now() - t0 > limit ? ` · waited over ${settings.thumbWaitMin} min` : ''})`);
@@ -1130,6 +1140,9 @@
     // ตั้งเวลาปล่อย: ไปหน้า Visibility แล้วกรอกวัน/เวลา (คลิปจะเป็นส่วนตัวจนถึงเวลาที่ตั้ง)
     if (publishAt) {
       setItem(it, 'uploading', L(`กำลังตั้งเวลาปล่อย ${fmtWhen(publishAt)}…`, `Scheduling for ${fmtWhen(publishAt)}…`));
+      // เช็กซ้ำ: ระหว่างรอภาพปก (อาจนานเป็นชั่วโมง) เวลาที่ตั้งไว้อาจผ่านไปแล้ว
+      const late = scheduleProblem(publishAt);
+      if (late) throw new Error(late);
       if (!(await goToVisibility(null))) throw new Error(L('ไปหน้า Visibility ไม่สำเร็จ', 'Could not go to the Visibility page'));
       await sleep(600);
       const err = await setSchedule(new Date(publishAt));
@@ -1162,8 +1175,9 @@
       if (settings.autoNext && !publishAt) await goToVisibility(vis);
       setItem(it, 'review', L('ตรวจข้อมูลในหน้าต่าง YouTube แล้วกด Save เพื่อไปไฟล์ถัดไป', 'Check the details in the YouTube dialog, then click Save to move to the next file') + note);
       await waitFor(() => (it.draftId = it.draftId || dialogVideoId()) || !uploadDialogOpen(), 20000, 500);
-      await waitFor(() => { ackNoticeDialogs(); return !uploadDialogOpen() || stopReq; }, 3600000, 1000);
-      if (uploadDialogOpen()) throw new Error(L('หยุดคิวแล้ว', 'Queue stopped'));
+      // กดหยุดระหว่างนี้ = หยุดหลังคลิปนี้ (ไม่ปิดหน้าต่างที่ผู้ใช้กำลังตรวจทิ้ง) — คิวจะหยุดเองหลังคุณกด Save
+      await waitFor(() => { ackNoticeDialogs(); return !uploadDialogOpen(); }, 3600000, 1000);
+      if (uploadDialogOpen()) throw new Error(L('รอให้กด Save นานเกิน 1 ชั่วโมง', 'Waited over 1 hour for you to click Save'));
     }
     await sleep(1500);
     closeAfterDialogs();
@@ -1327,8 +1341,9 @@
     }
   }, 1000);
 
+  let reloadingOnPurpose = false; // นำเข้าไฟล์ / เปลี่ยนภาษา: ข้อมูลใหม่บันทึกแล้ว ต้องรีโหลดให้ได้ ไม่งั้นค่าเก่าในหน้าจะเขียนทับ
   window.addEventListener('beforeunload', (e) => {
-    if (running || queue.some((i) => i.status === 'pending' || i.status === 'error')) {
+    if (!reloadingOnPurpose && (running || queue.some((i) => i.status === 'pending' || i.status === 'error'))) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -1800,10 +1815,13 @@
   }, lockIcon, lockTxt);
   // รายการช่องที่เคยเข้า: คลิกแล้วเปิดช่องนั้นในแท็บใหม่ (หน้าเดียวกับที่เปิดอยู่)
   // ใช้ได้กับช่องที่บัญชีนี้มีสิทธิ์ (เจ้าของ หรือได้รับเชิญผ่าน Permissions)
+  let producerIn = null; // ช่องชื่อโปรดิวเซอร์ในแท็บตั้งค่า (placeholder = ชื่อช่องปัจจุบัน)
   let channels = load('channels', []);
   const saveChannels = () => save('channels', channels);
+  // อ่านจากที่เก็บใหม่ทุกครั้ง: เปิดหลายแท็บ แต่ละแท็บจะได้ไม่เขียนทับรายการของกันและกัน
   function rememberChannel(c) {
     if (!c.id || !c.name) return;
+    channels = load('channels', []);
     const old = channels.find((x) => x.id === c.id);
     if (old && old.name === c.name && old.avatar === c.avatar) return;
     channels = [{ id: c.id, name: c.name, avatar: c.avatar }, ...channels.filter((x) => x.id !== c.id)];
@@ -1816,6 +1834,7 @@
   };
   const chanAddIn = h('input', { type: 'text', placeholder: L('รหัสช่อง UC… หรือลิงก์ช่อง', 'Channel ID UC… or channel link'), style: 'flex:1;min-width:0' });
   function addChannel() {
+    channels = load('channels', []);
     const id = (chanAddIn.value.match(/UC[\w-]{22}/) || [])[0];
     if (!id) return toast(L('ไม่พบรหัสช่อง (ขึ้นต้นด้วย UC และยาว 24 ตัว)', 'No channel ID found (starts with UC, 24 characters)'));
     if (!channels.some((x) => x.id === id)) { channels.push({ id, name: '', avatar: '' }); saveChannels(); }
@@ -1825,13 +1844,14 @@
   chanAddIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') addChannel(); });
   const chanList = h('div', { className: 'sec', hidden: true, style: 'margin:0 16px 12px;padding:8px;border:1px solid var(--line);border-radius:var(--radius)' });
   function renderChanList() {
+    channels = load('channels', []);
     const cur = getChannel().id;
     const rows = channels.map((c) => h('div', { style: 'display:flex;align-items:center;gap:8px;padding:4px 2px' },
       c.avatar ? h('img', { src: c.avatar, alt: '', style: 'width:22px;height:22px;border-radius:50%' }) : icon('tv', 16),
       h('div', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: c.id },
         h('b', {}, c.name || c.id), c.id === cur ? h('small', { style: 'color:var(--fg3)' }, L(' · ช่องนี้', ' · this tab')) : null),
       h('button', { className: 'btn sm', title: L('เปิดช่องนี้ในแท็บใหม่', 'Open this channel in a new tab'), onclick: () => window.open(channelUrl(c.id), '_blank') }, icon('ext', 13), L('แท็บใหม่', 'New tab')),
-      iconBtn('x', L('เอาออกจากรายการ', 'Remove from list'), () => { channels = channels.filter((x) => x.id !== c.id); saveChannels(); renderChanList(); })
+      iconBtn('x', L('เอาออกจากรายการ', 'Remove from list'), () => { channels = load('channels', []).filter((x) => x.id !== c.id); saveChannels(); renderChanList(); })
     ));
     chanList.replaceChildren(
       ...(rows.length ? rows : [h('small', { style: 'color:var(--fg3)' }, L('ยังไม่มีช่องในรายการ — เข้า Studio ของแต่ละช่องครั้งหนึ่ง สคริปต์จะจำให้เอง หรือใส่รหัสช่องด้านล่าง', 'No channels yet — open each channel in Studio once and the script remembers it, or add a channel ID below'))]),
@@ -1867,6 +1887,7 @@
     if (key === lastChanKey) return;
     lastChanKey = key;
     rememberChannel(c);
+    if (producerIn && c.name) producerIn.placeholder = c.name; // เว้นว่าง = ใช้ชื่อช่องนี้
     chanAv.replaceChildren(c.avatar ? h('img', { src: c.avatar, alt: '' }) : h('div', { className: 'ph' }, icon('tv', 18)));
     chanName.textContent = chanLabel(c);
     chanSub.textContent = problem || c.id || '—';
@@ -2243,7 +2264,7 @@
     startBtn.disabled = running || !pending || blocked;
     startBtn.classList.toggle('running', running);
     const sched = scheduleOn() ? L(' · ตั้งเวลา', ' · scheduled') : '';
-    startTxt.textContent = running ? L(`กำลังอัปโหลด ${done + 1}/${total}`, `Uploading ${done + 1}/${total}`) : blocked ? L('ช่องไม่ตรงกับที่ล็อกไว้', 'Channel does not match the locked one') : pending ? L(`เริ่มอัปโหลด ${pending} คลิป${sched}`, `Upload ${pending} video(s)${sched}`) : L('เริ่มอัปโหลด', 'Start upload');
+    startTxt.textContent = running ? L(`กำลังอัปโหลด ${done + errors + 1}/${total}`, `Uploading ${done + errors + 1}/${total}`) : blocked ? L('ช่องไม่ตรงกับที่ล็อกไว้', 'Channel does not match the locked one') : pending ? L(`เริ่มอัปโหลด ${pending} คลิป${sched}`, `Upload ${pending} video(s)${sched}`) : L('เริ่มอัปโหลด', 'Start upload');
     startSub.textContent = blocked ? L('ปลดล็อกหรือสลับกลับไปช่องที่ล็อกไว้', 'Unlock, or switch back to the locked channel') : L(`ไปที่ช่อง ${ch}`, `To channel ${ch}`);
     stopBtn.disabled = !running;
     clearBtn.disabled = !done;
@@ -2254,7 +2275,7 @@
     stats.done.b.textContent = done;
     stats.error.b.textContent = errors;
     progressWrap.hidden = !total || (!running && !done);
-    const pct = total ? Math.round((done / total) * 100) : 0;
+    const pct = total ? Math.round(((done + errors) / total) * 100) : 0;
     progress.style.width = pct + '%';
     progressPct.textContent = pct + '%';
     fabBadge.hidden = !total;
@@ -2479,10 +2500,34 @@
     );
   }
   // ----- ส่งออก/นำเข้าพรีเซ็ตและการตั้งค่า (ไฟล์ JSON) -----
-  // ไม่รวมช่องที่ล็อกไว้, ประวัติอัปโหลด และประวัติเพลงลิขสิทธิ์ เพราะผูกกับช่องของแต่ละคน
+  // ไม่รวมช่องที่ล็อกไว้, ภาษา, ประวัติอัปโหลด และประวัติเพลงลิขสิทธิ์ เพราะผูกกับเครื่อง/ช่องของแต่ละคน
+  // ค่าส่วนตัว (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP) ส่งออกไปด้วยเพื่อใช้สำรอง
+  // แต่ตอนนำเข้าจะใช้ก็ต่อเมื่อผู้ใช้ยืนยันว่าเป็นไฟล์ของตัวเอง
   const BACKUP_APP = 'yt-upload-presets';
+  const PERSONAL_SETTINGS = ['producer', 'schedule'];
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  // ล้างพรีเซ็ตจากไฟล์ให้เป็นรูปแบบที่สคริปต์ใช้ได้ (ไฟล์ที่ชนิดข้อมูลผิดจะทำให้แผงเปิดไม่ขึ้น)
+  function cleanPresets(list) {
+    if (!Array.isArray(list) || !list.length) return null;
+    const ids = new Set();
+    const out = [];
+    for (const p of list) {
+      if (!isObj(p) || typeof p.id !== 'string' || !p.id || typeof p.label !== 'string' || ids.has(p.id)) return null;
+      ids.add(p.id);
+      out.push({ ...p,
+        title: typeof p.title === 'string' ? p.title : '{name}',
+        description: typeof p.description === 'string' ? p.description : '',
+        tags: strList(p.tags),
+        artistPriority: strList(p.artistPriority),
+        artistMax: Math.max(1, parseInt(p.artistMax, 10) || 4),
+        visibility: p.visibility in VIS ? p.visibility : 'PRIVATE',
+      });
+    }
+    return out;
+  }
   function exportBackup() {
-    const { lockChannel, ...rest } = settings;
+    const { lockChannel, lang, ...rest } = settings;
     const data = {
       app: BACKUP_APP, format: 1, version: GM_info.script.version, exportedAt: new Date().toISOString(),
       presets, activeId, counters, settings: rest, claimsCfg: load('cfg', {}),
@@ -2497,26 +2542,37 @@
     toast(L(`ส่งออกพรีเซ็ต ${presets.length} รายการแล้ว`, `Exported ${presets.length} presets`));
   }
   async function importBackup(file) {
-    if (running) return toast(L('หยุดคิวก่อนแล้วค่อยนำเข้า', 'Stop the queue before importing'));
+    if (running || queue.some((i) => i.status === 'pending' || i.status === 'error')) return toast(L('ล้างคิวอัปโหลดก่อนแล้วค่อยนำเข้า (หน้าจะรีโหลด ไฟล์ในคิวจะหาย)', 'Clear the upload queue before importing (the page reloads and queued files would be lost)'));
     let data;
     try { data = JSON.parse(await file.text()); } catch { return toast(L('อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ .json ที่ส่งออกจากสคริปต์นี้', 'Can\'t read the file — it must be a .json file exported from this script')); }
-    const okPresets = Array.isArray(data?.presets) && data.presets.length &&
-      data.presets.every((p) => p && typeof p.id === 'string' && typeof p.label === 'string');
-    if (data?.app !== BACKUP_APP || !okPresets) return toast(L('ไฟล์นี้ไม่ใช่ไฟล์สำรองของ YouTube Upload Presets', 'This is not a YouTube Upload Presets backup file'));
-    const names = data.presets.map((p) => p.label).join(', ');
-    if (!confirm(L(`นำเข้าพรีเซ็ต ${data.presets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน) แล้วหน้าจะรีโหลด`, `Import ${data.presets.length} presets (${names}) and settings?\n\nExisting presets and settings on this device will be replaced (locked channel stays unchanged) and the page will reload.`))) return;
-    save('presets', data.presets);
-    save('activeId', data.presets.some((p) => p.id === data.activeId) ? data.activeId : data.presets[0].id);
-    if (data.settings && typeof data.settings === 'object') {
+    const newPresets = data?.app === BACKUP_APP ? cleanPresets(data.presets) : null;
+    if (!newPresets) return toast(L('ไฟล์นี้ไม่ใช่ไฟล์สำรองของ YouTube Upload Presets หรือข้อมูลเสียหาย', 'This is not a YouTube Upload Presets backup file, or it is damaged'));
+    const names = newPresets.map((p) => p.label).join(', ');
+    if (!confirm(L(`นำเข้าพรีเซ็ต ${newPresets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน) แล้วหน้าจะรีโหลด`, `Import ${newPresets.length} presets (${names}) and settings?\n\nExisting presets and settings on this device will be replaced (locked channel and language stay unchanged) and the page will reload.`))) return;
+    const own = confirm(L(
+      'เป็นไฟล์สำรองของช่องคุณเองไหม?\n\nOK = ใช่ นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nCancel = ไฟล์ของคนอื่น นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน',
+      'Is this a backup of your own channel?\n\nOK = yes, also import personal values (producer name, schedule, your own artist names, EP numbers)\nCancel = someone else\'s file: import only presets and general settings, your personal values stay unchanged'));
+    save('presets', newPresets);
+    save('activeId', newPresets.some((p) => p.id === data.activeId) ? data.activeId : newPresets[0].id);
+    if (isObj(data.settings)) {
       const next = { ...settings };
-      for (const [k, v] of Object.entries(data.settings)) if (k in settings && k !== 'lockChannel' && k !== 'lang') next[k] = v;
+      for (const [k, v] of Object.entries(data.settings)) {
+        if (!(k in settings) || k === 'lockChannel' || k === 'lang' || (!own && PERSONAL_SETTINGS.includes(k))) continue;
+        if (k === 'schedule') { if (isObj(v)) next.schedule = { ...settings.schedule, on: !!v.on, start: typeof v.start === 'string' ? v.start : '', every: Math.max(1, parseInt(v.every, 10) || 1), unit: v.unit === 'hour' ? 'hour' : 'day' }; continue; }
+        if (typeof v === typeof settings[k]) next[k] = v; // ชนิดข้อมูลต้องตรงกับของเดิม
+      }
       save('settings', next);
     }
-    if (data.claimsCfg && typeof data.claimsCfg === 'object') save('cfg', { ...load('cfg', {}), ...data.claimsCfg });
-    if (data.counters && typeof data.counters === 'object' &&
-      confirm(L('นำเข้าเลข EP ({n}) จากไฟล์ด้วยไหม?\n\nกด OK ถ้าเป็นไฟล์สำรองของช่องคุณเอง · กด Cancel ถ้าเป็นไฟล์ของคนอื่น (เลข EP เดิมจะไม่เปลี่ยน)', 'Also import EP numbers ({n}) from the file?\n\nPress OK if this is a backup of your own channel · press Cancel if it\'s someone else\'s file (current EP numbers stay unchanged)'))) {
-      save('counters', data.counters);
+    if (isObj(data.claimsCfg)) {
+      const cur = load('cfg', {});
+      for (const [k, v] of Object.entries(data.claimsCfg)) {
+        if (!own && k === 'ownNames') continue;
+        if (['string', 'boolean', 'number'].includes(typeof v)) cur[k] = v;
+      }
+      save('cfg', cur);
     }
+    if (own && isObj(data.counters)) save('counters', Object.fromEntries(Object.entries(data.counters).filter(([, v]) => Number.isFinite(v))));
+    reloadingOnPurpose = true;
     location.reload();
   }
   const backupIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
@@ -2557,8 +2613,8 @@
       ),
       h('div', { className: 'kv' },
         h('div', {}, h('b', {}, L('ชื่อโปรดิวเซอร์ {producer}', 'Producer name {producer}')), h('small', {}, L('ใช้ในชื่อคลิป/คำอธิบาย/แท็ก เช่น "Prod. by {producer}" · เว้นว่าง = ใช้ชื่อช่องปัจจุบัน', 'Used in video title/description/tags, e.g. "Prod. by {producer}" · blank = current channel name'))),
-        h('input', { type: 'text', value: settings.producer, placeholder: getChannel().name || L('ชื่อช่อง', 'Channel name'),
-          oninput: (e) => { settings.producer = e.target.value.trim(); saveSettings(); refreshLabels(); } })
+        (producerIn = h('input', { type: 'text', value: settings.producer, placeholder: getChannel().name || L('ชื่อช่อง', 'Channel name'),
+          oninput: (e) => { settings.producer = e.target.value.trim(); saveSettings(); refreshLabels(); } }))
       ),
       h('div', { className: 'kv' },
         h('div', {}, h('b', {}, L('หมวดหมู่', 'Category')), h('small', {}, L('ข้อความตามที่ Studio แสดง เช่น Music หรือ เพลง · เว้นว่าง = ไม่ตั้ง', 'Text as Studio shows it, e.g. Music or เพลง · blank = don\'t set'))),
@@ -2717,6 +2773,7 @@
       return (hh ? hh + ':' + String(m).padStart(2, '0') : m) + ':' + String(s2).padStart(2, '0');
     };
     const short = (e) => String(e || '').replace(/^.*?(IMPACT|STATUS|OPTION)_/, '').replace(/_/g, ' ').toLowerCase();
+    const privacyOf = (p) => String(p || '').replace(/^VIDEO_PRIVACY_/, '').replace(/_/g, ' ').toLowerCase(); // VIDEO_PRIVACY_PUBLIC → public
 
     // ข้อมูลเพลงจาก claim มีหลายรูปแบบ (soundRecording, composition, web, …) → ไล่หา title / artists / label
     function claimInfo(c) {
@@ -2805,7 +2862,7 @@
             // แก้บัคเดิม: เดิมอ่าน rec.recordLabel ซึ่งไม่มีอยู่จริง ทำให้ label ว่างตลอด
             const hay = (artists + ' ' + claimant + ' ' + rec.label).toLowerCase();
             rows.push({
-              videoId: v.videoId, video: v.title, privacy: short(v.privacy), length: +v.lengthSeconds || 0,
+              videoId: v.videoId, video: v.title, privacy: privacyOf(v.privacy), length: +v.lengthSeconds || 0,
               claimId: c.claimId, song: rec.title || '(ไม่ทราบชื่อ)', artists, label: rec.label, claimant,
               type: short(c.type), status: short(c.status), impact: impacts, segments: segs,
               claimedSec: segs.reduce((a, sg) => a + (sg[1] - sg[0]), 0),
@@ -3265,7 +3322,7 @@
         const rows = vids.filter((v) => /_OFF$/.test(((v.monetization || {}).adMonetization || {}).userSetMonetization || ''))
           .map((v) => {
             const eff = ((v.monetization || {}).adMonetization || {}).effectiveStatus || '';
-            return { videoId: v.videoId, video: v.title, privacy: short(v.privacy), length: +v.lengthSeconds || 0, ineligible: /INELIGIBLE/.test(eff), status: short(eff) };
+            return { videoId: v.videoId, video: v.title, privacy: privacyOf(v.privacy), length: +v.lengthSeconds || 0, ineligible: /INELIGIBLE/.test(eff), status: short(eff) };
           });
         chSet('adsScan', { date: new Date().toISOString(), total: vids.length, rows });
         const ok = rows.filter((r) => !r.ineligible).length;
@@ -3318,7 +3375,7 @@
         h('div', { className: 'chips', style: 'margin-bottom:8px' },
           h('span', { className: 'mut' }, L('เลือก:', 'Select:')),
           h('button', { className: 'chip', onclick: () => sel((r) => !r.ineligible) }, L('แค่ปิดในการตั้งค่า', 'Only off in settings')),
-          h('button', { className: 'chip', onclick: () => sel((r) => !r.ineligible && r.privacy === 'public') }, L('เฉพาะสาธารณะ', 'Public only')),
+          h('button', { className: 'chip', onclick: () => sel((r) => !r.ineligible && /public$/.test(r.privacy)) }, L('เฉพาะสาธารณะ', 'Public only')),
           h('button', { className: 'chip', onclick: () => sel(() => true) }, L('ทั้งหมด', 'All')),
           h('button', { className: 'chip', onclick: () => sel(() => false) }, L('ไม่เลือก', 'None'))),
         scan.rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, L('🎉 ทุกคลิปเปิดโฆษณาแล้ว', '🎉 All videos have ads on')),
@@ -3330,9 +3387,15 @@
       refresh();
     }
 
+    // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา / Collab) ทำได้ทีละงาน — ถ้าเริ่มทับกัน งานเดิมจะโดนเปลี่ยนหน้ากลางขั้น
+    function otherJobBusy(except) {
+      const tr = getRun(), ar = getAdsRun(), cr = getCollabRun();
+      return (except !== 'trim' && (trimBusy || !!(tr && tr.active))) ||
+        (except !== 'ads' && (adsBusy || !!(ar && ar.active))) ||
+        (except !== 'collab' && (collabBusy || !!(cr && cr.active)));
+    }
     function startAdsRun(rows) {
-      const tr = getRun();
-      if (tr && tr.active) { log(L('ยังตัดลิขสิทธิ์อยู่ — เปิดโฆษณาหลังตัดเสร็จ', 'Still trimming copyright claims — ads will be turned on after trimming finishes'), 'warn'); return; }
+      if (otherJobBusy('ads')) { log(L('ยังมีงานตัดลิขสิทธิ์/Collab อยู่ — รอให้เสร็จหรือกดหยุดก่อนแล้วค่อยเปิดโฆษณา', 'A trim/Collab job is still running — wait for it or press Stop before turning on ads'), 'warn'); return; }
       if (uploadBusy()) { log(L('คิวอัปโหลดยังทำงานอยู่ — การเปิดโฆษณาต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ', 'Upload queue is still running — turning on ads needs page changes, will start after the upload queue finishes'), 'warn'); }
       isWorker(true);
       setAdsRun({ active: true, items: rows.map((r) => ({ videoId: r.videoId, video: r.video, state: 'pending', msg: '' })), started: new Date().toISOString() });
@@ -3377,6 +3440,7 @@
         if (uploadBusy()) { setAdsStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue')); adsBusy = false; return; }
         setAdsStage(0, L('กำลังเปิดหน้าการสร้างรายได้ของคลิป…', 'Opening the video\'s monetisation page…'));
         location.href = `/video/${item.videoId}/monetization`;
+        setTimeout(() => { adsBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
         return;
       }
       try {
@@ -3460,7 +3524,7 @@
       collabScanning = true;
       try {
         const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true }, L('กำลังอ่านรายการคลิป…', 'Reading video list…'));
-        const rows = vids.map((v) => ({ videoId: v.videoId, video: v.title, privacy: short(v.privacy), length: +v.lengthSeconds || 0 }));
+        const rows = vids.map((v) => ({ videoId: v.videoId, video: v.title, privacy: privacyOf(v.privacy), length: +v.lengthSeconds || 0 }));
         chSet('collabScan', { date: new Date().toISOString(), total: rows.length, rows });
         log(L(`🤝 อ่านรายการแล้ว ${rows.length} คลิป`, `🤝 Loaded ${rows.length} videos`), 'ok');
         showCollab();
@@ -3522,7 +3586,7 @@
         h('div', { className: 'row', style: 'gap:8px;margin:10px 0 8px;flex-wrap:wrap' },
           findIn,
           h('button', { className: 'chip', onclick: () => sel(() => true) }, L('ทั้งหมดที่แสดง', 'All shown')),
-          h('button', { className: 'chip', onclick: () => sel((r) => r.privacy === 'public') }, L('เฉพาะสาธารณะ', 'Public only')),
+          h('button', { className: 'chip', onclick: () => sel((r) => /public$/.test(r.privacy)) }, L('เฉพาะสาธารณะ', 'Public only')),
           h('button', { className: 'chip', onclick: () => sel((r) => !results[r.videoId]) }, L('ยังไม่เคยเชิญ', 'Not invited yet')),
           h('button', { className: 'chip', onclick: () => sel(() => false) }, L('ไม่เลือก', 'None'))),
         scan.rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, L('ช่องนี้ยังไม่มีคลิป', 'This channel has no videos yet')),
@@ -3537,7 +3601,7 @@
     function startCollabRun(rows, handles) {
       const tr = getRun();
       const ar = getAdsRun();
-      if ((tr && tr.active) || (ar && ar.active)) { log(L('ยังมีงานตัดลิขสิทธิ์/เปิดโฆษณาอยู่ — รอให้เสร็จก่อนแล้วค่อยเชิญ', 'A trim/ads job is still running — wait for it to finish before inviting'), 'warn'); return; }
+      if (otherJobBusy('collab') || (tr && tr.active) || (ar && ar.active)) { log(L('ยังมีงานตัดลิขสิทธิ์/เปิดโฆษณาอยู่ — รอให้เสร็จก่อนแล้วค่อยเชิญ', 'A trim/ads job is still running — wait for it to finish before inviting'), 'warn'); return; }
       if (uploadBusy()) log(L('คิวอัปโหลดยังทำงานอยู่ — การเชิญต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ', 'Upload queue is still running — inviting needs page changes, will start after the upload queue finishes'), 'warn');
       isWorker(true);
       setCollabRun({ active: true, handles, items: rows.map((r) => ({ videoId: r.videoId, video: r.video, state: 'pending', msg: '' })), started: new Date().toISOString() });
@@ -3576,6 +3640,7 @@
         if (uploadBusy()) { setCollabStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for the upload queue to clear (page change needed)')); collabBusy = false; return; }
         setCollabStage(0, L('กำลังเปิดหน้ารายละเอียดของคลิป…', 'Opening the video details page…'));
         location.href = `/video/${item.videoId}/edit`;
+        setTimeout(() => { collabBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
         return;
       }
       try {
@@ -3587,9 +3652,9 @@
         if (r.links.length) {
           chSet('collabLinks', Object.assign(collabLinks(), Object.fromEntries(r.links.map((x) => [x.handle, x.link]))));
           setCollabStage(2, L('กด Save…', 'Clicking Save…'));
-          await sleep(1000);
-          const sv = document.querySelector('ytcp-button#save');
-          if (sv && visible(sv) && !isDisabled(sv)) {
+          // หน้าแก้ไขคลิป: ปุ่ม Save ของหน้าอาจเปิดให้กดช้า — รอสูงสุด 8 วิ (ถ้าไม่เปิดเลย = หน้าต่างเชิญบันทึกให้แล้ว)
+          const sv = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && visible(x) && !isDisabled(x) ? x : null; }, 8000);
+          if (sv) {
             (sv.querySelector('button') || sv).click();
             const saved = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && isDisabled(x); }, 20000);
             if (!saved) throw new Error(L('กด Save ของหน้าแล้วแต่ยังไม่บันทึก', 'Clicked the page Save but it did not save'));
@@ -3665,6 +3730,7 @@
         toast(L('ยังตัดชุดก่อนไม่เสร็จ', 'Previous batch still trimming'));
         return;
       }
+      if (otherJobBusy('trim')) { log(L('ยังมีงานเปิดโฆษณา/Collab อยู่ — รอให้เสร็จหรือกดหยุดก่อนแล้วค่อยตัด', 'An ads/Collab job is still running — wait for it or press Stop before trimming'), 'warn'); return; }
       const seen = new Set();
       const waiting = fromFollowUp ? {} : fuGet();
       const items = rows.map((r) => {
@@ -3681,7 +3747,13 @@
       trimStep();
     }
 
-    function stopTrimRun(reason = L('หยุดแล้ว', 'Stopped')) {
+    // byUser: ผู้ใช้กดหยุดเอง → ยกเลิกคิวตัดต่อทั้งหมดของช่องนี้ด้วย ไม่ให้ fuCheck เริ่มตัดต่อเอง (การตัดย้อนกลับไม่ได้)
+    function stopTrimRun(reason = L('หยุดแล้ว', 'Stopped'), byUser = false) {
+      if (byUser && fuCount()) {
+        const n = fuCount();
+        fuSet({});
+        log(L(`ยกเลิกคิวตัดต่อ ${n} claim แล้ว`, `Cancelled ${n} queued follow-up trims`), 'warn');
+      }
       const run = getRun();
       if (!run || !run.active) return;
       run.active = false;
@@ -3939,6 +4011,7 @@
         setTrimStage(0, L('กำลังเปิดหน้า claim ของคลิปนี้…', 'Opening this video\'s claims page…'));
         log(L(`กำลังเปิด ${item.video}…`, `Opening ${item.video}…`));
         location.href = path;
+        setTimeout(() => { trimBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
         return;
       }
       try {
@@ -4076,6 +4149,7 @@
 
     function computeStatus() {
       const run = getRun();
+      if (collabScanning) return { icon: '🤝', kind: 'busy', title: L('กำลังอ่านรายการคลิปสำหรับ Collab', 'Reading videos for Collab'), detail: (scanProg || {}).label || '', progress: null };
       if (scanning || adsScanning) {
         const p = scanProg || { label: L('กำลังเริ่ม…', 'Starting…') };
         return { icon: adsScanning ? '💰' : '🔍', kind: 'busy', title: adsScanning ? L('กำลังหาคลิปที่ปิดโฆษณา', 'Finding videos with ads off') : L('กำลังสแกน claim ของช่องนี้', 'Scanning this channel\'s claims'),
@@ -4142,7 +4216,7 @@
         L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language'));
       UI.scanBtn = h('button', { className: 'btn go', onclick: () => scanClaims() }, icon('refresh', 14), L('สแกน claim', 'Scan claims'));
       UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on') }, L('💰 โฆษณาปิดอยู่', '💰 Ads off'));
-      UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun(L('คุณกดหยุด', 'You stopped it')); stopAdsRun(L('คุณกดหยุด', 'You stopped it')); stopCollabRun(L('คุณกดหยุด', 'You stopped it')); renderStatus(); } }, icon('stop', 14), L('หยุด', 'Stop'));
+      UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun(L('คุณกดหยุด', 'You stopped it'), true); stopAdsRun(L('คุณกดหยุด', 'You stopped it')); stopCollabRun(L('คุณกดหยุด', 'You stopped it')); renderStatus(); } }, icon('stop', 14), L('หยุด', 'Stop'));
       UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, L('📋 รายการ claim', '📋 Claim list'));
       UI.collabBtn = h('button', { className: 'btn', onclick: () => (chGet('collabScan', null) ? showCollab() : scanCollab()), title: L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators') }, '🤝 Collab');
       UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels') }, L('🎵 เพลงที่เคยโดน', '🎵 Claimed songs'));
@@ -4191,7 +4265,7 @@
       const adsScan = chGet('adsScan', null);
       UI.adsBtn.textContent = adsScan ? L(`💰 โฆษณาปิดอยู่ (${adsScan.rows.filter((r) => !(chGet('adsResults', {})[r.videoId] || {}).state).length})`, `💰 Ads off (${adsScan.rows.filter((r) => !(chGet('adsResults', {})[r.videoId] || {}).state).length})`) : L('💰 โฆษณาปิดอยู่', '💰 Ads off');
       UI.scanBtn.hidden = UI.adsBtn.hidden = busyRun || busyScan;
-      UI.stopBtn.hidden = !busyRun;
+      UI.stopBtn.hidden = !busyRun && !fuCount(); // มีคิวตัดต่อรออยู่ก็กดหยุดได้
       UI.row2.hidden = busyRun || busyScan;
       UI.row1.className = busyRun ? 'tbx-grid1' : 'tbx-grid3';
       const ap = getAP();
@@ -4258,22 +4332,23 @@
     function tick() {
       const run = getRun();
       const running2 = !!(run && run.active);
-      const busy = trimBusy || scanning || apBusy || fuBusy || adsBusy || adsScanning || collabBusy || collabScanning;
+      // แย่งสิทธิ์ทำงานเฉพาะตอนแท็บนี้กำลังทำงานที่เปลี่ยนหน้าอยู่ (การสแกนอ่านอย่างเดียว ไม่ต้องแย่งจากแท็บที่กำลังตัด)
+      const busy = trimBusy || apBusy || fuBusy || adsBusy || collabBusy;
       const ready = !!ycfg('INNERTUBE_CONTEXT') && isWorker(busy);
       workerHere = ready;
       const arun = getAdsRun();
       const crun = getCollabRun();
       const adsRunning = !!(arun && arun.active) || !!(crun && crun.active);
-      // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา) รอจนคิวอัปโหลดว่าง
-      const canNavigate = !uploadBusy();
-      if (ready && canNavigate && adsRunning && !running2 && !adsBusy && !collabBusy && !trimStarting) {
+      // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา / Collab) รอจนคิวอัปโหลดว่าง และไม่เปลี่ยนหน้าระหว่างที่แท็บนี้กำลังสแกน
+      const canNavigate = !uploadBusy() && !scanning && !adsScanning && !collabScanning;
+      if (ready && canNavigate && adsRunning && !running2 && !adsBusy && !collabBusy && !trimBusy && !trimStarting) {
         trimStarting = true;
         setTimeout(() => { trimStarting = false; crun && crun.active ? collabStep() : adsStep(); }, 2500);
       }
       const ap = getAP();
       if (ready && canNavigate && !adsRunning && !adsScanning && ap.on && !running2 && !apBusy && !scanning && Date.now() >= (ap.next || 0)) apCycle();
       if (ready && canNavigate && !adsRunning && !adsScanning && !running2 && !apBusy && !scanning && !fuBusy && Date.now() >= fuNext && fuCount()) fuCheck();
-      if (ready && canNavigate && running2 && !trimBusy && !trimStarting) {
+      if (ready && canNavigate && running2 && !trimBusy && !adsBusy && !collabBusy && !trimStarting) {
         trimStarting = true;
         setTimeout(() => { trimStarting = false; trimStep(); }, 2500);
       }
@@ -4306,6 +4381,9 @@
 
   document.addEventListener('keydown', (e) => {
     if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    // กำลังพิมพ์ในช่องข้อความ: ปล่อยให้พิมพ์ (บน Mac Option+P / Option+เลข คือการพิมพ์อักษรพิเศษ)
+    const t = e.target;
+    if (/Mac/i.test(navigator.platform) && t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     if (e.code === 'KeyP') {
       drawer.classList.contains('open') ? closeDrawer() : openDrawer();
       e.preventDefault();
