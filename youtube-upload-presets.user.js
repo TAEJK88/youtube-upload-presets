@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.10.0
+// @version      4.11.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -27,6 +27,141 @@
   const L = (th, en) => (LANG === 'en' ? en : th);
   const LOCALE = LANG === 'en' ? 'en-GB' : 'th-TH';
 
+  // ===== ข้อความที่ Studio แสดง =====
+  // regex ทุกตัวที่เทียบกับข้อความบนหน้า Studio อยู่ในนี้ที่เดียว — เพิ่มภาษาใหม่ก็แก้แค่ที่นี่
+  // (ต่างจาก L() ที่เป็นข้อความของสคริปต์เอง — ตัวนี้คือข้อความที่ YouTube เขียนบนหน้า)
+  const TXT = {
+    // --- ใช้ได้ทั้งอังกฤษและไทย ---
+    acceptInvite: /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i, // ปุ่มยอมรับคำเชิญสิทธิ์ช่อง
+    aboutInvite: /invit|collaborat|เชิญ|ผู้ร่วมสร้าง/i, // กล่องข้อความต้องพูดถึงคำเชิญ (กันกดปุ่มผิด)
+    aiUseHeading: /^(ai use|การใช้ ai|altered content)$/i, // หัวข้อ "AI use" ในหน้ารายละเอียด
+    yes: /^(yes|ใช่)$/i, // ปุ่มตัวเลือก Yes
+    no: /^(no|ไม่|ไม่ใช่)$/i, // ปุ่มตัวเลือก No
+    paidPromoYes: /^yes, my video includes paid promotion|^ใช่ วิดีโอของฉันมีการโปรโมตแบบชำระเงิน/i, // มีการโปรโมตแบบชำระเงิน
+    paidPromoNo: /^no, my video doesn.t include paid promotion|^ไม่ วิดีโอของฉันไม่มีการโปรโมตแบบชำระเงิน/i, // ไม่มีการโปรโมตแบบชำระเงิน
+    showMoreText: /show more|แสดงเพิ่มเติม/i, // ปุ่ม "แสดงเพิ่มเติม" ในหน้ารายละเอียด
+    uploadFileBox: /^(upload file|upload thumbnail|อัปโหลดไฟล์|อัปโหลดภาพขนาดย่อ)$/i, // กล่อง "Upload file" ของภาพปก
+    thumbError: /(thumbnail|image|ภาพ).*(error|fail|large|ใหญ่|ไม่)/i, // ข้อความผิดพลาดของภาพปก
+    adSuitability: /ad suitability|ความเหมาะสมกับโฆษณา/i, // หัวข้อขั้น Ad suitability
+    questionnaireLocked: /questionnaire is locked|is locked since|ถูกล็อก/i, // แบบสอบถามถูกล็อก (ตอบไว้แล้ว)
+    noneOfTheAbove: /none of the above|ไม่มีข้อใด/i, // ตัวเลือก "None of the above"
+    ratingSection: /rating|suitab|คะแนน|ความเหมาะสม/i, // ส่วนให้คะแนนความเหมาะสม
+    submitRating: /^(submit|submit rating|confirm|ส่ง|ยืนยัน)$/i, // ปุ่มส่งคะแนน
+    dismissNotice: /^(got it|ok|okay|close|dismiss|เข้าใจแล้ว|รับทราบ|ตกลง|ปิด)$/i, // ปุ่มรับทราบของป๊อปอัปแจ้งเตือน
+    noticeBody: /still checking|checks|checking your content|before your video is published|video uploading|keep this browser tab open|once uploading|will be set to|ยังตรวจ|การตรวจสอบ|กำลังอัปโหลด/i, // เนื้อหาป๊อปอัป "เรายังตรวจคลิปอยู่"
+    uploadVideos: /^(upload videos?|อัปโหลดวิดีโอ)$/i, // เมนู "Upload videos"
+    invalidFormat: /invalid file format|รูปแบบไฟล์ไม่ถูกต้อง/i, // Studio ไม่รับชนิดไฟล์นี้
+    thumbButton: /upload|thumbnail|ภาพปก|ภาพขนาดย่อ|อัปโหลดไฟล์/i, // ปุ่มที่เกี่ยวกับภาพปก (ใช้ตอนตรวจปัญหา)
+    uploadLimit: /limit|ขีดจำกัด|daily/i, // ชนขีดจำกัดการอัปต่อวัน -> หยุดคิว
+    // --- ยังต้องใช้ Studio ภาษาอังกฤษ (ส่วนลิขสิทธิ์ — ดู studioIsEnglish) ---
+    monetStatus: /moneti[sz]ation status/i, // ปุ่มแก้สถานะการสร้างรายได้
+    nextOrDone: /^(Next|Done)$/i, // ปุ่ม Next / Done ในแบบสอบถาม
+    tellUsWhats: /Tell us what.s in your video/i, // หัวข้อแบบสอบถามโฆษณา
+    submit: /^Submit$/i, // ปุ่ม Submit
+    noneOfAbove: /None of the above/i, // ตัวเลือก None of the above
+    confirmChanges: /^Confirm changes$/i, // ปุ่ม Confirm changes
+    confirmChangesLoose: /Confirm changes/i, // ข้อความ Confirm changes (หาในหน้าต่าง)
+    acknowledge: /acknowledge/i, // ช่องติ๊ก I acknowledge
+    acknowledgeFull: /I acknowledge/i, // ข้อความ I acknowledge
+    cancelOrClose: /^(Cancel|Close)$/i, // ปุ่ม Cancel / Close
+    takeAction: /^Take action$/i, // ปุ่ม Take action ในหน้า claim
+    trimOutSegment: /^Trim out segment$/i, // ตัวเลือก Trim out segment
+    continueBtn: /^Continue$/i, // ปุ่ม Continue
+    okOrGotIt: /^(OK|Got it|Done|Close)$/i, // ปุ่มปิดหน้าต่างแจ้งผล
+    trimTimes: /Start time\s*([\d:]+)[\s\S]*?End time\s*([\d:]+)/, // ช่วงเวลาที่ตัด (อ่านไปโชว์ใน log)
+  };
+  // ===== ชื่อ element ของ Studio =====
+  // selector ทุกตัวที่ผูกกับโครงหน้าของ Studio อยู่ในนี้ที่เดียว — YouTube เปลี่ยนหน้า แก้แค่ที่นี่
+  // ดูว่าตัวไหนหาไม่เจอแล้วได้จาก ตั้งค่า > "คัดลอกข้อมูลหน้าต่างอัปโหลด" (ส่วน selectors)
+  const SEL = {
+    // --- หน้าต่างอัปโหลด ---
+    dialog: 'ytcp-uploads-dialog',
+    paperDialog: 'tp-yt-paper-dialog',
+    anyDialog: 'tp-yt-paper-dialog, ytcp-dialog, [role="dialog"]',
+    nestedDialog: 'tp-yt-paper-dialog, [role="dialog"]',
+    noticeDialog: 'tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], [role="alertdialog"]',
+    closeDialogBtn: '#ytcp-uploads-dialog-close-button button, #ytcp-uploads-dialog-close-button, #close-button, button[aria-label="Close"], button[aria-label="ปิด"]',
+    // หน้าต่างที่ Studio เปิดต่อหลังบันทึก (ปิดให้อัตโนมัติ)
+    afterDialogs: ['ytcp-video-share-dialog', 'ytcp-uploads-still-processing-dialog', 'ytcp-prechecks-warning-dialog'],
+    // --- เลือกไฟล์ ---
+    filePicker: 'ytcp-uploads-file-picker',
+    pickerSelectBtn: 'ytcp-uploads-file-picker #select-files-button',
+    selectFilesBtn: '#select-files-button',
+    pickerDropZone: '#content',
+    fileInput: 'ytcp-uploads-file-picker input[type=file], input[type=file][name="Filedata"], input[type=file]',
+    createButton: '#create-icon, ytcp-button#create-icon, ytcp-icon-button#create-icon, button[aria-label="Create"], button[aria-label="สร้าง"], ytcp-button[aria-label="Create"], ytcp-button[aria-label="สร้าง"]',
+    menuItem: 'tp-yt-paper-item, ytcp-text-menu [role="menuitem"], [role="menuitem"]',
+    firstMenuItem: 'tp-yt-paper-item#text-item-0, #text-item-0',
+    uploadMenuButton: '#upload-icon, #upload-button, ytcp-button#upload-button, ytcp-icon-button#upload-icon',
+    uploadProgress: 'ytcp-video-upload-progress, .progress-label, ytcp-video-upload-progress-hover',
+    // --- หน้ากรอกรายละเอียด ---
+    titleBox: '#title-textarea #textbox',
+    descBox: '#description-textarea #textbox',
+    tagsInput: '#tags-container input#text-input, ytcp-form-input-container#tags-container input, input[aria-label*="tag" i], input[aria-label*="แท็ก"]',
+    showMore: '#toggle-button',
+    notForKids: 'tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]',
+    categoryTrigger: '#category ytcp-dropdown-trigger, #category-container ytcp-dropdown-trigger',
+    listItem: 'tp-yt-paper-listbox tp-yt-paper-item',
+    videoLink: 'ytcp-video-info a[href*="youtu"], .video-url-fadeable a[href*="youtu"], a[href*="youtu.be/"]',
+    thumbArea: 'ytcp-thumbnails-compact-editor-uploader, ytcp-thumbnail-uploader, ytcp-video-custom-still-editor, #still-picker, ytcp-thumbnails-compact-editor, [id*="thumbnail" i]',
+    thumbClickable: 'button, [role="button"], ytcp-button, tp-yt-paper-button, ytcp-thumbnail-uploader, ytcp-thumbnails-compact-editor-uploader',
+    detailsSection: 'ytcp-video-details-section',
+    // --- เชิญผู้ร่วมสร้าง (Collab) ---
+    collabButton: '#collaboration-button',
+    collabDialog: 'ytcp-video-collaborators-dialog',
+    collabSearch: '#search-input',
+    collabOption: 'tp-yt-paper-item[role="option"]',
+    collabChannelInfo: '#channel-info',
+    collabDisplayName: '#display-name',
+    collabLimitReached: '#limit-reached-message',
+    collabExistingName: '.collaborator .channel-name',
+    collabManageDialog: 'ytcp-video-collaborator-manage-dialog',
+    collabCreateLink: '#create-link-button',
+    collabLinkDialog: 'ytcp-video-collaborator-invite-link-dialog',
+    collabInviteLink: '.invite-link',
+    // --- หน้ารับคำเชิญสิทธิ์ช่อง ---
+    inviteClickable: 'button, ytcp-button, tp-yt-paper-button, yt-button-shape button, a[role="button"]',
+    inviteContainer: 'tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main',
+    // --- Monetisation / Ad suitability ---
+    monetBox: 'ytcp-video-monetization',
+    monetDialog: 'ytcp-video-monetization-edit-dialog',
+    monetEditBtn: 'ytcp-icon-button, [role="button"], button',
+    contentRatings: 'ytcp-uploads-content-ratings',
+    submitQuestionnaire: '#submit-questionnaire-button',
+    monetRadio: (on) => `#radio-${on}`, // on | off
+    // --- Visibility / ตั้งเวลาปล่อย ---
+    nextButton: '#next-button',
+    doneButton: '#done-button',
+    scheduleRadio: '#second-container-expand-button, ytcp-visibility-scheduler #schedule-radio-button, #schedule-radio-button',
+    datePickerTrigger: '#datepicker-trigger',
+    datePickerInput: 'ytcp-date-picker tp-yt-paper-input input, ytcp-date-picker input',
+    timeInput: '#time-of-day-container input, ytcp-datetime-picker tp-yt-paper-input input',
+    timeOption: 'tp-yt-paper-item, [role="option"], ytcp-text-menu tp-yt-paper-item',
+    // --- แถบด้านข้าง (ชื่อช่อง) ---
+    channelName: 'ytcp-navigation-drawer #entity-name, #entity-name',
+    channelAvatar: 'ytcp-navigation-drawer #avatar img, ytcp-navigation-drawer img.image-thumbnail, ytcp-navigation-drawer img, #avatar-btn img',
+    // --- ปุ่ม / ตัวเลือกทั่วไปของ Studio ---
+    radio: 'tp-yt-paper-radio-button, [role="radio"]',
+    radioOn: 'tp-yt-paper-radio-button#radio-on, tp-yt-paper-radio-button[name="ON"]',
+    button: 'button, ytcp-button, tp-yt-paper-button',
+    buttonLoose: 'ytcp-button, button',
+    buttonOrYtcp: 'button, ytcp-button',
+    clickable: 'button, ytcp-button, tp-yt-paper-button, [role="button"], ytcp-button-shape button',
+    iconOrButton: 'ytcp-icon-button, button',
+    iconButton: 'ytcp-icon-button',
+    checkboxLit: 'ytcp-checkbox-lit',
+    checkboxHost: 'ytcp-checkbox-lit, tp-yt-paper-checkbox, ytcp-checkbox',
+    checkboxAny: '[role="checkbox"], input[type="checkbox"], ytcp-checkbox-lit',
+    dialogSave: '#save-button',
+    dialogCancel: '#cancel-button',
+    dialogClose: '#close-button',
+    // --- หน้า claim / ตัด / เปิดโฆษณา ---
+    claimRow: 'ytcr-video-content-list-row',
+    trimDialog: 'ytcr-editing-tool-dialog',
+    trimContinue: '#continue-button',
+    studioSaveHost: 'ytcp-button#save',
+  };
+
   // ===== รับคำเชิญสิทธิ์ช่องอัตโนมัติ =====
   // เปิดลิงก์ "ACCEPT INVITATION" จากอีเมล noreply@youtube.com แล้วสคริปต์กดยอมรับให้
   // กดเฉพาะปุ่ม Accept/ยอมรับ ที่อยู่ในกล่องข้อความที่พูดถึงคำเชิญเท่านั้น
@@ -34,19 +169,17 @@
     if ((GM_getValue('settings') || {}).autoAcceptInvite === false) return;
     // ใน Studio ทำเฉพาะหน้าคำเชิญ (ลิงก์ Collab = /channel/<เรา>/collaboration/<เจ้าของ>) ไม่ไล่กดปุ่มทุกหน้า
     if (location.hostname === 'studio.youtube.com' && !/invit|collaborat|permission/i.test(location.pathname)) return;
-    const BTN = /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i;
-    const ABOUT = /invit|collaborat|เชิญ|ผู้ร่วมสร้าง/i;
     const visible = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
     let tries = 0;
     const timer = setInterval(() => {
       if (++tries > 60) return clearInterval(timer);
-      for (const b of document.querySelectorAll('button, ytcp-button, tp-yt-paper-button, yt-button-shape button, a[role="button"]')) {
+      for (const b of document.querySelectorAll(SEL.inviteClickable)) {
         const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
-        if (!BTN.test(label) || !visible(b) || b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
+        if (!TXT.acceptInvite.test(label) || !visible(b) || b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
         // หน้าคำเชิญใน Studio (เช็ก path แล้วข้างบน) อาจไม่มีกล่อง dialog — ใช้ทั้งหน้าได้; บน www.youtube.com ต้องอยู่ในกล่อง
-        const box = b.closest('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main') ||
+        const box = b.closest(SEL.inviteContainer) ||
           (location.hostname === 'studio.youtube.com' ? document.body : null);
-        if (!box || !ABOUT.test(box.innerText || box.textContent || '')) continue;
+        if (!box || !TXT.aboutInvite.test(box.innerText || box.textContent || '')) continue;
         clearInterval(timer);
         b.click();
         const note = document.createElement('div');
@@ -176,34 +309,76 @@
     return v === undefined ? d : v;
   };
   const save = (k, v) => GM_setValue(k, v);
-  const existingInstall = GM_getValue('presets') !== undefined; // ติดตั้งไว้ก่อน v4.5.0 (ตอนนั้นชื่อโปรดิวเซอร์ฝังในโค้ด)
+
+  // ===== ย้ายข้อมูลของเวอร์ชันเก่า (schema) =====
+  // เพิ่มขั้นใหม่ต่อท้าย MIGRATIONS เท่านั้น — schemaVersion ขยับตามความยาวของลิสต์ให้เอง
+  // เครื่องที่ติดตั้งใหม่ข้ามทุกขั้น เพราะได้ค่าเริ่มต้นที่ถูกต้องอยู่แล้ว (ไม่ต้องมีธง migratedXxx อีก)
+  const freshInstall = GM_getValue('presets') === undefined;
+
+  // พรีเซ็ต trapsoul รุ่นเก่า: คลิปที่ไม่มี .txt จะได้ชื่อ "TrapSoul Mix | - ..." -> ครอบ {artists} ด้วย [[ ]]
+  function fixLegacyTrapsoulTitles(list) {
+    for (const p of list || []) {
+      if (!p || p.id !== 'trapsoul') continue;
+      if (p.title === 'TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}') p.title = 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}';
+      if (typeof p.description === 'string') {
+        p.description = p.description
+          .replace('TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}', 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}')
+          .replace('Tracklist:\n{txt}', '[[Tracklist:\n{txt}]]')
+          .replace('[[[[Tracklist:', '[[Tracklist:').replace('{txt}]]]]', '{txt}]]');
+      }
+    }
+    return list;
+  }
+
+  // แต่ละขั้นทำครั้งเดียว · legacy = ชื่อธงเก่าที่ใช้ก่อนมี schemaVersion (ถ้าธงถูกตั้งไว้ = ขั้นนี้ทำไปแล้ว)
+  const MIGRATIONS = [
+    { // 1: เพิ่มพรีเซ็ต Playlist ให้เครื่องที่ติดตั้งไว้ก่อน
+      legacy: 'addedPlaylist',
+      run() {
+        const list = load('presets', structuredClone(DEFAULT_PRESETS));
+        if (!list.some((x) => x.id === 'playlist')) save('presets', [structuredClone(DEFAULT_PRESETS[1]), ...list]);
+      },
+    },
+    { // 2: เพิ่มพรีเซ็ต TrapSoul แล้วตั้งเป็นพรีเซ็ตหลัก
+      legacy: 'addedTrapsoul',
+      run() {
+        const list = load('presets', structuredClone(DEFAULT_PRESETS));
+        if (!list.some((x) => x.id === 'trapsoul')) save('presets', [structuredClone(DEFAULT_PRESETS[0]), ...list]);
+        save('activeId', 'trapsoul');
+      },
+    },
+    { // 3: ครอบ {artists} / {txt} ของพรีเซ็ต trapsoul เดิมด้วย [[ ]]
+      run() { save('presets', fixLegacyTrapsoulTitles(load('presets', structuredClone(DEFAULT_PRESETS)))); },
+    },
+    { // 4: ย้ายชื่อโปรดิวเซอร์ / ชื่อค่ายที่เคยฝังในโค้ดมาเป็นค่าตั้งค่า (v4.5.0 · เดิมใช้ธง migratedOwnNames)
+      legacy: 'migratedOwnNames',
+      run() {
+        const s = load('settings', {});
+        if (s.producer === undefined) save('settings', { ...s, producer: 'ThaiBeats' });
+        const c = load('cfg', {});
+        if (c.ownNames === undefined) save('cfg', { ...c, ownNames: 'THAIBEATS, EXMGE' });
+      },
+    },
+  ];
+  const SCHEMA_VERSION = MIGRATIONS.length;
+
+  function runMigrations() {
+    if (freshInstall) return save('schemaVersion', SCHEMA_VERSION);
+    let from = load('schemaVersion', null);
+    if (from === null) {
+      // เครื่องที่ติดตั้งก่อนมี schemaVersion: อ่านจากธงเก่าว่าทำถึงขั้นไหนแล้ว
+      from = 0;
+      MIGRATIONS.forEach((m, i) => { if (m.legacy && load(m.legacy, false)) from = i + 1; });
+    }
+    for (let i = from; i < MIGRATIONS.length; i++) {
+      try { MIGRATIONS[i].run(); } catch (e) { console.error('[Upload Studio] migration ' + (i + 1), e); }
+    }
+    save('schemaVersion', SCHEMA_VERSION);
+  }
+  runMigrations();
 
   let presets = load('presets', structuredClone(DEFAULT_PRESETS));
-  // ผู้ใช้เวอร์ชันเก่า: เพิ่มพรีเซ็ต Playlist ให้ครั้งเดียว
-  if (!load('addedPlaylist', false)) {
-    if (!presets.some((p) => p.id === 'playlist')) presets = [structuredClone(DEFAULT_PRESETS[1]), ...presets];
-    save('presets', presets);
-    save('addedPlaylist', true);
-  }
   let activeId = load('activeId', presets[0].id);
-  // คลิปที่ไม่มี .txt จะได้ชื่อ "TrapSoul Mix | - ..." -> ครอบ {artists} ด้วย [[ ]] ให้พรีเซ็ตเดิม
-  for (const p of presets) {
-    if (p.id !== 'trapsoul') continue;
-    if (p.title === 'TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}') p.title = 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}';
-    if (typeof p.description === 'string') {
-      p.description = p.description
-        .replace('TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}', 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}')
-        .replace('Tracklist:\n{txt}', '[[Tracklist:\n{txt}]]')
-        .replace('[[[[Tracklist:', '[[Tracklist:').replace('{txt}]]]]', '{txt}]]');
-    }
-  }
-  if (!load('addedTrapsoul', false)) {
-    if (!presets.some((p) => p.id === 'trapsoul')) presets = [structuredClone(DEFAULT_PRESETS[0]), ...presets];
-    activeId = 'trapsoul';
-    save('presets', presets);
-    save('activeId', activeId);
-    save('addedTrapsoul', true);
-  }
   let counters = load('counters', {});
   const settings = Object.assign(
     {
@@ -222,6 +397,7 @@
       paidPromotion: 'no', // การโปรโมตแบบชำระเงิน: skip | no | yes
       monetization: 'on', // ขั้น Monetisation: on | off | skip
       adSuitability: 'none', // ขั้น Ad suitability: none = ติ๊ก "None of the above" แล้ว Submit rating | skip = ทำเอง
+      producer: '', // ชื่อโปรดิวเซอร์ใน {producer} เว้นว่าง = ใช้ชื่อช่องปัจจุบัน
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
       autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
@@ -230,19 +406,9 @@
     load('settings', {})
   );
   const saveSettings = () => save('settings', settings);
-  // ชื่อที่เคยฝังในโค้ด: เครื่องที่ติดตั้งไว้แล้วได้ค่าเดิม ส่วนผู้ใช้ใหม่เริ่มจากค่าว่าง
-  if (settings.producer === undefined) {
-    settings.producer = existingInstall ? 'ThaiBeats' : '';
-    saveSettings();
-  }
   if (settings.lang === undefined) {
     settings.lang = LANG;
     saveSettings();
-  }
-  // ทำครั้งเดียวตอนโหลดครั้งแรกของเวอร์ชันนี้ (ไม่งั้นผู้ใช้ใหม่จะโดนใส่ชื่อนี้ตอนโหลดครั้งที่ 2 เพราะตอนนั้นมีพรีเซ็ตแล้ว)
-  if (!load('migratedOwnNames', false)) {
-    if (existingInstall && load('cfg', {}).ownNames === undefined) save('cfg', { ...load('cfg', {}), ownNames: 'THAIBEATS, EXMGE' });
-    save('migratedOwnNames', true);
   }
 
   const presetById = (id) => presets.find((p) => p.id === id) || presets[0];
@@ -339,6 +505,11 @@
     }
     return t.slice(0, TITLE_MAX);
   }
+  // render() ปล่อยตัวแปรที่ไม่รู้จักติดไปกับข้อความ ({artist} ที่พิมพ์ผิดจะขึ้น YouTube ตรง ๆ) -> เตือนในพรีวิว
+  const unknownVars = (p) =>
+    [...new Set([p.title || '', p.description || '', ...(p.tags || [])].join('\n').match(/\{\w+\}/g) || [])]
+      .filter((v) => !VARS.includes(v.slice(1, -1)));
+
   const renderTags = (p, vars) => [
     ...new Set(
       (p.tags || [])
@@ -428,18 +599,18 @@
     return null;
   }
 
-  const getDialog = () => document.querySelector('ytcp-uploads-dialog');
-  const getTitleBox = (dlg) => dlg && dlg.querySelector('#title-textarea #textbox');
-  const getDescBox = (dlg) => dlg && dlg.querySelector('#description-textarea #textbox');
+  const getDialog = () => document.querySelector(SEL.dialog);
+  const getTitleBox = (dlg) => dlg && dlg.querySelector(SEL.titleBox);
+  const getDescBox = (dlg) => dlg && dlg.querySelector(SEL.descBox);
   const detailsOpen = () => isVisible(getTitleBox(getDialog()));
   // หน้าต่างอัปโหลดยังเปิดอยู่ (ขั้นไหนก็ได้) — ใช้ตัดสินว่าผู้ใช้กด Save/ปิดหน้าต่างแล้วหรือยัง
   const uploadDialogOpen = () => {
-    const d = getDialog()?.querySelector('tp-yt-paper-dialog');
-    return isVisible(d) && !isVisible(getDialog()?.querySelector('ytcp-uploads-file-picker #select-files-button'));
+    const d = getDialog()?.querySelector(SEL.paperDialog);
+    return isVisible(d) && !isVisible(getDialog()?.querySelector(SEL.pickerSelectBtn));
   };
   const findTagsInput = (dlg) =>
     dlg.querySelector(
-      '#tags-container input#text-input, ytcp-form-input-container#tags-container input, input[aria-label*="tag" i], input[aria-label*="แท็ก"]'
+      SEL.tagsInput
     );
 
   // พิมพ์ลงช่อง contenteditable ผ่าน execCommand เพื่อให้ Studio รับรู้การเปลี่ยนแปลง
@@ -459,7 +630,7 @@
     if (!tags.length) return true;
     let input = findTagsInput(dlg);
     if (!isVisible(input)) {
-      const more = dlg.querySelector('#toggle-button'); // ปุ่ม "แสดงเพิ่มเติม"
+      const more = dlg.querySelector(SEL.showMore); // ปุ่ม "แสดงเพิ่มเติม"
       if (more) more.click();
       input = await waitFor(() => {
         const i = findTagsInput(dlg);
@@ -481,7 +652,7 @@
     setEditable(getTitleBox(dlg), title);
     const descBox = getDescBox(dlg);
     if (descBox && description) setEditable(descBox, description);
-    const notKids = dlg.querySelector('tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]');
+    const notKids = dlg.querySelector(SEL.notForKids);
     if (notKids) notKids.click();
     const tagsOk = await setTags(dlg, tags); // เปิด "แสดงเพิ่มเติม" ให้ด้วย
     if (settings.alteredContent !== 'skip') {
@@ -491,10 +662,10 @@
       const aiRadio = () => {
         const byName = dlg.querySelector(`tp-yt-paper-radio-button[name="${name}"]`);
         if (isVisible(byName)) return byName;
-        const head = leafByText(dlg, /^(ai use|การใช้ ai|altered content)$/i);
+        const head = leafByText(dlg, TXT.aiUseHeading);
         let p = head;
         for (let i = 0; p && i < 6; i++, p = p.parentElement) {
-          const r = [...p.querySelectorAll('tp-yt-paper-radio-button, [role="radio"]')].find((x) => isVisible(x) && (yes ? /^(yes|ใช่)$/i : /^(no|ไม่|ไม่ใช่)$/i).test((x.textContent || '').trim()));
+          const r = [...p.querySelectorAll(SEL.radio)].find((x) => isVisible(x) && (yes ? TXT.yes : TXT.no).test((x.textContent || '').trim()));
           if (r) return r;
         }
         return null;
@@ -504,8 +675,8 @@
     }
     if (settings.paidPromotion !== 'skip') {
       const r = radioByText(settings.paidPromotion === 'yes'
-        ? /^yes, my video includes paid promotion|^ใช่ วิดีโอของฉันมีการโปรโมตแบบชำระเงิน/i
-        : /^no, my video doesn.t include paid promotion|^ไม่ วิดีโอของฉันไม่มีการโปรโมตแบบชำระเงิน/i);
+        ? TXT.paidPromoYes
+        : TXT.paidPromoNo);
       if (r && r.getAttribute('aria-checked') !== 'true') r.click();
     }
     if (settings.category) await setCategory(dlg, settings.category);
@@ -519,66 +690,66 @@
   // YouTube ไม่ส่งคำเชิญให้เอง ต้องส่งลิงก์ให้อีกฝ่ายเปิดแล้วกดยอมรับ (ลิงก์ใช้ได้หลังกด Save)
   const parseHandles = (v) => String(v || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).map((s) => (s.startsWith('@') ? s : '@' + s));
   const clickIn = (root, sel) => { const b = root && root.querySelector(sel); if (!b) return false; (b.querySelector('button') || b).click(); return true; };
-  const shownDialog = (tag) => { const d = document.querySelector(tag); return d && isVisible(d.querySelector('tp-yt-paper-dialog')) ? d : null; };
+  const shownDialog = (tag) => { const d = document.querySelector(tag); return d && isVisible(d.querySelector(SEL.paperDialog)) ? d : null; };
 
   async function inviteCollaborators(handles, dlg = getDialog()) {
     const res = { links: [], errors: [], skipped: [] };
     if (!handles.length) return res;
-    let btn = dlg.querySelector('#collaboration-button');
+    let btn = dlg.querySelector(SEL.collabButton);
     if (!isVisible(btn)) {
-      const more = dlg.querySelector('#toggle-button');
-      if (more && /show more|แสดงเพิ่มเติม/i.test(more.textContent)) more.click();
-      btn = await waitFor(() => { const b = dlg.querySelector('#collaboration-button'); return isVisible(b) && b; }, 4000);
+      const more = dlg.querySelector(SEL.showMore);
+      if (more && TXT.showMoreText.test(more.textContent)) more.click();
+      btn = await waitFor(() => { const b = dlg.querySelector(SEL.collabButton); return isVisible(b) && b; }, 4000);
     }
     if (!btn) { res.errors.push(L('ช่องนี้ไม่มีปุ่ม Invite a collaborator', 'This channel has no "Invite a collaborator" button')); return res; }
     btn.scrollIntoView({ block: 'center' });
     (btn.querySelector('button') || btn).click();
-    const cd = await waitFor(() => shownDialog('ytcp-video-collaborators-dialog'), 6000);
+    const cd = await waitFor(() => shownDialog(SEL.collabDialog), 6000);
     if (!cd) { res.errors.push(L('เปิดหน้าต่างเชิญผู้ร่วมสร้างไม่ได้', 'Could not open the collaborator dialog')); return res; }
 
-    const existing = new Set([...cd.querySelectorAll('.collaborator .channel-name')].map((e) => e.textContent.trim().toLowerCase()).filter(Boolean));
+    const existing = new Set([...cd.querySelectorAll(SEL.collabExistingName)].map((e) => e.textContent.trim().toLowerCase()).filter(Boolean));
     for (const handle of handles.slice(0, 10)) {
-      const input = cd.querySelector('#search-input');
+      const input = cd.querySelector(SEL.collabSearch);
       input.focus();
       input.value = handle;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       const want = handle.toLowerCase();
-      const row = await waitFor(() => [...cd.querySelectorAll('tp-yt-paper-item[role="option"]')].find((r) => {
-        const info = (r.querySelector('#channel-info')?.textContent || '').trim().toLowerCase();
+      const row = await waitFor(() => [...cd.querySelectorAll(SEL.collabOption)].find((r) => {
+        const info = (r.querySelector(SEL.collabChannelInfo)?.textContent || '').trim().toLowerCase();
         return isVisible(r) && (info === want || info.startsWith(want + ' '));
       }), 8000);
       if (!row) {
-        const limit = isVisible(cd.querySelector('#limit-reached-message'));
+        const limit = isVisible(cd.querySelector(SEL.collabLimitReached));
         res.errors.push(limit ? L(`${handle}: เชิญครบจำนวนสูงสุดแล้ว`, `${handle}: invitation limit reached`) : L(`${handle}: ไม่พบช่องนี้`, `${handle}: channel not found`));
         if (limit) break;
         continue;
       }
-      const rowName = (row.querySelector('#display-name')?.textContent || '').trim().toLowerCase();
+      const rowName = (row.querySelector(SEL.collabDisplayName)?.textContent || '').trim().toLowerCase();
       if (existing.has(rowName)) { res.skipped.push(handle); continue; }
       row.click();
-      const md = await waitFor(() => shownDialog('ytcp-video-collaborator-manage-dialog'), 6000);
-      if (!md || !clickIn(md, '#create-link-button')) { res.errors.push(L(`${handle}: ไม่พบปุ่ม Create link`, `${handle}: "Create link" button not found`)); continue; }
-      const ld = await waitFor(() => shownDialog('ytcp-video-collaborator-invite-link-dialog'), 8000);
-      const link = ld && (await waitFor(() => (ld.querySelector('.invite-link')?.textContent || '').trim(), 4000));
+      const md = await waitFor(() => shownDialog(SEL.collabManageDialog), 6000);
+      if (!md || !clickIn(md, SEL.collabCreateLink)) { res.errors.push(L(`${handle}: ไม่พบปุ่ม Create link`, `${handle}: "Create link" button not found`)); continue; }
+      const ld = await waitFor(() => shownDialog(SEL.collabLinkDialog), 8000);
+      const link = ld && (await waitFor(() => (ld.querySelector(SEL.collabInviteLink)?.textContent || '').trim(), 4000));
       if (link) res.links.push({ handle, link });
       else res.errors.push(L(`${handle}: ไม่ได้ลิงก์คำเชิญ`, `${handle}: no invitation link`));
-      if (ld) clickIn(ld, '#close-button');
-      await waitFor(() => !shownDialog('ytcp-video-collaborator-invite-link-dialog'), 3000);
+      if (ld) clickIn(ld, SEL.dialogClose);
+      await waitFor(() => !shownDialog(SEL.collabLinkDialog), 3000);
       await sleep(400);
     }
-    if (res.links.length) clickIn(cd, '#save-button');
-    else clickIn(cd, '#cancel-button');
-    await waitFor(() => !shownDialog('ytcp-video-collaborators-dialog'), 6000);
+    if (res.links.length) clickIn(cd, SEL.dialogSave);
+    else clickIn(cd, SEL.dialogCancel);
+    await waitFor(() => !shownDialog(SEL.collabDialog), 6000);
     return res;
   }
 
   // เลือกหมวดหมู่ (เทียบข้อความตามที่ Studio แสดง เช่น "Music" หรือ "เพลง")
   async function setCategory(dlg, text) {
-    const trig = dlg.querySelector('#category ytcp-dropdown-trigger, #category-container ytcp-dropdown-trigger');
+    const trig = dlg.querySelector(SEL.categoryTrigger);
     if (!trig || trig.textContent.includes(text)) return;
     trig.click();
     const item = await waitFor(() =>
-      [...document.querySelectorAll('tp-yt-paper-listbox tp-yt-paper-item')].find((i) => isVisible(i) && i.textContent.trim() === text), 3000);
+      [...document.querySelectorAll(SEL.listItem)].find((i) => isVisible(i) && i.textContent.trim() === text), 3000);
     if (item) item.click();
     else document.body.click();
   }
@@ -587,13 +758,11 @@
   // หา element จากข้อความ (เทียบทั้งข้อความ) ภายใน root
   const leafByText = (rootEl, re) =>
     [...rootEl.querySelectorAll('*')].find((e) => e.childElementCount === 0 && isVisible(e) && re.test((e.textContent || '').trim()));
-  const clickableOf = (el) => el && (el.closest('button, [role="button"], ytcp-button, tp-yt-paper-button, ytcp-thumbnail-uploader, ytcp-thumbnails-compact-editor-uploader') || el);
+  const clickableOf = (el) => el && (el.closest(SEL.thumbClickable) || el);
 
   // อัปภาพปก (Studio ต.ค. 2026: ส่วน "Thumbnail" มีกล่อง "Upload file" / "Select from video" / "A/B Testing")
   // วิธีที่ 1: ใส่ภาพลงช่องเลือกไฟล์ที่ไม่ใช่ช่องวิดีโอ  วิธีที่ 2: จำลองการลากภาพมาวางบนกล่อง "Upload file"
   // ถือว่าสำเร็จเมื่อมีภาพใหม่ (blob:/data:) ขึ้นในหน้าต่าง คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
-  const THUMB_AREA = 'ytcp-thumbnails-compact-editor-uploader, ytcp-thumbnail-uploader, ytcp-video-custom-still-editor, #still-picker, ytcp-thumbnails-compact-editor, [id*="thumbnail" i]';
-  const RE_UPLOAD_FILE = /^(upload file|upload thumbnail|อัปโหลดไฟล์|อัปโหลดภาพขนาดย่อ)$/i;
   // ไฟล์ที่ Studio ไม่รับแน่ ๆ (ใหญ่เกิน / ชนิดไม่รองรับ) — ไม่ต้องรอลองซ้ำ
   const thumbUnusable = (file) => file.size > THUMB_MAX || !/\.(jpe?g|png|gif|bmp)$/i.test(file.name);
   async function setThumbnail(file, wait = 6000) {
@@ -601,8 +770,8 @@
     if (!/\.(jpe?g|png|gif|bmp)$/i.test(file.name)) return L('ชนิดไฟล์ไม่รองรับ ใช้ JPG / PNG / GIF / BMP', 'Unsupported file type. Use JPG / PNG / GIF / BMP');
     const dlg = getDialog();
     if (!dlg) return L('ไม่พบหน้าต่างอัปโหลด', 'Upload dialog not found');
-    const uploadBox = () => clickableOf(leafByText(dlg, RE_UPLOAD_FILE));
-    const area = () => [...dlg.querySelectorAll(THUMB_AREA)].find(shown) || null;
+    const uploadBox = () => clickableOf(leafByText(dlg, TXT.uploadFileBox));
+    const area = () => [...dlg.querySelectorAll(SEL.thumbArea)].find(shown) || null;
     await waitFor(() => uploadBox() || area(), 6000);
     const blobs = () => [...dlg.querySelectorAll('img')].filter((i) => /^(blob|data):/.test(i.src)).map((i) => i.src);
     const before = new Set(blobs());
@@ -624,7 +793,7 @@
 
     injectingFile = true;
     try {
-      const inputs = [...dlg.querySelectorAll('input[type=file]')].filter((i) => i.name !== 'Filedata' && !i.closest('ytcp-uploads-file-picker'));
+      const inputs = [...dlg.querySelectorAll('input[type=file]')].filter((i) => i.name !== 'Filedata' && !i.closest(SEL.filePicker));
       for (const input of inputs) {
         input.files = makeDT().files;
         input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
@@ -638,7 +807,7 @@
       }
       if (!targets.length && !inputs.length) return L('ไม่พบส่วน Thumbnail / ปุ่ม "Upload file" ในหน้ากรอกรายละเอียด', 'Thumbnail section / "Upload file" button not found on the details page');
       const err = [...dlg.querySelectorAll('*')].find((e) => e.childElementCount === 0 && isVisible(e) &&
-        /(thumbnail|image|ภาพ).*(error|fail|large|ใหญ่|ไม่)/i.test(e.textContent || ''));
+        TXT.thumbError.test(e.textContent || ''));
       return err ? L(`Studio แจ้ง: ${err.textContent.trim().slice(0, 120)}`, `Studio says: ${err.textContent.trim().slice(0, 120)}`) :
         L(`Studio ยังไม่รับภาพปก (ช่องเลือกไฟล์ ${inputs.length} · ปุ่ม Upload file ${uploadBox() ? 'เจอ' : 'ไม่เจอ'})`, `Studio hasn't accepted the thumbnail (file inputs: ${inputs.length} · Upload file button: ${uploadBox() ? 'found' : 'not found'})`);
     } finally {
@@ -647,9 +816,9 @@
   }
 
   // ----- ขั้นใหม่ระหว่าง Details กับ Visibility -----
-  const radioByText = (re) => [...(getDialog()?.querySelectorAll('tp-yt-paper-radio-button, [role="radio"]') || [])]
+  const radioByText = (re) => [...(getDialog()?.querySelectorAll(SEL.radio) || [])]
     .find((r) => isVisible(r) && re.test((r.textContent || '').trim()));
-  const buttonByText = (rootEl, re) => [...rootEl.querySelectorAll('button, ytcp-button, tp-yt-paper-button')]
+  const buttonByText = (rootEl, re) => [...rootEl.querySelectorAll(SEL.button)]
     .find((b) => isVisible(b) && re.test((b.textContent || '').trim()) && !b.hasAttribute('disabled') && b.getAttribute('aria-disabled') !== 'true');
 
   // Monetisation: ช่อง "Select" (ytcp-video-monetization) → กดปุ่มไอคอนเพื่อเปิดป๊อปอัป
@@ -657,17 +826,17 @@
   // คืนค่า true เมื่อตั้งค่าแล้ว (หรือไม่ต้องทำ), false เมื่อยังทำไม่เสร็จ
   async function handleMonetisation() {
     if (settings.monetization === 'skip') return true;
-    const box = getDialog()?.querySelector('ytcp-video-monetization');
+    const box = getDialog()?.querySelector(SEL.monetBox);
     if (!shown(box)) return true; // ไม่ได้อยู่ที่ขั้นนี้ (element นี้อาจไม่มีกล่องของตัวเอง จึงเช็กจากลูกด้วย)
     const want = settings.monetization === 'off' ? 'off' : 'on';
     const current = (box.innerText || '').trim().toLowerCase();
     if (current === want || current === (want === 'on' ? 'เปิด' : 'ปิด')) return true;
     const popup = () => {
-      const d = document.querySelector('ytcp-video-monetization-edit-dialog');
-      return d && isVisible(d.querySelector(`#radio-${want}`)) ? d : null;
+      const d = document.querySelector(SEL.monetDialog);
+      return d && isVisible(d.querySelector(SEL.monetRadio(want))) ? d : null;
     };
     if (!popup()) {
-      const trigger = box.querySelector('ytcp-icon-button, [role="button"], button') || box;
+      const trigger = box.querySelector(SEL.monetEditBtn) || box;
       (trigger.querySelector('button') || trigger).click();
     }
     const pop = await waitFor(popup, 4000);
@@ -675,7 +844,7 @@
     const radio = pop.querySelector(`#radio-${want}`);
     if (radio.getAttribute('aria-checked') !== 'true') radio.click();
     const save = await waitFor(() => {
-      const b2 = pop.querySelector('#save-button button') || pop.querySelector('#save-button');
+      const b2 = pop.querySelector(`${SEL.dialogSave} button`) || pop.querySelector(SEL.dialogSave);
       return b2 && !b2.disabled && b2.getAttribute('aria-disabled') !== 'true' ? b2 : null;
     }, 3000);
     if (save) save.click();
@@ -691,28 +860,28 @@
     const dlg = getDialog();
     // แก้บัค: querySelector แบบหลายตัวเลือกคืนตัวนอก (ytcp-uploads-content-ratings) ซึ่งไม่มีกล่องของตัวเอง
     // isVisible จึงเป็น false -> สคริปต์คิดว่าไม่ได้อยู่ขั้นนี้แล้วกด Next ข้ามไปโดยไม่ได้ Submit rating
-    const q = dlg?.querySelector('ytpp-self-certification-questionnaire') || dlg?.querySelector('ytcp-uploads-content-ratings');
-    const onStep = shown(q) || /ad suitability|ความเหมาะสมกับโฆษณา/i.test([...(dlg?.querySelectorAll('h1') || [])].filter(isVisible).map((e) => e.textContent).join(' '));
+    const q = dlg?.querySelector('ytpp-self-certification-questionnaire') || dlg?.querySelector(SEL.contentRatings);
+    const onStep = shown(q) || TXT.adSuitability.test([...(dlg?.querySelectorAll('h1') || [])].filter(isVisible).map((e) => e.textContent).join(' '));
     if (!q || !onStep) return true; // ไม่ได้อยู่ที่ขั้นนี้
     // แก้บัค: แผงด้านขวามีประโยค "Once you've submitted your rating, you won't be able to change…" อยู่ตลอด
     // ห้ามใช้คำว่า "submitted your rating" ตัดสิน — ใช้ข้อความล็อกจริง "questionnaire is locked since you have submitted your rating"
-    const isLocked = () => /questionnaire is locked|is locked since|ถูกล็อก/i.test(q.innerText || '');
+    const isLocked = () => TXT.questionnaireLocked.test(q.innerText || '');
     if (isLocked()) return true; // ส่งไปแล้ว
     const box = q.querySelector('[role="checkbox"][aria-label="None of the above"], [role="checkbox"][aria-label*="ไม่มี"]') ||
-      [...q.querySelectorAll('[role="checkbox"]')].find((c) => /none of the above|ไม่มีข้อใด/i.test(c.getAttribute('aria-label') || ''));
+      [...q.querySelectorAll('[role="checkbox"]')].find((c) => TXT.noneOfTheAbove.test(c.getAttribute('aria-label') || ''));
     if (!box) return false;
     if (box.getAttribute('aria-checked') !== 'true') box.click();
     const submit = await waitFor(() => {
-      const b2 = dlg.querySelector('#submit-questionnaire-button button') || dlg.querySelector('#submit-questionnaire-button');
+      const b2 = dlg.querySelector(`${SEL.submitQuestionnaire} button`) || dlg.querySelector(SEL.submitQuestionnaire);
       return b2 && isVisible(b2) && !b2.disabled && b2.getAttribute('aria-disabled') !== 'true' ? b2 : null;
     }, 4000);
     if (!submit) return false;
     submit.click();
     await sleep(800);
     // บางครั้ง Studio ถามยืนยันอีกชั้นในหน้าต่างแยก
-    const pop = [...document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"]')]
-      .find((d) => isVisible(d) && !d.closest('ytcp-uploads-dialog') && /rating|suitab|คะแนน|ความเหมาะสม/i.test(d.innerText || ''));
-    const ok = pop && buttonByText(pop, /^(submit|submit rating|confirm|ส่ง|ยืนยัน)$/i);
+    const pop = [...document.querySelectorAll(SEL.anyDialog)]
+      .find((d) => isVisible(d) && !d.closest(SEL.dialog) && TXT.ratingSection.test(d.innerText || ''));
+    const ok = pop && buttonByText(pop, TXT.submitRating);
     if (ok) ok.click();
     return !!(await waitFor(isLocked, 10000));
   }
@@ -738,7 +907,7 @@
         await sleep(1000);
         continue;
       }
-      const next = getDialog()?.querySelector('#next-button');
+      const next = getDialog()?.querySelector(SEL.nextButton);
       const nb = next && (next.querySelector('button') || next);
       if (isVisible(next) && !next.hasAttribute('disabled') && nb.getAttribute('aria-disabled') !== 'true' && !nb.disabled) nb.click();
       else if (Date.now() - stepAt > T(25000)) break;
@@ -783,20 +952,20 @@
   async function setSchedule(date) {
     const dlg = getDialog();
     const expand = await waitFor(() => {
-      const e = dlg.querySelector('#second-container-expand-button, ytcp-visibility-scheduler #schedule-radio-button, #schedule-radio-button');
+      const e = dlg.querySelector(SEL.scheduleRadio);
       return isVisible(e) && e;
     }, 6000);
     if (!expand) return L('ไม่พบส่วน "กำหนดเวลา" ในหน้าการเปิดเผย', '"Schedule" section not found on the visibility page');
     expand.click();
 
     const trigger = await waitFor(() => {
-      const t = dlg.querySelector('#datepicker-trigger');
+      const t = dlg.querySelector(SEL.datePickerTrigger);
       return isVisible(t) && t;
     }, 5000);
     if (!trigger) return L('ไม่พบช่องวันที่', 'Date field not found');
     trigger.click();
     const dateInput = await waitFor(() => {
-      const i = document.querySelector('ytcp-date-picker tp-yt-paper-input input, ytcp-date-picker input');
+      const i = document.querySelector(SEL.datePickerInput);
       return isVisible(i) && i;
     }, 5000);
     if (!dateInput) return L('เปิดปฏิทินไม่ได้', 'Could not open the calendar');
@@ -808,7 +977,7 @@
     }
 
     const timeInput = await waitFor(() => {
-      const i = dlg.querySelector('#time-of-day-container input, ytcp-datetime-picker tp-yt-paper-input input');
+      const i = dlg.querySelector(SEL.timeInput);
       return isVisible(i) && i;
     }, 4000);
     if (!timeInput) return L('ไม่พบช่องเวลา', 'Time field not found');
@@ -819,7 +988,7 @@
     const pickTime = async () => {
       timeInput.focus();
       timeInput.click();
-      const item = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-item, [role="option"], ytcp-text-menu tp-yt-paper-item')]
+      const item = await waitFor(() => [...document.querySelectorAll(SEL.timeOption)]
         .find((e) => e.getClientRects().length && norm(e.textContent) === norm(timeText)), 2500);
       if (item) {
         item.scrollIntoView({ block: 'center' });
@@ -839,8 +1008,8 @@
 
     // ตรวจผลจากข้อความที่ Studio แสดง (หลังออกจากช่องแล้ว): วันที่และเวลาต้องตรงกับที่ตั้งทั้งหมด
     // ถ้าไม่ตรงจะถือว่าไม่สำเร็จ (ไม่กด Save) ดีกว่าเสี่ยงปล่อยผิดวัน/ผิดเวลา
-    const shownDate = (dlg.querySelector('#datepicker-trigger')?.textContent || trigger.textContent || '').trim();
-    const shownTime = (dlg.querySelector('#time-of-day-container input, ytcp-datetime-picker tp-yt-paper-input input')?.value || '').trim();
+    const shownDate = (dlg.querySelector(SEL.datePickerTrigger)?.textContent || trigger.textContent || '').trim();
+    const shownTime = (dlg.querySelector(SEL.timeInput)?.value || '').trim();
     if (norm(shownDate) !== norm(dateText) || norm(shownTime) !== norm(timeText)) {
       return L(`Studio ไม่รับวันเวลา (ตั้ง "${dateText} ${timeText}" แต่แสดง "${shownDate} ${shownTime}")`, `Studio rejected the date/time (set "${dateText} ${timeText}" but shows "${shownDate} ${shownTime}")`);
     }
@@ -850,14 +1019,14 @@
   // ป๊อปอัปแจ้งเตือนที่ขึ้นหลังกด Save/Schedule เช่น
   // "We're still checking your content … Come back before your video is published" [Got it]
   // กดเฉพาะปุ่มรับทราบ (Got it / OK / Close) ไม่กดปุ่มที่เปลี่ยนการตัดสินใจ เช่น "Publish anyway"
-  const RE_ACK = /^(got it|ok|okay|close|dismiss|เข้าใจแล้ว|รับทราบ|ตกลง|ปิด)$/i;
+  const RE_ACK = TXT.dismissNotice;
   function ackNoticeDialogs() {
-    const main = getDialog()?.querySelector('tp-yt-paper-dialog');
+    const main = getDialog()?.querySelector(SEL.paperDialog);
     let clicked = false;
-    for (const d of document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], [role="alertdialog"]')) {
+    for (const d of document.querySelectorAll(SEL.noticeDialog)) {
       if (d === main || !isVisible(d) || d.contains(main)) continue;
       // "We're still checking your content" และ "Video uploading … Keep this browser tab open until uploading is complete"
-      if (!/still checking|checks|checking your content|before your video is published|video uploading|keep this browser tab open|once uploading|will be set to|ยังตรวจ|การตรวจสอบ|กำลังอัปโหลด/i.test(d.innerText || '')) continue;
+      if (!TXT.noticeBody.test(d.innerText || '')) continue;
       const btn = [...d.querySelectorAll('button')].find((b) => isVisible(b) && RE_ACK.test((b.textContent || '').trim()) && !b.disabled);
       if (btn) { btn.click(); clicked = true; }
     }
@@ -868,7 +1037,7 @@
   function closeAfterDialogs() {
     document
       .querySelectorAll(
-        ['ytcp-video-share-dialog', 'ytcp-uploads-still-processing-dialog', 'ytcp-prechecks-warning-dialog']
+        SEL.afterDialogs
           .map((d) => `${d} #close-button, ${d} #close-button button, ${d} button[aria-label="Close"]`).join(', ')
       )
       .forEach((b) => isVisible(b) && b.click());
@@ -877,7 +1046,7 @@
 
   // ปุ่มปิดหน้าต่างอัปโหลด (Studio ต.ค. 2026: ytcp-button#ytcp-uploads-dialog-close-button > button[aria-label=Close])
   function closeStudioUploadDialog() {
-    const b = [...(getDialog()?.querySelectorAll('#ytcp-uploads-dialog-close-button button, #ytcp-uploads-dialog-close-button, #close-button, button[aria-label="Close"], button[aria-label="ปิด"]') || [])].find(isVisible);
+    const b = [...(getDialog()?.querySelectorAll(SEL.closeDialogBtn) || [])].find(isVisible);
     if (b) b.click();
   }
 
@@ -898,9 +1067,9 @@
     const fileInput = () => {
       const dlg = getDialog();
       if (!dlg) return null;
-      const input = dlg.querySelector('ytcp-uploads-file-picker input[type=file], input[type=file][name="Filedata"], input[type=file]');
+      const input = dlg.querySelector(SEL.fileInput);
       // หน้าต่างต้องอยู่ที่หน้าจอ "เลือกไฟล์" (ไม่ใช่หน้ากรอกรายละเอียดของคลิปก่อน)
-      const pickerShown = shown(dlg.querySelector('ytcp-uploads-file-picker')) || shown(dlg.querySelector('#select-files-button'));
+      const pickerShown = shown(dlg.querySelector(SEL.filePicker)) || shown(dlg.querySelector(SEL.selectFilesBtn));
       return input && pickerShown && !detailsOpen() ? input : null;
     };
     if (fileInput()) return { input: fileInput() };
@@ -908,13 +1077,13 @@
     const steps = [];
     // (2) ปุ่ม Create (ไอคอนกล้อง/บวก มุมขวาบน)
     const create = [...document.querySelectorAll(
-      '#create-icon, ytcp-button#create-icon, ytcp-icon-button#create-icon, button[aria-label="Create"], button[aria-label="สร้าง"], ytcp-button[aria-label="Create"], ytcp-button[aria-label="สร้าง"]'
+      SEL.createButton
     )].find(shown);
     if (create) {
       (create.querySelector('button') || create).click();
       const item = await waitFor(() =>
-        byText('tp-yt-paper-item, ytcp-text-menu [role="menuitem"], [role="menuitem"]', /^(upload videos?|อัปโหลดวิดีโอ)$/i) ||
-        [...document.querySelectorAll('tp-yt-paper-item#text-item-0, #text-item-0')].find(shown), 4000);
+        byText(SEL.menuItem, TXT.uploadVideos) ||
+        [...document.querySelectorAll(SEL.firstMenuItem)].find(shown), 4000);
       if (item) {
         item.click();
         const input = await waitFor(fileInput, 10000);
@@ -927,8 +1096,8 @@
     } else steps.push(L('ไม่เจอปุ่ม Create', 'Create button not found'));
 
     // (3) ปุ่ม Upload ในหน้า Dashboard / Content
-    const up = [...document.querySelectorAll('#upload-icon, #upload-button, ytcp-button#upload-button, ytcp-icon-button#upload-icon')].find(shown) ||
-      byText('ytcp-button, button', /^(upload videos?|อัปโหลดวิดีโอ)$/i);
+    const up = [...document.querySelectorAll(SEL.uploadMenuButton)].find(shown) ||
+      byText(SEL.buttonLoose, TXT.uploadVideos);
     if (up) {
       (up.querySelector('button') || up).click();
       const input = await waitFor(fileInput, 10000);
@@ -945,7 +1114,7 @@
   // ถือว่าสำเร็จเมื่อหน้าต่างออกจากหน้าจอ "เลือกไฟล์" (ขึ้นหน้ากรอกรายละเอียด / แถบอัปโหลด / ข้อความผิดพลาด)
   async function injectUploadFile(input, file) {
     const dlg = getDialog();
-    const picker = () => dlg.querySelector('ytcp-uploads-file-picker');
+    const picker = () => dlg.querySelector(SEL.filePicker);
     const accepted = () => detailsOpen() || !!dialogError() || !shown(picker());
     const makeDT = () => {
       const dt = new DataTransfer();
@@ -960,11 +1129,11 @@
         inp.files = makeDT().files;
         inp.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
         if (await waitFor(accepted, 5000)) return true;
-        if (/invalid file format|รูปแบบไฟล์ไม่ถูกต้อง/i.test(dlg.innerText || '')) return true; // Studio รับแล้วแต่ไฟล์ใช้ไม่ได้ -> แจ้งด้วย dialogError
+        if (TXT.invalidFormat.test(dlg.innerText || '')) return true; // Studio รับแล้วแต่ไฟล์ใช้ไม่ได้ -> แจ้งด้วย dialogError
       }
 
       // วิธีที่ 2
-      const zone = picker()?.querySelector('#content') || picker() || dlg;
+      const zone = picker()?.querySelector(SEL.pickerDropZone) || picker() || dlg;
       const r = zone.getBoundingClientRect();
       const base = { bubbles: true, cancelable: true, composed: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
       for (const type of ['dragenter', 'dragover', 'drop']) {
@@ -998,15 +1167,27 @@
       thumbTags: [...new Set(all.map((e) => e.tagName.toLowerCase()).filter((t) => /thumb|still/.test(t)))],
       thumbIds: all.filter((e) => /thumb|still/i.test(e.id)).slice(0, 15).map(desc),
       thumbButtons: all.filter((e) => /^(button|ytcp-button|tp-yt-paper-button)$/i.test(e.tagName) &&
-        /upload|thumbnail|ภาพปก|ภาพขนาดย่อ|อัปโหลดไฟล์/i.test((e.getAttribute('aria-label') || '') + ' ' + (e.textContent || ''))).slice(0, 10).map(desc),
-      thumbImgs: all.filter((e) => e.tagName === 'IMG' && e.closest(THUMB_AREA)).slice(0, 8).map((i) => ({ path: path(i), src: String(i.src).slice(0, 40) })),
-      areaFound: !!dlg.querySelector(THUMB_AREA),
+        TXT.thumbButton.test((e.getAttribute('aria-label') || '') + ' ' + (e.textContent || ''))).slice(0, 10).map(desc),
+      thumbImgs: all.filter((e) => e.tagName === 'IMG' && e.closest(SEL.thumbArea)).slice(0, 8).map((i) => ({ path: path(i), src: String(i.src).slice(0, 40) })),
+      areaFound: !!dlg.querySelector(SEL.thumbArea),
+      selectors: checkSelectors(),
     };
   }
 
   // ข้อความสถานะการอัปโหลดในหน้าต่าง เช่น "Uploading 45% … 3 minutes left" / "Upload complete"
+  // selector ตัวไหนใน SEL หาไม่เจอแล้ว (ใช้ตอน Studio เปลี่ยนโครงหน้า — ส่งรายชื่อนี้ให้ผู้พัฒนา)
+  function checkSelectors() {
+    const out = { missing: [], broken: [] };
+    for (const [k, v] of Object.entries(SEL)) {
+      for (const sel of typeof v === 'function' ? [v('on')] : [].concat(v)) {
+        try { if (!document.querySelector(sel)) out.missing.push(k); } catch (e) { out.broken.push(k); }
+      }
+    }
+    return out;
+  }
+
   function uploadProgressText() {
-    const el = getDialog()?.querySelector('ytcp-video-upload-progress, .progress-label, ytcp-video-upload-progress-hover');
+    const el = getDialog()?.querySelector(SEL.uploadProgress);
     return el ? (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '';
   }
 
@@ -1014,9 +1195,9 @@
   function getChannel() {
     const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const id = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1] || (W.ytcfg && W.ytcfg.get('CHANNEL_ID')) || '';
-    const nameEl = document.querySelector('ytcp-navigation-drawer #entity-name, #entity-name');
+    const nameEl = document.querySelector(SEL.channelName);
     const imgEl = document.querySelector(
-      'ytcp-navigation-drawer #avatar img, ytcp-navigation-drawer img.image-thumbnail, ytcp-navigation-drawer img, #avatar-btn img'
+      SEL.channelAvatar
     );
     return { id, name: nameEl ? nameEl.textContent.trim() : '', avatar: imgEl && imgEl.src ? imgEl.src : '' };
   }
@@ -1125,7 +1306,14 @@
     const start = new Date(settings.schedule.start).getTime();
     if (!start) return null;
     const k = queue.filter((x) => ['pending', 'uploading', 'review'].includes(x.status) && !(x.publishEdited && x.publishAt)).indexOf(it);
-    return k < 0 ? null : start + k * stepMs();
+    if (k < 0) return null;
+    // คิวยาวจนช่องเวลาของคลิปนี้เลยไปแล้ว (เน็ตช้า / คลิปใหญ่) -> เลื่อนไปช่องถัดไปที่ยังตั้งเวลาได้
+    // แทนที่จะ error ทิ้งคลิปนั้นไป · เวลาที่เลื่อนแล้วจะโชว์บนการ์ดและในสรุปตามจริง
+    const step = stepMs();
+    let at = start + k * step;
+    const floor = Date.now() + SCHEDULE_MIN_LEAD;
+    if (at < floor) at += Math.ceil((floor - at) / step) * step;
+    return at;
   }
   const scheduleProblem = (at) => (at && at < Date.now() + SCHEDULE_MIN_LEAD ? L('เวลาปล่อยต้องอยู่ในอนาคตอย่างน้อย 15 นาที', 'Release time must be at least 15 minutes in the future') : '');
   const fmtWhen = (ms) =>
@@ -1218,7 +1406,7 @@
       await sleep(600);
       // ปุ่ม Save/Schedule: ytcp-button#done-button > button (กดตัว button ข้างใน)
       const done = await waitFor(() => {
-        const host = getDialog()?.querySelector('#done-button');
+        const host = getDialog()?.querySelector(SEL.doneButton);
         const b = host && (host.querySelector('button') || host);
         return isVisible(host) && !host.hasAttribute('disabled') && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && b;
       }, 20000);
@@ -1262,7 +1450,7 @@
 
   // รหัสวิดีโอจากลิงก์ในหน้าต่างอัปโหลด (youtu.be/xxxx)
   function dialogVideoId() {
-    const a = getDialog()?.querySelector('ytcp-video-info a[href*="youtu"], .video-url-fadeable a[href*="youtu"], a[href*="youtu.be/"]');
+    const a = getDialog()?.querySelector(SEL.videoLink);
     const m = a && a.href.match(/(?:youtu\.be\/|\/video\/|[?&]v=|\/shorts\/)([\w-]{11})/);
     return m ? m[1] : '';
   }
@@ -1331,7 +1519,7 @@
           it.draftId = it.draftId || dialogVideoId();
           setItem(it, 'error', e.message + (it.draftId ? L(` · ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ลบใน Content ก่อนกดลองใหม่ จะได้ไม่ซ้ำ`, ` · The file is already uploaded as a draft (${it.draftId}). Delete it in Content before retrying to avoid duplicates`) : ''));
           closeStudioUploadDialog();
-          if (/limit|ขีดจำกัด|daily/i.test(e.message)) break;
+          if (TXT.uploadLimit.test(e.message)) break;
         }
         if (!stopReq && queue.some((i) => i.status === 'pending')) await sleep(settings.delay * 1000);
       }
@@ -1349,7 +1537,7 @@
     (e) => {
       const t = e.target;
       if (!settings.intercept || !(t instanceof HTMLInputElement) || t.type !== 'file') return;
-      if (!t.closest('ytcp-uploads-dialog') || t.files.length < 2) return;
+      if (!t.closest(SEL.dialog) || t.files.length < 2) return;
       e.stopImmediatePropagation();
       addFiles(t.files);
       t.value = '';
@@ -1361,7 +1549,7 @@
   document.addEventListener(
     'drop',
     (e) => {
-      if (injectingFile || !settings.intercept || !e.target.closest?.('ytcp-uploads-dialog')) return;
+      if (injectingFile || !settings.intercept || !e.target.closest?.(SEL.dialog)) return;
       const files = e.dataTransfer?.files;
       if (!files || files.length < 2) return;
       e.preventDefault();
@@ -1801,6 +1989,7 @@
     #ytp-root .tbx-ok{color:var(--ok)} #ytp-root .tbx-warn{color:var(--warn)} #ytp-root .tbx-err{color:var(--err)}
     #ytp-root .tbx-note{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:12px;line-height:1.55}
     #ytp-root .tbx-note.tbx-err{background:color-mix(in srgb,var(--err) 9%,var(--bg));border-color:color-mix(in srgb,var(--err) 40%,var(--line));margin:0 0 12px}
+    #ytp-root .tbx-note.tbx-warn{background:color-mix(in srgb,var(--warn) 10%,var(--bg));border-color:color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn)}
     #ytp-root .mut{color:var(--fg3);font-size:12px}
     #ytp-root #tbx-modal{position:fixed;inset:0;z-index:100003;background:rgba(5,5,10,.55);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center}
     #ytp-root #tbx-modal .box{background:var(--bg);color:var(--fg);width:min(580px,95vw);max-height:88vh;overflow:auto;border-radius:18px;padding:20px;
@@ -2395,6 +2584,7 @@
   const pvTitle = h('div', { className: 'vtl' });
   const pvChan = h('div', { className: 'vch' });
   const pvTags = h('div', { className: 'tagline' });
+  const pvWarn = h('div', { className: 'tbx-note tbx-warn', hidden: true });
   const varChips = h('div', { className: 'chips' },
     VARS.map((v) => h('button', {
       className: 'chip var', title: L('แทรกลงช่องที่กำลังแก้', 'Insert into the field being edited'),
@@ -2506,6 +2696,11 @@
     titleCnt.textContent = `${t.length}/${TITLE_MAX}`;
     titleCnt.className = 'cnt' + (t.length > TITLE_MAX ? ' over' : '');
     pvTags.replaceChildren(...renderTags(p, vars).map((t) => h('span', {}, t)));
+    const bad = unknownVars(p);
+    pvWarn.hidden = !bad.length;
+    if (bad.length) pvWarn.textContent = L(
+      `⚠ ไม่รู้จักตัวแปร ${bad.join(' ')} — จะขึ้นบน YouTube เป็นข้อความตรง ๆ (ดูชื่อที่ใช้ได้ที่ปุ่ม "ตัวแปร" ด้านล่าง)`,
+      `⚠ Unknown variable ${bad.join(' ')} — it will appear on YouTube as literal text (see the "Variables" buttons below for valid names)`);
   }
 
   const sec = (title, ic, ...kids) => h('div', { className: 'sec' }, h('h4', {}, icon(ic, 13), title), ...kids);
@@ -2542,6 +2737,7 @@
         h('div', { className: 'vtx' }, pvTitle, pvChan)
       ),
       pvTags,
+      pvWarn,
       h('div', { className: 'lbl' }, h('span', {}, L('ทดลองกับไฟล์', 'Test with a file')), sampleTxtLbl),
       sampleIn,
       h('div', { className: 'hint', style: 'margin-top:6px' }, icon('clip', 13), L('ลาก .mp4 หรือ .txt จริงมาวางที่ช่องนี้เพื่อดูผลลัพธ์', 'Drop a real .mp4 or .txt here to preview the result'))
@@ -2590,6 +2786,7 @@
   // ค่าส่วนตัว (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP) ส่งออกไปด้วยเพื่อใช้สำรอง
   // แต่ตอนนำเข้าจะใช้ก็ต่อเมื่อผู้ใช้ยืนยันว่าเป็นไฟล์ของตัวเอง
   const BACKUP_APP = 'yt-upload-presets';
+  const BACKUP_FORMAT = 1; // ขยับเลขนี้เมื่อโครงไฟล์สำรองเปลี่ยนจนรุ่นเก่าอ่านไม่ครบ
   const PERSONAL_SETTINGS = ['producer', 'schedule'];
   const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
   const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
@@ -2615,7 +2812,7 @@
   function exportBackup() {
     const { lockChannel, lang, ...rest } = settings;
     const data = {
-      app: BACKUP_APP, format: 1, version: GM_info.script.version, exportedAt: new Date().toISOString(),
+      app: BACKUP_APP, format: BACKUP_FORMAT, version: GM_info.script.version, exportedAt: new Date().toISOString(),
       presets, activeId, counters, settings: rest, claimsCfg: load('cfg', {}),
     };
     const d = new Date();
@@ -2633,12 +2830,16 @@
     try { data = JSON.parse(await file.text()); } catch { return toast(L('อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ .json ที่ส่งออกจากสคริปต์นี้', 'Can\'t read the file — it must be a .json file exported from this script')); }
     const newPresets = data?.app === BACKUP_APP ? cleanPresets(data.presets) : null;
     if (!newPresets) return toast(L('ไฟล์นี้ไม่ใช่ไฟล์สำรองของ YouTube Upload Presets หรือข้อมูลเสียหาย', 'This is not a YouTube Upload Presets backup file, or it is damaged'));
+    const fmt = Number(data.format) || 1;
+    if (fmt > BACKUP_FORMAT) return toast(L(
+      `ไฟล์สำรองนี้มาจากสคริปต์เวอร์ชันใหม่กว่า (format ${fmt}) — อัปเดตสคริปต์ก่อนแล้วนำเข้าอีกครั้ง`,
+      `This backup is from a newer version of the script (format ${fmt}) — update the script first, then import again`));
     const names = newPresets.map((p) => p.label).join(', ');
     if (!confirm(L(`นำเข้าพรีเซ็ต ${newPresets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน) แล้วหน้าจะรีโหลด`, `Import ${newPresets.length} presets (${names}) and settings?\n\nExisting presets and settings on this device will be replaced (locked channel and language stay unchanged) and the page will reload.`))) return;
     const own = confirm(L(
       'เป็นไฟล์สำรองของช่องคุณเองไหม?\n\nOK = ใช่ นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nCancel = ไฟล์ของคนอื่น นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน',
       'Is this a backup of your own channel?\n\nOK = yes, also import personal values (producer name, schedule, your own artist names, EP numbers)\nCancel = someone else\'s file: import only presets and general settings, your personal values stay unchanged'));
-    save('presets', newPresets);
+    save('presets', fixLegacyTrapsoulTitles(newPresets));
     save('activeId', newPresets.some((p) => p.id === data.activeId) ? data.activeId : newPresets[0].id);
     if (isObj(data.settings)) {
       const next = { ...settings };
@@ -2799,8 +3000,7 @@
 
     const visible = (el) => !!el && (el.offsetParent !== null ||
       (el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none'));
-    const CLICKABLE = 'button, ytcp-button, tp-yt-paper-button, [role="button"], ytcp-button-shape button';
-    const findText = (re, sel = CLICKABLE, rootEl = document) =>
+    const findText = (re, sel = SEL.clickable, rootEl = document) =>
       [...rootEl.querySelectorAll(sel)].filter((el) => visible(el) && re.test(el.innerText.trim()));
     const isDisabled = (el) =>
       el.disabled || el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true' ||
@@ -2821,7 +3021,31 @@
     }
     const channelName = () => chanLabel(getChannel()) || currentChannel();
     const chGet = (name, def, ch = currentChannel()) => load(name + ':' + ch, def);
-    const chSet = (name, val, ch = currentChannel()) => save(name + ':' + ch, val);
+    const chSet = (name, val, ch = currentChannel()) => { invalidateCounts(); return save(name + ':' + ch, val); };
+
+    /* ---------- ตัวเลขที่เอาไปโชว์ (claimScan / songHistory เป็นก้อนใหญ่ อ่านทุก tick ไม่ไหว) ---------- */
+    // tick วิ่งทุก 0.8 วินาที -> อ่าน storage ใหม่เมื่อหมดอายุ หรือเมื่อมีการเขียนทับ (chSet / setSongs)
+    const COUNTS_TTL = 3000;
+    let countsAt = 0;
+    let countsCache = null;
+    function invalidateCounts() { countsAt = 0; }
+    function getCounts() {
+      if (countsCache && Date.now() - countsAt < COUNTS_TTL) return countsCache;
+      const scan = chGet('claimScan', null);
+      const adsScan = chGet('adsScan', null);
+      const adsResults = chGet('adsResults', {});
+      countsCache = {
+        hasScan: !!scan,
+        scanDate: scan ? scan.date : '',
+        claims: scan ? scan.rows.length : 0,
+        claimVideos: scan ? new Set(scan.rows.map((r) => r.videoId)).size : 0,
+        songs: Object.keys(getSongs()).length,
+        hasAdsScan: !!adsScan,
+        adsTodo: adsScan ? adsScan.rows.filter((r) => !(adsResults[r.videoId] || {}).state).length : 0,
+      };
+      countsAt = Date.now();
+      return countsCache;
+    }
 
     async function authHeader() {
       const m = document.cookie.match(/(?:^|; )(?:SAPISID|__Secure-3PAPISID)=([^;]+)/);
@@ -3190,12 +3414,15 @@
         return id;
       } catch (e) { return Math.random().toString(36).slice(2); }
     })();
+    const LEASE_STALE = 20000; // ไม่ต่ออายุเกินเท่านี้ = ถือว่าแท็บนั้นปิดไปแล้ว แท็บอื่นยึดงานต่อได้
+    const LEASE_RENEW = 5000; // ต่ออายุทุก ๆ เท่านี้ (ไม่ต้องเขียนทุก tick — เดิมเขียนลง storage ~75 ครั้ง/นาที)
     function isWorker(force = false) {
       const key = 'tabLock:' + currentChannel();
       const l = load(key, null);
       const now = Date.now();
-      if (force || !l || l.id === TAB_ID || now - l.ts > 20000) {
-        save(key, { id: TAB_ID, ts: now });
+      const mine = !!l && l.id === TAB_ID;
+      if (force || !l || mine || now - l.ts > LEASE_STALE) {
+        if (!mine || now - l.ts > LEASE_RENEW) save(key, { id: TAB_ID, ts: now });
         return true;
       }
       return false;
@@ -3204,7 +3431,7 @@
     /* ---------- ประวัติเพลงที่โดน claim (ทุกช่อง) ---------- */
     const songNorm = (t) => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim();
     const getSongs = () => load('songHistory', {});
-    const setSongs = (v) => save('songHistory', v);
+    const setSongs = (v) => { invalidateCounts(); save('songHistory', v); };
 
     function recordSongs(rows, chName) {
       const db = getSongs();
@@ -3542,33 +3769,33 @@
     async function adsOne(item) {
       if (await adsIsOn(item.videoId)) return setAdsResult(item, 'on', L('เปิดอยู่แล้ว', 'Already on'));
       setAdsStage(1, L('กด "Edit video monetisation status"…', 'Clicking "Edit video monetisation status"…'));
-      const box = await waitFor(() => { const b = document.querySelector('ytcp-video-monetization'); return b && visible(b) ? b : null; }, 25000);
+      const box = await waitFor(() => { const b = document.querySelector(SEL.monetBox); return b && visible(b) ? b : null; }, 25000);
       if (!box) throw new Error(L('ไม่พบส่วนการสร้างรายได้ในหน้า', 'Monetisation section not found on the page'));
       await sleep(2500);
       let on = null;
       for (let i = 0; i < 4 && !on; i++) {
-        const edit = [...box.querySelectorAll('ytcp-icon-button, button')].find((b) => visible(b) &&
-          /moneti[sz]ation status/i.test(b.getAttribute('aria-label') || '')) || box.querySelector('ytcp-icon-button');
+        const edit = [...box.querySelectorAll(SEL.iconOrButton)].find((b) => visible(b) &&
+          TXT.monetStatus.test(b.getAttribute('aria-label') || '')) || box.querySelector(SEL.iconButton);
         if (!edit) throw new Error(L('ไม่พบปุ่ม "Edit video monetisation status"', '"Edit video monetisation status" button not found'));
         edit.click();
-        on = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-radio-button#radio-on, tp-yt-paper-radio-button[name="ON"]')].find(visible), 3000);
+        on = await waitFor(() => [...document.querySelectorAll(SEL.radioOn)].find(visible), 3000);
         if (!on) await sleep(1500);
       }
       if (!on) throw new Error(L('ตัวเลือก On / Off ไม่เปิดขึ้นมา', 'On / Off options did not open'));
       setAdsStage(2, L('เลือก "On"…', 'Selecting "On"…'));
       on.click();
       await sleep(600);
-      const pop = on.closest('tp-yt-paper-dialog') || document;
-      const nextBtn = await waitFor(() => [...pop.querySelectorAll('button')].find((b) => visible(b) && /^(Next|Done)$/i.test(b.innerText.trim()) && !isDisabled(b)), 5000);
+      const pop = on.closest(SEL.paperDialog) || document;
+      const nextBtn = await waitFor(() => [...pop.querySelectorAll('button')].find((b) => visible(b) && TXT.nextOrDone.test(b.innerText.trim()) && !isDisabled(b)), 5000);
       if (nextBtn) nextBtn.click();
-      const qDlg = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-dialog')].find((d) => visible(d) && /Tell us what.s in your video/i.test(d.innerText)), 6000);
+      const qDlg = await waitFor(() => [...document.querySelectorAll(SEL.paperDialog)].find((d) => visible(d) && TXT.tellUsWhats.test(d.innerText)), 6000);
       if (qDlg) {
         setAdsStage(3, L('คำถามความเหมาะสม: ติ๊ก "None of the above"…', 'Ad suitability questions: ticking "None of the above"…'));
-        const submitBtn = () => [...qDlg.querySelectorAll('button')].find((b) => visible(b) && /^Submit$/i.test(b.innerText.trim()));
+        const submitBtn = () => [...qDlg.querySelectorAll('button')].find((b) => visible(b) && TXT.submit.test(b.innerText.trim()));
         const inner = qDlg.querySelector('[role="checkbox"][aria-label="None of the above"]') ||
-          deepAll(qDlg, '[role="checkbox"]').find((e) => /None of the above/i.test(e.getAttribute('aria-label') || ''));
+          deepAll(qDlg, '[role="checkbox"]').find((e) => TXT.noneOfAbove.test(e.getAttribute('aria-label') || ''));
         if (!inner) throw new Error(L('ไม่พบ "None of the above" ในคำถาม', '"None of the above" not found in the questions'));
-        const host = inner.closest('ytcp-checkbox-lit') || inner;
+        const host = inner.closest(SEL.checkboxLit) || inner;
         if (inner.getAttribute('aria-checked') !== 'true') host.click();
         let ready = await waitFor(() => { const b = submitBtn(); return b && !isDisabled(b) ? b : null; }, 3000);
         if (!ready && inner.getAttribute('aria-checked') !== 'true') { inner.click(); ready = await waitFor(() => { const b = submitBtn(); return b && !isDisabled(b) ? b : null; }, 3000); }
@@ -3579,11 +3806,11 @@
         await sleep(800);
       }
       setAdsStage(3, L('กด Save…', 'Clicking Save…'));
-      const saveHost = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && visible(x) && !isDisabled(x) ? x : null; }, 10000);
+      const saveHost = await waitFor(() => { const x = document.querySelector(SEL.studioSaveHost); return x && visible(x) && !isDisabled(x) ? x : null; }, 10000);
       if (!saveHost) throw new Error(L('ปุ่ม Save ไม่พร้อม', 'Save button not ready'));
       (saveHost.querySelector('button') || saveHost).click();
-      const saved = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && isDisabled(x); }, 20000);
-      const extra = [...document.querySelectorAll('tp-yt-paper-dialog')].find((d) => visible(d));
+      const saved = await waitFor(() => { const x = document.querySelector(SEL.studioSaveHost); return x && isDisabled(x); }, 20000);
+      const extra = [...document.querySelectorAll(SEL.paperDialog)].find((d) => visible(d));
       if (!saved && extra) throw new Error(L('YouTube ถามเพิ่มหลัง Save: "', 'YouTube asked more after Save: "') + extra.innerText.replace(/\s+/g, ' ').slice(0, 120) + L('" — ทำคลิปนี้ด้วยมือ', '" — do this video manually'));
       setAdsStage(4, L('ตรวจกับ YouTube ว่าเปิดโฆษณาแล้ว…', 'Checking with YouTube that ads are on…'));
       let okNow = false;
@@ -3730,7 +3957,7 @@
         return;
       }
       try {
-        const page = await waitFor(() => { const p = document.querySelector('ytcp-video-details-section'); return p && visible(p) ? p : null; }, 25000);
+        const page = await waitFor(() => { const p = document.querySelector(SEL.detailsSection); return p && visible(p) ? p : null; }, 25000);
         if (!page) throw new Error(L('ไม่พบหน้ารายละเอียดคลิป', 'Video details page not found'));
         await sleep(2000);
         setCollabStage(1, L(`เชิญ ${run.handles.join(', ')}…`, `Inviting ${run.handles.join(', ')}…`));
@@ -3739,10 +3966,10 @@
           chSet('collabLinks', Object.assign(collabLinks(), Object.fromEntries(r.links.map((x) => [x.handle, x.link]))));
           setCollabStage(2, L('กด Save…', 'Clicking Save…'));
           // หน้าแก้ไขคลิป: ปุ่ม Save ของหน้าอาจเปิดให้กดช้า — รอสูงสุด 8 วิ (ถ้าไม่เปิดเลย = หน้าต่างเชิญบันทึกให้แล้ว)
-          const sv = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && visible(x) && !isDisabled(x) ? x : null; }, 8000);
+          const sv = await waitFor(() => { const x = document.querySelector(SEL.studioSaveHost); return x && visible(x) && !isDisabled(x) ? x : null; }, 8000);
           if (sv) {
             (sv.querySelector('button') || sv).click();
-            const saved = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && isDisabled(x); }, 20000);
+            const saved = await waitFor(() => { const x = document.querySelector(SEL.studioSaveHost); return x && isDisabled(x); }, 20000);
             if (!saved) throw new Error(L('กด Save ของหน้าแล้วแต่ยังไม่บันทึก', 'Clicked the page Save but it did not save'));
           }
         }
@@ -4020,13 +4247,13 @@
     /* ---------- ยืนยัน "Confirm changes" ---------- */
     let confirmClickedAt = 0;
     document.addEventListener('click', (e) => {
-      const b = e.target && e.target.closest && e.target.closest('button, ytcp-button');
-      if (b && /^Confirm changes$/i.test((b.innerText || '').trim())) confirmClickedAt = Date.now();
+      const b = e.target && e.target.closest && e.target.closest(SEL.buttonOrYtcp);
+      if (b && TXT.confirmChanges.test((b.innerText || '').trim())) confirmClickedAt = Date.now();
     }, true);
     function findConfirmDialog() {
-      return [...document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"]')].find((d) =>
-        visible(d) && /Confirm changes/i.test(d.innerText) && /acknowledge/i.test(d.innerText) &&
-        !d.querySelector('tp-yt-paper-dialog, [role="dialog"]')) || null;
+      return [...document.querySelectorAll(SEL.anyDialog)].find((d) =>
+        visible(d) && TXT.confirmChangesLoose.test(d.innerText) && TXT.acknowledge.test(d.innerText) &&
+        !d.querySelector(SEL.nestedDialog)) || null;
     }
     function deepAll(rootEl, sel, out = []) {
       rootEl.querySelectorAll(sel).forEach((e) => out.push(e));
@@ -4047,12 +4274,12 @@
       if (approving) return false;
       approving = true;
       try {
-        const confirmBtn = () => [...dlg.querySelectorAll('button')].find((b) => visible(b) && /^Confirm changes$/i.test(b.innerText.trim()));
+        const confirmBtn = () => [...dlg.querySelectorAll('button')].find((b) => visible(b) && TXT.confirmChanges.test(b.innerText.trim()));
         const ready = () => { const b = confirmBtn(); return b && !isDisabled(b) ? b : null; };
         if (!ready()) {
-          const host = dlg.querySelector('ytcp-checkbox-lit, tp-yt-paper-checkbox, ytcp-checkbox');
+          const host = dlg.querySelector(SEL.checkboxHost);
           const inner = deepAll(dlg, '[role="checkbox"], input[type="checkbox"], #checkbox').find(visible);
-          const label = [...dlg.querySelectorAll('*')].find((e) => e.childElementCount === 0 && /I acknowledge/i.test(e.textContent));
+          const label = [...dlg.querySelectorAll('*')].find((e) => e.childElementCount === 0 && TXT.acknowledgeFull.test(e.textContent));
           const tries = [
             () => host && host.click(),
             () => inner && inner.click(),
@@ -4071,7 +4298,7 @@
         }
         const btn = await waitFor(ready, 3000);
         if (!btn) {
-          const info = deepAll(dlg, '[role="checkbox"], input[type="checkbox"], ytcp-checkbox-lit').map((e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '')).join(', ');
+          const info = deepAll(dlg, SEL.checkboxAny).map((e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '')).join(', ');
           log(L('ติ๊ก "I acknowledge" ไม่ได้ — ติ๊กเองด้วยมือ (เจอ: ', 'Couldn\'t tick "I acknowledge" — tick it manually (found: ') + (info || L('ไม่มี checkbox', 'no checkbox')) + ')', 'err');
           return false;
         }
@@ -4110,9 +4337,9 @@
       trimBusy = false;
     }
 
-    const closeDialogs = () => document.querySelectorAll('tp-yt-paper-dialog').forEach((d) => {
+    const closeDialogs = () => document.querySelectorAll(SEL.paperDialog).forEach((d) => {
       if (!visible(d)) return;
-      const c = [...d.querySelectorAll('button')].find((b) => visible(b) && /^(Cancel|Close)$/i.test(b.innerText.trim()));
+      const c = [...d.querySelectorAll('button')].find((b) => visible(b) && TXT.cancelOrClose.test(b.innerText.trim()));
       c && c.click();
     });
 
@@ -4147,34 +4374,34 @@
 
       setTrimStage(2, L('หา claim ในหน้าแล้วกด "Take action"…', 'Finding the claim on the page and clicking "Take action"…'));
       const rows = await waitFor(() => {
-        const r = [...document.querySelectorAll('ytcr-video-content-list-row')].filter(visible);
+        const r = [...document.querySelectorAll(SEL.claimRow)].filter(visible);
         return r.length ? r : null;
       }, 25000);
       if (!rows) throw new Error(L('รายการ claim ไม่โหลด', 'Claim list did not load'));
       const row = pickRow(rows, allClaims, claim, song);
       if (!row) throw new Error(L(`แยกไม่ออกว่าแถวไหนใน ${rows.length} claim คือ "${song || 'claim นี้'}" — ทำด้วยมือ`, `Can't tell which of the ${rows.length} claim rows is "${song || 'this claim'}" — do it manually`));
-      const take = [...row.querySelectorAll('button')].find((b) => visible(b) && /^Take action$/i.test(b.innerText.trim()));
+      const take = [...row.querySelectorAll('button')].find((b) => visible(b) && TXT.takeAction.test(b.innerText.trim()));
       if (!take) throw new Error(L('ไม่มีปุ่ม "Take action" สำหรับ claim นี้', 'No "Take action" button for this claim'));
       take.click();
 
-      const leaf = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-dialog *')].find((e) =>
-        visible(e) && e.childElementCount === 0 && /^Trim out segment$/i.test(e.textContent.trim())), 8000);
+      const leaf = await waitFor(() => [...document.querySelectorAll(`${SEL.paperDialog} *`)].find((e) =>
+        visible(e) && e.childElementCount === 0 && TXT.trimOutSegment.test(e.textContent.trim())), 8000);
       if (!leaf) { closeDialogs(); throw new Error(L('ไม่มีตัวเลือก "Trim out segment"', 'No "Trim out segment" option')); }
       const opt = leaf.closest('button') || leaf;
       if (isDisabled(opt)) { closeDialogs(); throw new Error(L('Trim ถูกปิดสำหรับ claim นี้', 'Trim is disabled for this claim')); }
       opt.click();
-      const cont = await waitFor(() => findText(/^Continue$/i).find((b) => b.tagName === 'BUTTON' && !isDisabled(b)), 5000);
+      const cont = await waitFor(() => findText(TXT.continueBtn).find((b) => b.tagName === 'BUTTON' && !isDisabled(b)), 5000);
       if (!cont) { closeDialogs(); throw new Error(L('ปุ่ม Continue กดไม่ได้', 'Continue button is disabled')); }
       cont.click();
 
       setTrimStage(3, L('เปิดหน้าตัด…', 'Opening the trim editor…'));
       const dlg = await waitFor(() => {
-        const d = document.querySelector('ytcr-editing-tool-dialog');
-        return d && visible(d.querySelector('#continue-button')) ? d : null;
+        const d = document.querySelector(SEL.trimDialog);
+        return d && visible(d.querySelector(SEL.trimContinue)) ? d : null;
       }, 20000);
       if (!dlg) { closeDialogs(); throw new Error(L('หน้าตัดไม่เปิด', 'Trim editor did not open')); }
-      const times = (dlg.innerText.match(/Start time\s*([\d:]+)[\s\S]*?End time\s*([\d:]+)/) || []).slice(1).join('–');
-      const saveBtn = dlg.querySelector('#continue-button button') || dlg.querySelector('#continue-button');
+      const times = (dlg.innerText.match(TXT.trimTimes) || []).slice(1).join('–');
+      const saveBtn = dlg.querySelector(`${SEL.trimContinue} button`) || dlg.querySelector(SEL.trimContinue);
       let saveAt = 0;
       saveBtn.addEventListener('click', () => { saveAt = Date.now(); }, { capture: true });
 
@@ -4203,14 +4430,14 @@
             await approveConfirm(cd);
           } else setTrimStage(5, L('👉 ตาคุณ: ติ๊ก "I acknowledge" แล้วกด "Confirm changes"', '👉 Your turn: tick "I acknowledge" and click "Confirm changes"'));
         }
-        const open = visible(dlg.querySelector('tp-yt-paper-dialog')) || visible(dlg.querySelector('#continue-button')) || findConfirmDialog();
+        const open = visible(dlg.querySelector(SEL.paperDialog)) || visible(dlg.querySelector(SEL.trimContinue)) || findConfirmDialog();
         if (!open) break;
         if (mode === 'auto' && Date.now() - t0 > 90000) throw new Error(L('ยืนยันการตัดไม่เสร็จภายใน 90 วินาที', 'Trim confirmation did not finish within 90 seconds'));
       }
       const saved = !!saveAt && confirmClickedAt >= saveAt;
       if (saved) {
-        const extra = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-dialog')].filter(visible)
-          .map((d) => [...d.querySelectorAll('button')].find((b) => visible(b) && !isDisabled(b) && /^(OK|Got it|Done|Close)$/i.test(b.innerText.trim())))
+        const extra = await waitFor(() => [...document.querySelectorAll(SEL.paperDialog)].filter(visible)
+          .map((d) => [...d.querySelectorAll('button')].find((b) => visible(b) && !isDisabled(b) && TXT.okOrGotIt.test(b.innerText.trim())))
           .find(Boolean), 3000);
         if (extra) extra.click();
       }
@@ -4276,10 +4503,9 @@
       }
       const ap = getAP();
       if (ap.on) return { icon: '🤖', kind: 'ok', title: L('Auto-pilot เปิดอยู่', 'Auto-pilot is on'), detail: uploadBusy() ? L('⏸ รอคิวอัปโหลดเสร็จ', '⏸ Waiting for the upload queue to finish') : L(`สแกน + ตัดครั้งถัดไปในอีก ${dur((ap.next || 0) - Date.now())}`, `Next scan + trim in ${dur((ap.next || 0) - Date.now())}`) };
-      const scan = chGet('claimScan', null);
-      if (scan) {
-        const vids = new Set(scan.rows.map((r) => r.videoId)).size;
-        return { icon: '✓', kind: 'idle', title: L('พร้อม', 'Ready'), detail: L(`สแกนล่าสุด ${dur(Date.now() - new Date(scan.date).getTime())} ที่แล้ว: ${scan.rows.length} claim ใน ${vids} คลิป`, `Last scan ${dur(Date.now() - new Date(scan.date).getTime())} ago: ${scan.rows.length} claims in ${vids} videos`) };
+      const n = getCounts();
+      if (n.hasScan) {
+        return { icon: '✓', kind: 'idle', title: L('พร้อม', 'Ready'), detail: L(`สแกนล่าสุด ${dur(Date.now() - new Date(n.scanDate).getTime())} ที่แล้ว: ${n.claims} claim ใน ${n.claimVideos} คลิป`, `Last scan ${dur(Date.now() - new Date(n.scanDate).getTime())} ago: ${n.claims} claims in ${n.claimVideos} videos`) };
       }
       return { icon: '✓', kind: 'idle', title: L('พร้อม', 'Ready'), detail: L('กด "สแกน claim" เพื่อเช็กช่องนี้', 'Click "Scan claims" to check this channel') };
     }
@@ -4327,6 +4553,7 @@
         h('div', { className: 'sec' }, h('div', { className: 'row' }, h('b', { style: 'flex:1' }, L('กิจกรรม', 'Activity')), UI.logBtn), logBox));
     }
 
+    let lastStatusSig = '';
     function renderStatus() {
       if (!UI.card) return;
       const s = computeStatus();
@@ -4335,6 +4562,14 @@
       const crun = getCollabRun();
       const busyRun = !!(run && run.active) || !!(arun && arun.active) || !!(crun && crun.active);
       const busyScan = scanning || adsScanning || collabScanning;
+      const n = getCounts();
+      const ap = getAP();
+      const c = cfg();
+      const waiting = fuCount();
+      // tick เรียกทุก 0.8 วินาที — ถ้าไม่มีอะไรเปลี่ยน ก็ไม่ต้องสร้าง DOM ใหม่
+      const sig = JSON.stringify([s, busyRun, busyScan, n, ap.on, c.apEveryHours, waiting, studioIsEnglish()]);
+      if (sig === lastStatusSig) return;
+      lastStatusSig = sig;
       UI.card.className = 'tbx-card ' + (s.kind || 'idle');
       const kids = [h('div', { className: 'ti' }, h('span', {}, s.icon), h('span', {}, s.title))];
       if (s.detail) kids.push(h('div', { className: 'de' }, s.detail));
@@ -4345,18 +4580,14 @@
         if (s.stepDetail) kids.push(h('div', { className: 'tbx-sd' }, s.stepDetail));
       }
       UI.card.replaceChildren(...kids);
-      const scan = chGet('claimScan', null);
-      UI.listBtn.textContent = scan ? L(`📋 รายการ claim (${scan.rows.length})`, `📋 Claim list (${scan.rows.length})`) : L('📋 รายการ claim', '📋 Claim list');
-      UI.songBtn.textContent = L(`🎵 เพลงที่เคยโดน (${Object.keys(getSongs()).length})`, `🎵 Claimed songs (${Object.keys(getSongs()).length})`);
-      const adsScan = chGet('adsScan', null);
-      UI.adsBtn.textContent = adsScan ? L(`💰 โฆษณาปิดอยู่ (${adsScan.rows.filter((r) => !(chGet('adsResults', {})[r.videoId] || {}).state).length})`, `💰 Ads off (${adsScan.rows.filter((r) => !(chGet('adsResults', {})[r.videoId] || {}).state).length})`) : L('💰 โฆษณาปิดอยู่', '💰 Ads off');
+      UI.listBtn.textContent = n.hasScan ? L(`📋 รายการ claim (${n.claims})`, `📋 Claim list (${n.claims})`) : L('📋 รายการ claim', '📋 Claim list');
+      UI.songBtn.textContent = L(`🎵 เพลงที่เคยโดน (${n.songs})`, `🎵 Claimed songs (${n.songs})`);
+      UI.adsBtn.textContent = n.hasAdsScan ? L(`💰 โฆษณาปิดอยู่ (${n.adsTodo})`, `💰 Ads off (${n.adsTodo})`) : L('💰 โฆษณาปิดอยู่', '💰 Ads off');
       UI.scanBtn.hidden = UI.adsBtn.hidden = busyRun || busyScan;
-      UI.stopBtn.hidden = !busyRun && !fuCount(); // มีคิวตัดต่อรออยู่ก็กดหยุดได้
+      UI.stopBtn.hidden = !busyRun && !waiting; // มีคิวตัดต่อรออยู่ก็กดหยุดได้
       UI.row2.hidden = busyRun || busyScan;
       UI.row1.className = busyRun ? 'tbx-grid1' : 'tbx-grid3';
-      const ap = getAP();
       UI.apTog.checked = !!ap.on;
-      const c = cfg();
       UI.apSub.textContent = ap.on ? L(`เปิด · สแกน + ตัดทุก ${c.apEveryHours} ชม.`, `On · scan + trim every ${c.apEveryHours} h`) : L('ปิด · สแกนและตัดอัตโนมัติตามรอบเวลา', 'Off · scan and trim automatically on a schedule');
       UI.lang.hidden = studioIsEnglish();
       if (tabCount.claims) tabCount.claims.textContent = busyRun ? '●' : '';
@@ -4442,8 +4673,8 @@
       const c = cfg();
       if (!running2 && /\/video\/[^/]+\/(claims|copyright)/.test(location.pathname)) {
         if (c.autoSaveManualTrim) {
-          const ed = document.querySelector('ytcr-editing-tool-dialog');
-          const sb = ed && (ed.querySelector('#continue-button button') || ed.querySelector('#continue-button'));
+          const ed = document.querySelector(SEL.trimDialog);
+          const sb = ed && (ed.querySelector(`${SEL.trimContinue} button`) || ed.querySelector(SEL.trimContinue));
           if (visible(sb) && !isDisabled(sb) && !findConfirmDialog() && !ed.__tbxSaving) {
             ed.__tbxSaving = true;
             setTimeout(() => {
@@ -4463,7 +4694,19 @@
     return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus };
   })();
   panes.claims = Claims.buildPane();
-  setInterval(() => Claims.tick(), 800);
+  let tickFailed = false;
+  setInterval(() => {
+    try {
+      Claims.tick();
+    } catch (e) {
+      console.error('[Upload Studio] tick', e);
+      if (!tickFailed) {
+        tickFailed = true; // บอกครั้งเดียว ไม่ต้องเตือนทุกรอบ
+        toast(L('⚠ ส่วนลิขสิทธิ์หยุดทำงาน: ' + e.message + ' — ลองรีโหลดหน้า',
+          '⚠ The copyright section stopped: ' + e.message + ' — try reloading the page'));
+      }
+    }
+  }, 800);
 
   document.addEventListener('keydown', (e) => {
     if (!e.altKey || e.ctrlKey || e.metaKey) return;

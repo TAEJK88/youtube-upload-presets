@@ -1,0 +1,78 @@
+// The userscript is a single IIFE that builds DOM and calls GM_* at load time, so it
+// cannot be imported. Instead we slice its pure blocks out of the source and evaluate
+// them on their own with small stubs. Anchors are checked, so moving a block fails
+// loudly here instead of silently skipping tests.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const FILE = join(dirname(fileURLToPath(import.meta.url)), '..', 'youtube-upload-presets.user.js');
+const SRC = readFileSync(FILE, 'utf8');
+const LINES = SRC.split('\n');
+
+function block(startsWith, endsBefore) {
+  const a = LINES.findIndex((l) => l.trimStart().startsWith(startsWith));
+  if (a < 0) throw new Error(`harness: block start not found: ${startsWith}`);
+  const b = LINES.findIndex((l, i) => i > a && l.trimStart().startsWith(endsBefore));
+  if (b < 0) throw new Error(`harness: block end not found: ${endsBefore}`);
+  return LINES.slice(a, b).join('\n');
+}
+
+function constLine(name) {
+  const m = SRC.match(new RegExp(`^\\s*const ${name} = .*$`, 'm'));
+  if (!m) throw new Error(`harness: const not found: ${name}`);
+  return m[0];
+}
+
+const TEMPLATE = block('// ===== template =====', '// ===== ตรวจ tracklist');
+const CHAPTERS = block('const fmtTs =', 'function videoDuration');
+const TRACKLIST = block('const parseTime =', 'function showTracklistFix');
+
+export const settings = { year: '', producer: '' };
+export const channel = { name: 'Test Channel', id: 'UCtest' };
+// the script writes every UI string as L(th, en); tests read the English side
+const L = (th, en) => en;
+
+const build = new Function(
+  'settings',
+  'getChannel',
+  'L',
+  `'use strict';
+  ${constLine('VARS')}
+  ${constLine('VIDEO_EXT')}
+  ${constLine('TITLE_MAX')}
+  ${constLine('DESC_MAX')}
+  ${TEMPLATE}
+  ${CHAPTERS}
+  ${TRACKLIST}
+  return { pad, parseTracks, buildVars, render, clean, renderTitle, makeTitle,
+           unknownVars, renderTags, renderDesc, parseTime, fixTracklist,
+           fmtTs, checkTracklist,
+           VARS, TITLE_MAX, DESC_MAX };`
+);
+
+export const S = build(settings, () => channel, L);
+
+const DEFAULTS_BLOCK = block('const DEFAULT_PRESETS = [', '];');
+const STORAGE = block('// ===== storage =====', '// ===== ย้ายข้อมูลของเวอร์ชันเก่า');
+const SCHEMA = block('// ===== ย้ายข้อมูลของเวอร์ชันเก่า', 'let presets = load(');
+
+// Runs the storage migrations against a throwaway GM store and hands back what
+// they wrote, so each test starts from a known install state.
+export function migrate(initial = {}) {
+  const store = { ...initial };
+  const run = new Function(
+    'GM_getValue',
+    'GM_setValue',
+    'console',
+    'L',
+    `'use strict';
+    ${DEFAULTS_BLOCK}
+    ];
+    ${STORAGE}
+    ${SCHEMA}
+    return { presets: load('presets', structuredClone(DEFAULT_PRESETS)), DEFAULT_PRESETS };`
+  );
+  const out = run((k) => store[k], (k, v) => { store[k] = v; }, console, L);
+  return { store, ...out };
+}
