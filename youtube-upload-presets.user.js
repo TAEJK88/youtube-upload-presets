@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.3.2
+// @version      4.4.0
 // @description  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
 // @grant        GM_getValue
@@ -1241,6 +1241,7 @@
   const ICONS = {
     play: 'M7 4.5v15l12.5-7.5z',
     upload: 'M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4',
+    download: 'M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4',
     queue: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
     layers: 'M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
     sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
@@ -2317,6 +2318,50 @@
       h('span', {}, h('b', {}, title), h('small', {}, desc))
     );
   }
+  // ----- ส่งออก/นำเข้าพรีเซ็ตและการตั้งค่า (ไฟล์ JSON) -----
+  // ไม่รวมช่องที่ล็อกไว้, ประวัติอัปโหลด และประวัติเพลงลิขสิทธิ์ เพราะผูกกับช่องของแต่ละคน
+  const BACKUP_APP = 'yt-upload-presets';
+  function exportBackup() {
+    const { lockChannel, ...rest } = settings;
+    const data = {
+      app: BACKUP_APP, format: 1, version: GM_info.script.version, exportedAt: new Date().toISOString(),
+      presets, activeId, counters, settings: rest, claimsCfg: load('cfg', {}),
+    };
+    const d = new Date();
+    const a = h('a', {
+      href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })),
+      download: `yt-upload-presets-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`,
+    });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    toast(`ส่งออกพรีเซ็ต ${presets.length} รายการแล้ว`);
+  }
+  async function importBackup(file) {
+    if (running) return toast('หยุดคิวก่อนแล้วค่อยนำเข้า');
+    let data;
+    try { data = JSON.parse(await file.text()); } catch { return toast('อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ .json ที่ส่งออกจากสคริปต์นี้'); }
+    const okPresets = Array.isArray(data?.presets) && data.presets.length &&
+      data.presets.every((p) => p && typeof p.id === 'string' && typeof p.label === 'string');
+    if (data?.app !== BACKUP_APP || !okPresets) return toast('ไฟล์นี้ไม่ใช่ไฟล์สำรองของ YouTube Upload Presets');
+    const names = data.presets.map((p) => p.label).join(', ');
+    if (!confirm(`นำเข้าพรีเซ็ต ${data.presets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน) แล้วหน้าจะรีโหลด`)) return;
+    save('presets', data.presets);
+    save('activeId', data.presets.some((p) => p.id === data.activeId) ? data.activeId : data.presets[0].id);
+    if (data.settings && typeof data.settings === 'object') {
+      const next = { ...settings };
+      for (const [k, v] of Object.entries(data.settings)) if (k in settings && k !== 'lockChannel') next[k] = v;
+      save('settings', next);
+    }
+    if (data.claimsCfg && typeof data.claimsCfg === 'object') save('cfg', { ...load('cfg', {}), ...data.claimsCfg });
+    if (data.counters && typeof data.counters === 'object' &&
+      confirm('นำเข้าเลข EP ({n}) จากไฟล์ด้วยไหม?\n\nกด OK ถ้าเป็นไฟล์สำรองของช่องคุณเอง · กด Cancel ถ้าเป็นไฟล์ของคนอื่น (เลข EP เดิมจะไม่เปลี่ยน)')) {
+      save('counters', data.counters);
+    }
+    location.reload();
+  }
+  const backupIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
+    onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importBackup(f); } });
+
   panes.settings = h('div', {},
     sec('อัปโหลดแบบคิว', 'queue',
       sw('autoSave', 'กด Save ให้อัตโนมัติ', 'ตั้งการเปิดเผยตามพรีเซ็ตแล้วกด Save ต่อไฟล์ถัดไปเลย ถ้าปิดไว้จะรอให้คุณตรวจแล้วกด Save เองทีละคลิป'),
@@ -2386,6 +2431,14 @@
         h('div', {}, h('b', {}, 'พักระหว่างไฟล์'), h('small', {}, 'หน่วยวินาที')),
         h('input', { type: 'number', min: 0, max: 120, value: settings.delay, onchange: (e) => { settings.delay = Math.max(0, Number(e.target.value) || 0); saveSettings(); } })
       )
+    ),
+    sec('สำรอง / แชร์การตั้งค่า', 'copy',
+      h('div', { className: 'hint' }, icon('file', 13),
+        h('span', {}, 'ส่งออกพรีเซ็ต การตั้งค่า และการตั้งค่าแท็บลิขสิทธิ์เป็นไฟล์ .json ไว้สำรองหรือส่งให้เพื่อนนำเข้า (ไม่รวมช่องที่ล็อกไว้และประวัติอัปโหลด)')),
+      h('div', { style: 'display:flex;gap:8px;margin-top:10px' },
+        backupIn,
+        h('button', { className: 'btn sm', onclick: exportBackup }, icon('download', 13), 'ส่งออก (.json)'),
+        h('button', { className: 'btn sm', onclick: () => backupIn.click() }, icon('upload', 13), 'นำเข้า'))
     ),
     h('div', { className: 'sec' },
       h('div', { className: 'hint' }, icon('sliders', 13),
