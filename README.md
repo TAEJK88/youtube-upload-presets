@@ -13,3 +13,7 @@ After installing, set your producer name in **Settings → General** and your ow
 ## Releasing a new version
 
 Bump `@version` in the header and push to `main`. Tampermonkey picks up the update automatically.
+
+## Language
+
+The UI is available in English and Thai. Switch in **Settings → General → Language / ภาษา**. New installs start in English.
