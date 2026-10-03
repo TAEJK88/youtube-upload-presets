@@ -64,8 +64,11 @@ const ACTIVITY = block('// ===== งานที่กำลังทำ (progre
 ```
 
 Then inside the `new Function(...)` template string, add `${TXTREG}` and `${ACTIVITY}` in that
-order immediately after `${TRACKLIST}`, and add `parseUploadPct, activityFrom,` to the
-returned object literal.
+order immediately after `${TRACKLIST}`, and add `parseUploadPct,` to the returned object
+literal.
+
+Add ONLY `parseUploadPct` here. `activityFrom` does not exist until Task 2, and naming it in
+the return object now would throw `activityFrom is not defined` when the harness builds.
 
 `TXT` is a block of regex literals with no dependencies, so it slices cleanly on its own.
 
@@ -178,7 +181,12 @@ claims= computeStatus() output, or null
 prog  = { pct: number|null, text: string } or null
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Export it from the harness**
+
+In `test/harness.mjs`, add `activityFrom,` to the object returned by the `new Function(...)`
+call, next to the `parseUploadPct,` that Task 1 added.
+
+- [ ] **Step 2: Write the failing tests**
 
 Append to `test/activity.test.mjs`:
 
@@ -251,12 +259,12 @@ test('activityFrom gives indeterminate progress for an empty queue', () => {
 });
 ```
 
-- [ ] **Step 2: Run it and confirm it fails**
+- [ ] **Step 3: Run it and confirm it fails**
 
 Run: `node --test test/activity.test.mjs`
-Expected: FAIL — `S.activityFrom is not a function`
+Expected: FAIL — `activityFrom is not defined`
 
-- [ ] **Step 3: Implement it**
+- [ ] **Step 4: Implement it**
 
 In the `// ===== งานที่กำลังทำ (progress) =====` section, after `parseUploadPct`, add:
 
@@ -296,7 +304,7 @@ In the `// ===== งานที่กำลังทำ (progress) =====` secti
   }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [ ] **Step 5: Run the tests and confirm they pass**
 
 Run: `node --test test/activity.test.mjs`
 Expected: PASS, 16 tests
@@ -304,7 +312,7 @@ Expected: PASS, 16 tests
 Run: `node --test test/*.test.mjs`
 Expected: PASS, 77 tests, 0 fail
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add youtube-upload-presets.user.js test/activity.test.mjs
