@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.7.0
+// @version      4.8.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -33,7 +33,7 @@
   function watchInvite() {
     if ((GM_getValue('settings') || {}).autoAcceptInvite === false) return;
     const BTN = /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i;
-    const ABOUT = /invit|เชิญ/i;
+    const ABOUT = /invit|collab|เชิญ|ร่วม/i;
     const visible = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
     let tries = 0;
     const timer = setInterval(() => {
@@ -447,6 +447,66 @@
     }
     if (settings.category) await setCategory(dlg, settings.category);
     return tagsOk;
+  }
+
+  // ===== Collaboration: เชิญช่องอื่นเป็นผู้ร่วมสร้าง =====
+  // Details → Show more → #collaboration-button → ytcp-video-collaborators-dialog
+  // ค้นหา @handle → เลือกแถวที่ #channel-info ขึ้นต้นด้วย @handle ตรงตัว → ytcp-video-collaborator-manage-dialog กด Create link
+  // → ytcp-video-collaborator-invite-link-dialog แสดงลิงก์ (span.invite-link) → ปิด → Save
+  // YouTube ไม่ส่งคำเชิญให้เอง ต้องส่งลิงก์ให้อีกฝ่ายเปิดแล้วกดยอมรับ (ลิงก์ใช้ได้หลังกด Save)
+  const parseHandles = (v) => String(v || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).map((s) => (s.startsWith('@') ? s : '@' + s));
+  const clickIn = (root, sel) => { const b = root && root.querySelector(sel); if (!b) return false; (b.querySelector('button') || b).click(); return true; };
+  const shownDialog = (tag) => { const d = document.querySelector(tag); return d && isVisible(d.querySelector('tp-yt-paper-dialog')) ? d : null; };
+
+  async function inviteCollaborators(handles, dlg = getDialog()) {
+    const res = { links: [], errors: [], skipped: [] };
+    if (!handles.length) return res;
+    let btn = dlg.querySelector('#collaboration-button');
+    if (!isVisible(btn)) {
+      const more = dlg.querySelector('#toggle-button');
+      if (more && /show more|แสดงเพิ่มเติม/i.test(more.textContent)) more.click();
+      btn = await waitFor(() => { const b = dlg.querySelector('#collaboration-button'); return isVisible(b) && b; }, 4000);
+    }
+    if (!btn) { res.errors.push(L('ช่องนี้ไม่มีปุ่ม Invite a collaborator', 'This channel has no "Invite a collaborator" button')); return res; }
+    btn.scrollIntoView({ block: 'center' });
+    (btn.querySelector('button') || btn).click();
+    const cd = await waitFor(() => shownDialog('ytcp-video-collaborators-dialog'), 6000);
+    if (!cd) { res.errors.push(L('เปิดหน้าต่างเชิญผู้ร่วมสร้างไม่ได้', 'Could not open the collaborator dialog')); return res; }
+
+    const existing = new Set([...cd.querySelectorAll('.collaborator .channel-name')].map((e) => e.textContent.trim().toLowerCase()).filter(Boolean));
+    for (const handle of handles.slice(0, 10)) {
+      const input = cd.querySelector('#search-input');
+      input.focus();
+      input.value = handle;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const want = handle.toLowerCase();
+      const row = await waitFor(() => [...cd.querySelectorAll('tp-yt-paper-item[role="option"]')].find((r) => {
+        const info = (r.querySelector('#channel-info')?.textContent || '').trim().toLowerCase();
+        return isVisible(r) && (info === want || info.startsWith(want + ' '));
+      }), 8000);
+      if (!row) {
+        const limit = isVisible(cd.querySelector('#limit-reached-message'));
+        res.errors.push(limit ? L(`${handle}: เชิญครบจำนวนสูงสุดแล้ว`, `${handle}: invitation limit reached`) : L(`${handle}: ไม่พบช่องนี้`, `${handle}: channel not found`));
+        if (limit) break;
+        continue;
+      }
+      const rowName = (row.querySelector('#display-name')?.textContent || '').trim().toLowerCase();
+      if (existing.has(rowName)) { res.skipped.push(handle); continue; }
+      row.click();
+      const md = await waitFor(() => shownDialog('ytcp-video-collaborator-manage-dialog'), 6000);
+      if (!md || !clickIn(md, '#create-link-button')) { res.errors.push(L(`${handle}: ไม่พบปุ่ม Create link`, `${handle}: "Create link" button not found`)); continue; }
+      const ld = await waitFor(() => shownDialog('ytcp-video-collaborator-invite-link-dialog'), 8000);
+      const link = ld && (await waitFor(() => (ld.querySelector('.invite-link')?.textContent || '').trim(), 4000));
+      if (link) res.links.push({ handle, link });
+      else res.errors.push(L(`${handle}: ไม่ได้ลิงก์คำเชิญ`, `${handle}: no invitation link`));
+      if (ld) clickIn(ld, '#close-button');
+      await waitFor(() => !shownDialog('ytcp-video-collaborator-invite-link-dialog'), 3000);
+      await sleep(400);
+    }
+    if (res.links.length) clickIn(cd, '#save-button');
+    else clickIn(cd, '#cancel-button');
+    await waitFor(() => !shownDialog('ytcp-video-collaborators-dialog'), 6000);
+    return res;
   }
 
   // เลือกหมวดหมู่ (เทียบข้อความตามที่ Studio แสดง เช่น "Music" หรือ "เพลง")
@@ -3382,6 +3442,173 @@
       setAdsResult(item, 'on', qDlg ? L('ตอบคำถาม: none of the above', 'Answered questions: none of the above') : '');
     }
 
+    /* ---------- Collab: เลือกคลิปที่อัปแล้ว → เชิญช่องอื่นเป็นผู้ร่วมสร้าง ---------- */
+    // เปิด /video/<id>/edit ทีละคลิป → Show more → Invite a collaborator (ใช้ inviteCollaborators ร่วมกับหน้าอัปโหลด)
+    // ลิงก์คำเชิญผูกกับช่อง ไม่ผูกกับคลิป: ช่องเดียวกันได้ลิงก์เดียว ส่งครั้งเดียวพอ แต่ต้องส่งให้อีกฝ่ายเปิดเอง
+    const COLLAB_STEPS = [L('เปิดคลิป', 'Open video'), L('เชิญ', 'Invite'), L('บันทึก', 'Save')];
+    let collabScanning = false;
+    let collabBusy = false;
+    let collabStage = { idx: -1, detail: '' };
+    const setCollabStage = (idx, detail = '') => { collabStage = { idx, detail }; renderStatus(); };
+    const getCollabRun = () => chGet('collabRun', null);
+    const setCollabRun = (r) => chSet('collabRun', r);
+    const collabLinks = () => chGet('collabLinks', {}); // handle -> link
+
+    async function scanCollab() {
+      if (collabScanning || scanning || adsScanning) return;
+      if (!ycfg('INNERTUBE_CONTEXT')) { log(L('Studio ยังโหลดไม่เสร็จ ลองใหม่ในอีกไม่กี่วินาที', 'Studio hasn\'t finished loading — try again in a few seconds'), 'warn'); return; }
+      collabScanning = true;
+      try {
+        const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true }, L('กำลังอ่านรายการคลิป…', 'Reading video list…'));
+        const rows = vids.map((v) => ({ videoId: v.videoId, video: v.title, privacy: short(v.privacy), length: +v.lengthSeconds || 0 }));
+        chSet('collabScan', { date: new Date().toISOString(), total: rows.length, rows });
+        log(L(`🤝 อ่านรายการแล้ว ${rows.length} คลิป`, `🤝 Loaded ${rows.length} videos`), 'ok');
+        showCollab();
+      } catch (e) {
+        log(L('อ่านรายการคลิปไม่สำเร็จ: ', 'Could not read the video list: ') + e.message, 'err');
+      } finally {
+        collabScanning = false;
+        scanProg = null;
+        renderStatus();
+      }
+    }
+
+    function showCollab() {
+      const scan = chGet('collabScan', null);
+      if (!scan) { scanCollab(); return; }
+      const results = chGet('collabResults', {});
+      const picked = new Set();
+      const handlesIn = h('input', { type: 'text', value: load('collabHandles', ''), placeholder: '@handle1, @handle2',
+        oninput: (e) => save('collabHandles', e.target.value) });
+      const findIn = h('input', { type: 'text', placeholder: L('ค้นหาชื่อคลิป…', 'Search video titles…'), style: 'flex:1;min-width:0' });
+      const goBtn = h('button', { className: 'btn go sm', onclick: () => {
+        const handles = parseHandles(handlesIn.value);
+        if (!handles.length) return flash(L('ใส่ @handle ของช่องที่จะเชิญก่อน', 'Enter the @handle of the channel to invite first'), '', 'err');
+        const rows = scan.rows.filter((r) => picked.has(r.videoId));
+        if (!rows.length) return;
+        closeModal();
+        startCollabRun(rows, handles);
+      } });
+      const refresh = () => { goBtn.textContent = L(`🤝 เชิญ (${picked.size} คลิป)`, `🤝 Invite (${picked.size} videos)`); goBtn.disabled = !picked.size; };
+      const trs = [];
+      const table = h('table', { className: 'tbx-table' },
+        h('thead', {}, h('tr', {}, ['', L('วิดีโอ', 'Video'), L('การเปิดเผย', 'Visibility'), 'Collab'].map((t) => h('th', {}, t)))),
+        h('tbody', {}, scan.rows.map((r) => {
+          const res = results[r.videoId];
+          const cb = h('input', { type: 'checkbox', onchange: (e) => { e.target.checked ? picked.add(r.videoId) : picked.delete(r.videoId); refresh(); } });
+          const tr = h('tr', {},
+            h('td', {}, cb),
+            h('td', {}, h('a', { href: `/video/${r.videoId}/edit`, target: '_blank' }, r.video), h('div', { className: 'mut' }, fmt(r.length))),
+            h('td', {}, r.privacy),
+            h('td', {}, res ? h('span', { className: res.state === 'done' ? 'tbx-ok' : 'tbx-err' }, (res.state === 'done' ? '✅ ' : '❌ ') + res.msg) : ''));
+          tr._r = r; tr._cb = cb; trs.push(tr);
+          return tr;
+        })));
+      const shown = () => trs.filter((tr) => !tr.hidden);
+      findIn.addEventListener('input', () => { const q = findIn.value.trim().toLowerCase(); trs.forEach((tr) => { tr.hidden = !!q && !tr._r.video.toLowerCase().includes(q); }); });
+      const sel = (fn) => { shown().forEach((tr) => { tr._cb.checked = fn(tr._r); tr._cb.checked ? picked.add(tr._r.videoId) : picked.delete(tr._r.videoId); }); refresh(); };
+      const links = Object.entries(collabLinks());
+      const m = openModal(
+        h('h3', {}, L(`🤝 Collab — ${channelName()}`, `🤝 Collab — ${channelName()}`)),
+        h('div', { className: 'mut', style: 'margin-bottom:8px' }, L(
+          `${scan.total} คลิป · อ่านเมื่อ ${new Date(scan.date).toLocaleString(LOCALE)} · YouTube ไม่ส่งคำเชิญให้เอง หลังเชิญเสร็จต้องส่งลิงก์คำเชิญให้อีกฝ่ายเปิดแล้วกดยอมรับ (ช่องละลิงก์เดียว ใช้ได้กับทุกคลิป)`,
+          `${scan.total} videos · read ${new Date(scan.date).toLocaleString(LOCALE)} · YouTube doesn't send the invite itself: after inviting, send the invite link to the other channel to open and accept (one link per channel, covers every video)`)),
+        h('div', { className: 'lbl' }, h('span', {}, L('ช่องที่จะเชิญ', 'Channels to invite')), h('span', {}, L('@handle คั่นด้วย , (สูงสุด 10)', '@handle, comma-separated (max 10)'))), handlesIn,
+        links.length ? h('div', { className: 'tbx-note', style: 'margin-top:8px' },
+          h('b', {}, L('ลิงก์คำเชิญ (ส่งให้อีกฝ่าย)', 'Invite links (send to the other channel)')),
+          ...links.map(([hd, link]) => h('div', { className: 'row', style: 'gap:6px;margin-top:4px' },
+            h('span', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, `${hd}: ${link}`),
+            h('button', { className: 'btn sm', onclick: () => { GM_setClipboard(link); flash(L(`คัดลอกลิงก์ของ ${hd} แล้ว`, `Copied ${hd}'s link`)); } }, L('คัดลอก', 'Copy'))))) : null,
+        h('div', { className: 'row', style: 'gap:8px;margin:10px 0 8px;flex-wrap:wrap' },
+          findIn,
+          h('button', { className: 'chip', onclick: () => sel(() => true) }, L('ทั้งหมดที่แสดง', 'All shown')),
+          h('button', { className: 'chip', onclick: () => sel((r) => r.privacy === 'public') }, L('เฉพาะสาธารณะ', 'Public only')),
+          h('button', { className: 'chip', onclick: () => sel((r) => !results[r.videoId]) }, L('ยังไม่เคยเชิญ', 'Not invited yet')),
+          h('button', { className: 'chip', onclick: () => sel(() => false) }, L('ไม่เลือก', 'None'))),
+        scan.rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, L('ช่องนี้ยังไม่มีคลิป', 'This channel has no videos yet')),
+        h('div', { className: 'row', style: 'margin-top:14px' },
+          h('button', { className: 'btn sm', onclick: () => { closeModal(); scanCollab(); } }, L('↻ อ่านรายการใหม่', '↻ Reload list')),
+          h('span', { style: 'flex:1' }),
+          h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ปิด', 'Close')), goBtn));
+      m.box.style.width = 'min(900px,95vw)';
+      refresh();
+    }
+
+    function startCollabRun(rows, handles) {
+      const tr = getRun();
+      const ar = getAdsRun();
+      if ((tr && tr.active) || (ar && ar.active)) { log(L('ยังมีงานตัดลิขสิทธิ์/เปิดโฆษณาอยู่ — รอให้เสร็จก่อนแล้วค่อยเชิญ', 'A trim/ads job is still running — wait for it to finish before inviting'), 'warn'); return; }
+      if (uploadBusy()) log(L('คิวอัปโหลดยังทำงานอยู่ — การเชิญต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ', 'Upload queue is still running — inviting needs page changes, will start after the upload queue finishes'), 'warn');
+      isWorker(true);
+      setCollabRun({ active: true, handles, items: rows.map((r) => ({ videoId: r.videoId, video: r.video, state: 'pending', msg: '' })), started: new Date().toISOString() });
+      log(L(`🤝 กำลังเชิญ ${handles.join(', ')} ใน ${rows.length} คลิป`, `🤝 Inviting ${handles.join(', ')} to ${rows.length} videos`), 'ok');
+      collabStep();
+    }
+    function stopCollabRun(reason = L('เชิญเสร็จ', 'Invites finished')) {
+      const run = getCollabRun();
+      if (!run || !run.active) return;
+      run.active = false;
+      setCollabRun(run);
+      collabStage = { idx: -1, detail: '' };
+      const done = run.items.filter((i) => i.state === 'done').length;
+      const failed = run.items.filter((i) => i.state === 'failed').length;
+      const left = run.items.filter((i) => i.state === 'pending').length;
+      const summary = [L(`สำเร็จ ${done}`, `Done ${done}`), failed ? L(`ไม่สำเร็จ ${failed}`, `Failed ${failed}`) : '', left ? L(`ยังไม่ได้ทำ ${left}`, `Not done ${left}`) : ''].filter(Boolean).join(' · ');
+      log(`${reason}: ${summary}`, 'ok');
+      flash(reason, summary + L(' · อย่าลืมส่งลิงก์คำเชิญให้อีกฝ่าย (ปุ่ม 🤝 Collab)', ' · Remember to send the invite link (🤝 Collab button)'), failed ? 'err' : 'ok', 15000);
+    }
+    function setCollabResult(item, state, msg) {
+      const res = chGet('collabResults', {});
+      res[item.videoId] = { state, msg, date: new Date().toISOString() };
+      chSet('collabResults', res);
+      const run = getCollabRun();
+      if (run) { const it = run.items.find((x) => x.videoId === item.videoId); if (it) { it.state = state; it.msg = msg; } setCollabRun(run); }
+      log(`${state === 'done' ? '🤝' : '❌'} ${item.video}: ${msg}`, state === 'done' ? 'ok' : 'err');
+    }
+
+    async function collabStep() {
+      const run = getCollabRun();
+      if (!run || !run.active || collabBusy) return;
+      const item = run.items.find((i) => i.state === 'pending');
+      if (!item) return stopCollabRun();
+      collabBusy = true;
+      if (!location.pathname.startsWith(`/video/${item.videoId}/edit`)) {
+        if (uploadBusy()) { setCollabStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for the upload queue to clear (page change needed)')); collabBusy = false; return; }
+        setCollabStage(0, L('กำลังเปิดหน้ารายละเอียดของคลิป…', 'Opening the video details page…'));
+        location.href = `/video/${item.videoId}/edit`;
+        return;
+      }
+      try {
+        const page = await waitFor(() => { const p = document.querySelector('ytcp-video-details-section'); return p && visible(p) ? p : null; }, 25000);
+        if (!page) throw new Error(L('ไม่พบหน้ารายละเอียดคลิป', 'Video details page not found'));
+        await sleep(2000);
+        setCollabStage(1, L(`เชิญ ${run.handles.join(', ')}…`, `Inviting ${run.handles.join(', ')}…`));
+        const r = await inviteCollaborators(run.handles, page);
+        if (r.links.length) {
+          chSet('collabLinks', Object.assign(collabLinks(), Object.fromEntries(r.links.map((x) => [x.handle, x.link]))));
+          setCollabStage(2, L('กด Save…', 'Clicking Save…'));
+          await sleep(1000);
+          const sv = document.querySelector('ytcp-button#save');
+          if (sv && visible(sv) && !isDisabled(sv)) {
+            (sv.querySelector('button') || sv).click();
+            const saved = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && isDisabled(x); }, 20000);
+            if (!saved) throw new Error(L('กด Save ของหน้าแล้วแต่ยังไม่บันทึก', 'Clicked the page Save but it did not save'));
+          }
+        }
+        const parts = [
+          r.links.length ? L(`เชิญ ${r.links.map((x) => x.handle).join(', ')}`, `Invited ${r.links.map((x) => x.handle).join(', ')}`) : '',
+          r.skipped.length ? L(`มีอยู่แล้ว ${r.skipped.join(', ')}`, `Already added ${r.skipped.join(', ')}`) : '',
+          ...r.errors,
+        ].filter(Boolean);
+        setCollabResult(item, r.links.length || (r.skipped.length && !r.errors.length) ? 'done' : 'failed', parts.join(' · ') || L('ไม่มีอะไรเปลี่ยน', 'Nothing changed'));
+      } catch (e) {
+        setCollabResult(item, 'failed', e.message);
+      }
+      setCollabStage(-1, L('คลิปถัดไปในไม่กี่วินาที…', 'Next video in a few seconds…'));
+      await sleep(3000);
+      collabBusy = false;
+    }
+
     /* ---------- ตัดลิขสิทธิ์ (Take action → Trim out segment → Save) ---------- */
     const TRIM_LABEL = {
       pending: L('⏳ รอ', '⏳ Pending'), saved: L('✅ ตัดแล้ว', '✅ Trimmed'), gone: L('✅ claim หายไปแล้ว', '✅ Claim gone'), failed: L('❌ ไม่สำเร็จ', '❌ Failed'),
@@ -3854,6 +4081,14 @@
         return { icon: adsScanning ? '💰' : '🔍', kind: 'busy', title: adsScanning ? L('กำลังหาคลิปที่ปิดโฆษณา', 'Finding videos with ads off') : L('กำลังสแกน claim ของช่องนี้', 'Scanning this channel\'s claims'),
           detail: p.label, progress: p.total ? p.done / p.total : null };
       }
+      const crun = getCollabRun();
+      if (crun && crun.active) {
+        const fin = crun.items.filter((i) => i.state !== 'pending').length;
+        const cur = crun.items.find((i) => i.state === 'pending');
+        return { icon: '🤝', kind: 'busy', title: L(`กำลังเชิญ Collab คลิป ${Math.min(fin + 1, crun.items.length)} จาก ${crun.items.length}`, `Inviting collaborators: video ${Math.min(fin + 1, crun.items.length)} of ${crun.items.length}`),
+          detail: cur ? cur.video : L('กำลังจบ…', 'Finishing…'), progress: crun.items.length ? fin / crun.items.length : 0,
+          steps: COLLAB_STEPS, stepIdx: workerHere ? collabStage.idx : -1, stepDetail: workerHere ? collabStage.detail : L('↪ ทำงานอยู่ในแท็บ Studio อื่น', '↪ Running in another Studio tab') };
+      }
       const arun = getAdsRun();
       if (arun && arun.active) {
         const fin = arun.items.filter((i) => i.state !== 'pending').length;
@@ -3907,8 +4142,9 @@
         L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language'));
       UI.scanBtn = h('button', { className: 'btn go', onclick: () => scanClaims() }, icon('refresh', 14), L('สแกน claim', 'Scan claims'));
       UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on') }, L('💰 โฆษณาปิดอยู่', '💰 Ads off'));
-      UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun(L('คุณกดหยุด', 'You stopped it')); stopAdsRun(L('คุณกดหยุด', 'You stopped it')); renderStatus(); } }, icon('stop', 14), L('หยุด', 'Stop'));
+      UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun(L('คุณกดหยุด', 'You stopped it')); stopAdsRun(L('คุณกดหยุด', 'You stopped it')); stopCollabRun(L('คุณกดหยุด', 'You stopped it')); renderStatus(); } }, icon('stop', 14), L('หยุด', 'Stop'));
       UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, L('📋 รายการ claim', '📋 Claim list'));
+      UI.collabBtn = h('button', { className: 'btn', onclick: () => (chGet('collabScan', null) ? showCollab() : scanCollab()), title: L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators') }, '🤝 Collab');
       UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels') }, L('🎵 เพลงที่เคยโดน', '🎵 Claimed songs'));
       UI.apTog = h('input', { type: 'checkbox', onclick: (e) => { e.preventDefault(); toggleAutopilot(); } });
       UI.apSub = h('small');
@@ -3918,7 +4154,7 @@
         UI.logBtn.textContent = logBox.hidden ? L('แสดงกิจกรรม ▾', 'Show activity ▾') : L('ซ่อนกิจกรรม ▴', 'Hide activity ▴');
       } }, logBox.hidden ? L('แสดงกิจกรรม ▾', 'Show activity ▾') : L('ซ่อนกิจกรรม ▴', 'Hide activity ▴'));
       UI.row1 = h('div', { className: 'tbx-grid3' }, UI.scanBtn, UI.adsBtn, UI.stopBtn);
-      UI.row2 = h('div', { className: 'tbx-grid2' }, UI.listBtn, UI.songBtn);
+      UI.row2 = h('div', { className: 'tbx-grid2', style: 'grid-template-columns:1fr 1fr 1fr' }, UI.listBtn, UI.songBtn, UI.collabBtn);
       return h('div', {},
         UI.lang,
         h('div', { className: 'sec' }, h('h4', {}, icon('shield', 13), L('สถานะ', 'Status')), UI.card, UI.row1, UI.row2),
@@ -3936,8 +4172,9 @@
       const s = computeStatus();
       const run = getRun();
       const arun = getAdsRun();
-      const busyRun = !!(run && run.active) || !!(arun && arun.active);
-      const busyScan = scanning || adsScanning;
+      const crun = getCollabRun();
+      const busyRun = !!(run && run.active) || !!(arun && arun.active) || !!(crun && crun.active);
+      const busyScan = scanning || adsScanning || collabScanning;
       UI.card.className = 'tbx-card ' + (s.kind || 'idle');
       const kids = [h('div', { className: 'ti' }, h('span', {}, s.icon), h('span', {}, s.title))];
       if (s.detail) kids.push(h('div', { className: 'de' }, s.detail));
@@ -4021,16 +4258,17 @@
     function tick() {
       const run = getRun();
       const running2 = !!(run && run.active);
-      const busy = trimBusy || scanning || apBusy || fuBusy || adsBusy || adsScanning;
+      const busy = trimBusy || scanning || apBusy || fuBusy || adsBusy || adsScanning || collabBusy || collabScanning;
       const ready = !!ycfg('INNERTUBE_CONTEXT') && isWorker(busy);
       workerHere = ready;
       const arun = getAdsRun();
-      const adsRunning = !!(arun && arun.active);
+      const crun = getCollabRun();
+      const adsRunning = !!(arun && arun.active) || !!(crun && crun.active);
       // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา) รอจนคิวอัปโหลดว่าง
       const canNavigate = !uploadBusy();
-      if (ready && canNavigate && adsRunning && !running2 && !adsBusy && !trimStarting) {
+      if (ready && canNavigate && adsRunning && !running2 && !adsBusy && !collabBusy && !trimStarting) {
         trimStarting = true;
-        setTimeout(() => { trimStarting = false; adsStep(); }, 2500);
+        setTimeout(() => { trimStarting = false; crun && crun.active ? collabStep() : adsStep(); }, 2500);
       }
       const ap = getAP();
       if (ready && canNavigate && !adsRunning && !adsScanning && ap.on && !running2 && !apBusy && !scanning && Date.now() >= (ap.next || 0)) apCycle();
