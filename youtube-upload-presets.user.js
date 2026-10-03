@@ -53,6 +53,7 @@
     invalidFormat: /invalid file format|รูปแบบไฟล์ไม่ถูกต้อง/i, // Studio ไม่รับชนิดไฟล์นี้
     thumbButton: /upload|thumbnail|ภาพปก|ภาพขนาดย่อ|อัปโหลดไฟล์/i, // ปุ่มที่เกี่ยวกับภาพปก (ใช้ตอนตรวจปัญหา)
     uploadLimit: /limit|ขีดจำกัด|daily/i, // ชนขีดจำกัดการอัปต่อวัน -> หยุดคิว
+    uploadPct: /(\d{1,3})\s*%/, // เปอร์เซ็นต์ในข้อความความคืบหน้าของ Studio
     // --- ยังต้องใช้ Studio ภาษาอังกฤษ (ส่วนลิขสิทธิ์ — ดู studioIsEnglish) ---
     monetStatus: /moneti[sz]ation status/i, // ปุ่มแก้สถานะการสร้างรายได้
     nextOrDone: /^(Next|Done)$/i, // ปุ่ม Next / Done ในแบบสอบถาม
@@ -578,6 +579,17 @@
       setTimeout(() => done(0), 15000);
       v.src = url;
     });
+  }
+
+  // ===== งานที่กำลังทำ (progress) =====
+  // ฟังก์ชันล้วนสองตัวสำหรับแถบความคืบหน้า — ห้ามแตะ DOM / queue / settings (test/ ตัดบล็อกนี้ไปเทสต์)
+
+  // ดึงเปอร์เซ็นต์จากข้อความความคืบหน้าของ Studio เช่น "Uploading 45% … 3 minutes left"
+  // คืน 0..1 หรือ null ถ้าไม่มีตัวเลขเปอร์เซ็นต์ (Studio เปลี่ยนรูปแบบ -> แถบถอยไปนับเป็นคลิป)
+  function parseUploadPct(text) {
+    const m = String(text || '').match(TXT.uploadPct);
+    if (!m) return null;
+    return Math.max(0, Math.min(1, +m[1] / 100));
   }
 
   // ===== Studio DOM automation =====

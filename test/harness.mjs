@@ -27,6 +27,9 @@ function constLine(name) {
 const TEMPLATE = block('// ===== template =====', '// ===== ตรวจ tracklist');
 const CHAPTERS = block('const fmtTs =', 'function videoDuration');
 const TRACKLIST = block('const parseTime =', 'function showTracklistFix');
+// parseUploadPct reads TXT.uploadPct, so the registry has to be in scope too
+const TXTREG = block('// ===== ข้อความที่ Studio แสดง =====', '// ===== ชื่อ element ของ Studio');
+const ACTIVITY = block('// ===== งานที่กำลังทำ (progress) =====', '// ===== Studio DOM automation');
 
 export const settings = { year: '', producer: '' };
 export const channel = { name: 'Test Channel', id: 'UCtest' };
@@ -45,9 +48,11 @@ const build = new Function(
   ${TEMPLATE}
   ${CHAPTERS}
   ${TRACKLIST}
+  ${TXTREG}
+  ${ACTIVITY}
   return { pad, parseTracks, buildVars, render, clean, renderTitle, makeTitle,
            unknownVars, renderTags, renderDesc, parseTime, fixTracklist,
-           fmtTs, checkTracklist,
+           fmtTs, checkTracklist, parseUploadPct,
            VARS, TITLE_MAX, DESC_MAX };`
 );
 
