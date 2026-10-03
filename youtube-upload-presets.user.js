@@ -94,7 +94,8 @@
     menuItem: 'tp-yt-paper-item, ytcp-text-menu [role="menuitem"], [role="menuitem"]',
     firstMenuItem: 'tp-yt-paper-item#text-item-0, #text-item-0',
     uploadMenuButton: '#upload-icon, #upload-button, ytcp-button#upload-button, ytcp-icon-button#upload-icon',
-    uploadProgress: 'ytcp-video-upload-progress, .progress-label, ytcp-video-upload-progress-hover',
+    uploadProgress: 'ytcp-video-upload-progress, ytcp-video-upload-progress-hover',
+    uploadProgressFallback: '.progress-label', // คลาสทั่วไป — ใช้เฉพาะตอนไม่พบ element เฉพาะข้างบน
     // --- หน้ากรอกรายละเอียด ---
     titleBox: '#title-textarea #textbox',
     descBox: '#description-textarea #textbox',
@@ -1233,7 +1234,9 @@
   }
 
   function uploadProgressText() {
-    const el = getDialog()?.querySelector(SEL.uploadProgress);
+    const dlg = getDialog();
+    // element เฉพาะของการอัปมาก่อน · .progress-label เป็นคลาสทั่วไป อาจเป็นเปอร์เซ็นต์ของอย่างอื่นในหน้าต่าง
+    const el = dlg?.querySelector(SEL.uploadProgress) || dlg?.querySelector(SEL.uploadProgressFallback);
     return el ? (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '';
   }
 
@@ -2033,7 +2036,7 @@
     #ytp-root .tbx-bar{height:6px;background:var(--surface2);border-radius:99px;margin-top:8px;overflow:hidden}
     #ytp-root .tbx-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--brand2));transition:width .4s}
     #ytp-root .tbx-bar.ind i{width:35%!important;animation:ytp-ind 1.2s infinite ease-in-out}
-    #ytp-root .act{padding:9px 14px;border-bottom:1px solid var(--line);background:var(--surface);cursor:pointer}
+    #ytp-root .act{margin:0 16px 12px;padding:9px 12px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);cursor:pointer}
     #ytp-root .act:hover{background:var(--surface2)}
     #ytp-root .act .arow{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
     #ytp-root .act .at{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2689,7 +2692,9 @@
       actFill.style.width = pct === null ? '' : pct + '%';
     }
     // FAB: มีงาน = ไอคอน + เปอร์เซ็นต์ และมีเส้นความคืบหน้าที่ขอบล่าง · ว่าง = จำนวนคลิปที่รอ
-    fab.classList.toggle('busy', !!a);
+    // เส้นความคืบหน้าขึ้นเฉพาะตอนมีเปอร์เซ็นต์จริง · งานที่ไม่รู้ความคืบหน้า (เช่นรอ YouTube ประมวลผล)
+    // โชว์แค่ไอคอนบนป้าย ไม่งั้นเส้น 0% จะดูเหมือนค้าง
+    fab.classList.toggle('busy', !!a && pct !== null);
     fab.style.setProperty('--p', pct === null ? 0 : pct);
     fabBadge.hidden = !a && !total;
     if (a) fabBadge.textContent = pct === null ? a.icon : `${a.icon} ${pct}%`;
