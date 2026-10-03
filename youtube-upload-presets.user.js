@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.6.0
-// @description  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
+// @version      4.10.0
+// @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
+// @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
+// @match        https://www.youtube.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
@@ -17,6 +19,48 @@
 
 (function () {
   'use strict';
+
+  // ===== ภาษา (EN / TH) =====
+  // ข้อความทุกจุดเขียนคู่กันเป็น L('ไทย', 'English') · สลับภาษาในแท็บตั้งค่าแล้วหน้าจะรีโหลด
+  // ผู้ใช้ใหม่เริ่มที่ EN ส่วนเครื่องที่ติดตั้งไว้ก่อน v4.6.0 ใช้ TH ต่อ
+  const LANG = (GM_getValue('settings') || {}).lang || (GM_getValue('presets') !== undefined ? 'th' : 'en');
+  const L = (th, en) => (LANG === 'en' ? en : th);
+  const LOCALE = LANG === 'en' ? 'en-GB' : 'th-TH';
+
+  // ===== รับคำเชิญสิทธิ์ช่องอัตโนมัติ =====
+  // เปิดลิงก์ "ACCEPT INVITATION" จากอีเมล noreply@youtube.com แล้วสคริปต์กดยอมรับให้
+  // กดเฉพาะปุ่ม Accept/ยอมรับ ที่อยู่ในกล่องข้อความที่พูดถึงคำเชิญเท่านั้น
+  function watchInvite() {
+    if ((GM_getValue('settings') || {}).autoAcceptInvite === false) return;
+    // ใน Studio ทำเฉพาะหน้าคำเชิญ (ลิงก์ Collab = /channel/<เรา>/collaboration/<เจ้าของ>) ไม่ไล่กดปุ่มทุกหน้า
+    if (location.hostname === 'studio.youtube.com' && !/invit|collaborat|permission/i.test(location.pathname)) return;
+    const BTN = /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i;
+    const ABOUT = /invit|collaborat|เชิญ|ผู้ร่วมสร้าง/i;
+    const visible = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+    let tries = 0;
+    const timer = setInterval(() => {
+      if (++tries > 60) return clearInterval(timer);
+      for (const b of document.querySelectorAll('button, ytcp-button, tp-yt-paper-button, yt-button-shape button, a[role="button"]')) {
+        const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
+        if (!BTN.test(label) || !visible(b) || b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
+        // หน้าคำเชิญใน Studio (เช็ก path แล้วข้างบน) อาจไม่มีกล่อง dialog — ใช้ทั้งหน้าได้; บน www.youtube.com ต้องอยู่ในกล่อง
+        const box = b.closest('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main') ||
+          (location.hostname === 'studio.youtube.com' ? document.body : null);
+        if (!box || !ABOUT.test(box.innerText || box.textContent || '')) continue;
+        clearInterval(timer);
+        b.click();
+        const note = document.createElement('div');
+        note.textContent = L('✅ กดยอมรับคำเชิญให้แล้ว (YouTube Upload Presets)', '✅ Invitation accepted (YouTube Upload Presets)');
+        note.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;background:#111;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui';
+        document.body.append(note);
+        setTimeout(() => note.remove(), 6000);
+        return;
+      }
+    }, 1000);
+  }
+  watchInvite();
+  // นอก Studio (เช่นหน้าคำเชิญบน www.youtube.com) ทำแค่รับคำเชิญ
+  if (location.hostname !== 'studio.youtube.com') return;
 
   // ===== ตั้งค่าพื้นฐาน =====
 
@@ -71,10 +115,10 @@
         '[[BPM: {bpm}]]',
         'Prod. by {producer}',
         '',
-        '💰 ซื้อบีท / Lease: (ใส่ลิงก์)',
-        '📩 ติดต่องาน: (ใส่อีเมล)',
+        L('💰 ซื้อบีท / Lease: (ใส่ลิงก์)', '💰 Buy / lease this beat: (add link)'),
+        L('📩 ติดต่องาน: (ใส่อีเมล)', '📩 Business inquiries: (add email)'),
         '',
-        '⚠️ ใช้ฟรีแบบไม่แสวงหากำไร ต้องให้เครดิต (prod. {producer})',
+        L('⚠️ ใช้ฟรีแบบไม่แสวงหากำไร ต้องให้เครดิต (prod. {producer})', '⚠️ Free for non-profit use only — credit required (prod. {producer})'),
         '',
         '#typebeat #thaibeat #freebeat',
       ].join('\n'),
@@ -84,9 +128,9 @@
     {
       id: 'lofi',
       label: '🌙 Lofi Chill',
-      title: '{name} 🌙 Thai Lofi Chill Beat สำหรับอ่านหนังสือ / ทำงาน',
-      description: '{name} — บีทชิล ๆ สำหรับอ่านหนังสือ ทำงาน หรือพักผ่อน ☕\n\nProd. by {producer}\n\n#lofi #chillbeats #thailofi',
-      tags: ['lofi', 'thai lofi', 'chill beat', 'study music', 'เพลงอ่านหนังสือ', '{producer}'],
+      title: L('{name} 🌙 Thai Lofi Chill Beat สำหรับอ่านหนังสือ / ทำงาน', '{name} 🌙 Lofi Chill Beat to Study / Work To'),
+      description: L('{name} — บีทชิล ๆ สำหรับอ่านหนังสือ ทำงาน หรือพักผ่อน ☕\n\nProd. by {producer}\n\n#lofi #chillbeats #thailofi', '{name} — chill beats to study, work or relax to ☕\n\nProd. by {producer}\n\n#lofi #chillbeats #studymusic'),
+      tags: ['lofi', 'thai lofi', 'chill beat', 'study music', L('เพลงอ่านหนังสือ', 'music to study to'), '{producer}'],
       visibility: 'PRIVATE',
     },
     {
@@ -107,15 +151,15 @@
     },
     {
       id: 'series',
-      label: '📺 ทำบีทสด EP',
-      title: 'ทำบีทสด EP.{n} - {name}[[ ({bpm} BPM)]]',
-      description: 'ทำบีทสด EP.{n} — {name}\nอัปโหลดเมื่อ {date}\n\nProd. by {producer}',
-      tags: ['ทำบีท', 'beat making', 'cook up', 'producer', '{producer}'],
+      label: L('📺 ทำบีทสด EP', '📺 Beat Making EP'),
+      title: L('ทำบีทสด EP.{n} - {name}[[ ({bpm} BPM)]]', 'Making a Beat EP.{n} - {name}[[ ({bpm} BPM)]]'),
+      description: L('ทำบีทสด EP.{n} — {name}\nอัปโหลดเมื่อ {date}\n\nProd. by {producer}', 'Making a Beat EP.{n} — {name}\nUploaded {date}\n\nProd. by {producer}'),
+      tags: [L('ทำบีท', 'making beats'), 'beat making', 'cook up', 'producer', '{producer}'],
       visibility: 'PRIVATE',
     },
   ];
 
-  const VIS = { PRIVATE: '🔒 ส่วนตัว', UNLISTED: '🔗 ไม่เป็นสาธารณะ', PUBLIC: '🌐 สาธารณะ' };
+  const VIS = { PRIVATE: L('🔒 ส่วนตัว', '🔒 Private'), UNLISTED: L('🔗 ไม่เป็นสาธารณะ', '🔗 Unlisted'), PUBLIC: L('🌐 สาธารณะ', '🌐 Public') };
   const VARS = ['name', 'bpm', 'n', 'date', 'year', 'filename', 'producer', 'txt', 'track1', 'trackcount', 'artists'];
   const VIDEO_EXT = /\.(mp4|mov|mkv|avi|webm|m4v|wmv|flv|3gp|mpe?g)$/i;
   const TXT_EXT = /\.txt$/i;
@@ -132,75 +176,34 @@
     return v === undefined ? d : v;
   };
   const save = (k, v) => GM_setValue(k, v);
+  const existingInstall = GM_getValue('presets') !== undefined; // ติดตั้งไว้ก่อน v4.5.0 (ตอนนั้นชื่อโปรดิวเซอร์ฝังในโค้ด)
 
-  // ===== ย้ายข้อมูลของเวอร์ชันเก่า (schema) =====
-  // เพิ่มขั้นใหม่ต่อท้าย MIGRATIONS เท่านั้น — schemaVersion จะขยับตามความยาวของลิสต์ให้เอง
-  // เครื่องที่ติดตั้งใหม่ข้ามทุกขั้น เพราะได้ค่าเริ่มต้นที่ถูกต้องอยู่แล้ว
-  const freshInstall = GM_getValue('presets') === undefined;
-
-  // พรีเซ็ต trapsoul รุ่นเก่า: คลิปที่ไม่มี .txt จะได้ชื่อ "TrapSoul Mix | - ..." -> ครอบ {artists} ด้วย [[ ]]
-  function fixLegacyTrapsoulTitles(list) {
-    for (const p of list || []) {
-      if (!p || p.id !== 'trapsoul') continue;
-      if (p.title === 'TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}') p.title = 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}';
-      if (typeof p.description === 'string') {
-        p.description = p.description
-          .replace('TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}', 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}')
-          .replace('Tracklist:\n{txt}', '[[Tracklist:\n{txt}]]')
-          .replace('[[[[Tracklist:', '[[Tracklist:').replace('{txt}]]]]', '{txt}]]');
-      }
-    }
-    return list;
+  let presets = load('presets', structuredClone(DEFAULT_PRESETS));
+  // ผู้ใช้เวอร์ชันเก่า: เพิ่มพรีเซ็ต Playlist ให้ครั้งเดียว
+  if (!load('addedPlaylist', false)) {
+    if (!presets.some((p) => p.id === 'playlist')) presets = [structuredClone(DEFAULT_PRESETS[1]), ...presets];
+    save('presets', presets);
+    save('addedPlaylist', true);
   }
-
-  // แต่ละขั้นทำครั้งเดียว · legacy = ชื่อธงเก่าที่ใช้ก่อนมี schemaVersion (ถ้าธงถูกตั้งไว้ = ขั้นนี้ทำไปแล้ว)
-  const MIGRATIONS = [
-    { // 1: เพิ่มพรีเซ็ต Playlist ให้เครื่องที่ติดตั้งไว้ก่อน
-      legacy: 'addedPlaylist',
-      run() {
-        const list = load('presets', DEFAULT_PRESETS);
-        if (!list.some((x) => x.id === 'playlist')) save('presets', [DEFAULT_PRESETS[1], ...list]);
-      },
-    },
-    { // 2: เพิ่มพรีเซ็ต TrapSoul แล้วตั้งเป็นพรีเซ็ตหลัก
-      legacy: 'addedTrapsoul',
-      run() {
-        const list = load('presets', DEFAULT_PRESETS);
-        if (!list.some((x) => x.id === 'trapsoul')) save('presets', [DEFAULT_PRESETS[0], ...list]);
-        save('activeId', 'trapsoul');
-      },
-    },
-    { // 3: ครอบ {artists} / {txt} ของพรีเซ็ต trapsoul เดิมด้วย [[ ]]
-      run() { save('presets', fixLegacyTrapsoulTitles(load('presets', DEFAULT_PRESETS))); },
-    },
-    { // 4: ย้ายชื่อโปรดิวเซอร์ / ชื่อค่ายที่เคยฝังในโค้ดมาเป็นค่าตั้งค่า (v4.5.0)
-      run() {
-        const s = load('settings', {});
-        if (s.producer === undefined) save('settings', { ...s, producer: 'ThaiBeats' });
-        const c = load('cfg', {});
-        if (c.ownNames === undefined) save('cfg', { ...c, ownNames: 'THAIBEATS, EXMGE' });
-      },
-    },
-  ];
-  const SCHEMA_VERSION = MIGRATIONS.length;
-
-  function runMigrations() {
-    if (freshInstall) return save('schemaVersion', SCHEMA_VERSION);
-    let from = load('schemaVersion', null);
-    if (from === null) {
-      // เครื่องที่ติดตั้งก่อนมี schemaVersion: อ่านจากธงเก่าว่าทำถึงขั้นไหนแล้ว
-      from = 0;
-      MIGRATIONS.forEach((m, i) => { if (m.legacy && load(m.legacy, false)) from = i + 1; });
-    }
-    for (let i = from; i < MIGRATIONS.length; i++) {
-      try { MIGRATIONS[i].run(); } catch (e) { console.error('[Upload Studio] migration ' + (i + 1), e); }
-    }
-    save('schemaVersion', SCHEMA_VERSION);
-  }
-  runMigrations();
-
-  let presets = load('presets', DEFAULT_PRESETS);
   let activeId = load('activeId', presets[0].id);
+  // คลิปที่ไม่มี .txt จะได้ชื่อ "TrapSoul Mix | - ..." -> ครอบ {artists} ด้วย [[ ]] ให้พรีเซ็ตเดิม
+  for (const p of presets) {
+    if (p.id !== 'trapsoul') continue;
+    if (p.title === 'TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}') p.title = 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}';
+    if (typeof p.description === 'string') {
+      p.description = p.description
+        .replace('TrapSoul Mix | {artists} - Dark & Smokey R&B Playlist {year}', 'TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}')
+        .replace('Tracklist:\n{txt}', '[[Tracklist:\n{txt}]]')
+        .replace('[[[[Tracklist:', '[[Tracklist:').replace('{txt}]]]]', '{txt}]]');
+    }
+  }
+  if (!load('addedTrapsoul', false)) {
+    if (!presets.some((p) => p.id === 'trapsoul')) presets = [structuredClone(DEFAULT_PRESETS[0]), ...presets];
+    activeId = 'trapsoul';
+    save('presets', presets);
+    save('activeId', activeId);
+    save('addedTrapsoul', true);
+  }
   let counters = load('counters', {});
   const settings = Object.assign(
     {
@@ -219,14 +222,28 @@
       paidPromotion: 'no', // การโปรโมตแบบชำระเงิน: skip | no | yes
       monetization: 'on', // ขั้น Monetisation: on | off | skip
       adSuitability: 'none', // ขั้น Ad suitability: none = ติ๊ก "None of the above" แล้ว Submit rating | skip = ทำเอง
-      producer: '', // ชื่อโปรดิวเซอร์ใน {producer} เว้นว่าง = ใช้ชื่อช่องปัจจุบัน
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
+      autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
       schedule: { on: false, start: '', every: 1, unit: 'day' },
     },
     load('settings', {})
   );
   const saveSettings = () => save('settings', settings);
+  // ชื่อที่เคยฝังในโค้ด: เครื่องที่ติดตั้งไว้แล้วได้ค่าเดิม ส่วนผู้ใช้ใหม่เริ่มจากค่าว่าง
+  if (settings.producer === undefined) {
+    settings.producer = existingInstall ? 'ThaiBeats' : '';
+    saveSettings();
+  }
+  if (settings.lang === undefined) {
+    settings.lang = LANG;
+    saveSettings();
+  }
+  // ทำครั้งเดียวตอนโหลดครั้งแรกของเวอร์ชันนี้ (ไม่งั้นผู้ใช้ใหม่จะโดนใส่ชื่อนี้ตอนโหลดครั้งที่ 2 เพราะตอนนั้นมีพรีเซ็ตแล้ว)
+  if (!load('migratedOwnNames', false)) {
+    if (existingInstall && load('cfg', {}).ownNames === undefined) save('cfg', { ...load('cfg', {}), ownNames: 'THAIBEATS, EXMGE' });
+    save('migratedOwnNames', true);
+  }
 
   const presetById = (id) => presets.find((p) => p.id === id) || presets[0];
   const active = () => presetById(activeId);
@@ -322,11 +339,6 @@
     }
     return t.slice(0, TITLE_MAX);
   }
-  // render() ปล่อยตัวแปรที่ไม่รู้จักติดไปกับข้อความ ({artist} ที่พิมพ์ผิดจะขึ้น YouTube ตรง ๆ) -> เตือนในพรีวิว
-  const unknownVars = (p) =>
-    [...new Set([p.title || '', p.description || '', ...(p.tags || [])].join('\n').match(/\{\w+\}/g) || [])]
-      .filter((v) => !VARS.includes(v.slice(1, -1)));
-
   const renderTags = (p, vars) => [
     ...new Set(
       (p.tags || [])
@@ -336,122 +348,66 @@
     ),
   ];
   // ถ้าพรีเซ็ตไม่ได้ใส่ {txt} แต่คลิปมีไฟล์ .txt ให้ต่อท้ายคำอธิบาย
-  function renderDesc(p, vars) {
+  function renderDescFull(p, vars) {
     let d = render(p.description, vars).trim();
     if (vars.txt && !/\{txt\}/.test(p.description || '')) d = d ? `${d}\n\n${vars.txt}` : vars.txt;
-    return clean(d).slice(0, DESC_MAX);
+    return clean(d);
   }
+  const renderDesc = (p, vars) => renderDescFull(p, vars).slice(0, DESC_MAX);
 
-  // ===== ข้อความที่ Studio แสดง =====
-  // regex ทุกตัวที่เทียบกับข้อความบนหน้า Studio อยู่ในนี้ที่เดียว — เพิ่มภาษาใหม่ก็แก้แค่ที่นี่
-  const TXT = {
-    // --- ใช้ได้ทั้งอังกฤษและไทย (ส่วนอัปโหลด) ---
-    aiUseHeading: /^(ai use|การใช้ ai|altered content)$/i, // หัวข้อ "AI use" ในหน้ารายละเอียด
-    yes: /^(yes|ใช่)$/i, // ปุ่มตัวเลือก Yes
-    no: /^(no|ไม่|ไม่ใช่)$/i, // ปุ่มตัวเลือก No
-    paidPromoYes: /^yes, my video includes paid promotion|^ใช่ วิดีโอของฉันมีการโปรโมตแบบชำระเงิน/i, // มีการโปรโมตแบบชำระเงิน
-    paidPromoNo: /^no, my video doesn.t include paid promotion|^ไม่ วิดีโอของฉันไม่มีการโปรโมตแบบชำระเงิน/i, // ไม่มีการโปรโมตแบบชำระเงิน
-    uploadFileBox: /^(upload file|upload thumbnail|อัปโหลดไฟล์|อัปโหลดภาพขนาดย่อ)$/i, // กล่อง "Upload file" ของภาพปก
-    thumbError: /(thumbnail|image|ภาพ).*(error|fail|large|ใหญ่|ไม่)/i, // ข้อความผิดพลาดของภาพปก
-    adSuitability: /ad suitability|ความเหมาะสมกับโฆษณา/i, // หัวข้อขั้น Ad suitability
-    questionnaireLocked: /questionnaire is locked|is locked since|ถูกล็อก/i, // แบบสอบถามถูกล็อก (ตอบไว้แล้ว)
-    noneOfTheAbove: /none of the above|ไม่มีข้อใด/i, // ตัวเลือก "None of the above"
-    ratingSection: /rating|suitab|คะแนน|ความเหมาะสม/i, // ส่วนให้คะแนนความเหมาะสม
-    submitRating: /^(submit|submit rating|confirm|ส่ง|ยืนยัน)$/i, // ปุ่มส่งคะแนน
-    dismissNotice: /^(got it|ok|okay|close|dismiss|เข้าใจแล้ว|รับทราบ|ตกลง|ปิด)$/i, // ปุ่มรับทราบของป๊อปอัปแจ้งเตือน
-    noticeBody: /still checking|checks|checking your content|before your video is published|video uploading|keep this browser tab open|once uploading|will be set to|ยังตรวจ|การตรวจสอบ|กำลังอัปโหลด/i, // เนื้อหาป๊อปอัป "เรายังตรวจคลิปอยู่"
-    uploadVideos: /^(upload videos?|อัปโหลดวิดีโอ)$/i, // เมนู "Upload videos"
-    invalidFormat: /invalid file format|รูปแบบไฟล์ไม่ถูกต้อง/i, // Studio ไม่รับชนิดไฟล์นี้
-    thumbButton: /upload|thumbnail|ภาพปก|ภาพขนาดย่อ|อัปโหลดไฟล์/i, // ปุ่มที่เกี่ยวกับภาพปก (ใช้ตอนตรวจปัญหา)
-    uploadLimit: /limit|ขีดจำกัด|daily/i, // ชนขีดจำกัดการอัปต่อวัน -> หยุดคิว
-    // --- ยังต้องใช้ Studio ภาษาอังกฤษ (ส่วนลิขสิทธิ์ — ดู studioIsEnglish) ---
-    monetStatus: /moneti[sz]ation status/i, // ปุ่มแก้สถานะการสร้างรายได้
-    nextOrDone: /^(Next|Done)$/i, // ปุ่ม Next / Done ในแบบสอบถาม
-    tellUsWhats: /Tell us what.s in your video/i, // หัวข้อแบบสอบถามโฆษณา
-    submit: /^Submit$/i, // ปุ่ม Submit
-    noneOfAbove: /None of the above/i, // ตัวเลือก None of the above
-    confirmChanges: /^Confirm changes$/i, // ปุ่ม Confirm changes
-    confirmChangesLoose: /Confirm changes/i, // ข้อความ Confirm changes (หาในหน้าต่าง)
-    acknowledge: /acknowledge/i, // ช่องติ๊ก I acknowledge
-    acknowledgeFull: /I acknowledge/i, // ข้อความ I acknowledge
-    cancelOrClose: /^(Cancel|Close)$/i, // ปุ่ม Cancel / Close
-    takeAction: /^Take action$/i, // ปุ่ม Take action ในหน้า claim
-    trimOutSegment: /^Trim out segment$/i, // ตัวเลือก Trim out segment
-    continueBtn: /^Continue$/i, // ปุ่ม Continue
-    okOrGotIt: /^(OK|Got it|Done|Close)$/i, // ปุ่มปิดหน้าต่างแจ้งผล
-    trimTimes: /Start time\s*([\d:]+)[\s\S]*?End time\s*([\d:]+)/, // ช่วงเวลาที่ตัด (อ่านไปโชว์ใน log)
-  };
-  // ===== ชื่อ element ของ Studio =====
-  // selector ทุกตัวที่ผูกกับโครงหน้าของ Studio อยู่ในนี้ที่เดียว — YouTube เปลี่ยนหน้า แก้แค่ที่นี่
-  // ดูว่าตัวไหนหาไม่เจอแล้วได้จาก ตั้งค่า > "คัดลอกข้อมูลหน้าต่างอัปโหลด" (ส่วน selectors)
-  const SEL = {
-    // --- หน้าต่างอัปโหลด ---
-    dialog: 'ytcp-uploads-dialog',
-    paperDialog: 'tp-yt-paper-dialog',
-    anyDialog: 'tp-yt-paper-dialog, ytcp-dialog, [role="dialog"]',
-    nestedDialog: 'tp-yt-paper-dialog, [role="dialog"]',
-    noticeDialog: 'tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], [role="alertdialog"]',
-    closeDialogBtn: '#ytcp-uploads-dialog-close-button button, #ytcp-uploads-dialog-close-button, #close-button, button[aria-label="Close"], button[aria-label="ปิด"]',
-    // หน้าต่างที่ Studio เปิดต่อหลังบันทึก (ปิดให้อัตโนมัติ)
-    afterDialogs: ['ytcp-video-share-dialog', 'ytcp-uploads-still-processing-dialog', 'ytcp-prechecks-warning-dialog'],
-    // --- เลือกไฟล์ ---
-    filePicker: 'ytcp-uploads-file-picker',
-    pickerSelectBtn: 'ytcp-uploads-file-picker #select-files-button',
-    pickerDropZone: '#content',
-    fileInput: 'ytcp-uploads-file-picker input[type=file], input[type=file][name="Filedata"], input[type=file]',
-    createButton: '#create-icon, ytcp-button#create-icon, ytcp-icon-button#create-icon, button[aria-label="Create"], button[aria-label="สร้าง"], ytcp-button[aria-label="Create"], ytcp-button[aria-label="สร้าง"]',
-    menuItem: 'tp-yt-paper-item, ytcp-text-menu [role="menuitem"], [role="menuitem"]',
-    firstMenuItem: 'tp-yt-paper-item#text-item-0, #text-item-0',
-    uploadMenuButton: '#upload-icon, #upload-button, ytcp-button#upload-button, ytcp-icon-button#upload-icon',
-    uploadProgress: 'ytcp-video-upload-progress, .progress-label, ytcp-video-upload-progress-hover',
-    // --- หน้ากรอกรายละเอียด ---
-    titleBox: '#title-textarea #textbox',
-    descBox: '#description-textarea #textbox',
-    tagsInput: '#tags-container input#text-input, ytcp-form-input-container#tags-container input, input[aria-label*="tag" i], input[aria-label*="แท็ก"]',
-    showMore: '#toggle-button',
-    notForKids: 'tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]',
-    categoryTrigger: '#category ytcp-dropdown-trigger, #category-container ytcp-dropdown-trigger',
-    listItem: 'tp-yt-paper-listbox tp-yt-paper-item',
-    videoLink: 'ytcp-video-info a[href*="youtu"], .video-url-fadeable a[href*="youtu"], a[href*="youtu.be/"]',
-    thumbArea: 'ytcp-thumbnails-compact-editor-uploader, ytcp-thumbnail-uploader, ytcp-video-custom-still-editor, #still-picker, ytcp-thumbnails-compact-editor, [id*="thumbnail" i]',
-    thumbClickable: 'button, [role="button"], ytcp-button, tp-yt-paper-button, ytcp-thumbnail-uploader, ytcp-thumbnails-compact-editor-uploader',
-    // --- Monetisation / Ad suitability ---
-    monetBox: 'ytcp-video-monetization',
-    monetDialog: 'ytcp-video-monetization-edit-dialog',
-    monetEditBtn: 'ytcp-icon-button, [role="button"], button',
-    saveButton: '#save-button',
-    contentRatings: 'ytcp-uploads-content-ratings',
-    submitQuestionnaire: '#submit-questionnaire-button',
-    monetRadio: (on) => `#radio-${on}`, // on | off
-    // --- Visibility / ตั้งเวลาปล่อย ---
-    nextButton: '#next-button',
-    doneButton: '#done-button',
-    scheduleRadio: '#second-container-expand-button, ytcp-visibility-scheduler #schedule-radio-button, #schedule-radio-button',
-    datePickerTrigger: '#datepicker-trigger',
-    datePickerInput: 'ytcp-date-picker tp-yt-paper-input input, ytcp-date-picker input',
-    timeInput: '#time-of-day-container input, ytcp-datetime-picker tp-yt-paper-input input',
-    timeOption: 'tp-yt-paper-item, [role="option"], ytcp-text-menu tp-yt-paper-item',
-    // --- แถบด้านข้าง (ชื่อช่อง) ---
-    channelName: 'ytcp-navigation-drawer #entity-name, #entity-name',
-    channelAvatar: 'ytcp-navigation-drawer #avatar img, ytcp-navigation-drawer img.image-thumbnail, ytcp-navigation-drawer img, #avatar-btn img',
-    // --- ปุ่ม / ตัวเลือกทั่วไปของ Studio ---
-    radio: 'tp-yt-paper-radio-button, [role="radio"]',
-    radioOn: 'tp-yt-paper-radio-button#radio-on, tp-yt-paper-radio-button[name="ON"]',
-    button: 'button, ytcp-button, tp-yt-paper-button',
-    buttonLoose: 'ytcp-button, button',
-    buttonOrYtcp: 'button, ytcp-button',
-    clickable: 'button, ytcp-button, tp-yt-paper-button, [role="button"], ytcp-button-shape button',
-    iconOrButton: 'ytcp-icon-button, button',
-    iconButton: 'ytcp-icon-button',
-    checkboxLit: 'ytcp-checkbox-lit',
-    checkboxHost: 'ytcp-checkbox-lit, tp-yt-paper-checkbox, ytcp-checkbox',
-    checkboxAny: '[role="checkbox"], input[type="checkbox"], ytcp-checkbox-lit',
-    // --- หน้า claim / ตัด / เปิดโฆษณา ---
-    claimRow: 'ytcr-video-content-list-row',
-    trimDialog: 'ytcr-editing-tool-dialog',
-    trimContinue: '#continue-button',
-    adsSaveHost: 'ytcp-button#save',
-  };
+  // ===== ตรวจ tracklist ก่อนอัป (กฎ Chapters ของ YouTube) =====
+  // เช็กจากคำอธิบายที่จะอัปจริง: timestamp แรก 0:00, อย่างน้อย 3 ช่วง, เรียงจากน้อยไปมาก, แต่ละช่วง ≥ 10 วินาที,
+  // ไม่เกินความยาวคลิป และคำอธิบายไม่เกิน 5000 ตัวอักษร (เกินแล้วท้าย tracklist จะถูกตัด)
+  const fmtTs = (s) => { s = Math.round(s); const hh = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (hh ? hh + ':' + pad(m) : m) + ':' + pad(x); };
+  function checkTracklist(description, fullLength, duration) {
+    const errors = [];
+    const warnings = [];
+    const stamps = [];
+    description.split('\n').forEach((line, i) => {
+      const m = line.match(/^\s*[[(]?(?:(\d{1,2}):)?(\d{1,3}):(\d{1,2})\b[\])]?\s*[-–|.:]?\s*(.*)$/);
+      if (!m) return;
+      const [hh, mm, ss] = [m[1], m[2], m[3]].map((x) => (x === undefined ? 0 : +x));
+      if (ss > 59 || (m[1] !== undefined && mm > 59)) { errors.push(L(`บรรทัด ${i + 1}: เวลา "${line.trim().split(/\s/)[0]}" ไม่ถูกต้อง`, `Line ${i + 1}: invalid time "${line.trim().split(/\s/)[0]}"`)); return; }
+      stamps.push({ t: hh * 3600 + mm * 60 + ss, line: i + 1, name: m[4].trim() });
+    });
+    if (fullLength > DESC_MAX) warnings.push(L(`คำอธิบายยาว ${fullLength} ตัวอักษร เกิน ${DESC_MAX} — ส่วนท้ายจะถูกตัด`, `Description is ${fullLength} characters, over ${DESC_MAX} — the end will be cut off`));
+    if (!stamps.length) return { errors, warnings, count: 0 };
+    if (stamps[0].t !== 0) errors.push(L(`timestamp แรกต้องเป็น 0:00 (ตอนนี้ ${fmtTs(stamps[0].t)})`, `First timestamp must be 0:00 (currently ${fmtTs(stamps[0].t)})`));
+    if (stamps.length < 3) errors.push(L(`ต้องมีอย่างน้อย 3 timestamp (มี ${stamps.length})`, `Needs at least 3 timestamps (has ${stamps.length})`));
+    for (let k = 1; k < stamps.length; k++) {
+      const gap = stamps[k].t - stamps[k - 1].t;
+      if (gap <= 0) errors.push(L(`บรรทัด ${stamps[k].line}: ${fmtTs(stamps[k].t)} ไม่ได้มาหลัง ${fmtTs(stamps[k - 1].t)}`, `Line ${stamps[k].line}: ${fmtTs(stamps[k].t)} doesn't come after ${fmtTs(stamps[k - 1].t)}`));
+      else if (gap < 10) errors.push(L(`บรรทัด ${stamps[k - 1].line}: ช่วงยาวแค่ ${gap} วินาที (ต้อง ≥ 10)`, `Line ${stamps[k - 1].line}: chapter is only ${gap}s long (needs ≥ 10)`));
+    }
+    const last = stamps[stamps.length - 1];
+    if (duration > 0) {
+      const over = stamps.filter((s) => s.t >= duration);
+      if (over.length) errors.push(L(`${over.length} timestamp เกินความยาวคลิป (${fmtTs(duration)}) เช่นบรรทัด ${over[0].line}: ${fmtTs(over[0].t)}`, `${over.length} timestamp(s) beyond the video length (${fmtTs(duration)}), e.g. line ${over[0].line}: ${fmtTs(over[0].t)}`));
+      else if (duration - last.t < 10) errors.push(L(`ช่วงสุดท้ายยาวแค่ ${Math.floor(duration - last.t)} วินาที (ต้อง ≥ 10)`, `Last chapter is only ${Math.floor(duration - last.t)}s long (needs ≥ 10)`));
+    }
+    const seen = new Map();
+    for (const s of stamps) {
+      const k = s.name.toLowerCase().replace(/\s+/g, ' ');
+      if (k && seen.has(k)) warnings.push(L(`เพลงซ้ำ: "${s.name}" (บรรทัด ${seen.get(k)} และ ${s.line})`, `Duplicate song: "${s.name}" (lines ${seen.get(k)} and ${s.line})`));
+      else if (k) seen.set(k, s.line);
+    }
+    return { errors, warnings, count: stamps.length };
+  }
+  // ความยาวคลิปจาก metadata ของไฟล์ (อ่านแค่ส่วนหัว ไม่โหลดทั้งไฟล์) · อ่านไม่ได้ = 0 (ข้ามการเช็กความยาว)
+  function videoDuration(file) {
+    return new Promise((resolve) => {
+      const v = document.createElement('video');
+      const url = URL.createObjectURL(file);
+      let settled = false;
+      const done = (d) => { if (settled) return; settled = true; URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(Number.isFinite(d) ? d : 0); };
+      v.preload = 'metadata';
+      v.muted = true;
+      v.onloadedmetadata = () => done(v.duration);
+      v.onerror = () => done(0);
+      setTimeout(() => done(0), 15000);
+      v.src = url;
+    });
+  }
 
   // ===== Studio DOM automation =====
   // จังหวะการทำงาน: คูณเวลาพักและเวลารอทั้งหมด (หน้า Studio โหลดช้า -> เลือก "ช้า" หรือ "ช้ามาก")
@@ -472,18 +428,18 @@
     return null;
   }
 
-  const getDialog = () => document.querySelector(SEL.dialog);
-  const getTitleBox = (dlg) => dlg && dlg.querySelector(SEL.titleBox);
-  const getDescBox = (dlg) => dlg && dlg.querySelector(SEL.descBox);
+  const getDialog = () => document.querySelector('ytcp-uploads-dialog');
+  const getTitleBox = (dlg) => dlg && dlg.querySelector('#title-textarea #textbox');
+  const getDescBox = (dlg) => dlg && dlg.querySelector('#description-textarea #textbox');
   const detailsOpen = () => isVisible(getTitleBox(getDialog()));
   // หน้าต่างอัปโหลดยังเปิดอยู่ (ขั้นไหนก็ได้) — ใช้ตัดสินว่าผู้ใช้กด Save/ปิดหน้าต่างแล้วหรือยัง
   const uploadDialogOpen = () => {
-    const d = getDialog()?.querySelector(SEL.paperDialog);
-    return isVisible(d) && !isVisible(getDialog()?.querySelector(SEL.pickerSelectBtn));
+    const d = getDialog()?.querySelector('tp-yt-paper-dialog');
+    return isVisible(d) && !isVisible(getDialog()?.querySelector('ytcp-uploads-file-picker #select-files-button'));
   };
   const findTagsInput = (dlg) =>
     dlg.querySelector(
-      SEL.tagsInput
+      '#tags-container input#text-input, ytcp-form-input-container#tags-container input, input[aria-label*="tag" i], input[aria-label*="แท็ก"]'
     );
 
   // พิมพ์ลงช่อง contenteditable ผ่าน execCommand เพื่อให้ Studio รับรู้การเปลี่ยนแปลง
@@ -503,7 +459,7 @@
     if (!tags.length) return true;
     let input = findTagsInput(dlg);
     if (!isVisible(input)) {
-      const more = dlg.querySelector(SEL.showMore); // ปุ่ม "แสดงเพิ่มเติม"
+      const more = dlg.querySelector('#toggle-button'); // ปุ่ม "แสดงเพิ่มเติม"
       if (more) more.click();
       input = await waitFor(() => {
         const i = findTagsInput(dlg);
@@ -525,7 +481,7 @@
     setEditable(getTitleBox(dlg), title);
     const descBox = getDescBox(dlg);
     if (descBox && description) setEditable(descBox, description);
-    const notKids = dlg.querySelector(SEL.notForKids);
+    const notKids = dlg.querySelector('tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]');
     if (notKids) notKids.click();
     const tagsOk = await setTags(dlg, tags); // เปิด "แสดงเพิ่มเติม" ให้ด้วย
     if (settings.alteredContent !== 'skip') {
@@ -535,10 +491,10 @@
       const aiRadio = () => {
         const byName = dlg.querySelector(`tp-yt-paper-radio-button[name="${name}"]`);
         if (isVisible(byName)) return byName;
-        const head = leafByText(dlg, TXT.aiUseHeading);
+        const head = leafByText(dlg, /^(ai use|การใช้ ai|altered content)$/i);
         let p = head;
         for (let i = 0; p && i < 6; i++, p = p.parentElement) {
-          const r = [...p.querySelectorAll(SEL.radio)].find((x) => isVisible(x) && (yes ? TXT.yes : TXT.no).test((x.textContent || '').trim()));
+          const r = [...p.querySelectorAll('tp-yt-paper-radio-button, [role="radio"]')].find((x) => isVisible(x) && (yes ? /^(yes|ใช่)$/i : /^(no|ไม่|ไม่ใช่)$/i).test((x.textContent || '').trim()));
           if (r) return r;
         }
         return null;
@@ -548,21 +504,81 @@
     }
     if (settings.paidPromotion !== 'skip') {
       const r = radioByText(settings.paidPromotion === 'yes'
-        ? TXT.paidPromoYes
-        : TXT.paidPromoNo);
+        ? /^yes, my video includes paid promotion|^ใช่ วิดีโอของฉันมีการโปรโมตแบบชำระเงิน/i
+        : /^no, my video doesn.t include paid promotion|^ไม่ วิดีโอของฉันไม่มีการโปรโมตแบบชำระเงิน/i);
       if (r && r.getAttribute('aria-checked') !== 'true') r.click();
     }
     if (settings.category) await setCategory(dlg, settings.category);
     return tagsOk;
   }
 
+  // ===== Collaboration: เชิญช่องอื่นเป็นผู้ร่วมสร้าง =====
+  // Details → Show more → #collaboration-button → ytcp-video-collaborators-dialog
+  // ค้นหา @handle → เลือกแถวที่ #channel-info ขึ้นต้นด้วย @handle ตรงตัว → ytcp-video-collaborator-manage-dialog กด Create link
+  // → ytcp-video-collaborator-invite-link-dialog แสดงลิงก์ (span.invite-link) → ปิด → Save
+  // YouTube ไม่ส่งคำเชิญให้เอง ต้องส่งลิงก์ให้อีกฝ่ายเปิดแล้วกดยอมรับ (ลิงก์ใช้ได้หลังกด Save)
+  const parseHandles = (v) => String(v || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).map((s) => (s.startsWith('@') ? s : '@' + s));
+  const clickIn = (root, sel) => { const b = root && root.querySelector(sel); if (!b) return false; (b.querySelector('button') || b).click(); return true; };
+  const shownDialog = (tag) => { const d = document.querySelector(tag); return d && isVisible(d.querySelector('tp-yt-paper-dialog')) ? d : null; };
+
+  async function inviteCollaborators(handles, dlg = getDialog()) {
+    const res = { links: [], errors: [], skipped: [] };
+    if (!handles.length) return res;
+    let btn = dlg.querySelector('#collaboration-button');
+    if (!isVisible(btn)) {
+      const more = dlg.querySelector('#toggle-button');
+      if (more && /show more|แสดงเพิ่มเติม/i.test(more.textContent)) more.click();
+      btn = await waitFor(() => { const b = dlg.querySelector('#collaboration-button'); return isVisible(b) && b; }, 4000);
+    }
+    if (!btn) { res.errors.push(L('ช่องนี้ไม่มีปุ่ม Invite a collaborator', 'This channel has no "Invite a collaborator" button')); return res; }
+    btn.scrollIntoView({ block: 'center' });
+    (btn.querySelector('button') || btn).click();
+    const cd = await waitFor(() => shownDialog('ytcp-video-collaborators-dialog'), 6000);
+    if (!cd) { res.errors.push(L('เปิดหน้าต่างเชิญผู้ร่วมสร้างไม่ได้', 'Could not open the collaborator dialog')); return res; }
+
+    const existing = new Set([...cd.querySelectorAll('.collaborator .channel-name')].map((e) => e.textContent.trim().toLowerCase()).filter(Boolean));
+    for (const handle of handles.slice(0, 10)) {
+      const input = cd.querySelector('#search-input');
+      input.focus();
+      input.value = handle;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const want = handle.toLowerCase();
+      const row = await waitFor(() => [...cd.querySelectorAll('tp-yt-paper-item[role="option"]')].find((r) => {
+        const info = (r.querySelector('#channel-info')?.textContent || '').trim().toLowerCase();
+        return isVisible(r) && (info === want || info.startsWith(want + ' '));
+      }), 8000);
+      if (!row) {
+        const limit = isVisible(cd.querySelector('#limit-reached-message'));
+        res.errors.push(limit ? L(`${handle}: เชิญครบจำนวนสูงสุดแล้ว`, `${handle}: invitation limit reached`) : L(`${handle}: ไม่พบช่องนี้`, `${handle}: channel not found`));
+        if (limit) break;
+        continue;
+      }
+      const rowName = (row.querySelector('#display-name')?.textContent || '').trim().toLowerCase();
+      if (existing.has(rowName)) { res.skipped.push(handle); continue; }
+      row.click();
+      const md = await waitFor(() => shownDialog('ytcp-video-collaborator-manage-dialog'), 6000);
+      if (!md || !clickIn(md, '#create-link-button')) { res.errors.push(L(`${handle}: ไม่พบปุ่ม Create link`, `${handle}: "Create link" button not found`)); continue; }
+      const ld = await waitFor(() => shownDialog('ytcp-video-collaborator-invite-link-dialog'), 8000);
+      const link = ld && (await waitFor(() => (ld.querySelector('.invite-link')?.textContent || '').trim(), 4000));
+      if (link) res.links.push({ handle, link });
+      else res.errors.push(L(`${handle}: ไม่ได้ลิงก์คำเชิญ`, `${handle}: no invitation link`));
+      if (ld) clickIn(ld, '#close-button');
+      await waitFor(() => !shownDialog('ytcp-video-collaborator-invite-link-dialog'), 3000);
+      await sleep(400);
+    }
+    if (res.links.length) clickIn(cd, '#save-button');
+    else clickIn(cd, '#cancel-button');
+    await waitFor(() => !shownDialog('ytcp-video-collaborators-dialog'), 6000);
+    return res;
+  }
+
   // เลือกหมวดหมู่ (เทียบข้อความตามที่ Studio แสดง เช่น "Music" หรือ "เพลง")
   async function setCategory(dlg, text) {
-    const trig = dlg.querySelector(SEL.categoryTrigger);
+    const trig = dlg.querySelector('#category ytcp-dropdown-trigger, #category-container ytcp-dropdown-trigger');
     if (!trig || trig.textContent.includes(text)) return;
     trig.click();
     const item = await waitFor(() =>
-      [...document.querySelectorAll(SEL.listItem)].find((i) => isVisible(i) && i.textContent.trim() === text), 3000);
+      [...document.querySelectorAll('tp-yt-paper-listbox tp-yt-paper-item')].find((i) => isVisible(i) && i.textContent.trim() === text), 3000);
     if (item) item.click();
     else document.body.click();
   }
@@ -571,18 +587,22 @@
   // หา element จากข้อความ (เทียบทั้งข้อความ) ภายใน root
   const leafByText = (rootEl, re) =>
     [...rootEl.querySelectorAll('*')].find((e) => e.childElementCount === 0 && isVisible(e) && re.test((e.textContent || '').trim()));
-  const clickableOf = (el) => el && (el.closest(SEL.thumbClickable) || el);
+  const clickableOf = (el) => el && (el.closest('button, [role="button"], ytcp-button, tp-yt-paper-button, ytcp-thumbnail-uploader, ytcp-thumbnails-compact-editor-uploader') || el);
 
   // อัปภาพปก (Studio ต.ค. 2026: ส่วน "Thumbnail" มีกล่อง "Upload file" / "Select from video" / "A/B Testing")
   // วิธีที่ 1: ใส่ภาพลงช่องเลือกไฟล์ที่ไม่ใช่ช่องวิดีโอ  วิธีที่ 2: จำลองการลากภาพมาวางบนกล่อง "Upload file"
   // ถือว่าสำเร็จเมื่อมีภาพใหม่ (blob:/data:) ขึ้นในหน้าต่าง คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
+  const THUMB_AREA = 'ytcp-thumbnails-compact-editor-uploader, ytcp-thumbnail-uploader, ytcp-video-custom-still-editor, #still-picker, ytcp-thumbnails-compact-editor, [id*="thumbnail" i]';
+  const RE_UPLOAD_FILE = /^(upload file|upload thumbnail|อัปโหลดไฟล์|อัปโหลดภาพขนาดย่อ)$/i;
+  // ไฟล์ที่ Studio ไม่รับแน่ ๆ (ใหญ่เกิน / ชนิดไม่รองรับ) — ไม่ต้องรอลองซ้ำ
+  const thumbUnusable = (file) => file.size > THUMB_MAX || !/\.(jpe?g|png|gif|bmp)$/i.test(file.name);
   async function setThumbnail(file, wait = 6000) {
-    if (file.size > THUMB_MAX) return `ภาพปกใหญ่เกิน 2MB (${(file.size / 1048576).toFixed(1)} MB)`;
-    if (!/\.(jpe?g|png|gif|bmp)$/i.test(file.name)) return 'ชนิดไฟล์ไม่รองรับ ใช้ JPG / PNG / GIF / BMP';
+    if (file.size > THUMB_MAX) return L(`ภาพปกใหญ่เกิน 2MB (${(file.size / 1048576).toFixed(1)} MB)`, `Thumbnail is larger than 2MB (${(file.size / 1048576).toFixed(1)} MB)`);
+    if (!/\.(jpe?g|png|gif|bmp)$/i.test(file.name)) return L('ชนิดไฟล์ไม่รองรับ ใช้ JPG / PNG / GIF / BMP', 'Unsupported file type. Use JPG / PNG / GIF / BMP');
     const dlg = getDialog();
-    if (!dlg) return 'ไม่พบหน้าต่างอัปโหลด';
-    const uploadBox = () => clickableOf(leafByText(dlg, TXT.uploadFileBox));
-    const area = () => [...dlg.querySelectorAll(SEL.thumbArea)].find(shown) || null;
+    if (!dlg) return L('ไม่พบหน้าต่างอัปโหลด', 'Upload dialog not found');
+    const uploadBox = () => clickableOf(leafByText(dlg, RE_UPLOAD_FILE));
+    const area = () => [...dlg.querySelectorAll(THUMB_AREA)].find(shown) || null;
     await waitFor(() => uploadBox() || area(), 6000);
     const blobs = () => [...dlg.querySelectorAll('img')].filter((i) => /^(blob|data):/.test(i.src)).map((i) => i.src);
     const before = new Set(blobs());
@@ -604,7 +624,7 @@
 
     injectingFile = true;
     try {
-      const inputs = [...dlg.querySelectorAll('input[type=file]')].filter((i) => i.name !== 'Filedata' && !i.closest(SEL.filePicker));
+      const inputs = [...dlg.querySelectorAll('input[type=file]')].filter((i) => i.name !== 'Filedata' && !i.closest('ytcp-uploads-file-picker'));
       for (const input of inputs) {
         input.files = makeDT().files;
         input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
@@ -616,20 +636,20 @@
         await dropOn(el);
         if (await waitFor(changed, wait)) return '';
       }
-      if (!targets.length && !inputs.length) return 'ไม่พบส่วน Thumbnail / ปุ่ม "Upload file" ในหน้ากรอกรายละเอียด';
+      if (!targets.length && !inputs.length) return L('ไม่พบส่วน Thumbnail / ปุ่ม "Upload file" ในหน้ากรอกรายละเอียด', 'Thumbnail section / "Upload file" button not found on the details page');
       const err = [...dlg.querySelectorAll('*')].find((e) => e.childElementCount === 0 && isVisible(e) &&
-        TXT.thumbError.test(e.textContent || ''));
-      return err ? `Studio แจ้ง: ${err.textContent.trim().slice(0, 120)}` :
-        `Studio ยังไม่รับภาพปก (ช่องเลือกไฟล์ ${inputs.length} · ปุ่ม Upload file ${uploadBox() ? 'เจอ' : 'ไม่เจอ'})`;
+        /(thumbnail|image|ภาพ).*(error|fail|large|ใหญ่|ไม่)/i.test(e.textContent || ''));
+      return err ? L(`Studio แจ้ง: ${err.textContent.trim().slice(0, 120)}`, `Studio says: ${err.textContent.trim().slice(0, 120)}`) :
+        L(`Studio ยังไม่รับภาพปก (ช่องเลือกไฟล์ ${inputs.length} · ปุ่ม Upload file ${uploadBox() ? 'เจอ' : 'ไม่เจอ'})`, `Studio hasn't accepted the thumbnail (file inputs: ${inputs.length} · Upload file button: ${uploadBox() ? 'found' : 'not found'})`);
     } finally {
       injectingFile = false;
     }
   }
 
   // ----- ขั้นใหม่ระหว่าง Details กับ Visibility -----
-  const radioByText = (re) => [...(getDialog()?.querySelectorAll(SEL.radio) || [])]
+  const radioByText = (re) => [...(getDialog()?.querySelectorAll('tp-yt-paper-radio-button, [role="radio"]') || [])]
     .find((r) => isVisible(r) && re.test((r.textContent || '').trim()));
-  const buttonByText = (rootEl, re) => [...rootEl.querySelectorAll(SEL.button)]
+  const buttonByText = (rootEl, re) => [...rootEl.querySelectorAll('button, ytcp-button, tp-yt-paper-button')]
     .find((b) => isVisible(b) && re.test((b.textContent || '').trim()) && !b.hasAttribute('disabled') && b.getAttribute('aria-disabled') !== 'true');
 
   // Monetisation: ช่อง "Select" (ytcp-video-monetization) → กดปุ่มไอคอนเพื่อเปิดป๊อปอัป
@@ -637,17 +657,17 @@
   // คืนค่า true เมื่อตั้งค่าแล้ว (หรือไม่ต้องทำ), false เมื่อยังทำไม่เสร็จ
   async function handleMonetisation() {
     if (settings.monetization === 'skip') return true;
-    const box = getDialog()?.querySelector(SEL.monetBox);
+    const box = getDialog()?.querySelector('ytcp-video-monetization');
     if (!shown(box)) return true; // ไม่ได้อยู่ที่ขั้นนี้ (element นี้อาจไม่มีกล่องของตัวเอง จึงเช็กจากลูกด้วย)
     const want = settings.monetization === 'off' ? 'off' : 'on';
     const current = (box.innerText || '').trim().toLowerCase();
     if (current === want || current === (want === 'on' ? 'เปิด' : 'ปิด')) return true;
     const popup = () => {
-      const d = document.querySelector(SEL.monetDialog);
-      return d && isVisible(d.querySelector(SEL.monetRadio(want))) ? d : null;
+      const d = document.querySelector('ytcp-video-monetization-edit-dialog');
+      return d && isVisible(d.querySelector(`#radio-${want}`)) ? d : null;
     };
     if (!popup()) {
-      const trigger = box.querySelector(SEL.monetEditBtn) || box;
+      const trigger = box.querySelector('ytcp-icon-button, [role="button"], button') || box;
       (trigger.querySelector('button') || trigger).click();
     }
     const pop = await waitFor(popup, 4000);
@@ -655,7 +675,7 @@
     const radio = pop.querySelector(`#radio-${want}`);
     if (radio.getAttribute('aria-checked') !== 'true') radio.click();
     const save = await waitFor(() => {
-      const b2 = pop.querySelector(`${SEL.saveButton} button`) || pop.querySelector(SEL.saveButton);
+      const b2 = pop.querySelector('#save-button button') || pop.querySelector('#save-button');
       return b2 && !b2.disabled && b2.getAttribute('aria-disabled') !== 'true' ? b2 : null;
     }, 3000);
     if (save) save.click();
@@ -671,28 +691,28 @@
     const dlg = getDialog();
     // แก้บัค: querySelector แบบหลายตัวเลือกคืนตัวนอก (ytcp-uploads-content-ratings) ซึ่งไม่มีกล่องของตัวเอง
     // isVisible จึงเป็น false -> สคริปต์คิดว่าไม่ได้อยู่ขั้นนี้แล้วกด Next ข้ามไปโดยไม่ได้ Submit rating
-    const q = dlg?.querySelector('ytpp-self-certification-questionnaire') || dlg?.querySelector(SEL.contentRatings);
-    const onStep = shown(q) || TXT.adSuitability.test([...(dlg?.querySelectorAll('h1') || [])].filter(isVisible).map((e) => e.textContent).join(' '));
+    const q = dlg?.querySelector('ytpp-self-certification-questionnaire') || dlg?.querySelector('ytcp-uploads-content-ratings');
+    const onStep = shown(q) || /ad suitability|ความเหมาะสมกับโฆษณา/i.test([...(dlg?.querySelectorAll('h1') || [])].filter(isVisible).map((e) => e.textContent).join(' '));
     if (!q || !onStep) return true; // ไม่ได้อยู่ที่ขั้นนี้
     // แก้บัค: แผงด้านขวามีประโยค "Once you've submitted your rating, you won't be able to change…" อยู่ตลอด
     // ห้ามใช้คำว่า "submitted your rating" ตัดสิน — ใช้ข้อความล็อกจริง "questionnaire is locked since you have submitted your rating"
-    const isLocked = () => TXT.questionnaireLocked.test(q.innerText || '');
+    const isLocked = () => /questionnaire is locked|is locked since|ถูกล็อก/i.test(q.innerText || '');
     if (isLocked()) return true; // ส่งไปแล้ว
     const box = q.querySelector('[role="checkbox"][aria-label="None of the above"], [role="checkbox"][aria-label*="ไม่มี"]') ||
-      [...q.querySelectorAll('[role="checkbox"]')].find((c) => TXT.noneOfTheAbove.test(c.getAttribute('aria-label') || ''));
+      [...q.querySelectorAll('[role="checkbox"]')].find((c) => /none of the above|ไม่มีข้อใด/i.test(c.getAttribute('aria-label') || ''));
     if (!box) return false;
     if (box.getAttribute('aria-checked') !== 'true') box.click();
     const submit = await waitFor(() => {
-      const b2 = dlg.querySelector(`${SEL.submitQuestionnaire} button`) || dlg.querySelector(SEL.submitQuestionnaire);
+      const b2 = dlg.querySelector('#submit-questionnaire-button button') || dlg.querySelector('#submit-questionnaire-button');
       return b2 && isVisible(b2) && !b2.disabled && b2.getAttribute('aria-disabled') !== 'true' ? b2 : null;
     }, 4000);
     if (!submit) return false;
     submit.click();
     await sleep(800);
     // บางครั้ง Studio ถามยืนยันอีกชั้นในหน้าต่างแยก
-    const pop = [...document.querySelectorAll(SEL.anyDialog)]
-      .find((d) => isVisible(d) && !d.closest(SEL.dialog) && TXT.ratingSection.test(d.innerText || ''));
-    const ok = pop && buttonByText(pop, TXT.submitRating);
+    const pop = [...document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"]')]
+      .find((d) => isVisible(d) && !d.closest('ytcp-uploads-dialog') && /rating|suitab|คะแนน|ความเหมาะสม/i.test(d.innerText || ''));
+    const ok = pop && buttonByText(pop, /^(submit|submit rating|confirm|ส่ง|ยืนยัน)$/i);
     if (ok) ok.click();
     return !!(await waitFor(isLocked, 10000));
   }
@@ -714,11 +734,11 @@
       if (Date.now() - stepAt < T(1500)) { await sleep(300); continue; }
       const ok = (await handleMonetisation()) && (await handleAdSuitability());
       if (!ok) {
-        if (Date.now() - stepAt > T(25000)) throw new Error(`ทำขั้น "${step}" ไม่สำเร็จ — ทำขั้นนี้เองในหน้าต่าง แล้วกดลองใหม่`);
+        if (Date.now() - stepAt > T(25000)) throw new Error(L(`ทำขั้น "${step}" ไม่สำเร็จ — ทำขั้นนี้เองในหน้าต่าง แล้วกดลองใหม่`, `Step "${step}" failed — do this step manually in the dialog, then click Retry`));
         await sleep(1000);
         continue;
       }
-      const next = getDialog()?.querySelector(SEL.nextButton);
+      const next = getDialog()?.querySelector('#next-button');
       const nb = next && (next.querySelector('button') || next);
       if (isVisible(next) && !next.hasAttribute('disabled') && nb.getAttribute('aria-disabled') !== 'true' && !nb.disabled) nb.click();
       else if (Date.now() - stepAt > T(25000)) break;
@@ -763,23 +783,23 @@
   async function setSchedule(date) {
     const dlg = getDialog();
     const expand = await waitFor(() => {
-      const e = dlg.querySelector(SEL.scheduleRadio);
+      const e = dlg.querySelector('#second-container-expand-button, ytcp-visibility-scheduler #schedule-radio-button, #schedule-radio-button');
       return isVisible(e) && e;
     }, 6000);
-    if (!expand) return 'ไม่พบส่วน "กำหนดเวลา" ในหน้าการเปิดเผย';
+    if (!expand) return L('ไม่พบส่วน "กำหนดเวลา" ในหน้าการเปิดเผย', '"Schedule" section not found on the visibility page');
     expand.click();
 
     const trigger = await waitFor(() => {
-      const t = dlg.querySelector(SEL.datePickerTrigger);
+      const t = dlg.querySelector('#datepicker-trigger');
       return isVisible(t) && t;
     }, 5000);
-    if (!trigger) return 'ไม่พบช่องวันที่';
+    if (!trigger) return L('ไม่พบช่องวันที่', 'Date field not found');
     trigger.click();
     const dateInput = await waitFor(() => {
-      const i = document.querySelector(SEL.datePickerInput);
+      const i = document.querySelector('ytcp-date-picker tp-yt-paper-input input, ytcp-date-picker input');
       return isVisible(i) && i;
     }, 5000);
-    if (!dateInput) return 'เปิดปฏิทินไม่ได้';
+    if (!dateInput) return L('เปิดปฏิทินไม่ได้', 'Could not open the calendar');
     const dateText = formatStudioDate(date, dateInput.value);
     await typeInto(dateInput, dateText);
     if (isVisible(dateInput)) {
@@ -788,10 +808,10 @@
     }
 
     const timeInput = await waitFor(() => {
-      const i = dlg.querySelector(SEL.timeInput);
+      const i = dlg.querySelector('#time-of-day-container input, ytcp-datetime-picker tp-yt-paper-input input');
       return isVisible(i) && i;
     }, 4000);
-    if (!timeInput) return 'ไม่พบช่องเวลา';
+    if (!timeInput) return L('ไม่พบช่องเวลา', 'Time field not found');
     const timeText = formatStudioTime(date);
     const norm = (x) => String(x).toLowerCase().replace(/[\s,.]/g, '');
     // ช่องเวลาของ Studio เป็นช่องเลือกจากรายการ (00:00, 00:15, …) พิมพ์อย่างเดียวค่าไม่ถูกบันทึก (รูป 6: ค้าง 00:00)
@@ -799,7 +819,7 @@
     const pickTime = async () => {
       timeInput.focus();
       timeInput.click();
-      const item = await waitFor(() => [...document.querySelectorAll(SEL.timeOption)]
+      const item = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-item, [role="option"], ytcp-text-menu tp-yt-paper-item')]
         .find((e) => e.getClientRects().length && norm(e.textContent) === norm(timeText)), 2500);
       if (item) {
         item.scrollIntoView({ block: 'center' });
@@ -819,10 +839,10 @@
 
     // ตรวจผลจากข้อความที่ Studio แสดง (หลังออกจากช่องแล้ว): วันที่และเวลาต้องตรงกับที่ตั้งทั้งหมด
     // ถ้าไม่ตรงจะถือว่าไม่สำเร็จ (ไม่กด Save) ดีกว่าเสี่ยงปล่อยผิดวัน/ผิดเวลา
-    const shownDate = (dlg.querySelector(SEL.datePickerTrigger)?.textContent || trigger.textContent || '').trim();
-    const shownTime = (dlg.querySelector(SEL.timeInput)?.value || '').trim();
+    const shownDate = (dlg.querySelector('#datepicker-trigger')?.textContent || trigger.textContent || '').trim();
+    const shownTime = (dlg.querySelector('#time-of-day-container input, ytcp-datetime-picker tp-yt-paper-input input')?.value || '').trim();
     if (norm(shownDate) !== norm(dateText) || norm(shownTime) !== norm(timeText)) {
-      return `Studio ไม่รับวันเวลา (ตั้ง "${dateText} ${timeText}" แต่แสดง "${shownDate} ${shownTime}")`;
+      return L(`Studio ไม่รับวันเวลา (ตั้ง "${dateText} ${timeText}" แต่แสดง "${shownDate} ${shownTime}")`, `Studio rejected the date/time (set "${dateText} ${timeText}" but shows "${shownDate} ${shownTime}")`);
     }
     return '';
   }
@@ -830,14 +850,14 @@
   // ป๊อปอัปแจ้งเตือนที่ขึ้นหลังกด Save/Schedule เช่น
   // "We're still checking your content … Come back before your video is published" [Got it]
   // กดเฉพาะปุ่มรับทราบ (Got it / OK / Close) ไม่กดปุ่มที่เปลี่ยนการตัดสินใจ เช่น "Publish anyway"
-  const RE_ACK = TXT.dismissNotice;
+  const RE_ACK = /^(got it|ok|okay|close|dismiss|เข้าใจแล้ว|รับทราบ|ตกลง|ปิด)$/i;
   function ackNoticeDialogs() {
-    const main = getDialog()?.querySelector(SEL.paperDialog);
+    const main = getDialog()?.querySelector('tp-yt-paper-dialog');
     let clicked = false;
-    for (const d of document.querySelectorAll(SEL.noticeDialog)) {
+    for (const d of document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], [role="alertdialog"]')) {
       if (d === main || !isVisible(d) || d.contains(main)) continue;
       // "We're still checking your content" และ "Video uploading … Keep this browser tab open until uploading is complete"
-      if (!TXT.noticeBody.test(d.innerText || '')) continue;
+      if (!/still checking|checks|checking your content|before your video is published|video uploading|keep this browser tab open|once uploading|will be set to|ยังตรวจ|การตรวจสอบ|กำลังอัปโหลด/i.test(d.innerText || '')) continue;
       const btn = [...d.querySelectorAll('button')].find((b) => isVisible(b) && RE_ACK.test((b.textContent || '').trim()) && !b.disabled);
       if (btn) { btn.click(); clicked = true; }
     }
@@ -848,7 +868,7 @@
   function closeAfterDialogs() {
     document
       .querySelectorAll(
-        SEL.afterDialogs
+        ['ytcp-video-share-dialog', 'ytcp-uploads-still-processing-dialog', 'ytcp-prechecks-warning-dialog']
           .map((d) => `${d} #close-button, ${d} #close-button button, ${d} button[aria-label="Close"]`).join(', ')
       )
       .forEach((b) => isVisible(b) && b.click());
@@ -857,7 +877,7 @@
 
   // ปุ่มปิดหน้าต่างอัปโหลด (Studio ต.ค. 2026: ytcp-button#ytcp-uploads-dialog-close-button > button[aria-label=Close])
   function closeStudioUploadDialog() {
-    const b = [...(getDialog()?.querySelectorAll(SEL.closeDialogBtn) || [])].find(isVisible);
+    const b = [...(getDialog()?.querySelectorAll('#ytcp-uploads-dialog-close-button button, #ytcp-uploads-dialog-close-button, #close-button, button[aria-label="Close"], button[aria-label="ปิด"]') || [])].find(isVisible);
     if (b) b.click();
   }
 
@@ -878,9 +898,9 @@
     const fileInput = () => {
       const dlg = getDialog();
       if (!dlg) return null;
-      const input = dlg.querySelector(SEL.fileInput);
+      const input = dlg.querySelector('ytcp-uploads-file-picker input[type=file], input[type=file][name="Filedata"], input[type=file]');
       // หน้าต่างต้องอยู่ที่หน้าจอ "เลือกไฟล์" (ไม่ใช่หน้ากรอกรายละเอียดของคลิปก่อน)
-      const pickerShown = shown(dlg.querySelector(SEL.filePicker)) || shown(dlg.querySelector('#select-files-button'));
+      const pickerShown = shown(dlg.querySelector('ytcp-uploads-file-picker')) || shown(dlg.querySelector('#select-files-button'));
       return input && pickerShown && !detailsOpen() ? input : null;
     };
     if (fileInput()) return { input: fileInput() };
@@ -888,33 +908,33 @@
     const steps = [];
     // (2) ปุ่ม Create (ไอคอนกล้อง/บวก มุมขวาบน)
     const create = [...document.querySelectorAll(
-      SEL.createButton
+      '#create-icon, ytcp-button#create-icon, ytcp-icon-button#create-icon, button[aria-label="Create"], button[aria-label="สร้าง"], ytcp-button[aria-label="Create"], ytcp-button[aria-label="สร้าง"]'
     )].find(shown);
     if (create) {
       (create.querySelector('button') || create).click();
       const item = await waitFor(() =>
-        byText(SEL.menuItem, TXT.uploadVideos) ||
-        [...document.querySelectorAll(SEL.firstMenuItem)].find(shown), 4000);
+        byText('tp-yt-paper-item, ytcp-text-menu [role="menuitem"], [role="menuitem"]', /^(upload videos?|อัปโหลดวิดีโอ)$/i) ||
+        [...document.querySelectorAll('tp-yt-paper-item#text-item-0, #text-item-0')].find(shown), 4000);
       if (item) {
         item.click();
         const input = await waitFor(fileInput, 10000);
         if (input) return { input };
-        steps.push('กดเมนู "อัปโหลดวิดีโอ" แล้วแต่หน้าต่างไม่ขึ้น');
+        steps.push(L('กดเมนู "อัปโหลดวิดีโอ" แล้วแต่หน้าต่างไม่ขึ้น', 'Clicked "Upload videos" but the dialog did not open'));
       } else {
         document.body.click();
-        steps.push('กดปุ่ม Create แล้วแต่ไม่เจอเมนู "อัปโหลดวิดีโอ"');
+        steps.push(L('กดปุ่ม Create แล้วแต่ไม่เจอเมนู "อัปโหลดวิดีโอ"', 'Clicked Create but the "Upload videos" menu was not found'));
       }
-    } else steps.push('ไม่เจอปุ่ม Create');
+    } else steps.push(L('ไม่เจอปุ่ม Create', 'Create button not found'));
 
     // (3) ปุ่ม Upload ในหน้า Dashboard / Content
-    const up = [...document.querySelectorAll(SEL.uploadMenuButton)].find(shown) ||
-      byText(SEL.buttonLoose, TXT.uploadVideos);
+    const up = [...document.querySelectorAll('#upload-icon, #upload-button, ytcp-button#upload-button, ytcp-icon-button#upload-icon')].find(shown) ||
+      byText('ytcp-button, button', /^(upload videos?|อัปโหลดวิดีโอ)$/i);
     if (up) {
       (up.querySelector('button') || up).click();
       const input = await waitFor(fileInput, 10000);
       if (input) return { input };
-      steps.push('กดปุ่ม Upload แล้วแต่หน้าต่างไม่ขึ้น');
-    } else steps.push('ไม่เจอปุ่ม Upload');
+      steps.push(L('กดปุ่ม Upload แล้วแต่หน้าต่างไม่ขึ้น', 'Clicked Upload but the dialog did not open'));
+    } else steps.push(L('ไม่เจอปุ่ม Upload', 'Upload button not found'));
 
     return { err: steps.join(' · ') };
   }
@@ -925,7 +945,7 @@
   // ถือว่าสำเร็จเมื่อหน้าต่างออกจากหน้าจอ "เลือกไฟล์" (ขึ้นหน้ากรอกรายละเอียด / แถบอัปโหลด / ข้อความผิดพลาด)
   async function injectUploadFile(input, file) {
     const dlg = getDialog();
-    const picker = () => dlg.querySelector(SEL.filePicker);
+    const picker = () => dlg.querySelector('ytcp-uploads-file-picker');
     const accepted = () => detailsOpen() || !!dialogError() || !shown(picker());
     const makeDT = () => {
       const dt = new DataTransfer();
@@ -940,11 +960,11 @@
         inp.files = makeDT().files;
         inp.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
         if (await waitFor(accepted, 5000)) return true;
-        if (TXT.invalidFormat.test(dlg.innerText || '')) return true; // Studio รับแล้วแต่ไฟล์ใช้ไม่ได้ -> แจ้งด้วย dialogError
+        if (/invalid file format|รูปแบบไฟล์ไม่ถูกต้อง/i.test(dlg.innerText || '')) return true; // Studio รับแล้วแต่ไฟล์ใช้ไม่ได้ -> แจ้งด้วย dialogError
       }
 
       // วิธีที่ 2
-      const zone = picker()?.querySelector(SEL.pickerDropZone) || picker() || dlg;
+      const zone = picker()?.querySelector('#content') || picker() || dlg;
       const r = zone.getBoundingClientRect();
       const base = { bubbles: true, cancelable: true, composed: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
       for (const type of ['dragenter', 'dragover', 'drop']) {
@@ -960,7 +980,7 @@
   // เก็บข้อมูลโครงสร้างหน้าต่างอัปโหลด (ส่วนภาพปก / ช่องเลือกไฟล์ / ปุ่ม) สำหรับหาสาเหตุ
   function diagnoseUploadDialog() {
     const dlg = getDialog();
-    if (!dlg || !detailsOpen()) return { error: 'ยังไม่ได้เปิดหน้ากรอกรายละเอียด — เลือกไฟล์ในหน้าต่างอัปโหลดก่อน แล้วกดใหม่' };
+    if (!dlg || !detailsOpen()) return { error: L('ยังไม่ได้เปิดหน้ากรอกรายละเอียด — เลือกไฟล์ในหน้าต่างอัปโหลดก่อน แล้วกดใหม่', 'Details page is not open yet — select a file in the upload dialog first, then try again') };
     const path = (e) => {
       const c = [];
       for (let p = e, i = 0; p && p !== dlg && i < 8; i++) {
@@ -978,27 +998,15 @@
       thumbTags: [...new Set(all.map((e) => e.tagName.toLowerCase()).filter((t) => /thumb|still/.test(t)))],
       thumbIds: all.filter((e) => /thumb|still/i.test(e.id)).slice(0, 15).map(desc),
       thumbButtons: all.filter((e) => /^(button|ytcp-button|tp-yt-paper-button)$/i.test(e.tagName) &&
-        TXT.thumbButton.test((e.getAttribute('aria-label') || '') + ' ' + (e.textContent || ''))).slice(0, 10).map(desc),
-      thumbImgs: all.filter((e) => e.tagName === 'IMG' && e.closest(SEL.thumbArea)).slice(0, 8).map((i) => ({ path: path(i), src: String(i.src).slice(0, 40) })),
-      areaFound: !!dlg.querySelector(SEL.thumbArea),
-      selectors: checkSelectors(),
+        /upload|thumbnail|ภาพปก|ภาพขนาดย่อ|อัปโหลดไฟล์/i.test((e.getAttribute('aria-label') || '') + ' ' + (e.textContent || ''))).slice(0, 10).map(desc),
+      thumbImgs: all.filter((e) => e.tagName === 'IMG' && e.closest(THUMB_AREA)).slice(0, 8).map((i) => ({ path: path(i), src: String(i.src).slice(0, 40) })),
+      areaFound: !!dlg.querySelector(THUMB_AREA),
     };
-  }
-
-  // selector ตัวไหนใน SEL หาไม่เจอแล้ว (ใช้ตอน Studio เปลี่ยนโครงหน้า — ส่งรายชื่อนี้ให้ผู้พัฒนา)
-  function checkSelectors() {
-    const out = { missing: [], broken: [] };
-    for (const [k, v] of Object.entries(SEL)) {
-      for (const sel of typeof v === 'function' ? [v('on')] : [].concat(v)) {
-        try { if (!document.querySelector(sel)) out.missing.push(k); } catch (e) { out.broken.push(k); }
-      }
-    }
-    return out;
   }
 
   // ข้อความสถานะการอัปโหลดในหน้าต่าง เช่น "Uploading 45% … 3 minutes left" / "Upload complete"
   function uploadProgressText() {
-    const el = getDialog()?.querySelector(SEL.uploadProgress);
+    const el = getDialog()?.querySelector('ytcp-video-upload-progress, .progress-label, ytcp-video-upload-progress-hover');
     return el ? (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '';
   }
 
@@ -1006,20 +1014,20 @@
   function getChannel() {
     const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const id = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1] || (W.ytcfg && W.ytcfg.get('CHANNEL_ID')) || '';
-    const nameEl = document.querySelector(SEL.channelName);
+    const nameEl = document.querySelector('ytcp-navigation-drawer #entity-name, #entity-name');
     const imgEl = document.querySelector(
-      SEL.channelAvatar
+      'ytcp-navigation-drawer #avatar img, ytcp-navigation-drawer img.image-thumbnail, ytcp-navigation-drawer img, #avatar-btn img'
     );
     return { id, name: nameEl ? nameEl.textContent.trim() : '', avatar: imgEl && imgEl.src ? imgEl.src : '' };
   }
-  const chanLabel = (c) => c.name || c.id || 'ไม่ทราบช่อง';
+  const chanLabel = (c) => c.name || c.id || L('ไม่ทราบช่อง', 'Unknown channel');
   // คืนค่า '' ถ้าอัปได้ หรือข้อความเตือนถ้าไม่ตรงกับช่องที่ล็อกไว้
   function channelProblem() {
     const lock = settings.lockChannel;
     if (!lock) return '';
     const cur = getChannel();
-    if (!cur.id) return `ตรวจไม่พบช่องปัจจุบัน (ล็อกไว้ที่ "${lock.name}")`;
-    return cur.id === lock.id ? '' : `ตอนนี้อยู่ช่อง "${chanLabel(cur)}" แต่ล็อกไว้ที่ "${lock.name}"`;
+    if (!cur.id) return L(`ตรวจไม่พบช่องปัจจุบัน (ล็อกไว้ที่ "${lock.name}")`, `Could not detect the current channel (locked to "${lock.name}")`);
+    return cur.id === lock.id ? '' : L(`ตอนนี้อยู่ช่อง "${chanLabel(cur)}" แต่ล็อกไว้ที่ "${lock.name}"`, `Currently on channel "${chanLabel(cur)}" but locked to "${lock.name}"`);
   }
 
   // ===== คิวอัปโหลด =====
@@ -1030,11 +1038,11 @@
   let stopReq = false;
 
   const STATUS = {
-    pending: ['รอคิว', 'muted'],
-    uploading: ['กำลังทำงาน', 'info'],
-    review: ['รอคุณกด Save', 'warn'],
-    done: ['เสร็จแล้ว', 'ok'],
-    error: ['ผิดพลาด', 'err'],
+    pending: [L('รอคิว', 'Queued'), 'muted'],
+    uploading: [L('กำลังทำงาน', 'Working'), 'info'],
+    review: [L('รอคุณกด Save', 'Waiting for you to Save'), 'warn'],
+    done: [L('เสร็จแล้ว', 'Done'), 'ok'],
+    error: [L('ผิดพลาด', 'Error'), 'err'],
   };
 
   const isVideo = (f) => (f.type || '').startsWith('video/') || VIDEO_EXT.test(f.name);
@@ -1062,7 +1070,9 @@
     const files = [...fileList];
     const vids = files.filter(isVideo);
     for (const file of vids) {
-      queue.push({ id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null });
+      const it = { id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0 };
+      queue.push(it);
+      videoDuration(file).then((d) => { it.duration = d; if (it.ui) updateItemUI(it); }); // ใช้เช็ก timestamp เกินความยาวคลิป
     }
     const byKey = new Map();
     for (const it of queue) if (it.status !== 'done') byKey.set(baseKey(it.file.name), it);
@@ -1080,11 +1090,11 @@
     }
 
     const parts = [];
-    if (vids.length) parts.push(`เพิ่ม ${vids.length} คลิป`);
-    if (txtN) parts.push(`คำอธิบาย .txt ${txtN} ไฟล์`);
-    if (imgN) parts.push(`ภาพปก ${imgN} ไฟล์`);
-    if (unmatched) parts.push(`ไม่มีคลิปชื่อตรงกัน ${unmatched} ไฟล์`);
-    if (skipped) parts.push(`ข้าม ${skipped} ไฟล์`);
+    if (vids.length) parts.push(L(`เพิ่ม ${vids.length} คลิป`, `Added ${vids.length} video(s)`));
+    if (txtN) parts.push(L(`คำอธิบาย .txt ${txtN} ไฟล์`, `${txtN} .txt description file(s)`));
+    if (imgN) parts.push(L(`ภาพปก ${imgN} ไฟล์`, `${imgN} thumbnail file(s)`));
+    if (unmatched) parts.push(L(`ไม่มีคลิปชื่อตรงกัน ${unmatched} ไฟล์`, `${unmatched} file(s) with no matching video name`));
+    if (skipped) parts.push(L(`ข้าม ${skipped} ไฟล์`, `Skipped ${skipped} file(s)`));
     if (parts.length) toast(parts.join(' · '));
     renderQueue();
   }
@@ -1115,18 +1125,11 @@
     const start = new Date(settings.schedule.start).getTime();
     if (!start) return null;
     const k = queue.filter((x) => ['pending', 'uploading', 'review'].includes(x.status) && !(x.publishEdited && x.publishAt)).indexOf(it);
-    if (k < 0) return null;
-    // คิวยาวจนช่องเวลาของคลิปนี้เลยไปแล้ว (เน็ตช้า / คลิปใหญ่) -> เลื่อนไปช่องถัดไปที่ยังตั้งเวลาได้
-    // แทนที่จะ error ทิ้งคลิปนั้นไป · เวลาที่เลื่อนแล้วจะโชว์บนการ์ดและในสรุปตามจริง
-    const step = stepMs();
-    let at = start + k * step;
-    const floor = Date.now() + SCHEDULE_MIN_LEAD;
-    if (at < floor) at += Math.ceil((floor - at) / step) * step;
-    return at;
+    return k < 0 ? null : start + k * stepMs();
   }
-  const scheduleProblem = (at) => (at && at < Date.now() + SCHEDULE_MIN_LEAD ? 'เวลาปล่อยต้องอยู่ในอนาคตอย่างน้อย 15 นาที' : '');
+  const scheduleProblem = (at) => (at && at < Date.now() + SCHEDULE_MIN_LEAD ? L('เวลาปล่อยต้องอยู่ในอนาคตอย่างน้อย 15 นาที', 'Release time must be at least 15 minutes in the future') : '');
   const fmtWhen = (ms) =>
-    new Intl.DateTimeFormat('th-TH-u-ca-gregory', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms);
+    new Intl.DateTimeFormat(LOCALE === 'th-TH' ? 'th-TH-u-ca-gregory' : LOCALE, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms);
   // แปลง ms <-> ค่าของ <input type=datetime-local> ตามเวลาเครื่อง
   const toLocalInput = (ms) => {
     const d = new Date(ms);
@@ -1135,6 +1138,11 @@
 
   const itemVars = (it) =>
     buildVars(it.file.name, it.n, it.txt, { preset: presetById(it.presetId), artists: it.artistsEdited ? it.artists : '' });
+  // ผลตรวจ tracklist ของคลิปในคิว (เช็กจากคำอธิบายที่จะอัปจริง)
+  function itemTracklist(it) {
+    const full = renderDescFull(presetById(it.presetId), itemVars(it));
+    return checkTracklist(full.slice(0, DESC_MAX), full.length, it.duration || 0);
+  }
 
   function setItem(it, status, msg = '') {
     it.status = status;
@@ -1150,24 +1158,24 @@
 
     const publishAt = itemPublishAt(it);
     if (scheduleProblem(publishAt)) throw new Error(`${scheduleProblem(publishAt)} (${fmtWhen(publishAt)})`);
-    if (uploadDialogOpen()) throw new Error('มีหน้าต่างอัปโหลดค้างอยู่ ปิดก่อนแล้วกดเริ่มใหม่');
-    setItem(it, 'uploading', 'กำลังเปิดหน้าต่างอัปโหลด…');
+    if (uploadDialogOpen()) throw new Error(L('มีหน้าต่างอัปโหลดค้างอยู่ ปิดก่อนแล้วกดเริ่มใหม่', 'An upload dialog is still open. Close it, then start again'));
+    setItem(it, 'uploading', L('กำลังเปิดหน้าต่างอัปโหลด…', 'Opening upload dialog…'));
     const { input, err: pickErr } = await openFilePicker();
     if (!input) {
-      throw new Error(`เปิดหน้าต่างอัปโหลดของ Studio ไม่ได้ (${pickErr}) — ลองเปิดหน้าต่างอัปโหลดเองค้างไว้ที่หน้า "เลือกไฟล์" แล้วกด "ลองใหม่" สคริปต์จะใช้หน้าต่างนั้นต่อ`);
+      throw new Error(L(`เปิดหน้าต่างอัปโหลดของ Studio ไม่ได้ (${pickErr}) — ลองเปิดหน้าต่างอัปโหลดเองค้างไว้ที่หน้า "เลือกไฟล์" แล้วกด "ลองใหม่" สคริปต์จะใช้หน้าต่างนั้นต่อ`, `Could not open Studio's upload dialog (${pickErr}) — try opening the upload dialog yourself, leave it on the "Select files" page, then click "Retry". The script will continue from that dialog`));
     }
 
     if (!(await injectUploadFile(input, it.file))) {
       closeStudioUploadDialog();
-      throw new Error('Studio ไม่รับไฟล์ที่สคริปต์ส่งให้ (ทั้งแบบเลือกไฟล์และแบบลากวาง) — ส่งข้อความนี้ให้ผู้พัฒนาสคริปต์');
+      throw new Error(L('Studio ไม่รับไฟล์ที่สคริปต์ส่งให้ (ทั้งแบบเลือกไฟล์และแบบลากวาง) — ส่งข้อความนี้ให้ผู้พัฒนาสคริปต์', 'Studio did not accept the file sent by the script (via both file picker and drag-and-drop) — send this message to the script developer'));
     }
 
-    setItem(it, 'uploading', 'กำลังอัปโหลดและกรอกรายละเอียด…');
+    setItem(it, 'uploading', L('กำลังอัปโหลดและกรอกรายละเอียด…', 'Uploading and filling in details…'));
     const titleBox = await waitFor(() => {
       const t = getTitleBox(getDialog());
       return (isVisible(t) && t) || (dialogError() && 'error');
     }, 60000);
-    if (!titleBox || titleBox === 'error') throw new Error(dialogError() || 'ไม่พบหน้ากรอกรายละเอียด');
+    if (!titleBox || titleBox === 'error') throw new Error(dialogError() || L('ไม่พบหน้ากรอกรายละเอียด', 'Details page not found'));
     await waitFor(() => titleBox.textContent.trim(), 8000); // รอ Studio ใส่ชื่อไฟล์ก่อน จะได้ไม่ทับของเรา
     await sleep(800);
 
@@ -1175,7 +1183,7 @@
     const tagsOk = await fillDetails({ title, description, tags: renderTags(p, vars) });
     it.draftId = dialogVideoId(); // อาจยังไม่มีลิงก์ จะอ่านซ้ำก่อนกด Save
     const vis = p.visibility || 'PRIVATE';
-    let note = tagsOk ? '' : ' (หาช่องแท็กไม่เจอ)';
+    let note = tagsOk ? '' : L(' (หาช่องแท็กไม่เจอ)', ' (tags field not found)');
     if (settings.thumb && it.thumb) {
       // Studio เปิดให้ใส่ภาพปกหลังวิดีโออัปขึ้นไปแล้ว -> ลองทุก ~10 วินาทีจนสำเร็จ หรือครบเวลาที่ตั้งไว้
       const t0 = Date.now();
@@ -1183,51 +1191,55 @@
       let err = '';
       for (let round = 1; ; round++) {
         const prog = uploadProgressText();
-        setItem(it, 'uploading', `รอใส่ภาพปก (รอบที่ ${round})${prog ? ' · ' + prog : ''}`);
+        setItem(it, 'uploading', L(`รอใส่ภาพปก (รอบที่ ${round})${prog ? ' · ' + prog : ''}`, `Waiting to set thumbnail (round ${round})${prog ? ' · ' + prog : ''}`));
         err = await setThumbnail(it.thumb, 3000);
-        if (!err || /2MB|ชนิดไฟล์/.test(err) || stopReq || !detailsOpen() || Date.now() - t0 > limit) break;
+        if (!err || thumbUnusable(it.thumb) || stopReq || !detailsOpen() || Date.now() - t0 > limit) break;
         await sleep(7000);
       }
-      if (err) note += ` (ภาพปก: ${err}${Date.now() - t0 > limit ? ` · รอเกิน ${settings.thumbWaitMin} นาที` : ''})`;
+      if (err) note += L(` (ภาพปก: ${err}${Date.now() - t0 > limit ? ` · รอเกิน ${settings.thumbWaitMin} นาที` : ''})`, ` (thumbnail: ${err}${Date.now() - t0 > limit ? ` · waited over ${settings.thumbWaitMin} min` : ''})`);
     }
 
     // ตั้งเวลาปล่อย: ไปหน้า Visibility แล้วกรอกวัน/เวลา (คลิปจะเป็นส่วนตัวจนถึงเวลาที่ตั้ง)
     if (publishAt) {
-      setItem(it, 'uploading', `กำลังตั้งเวลาปล่อย ${fmtWhen(publishAt)}…`);
-      if (!(await goToVisibility(null))) throw new Error('ไปหน้า Visibility ไม่สำเร็จ');
+      setItem(it, 'uploading', L(`กำลังตั้งเวลาปล่อย ${fmtWhen(publishAt)}…`, `Scheduling for ${fmtWhen(publishAt)}…`));
+      // เช็กซ้ำ: ระหว่างรอภาพปก (อาจนานเป็นชั่วโมง) เวลาที่ตั้งไว้อาจผ่านไปแล้ว
+      const late = scheduleProblem(publishAt);
+      if (late) throw new Error(late);
+      if (!(await goToVisibility(null))) throw new Error(L('ไปหน้า Visibility ไม่สำเร็จ', 'Could not go to the Visibility page'));
       await sleep(600);
       const err = await setSchedule(new Date(publishAt));
-      if (err) throw new Error('ตั้งเวลาไม่สำเร็จ: ' + err);
+      if (err) throw new Error(L('ตั้งเวลาไม่สำเร็จ: ', 'Scheduling failed: ') + err);
     }
-    const visText = publishAt ? `⏰ ปล่อย ${fmtWhen(publishAt)}` : VIS[vis];
+    const visText = publishAt ? L(`⏰ ปล่อย ${fmtWhen(publishAt)}`, `⏰ Releases ${fmtWhen(publishAt)}`) : VIS[vis];
 
     if (settings.autoSave) {
-      setItem(it, 'uploading', 'กำลังบันทึก…');
-      if (!publishAt && !(await goToVisibility(vis))) throw new Error('ไปหน้า Visibility ไม่สำเร็จ');
+      setItem(it, 'uploading', L('กำลังบันทึก…', 'Saving…'));
+      if (!publishAt && !(await goToVisibility(vis))) throw new Error(L('ไปหน้า Visibility ไม่สำเร็จ', 'Could not go to the Visibility page'));
       await sleep(600);
       // ปุ่ม Save/Schedule: ytcp-button#done-button > button (กดตัว button ข้างใน)
       const done = await waitFor(() => {
-        const host = getDialog()?.querySelector(SEL.doneButton);
+        const host = getDialog()?.querySelector('#done-button');
         const b = host && (host.querySelector('button') || host);
         return isVisible(host) && !host.hasAttribute('disabled') && !b.disabled && b.getAttribute('aria-disabled') !== 'true' && b;
       }, 20000);
-      if (!done) throw new Error('กดปุ่ม Save ไม่ได้ (ปุ่มยังกดไม่ได้ — อาจยังมีขั้นที่ต้องตอบ)');
+      if (!done) throw new Error(L('กดปุ่ม Save ไม่ได้ (ปุ่มยังกดไม่ได้ — อาจยังมีขั้นที่ต้องตอบ)', 'Could not click Save (button still disabled — a step may still need an answer)'));
       it.draftId = it.draftId || dialogVideoId();
-      setItem(it, 'uploading', 'กด Save แล้ว รอหน้าต่างปิด…');
+      setItem(it, 'uploading', L('กด Save แล้ว รอหน้าต่างปิด…', 'Clicked Save, waiting for the dialog to close…'));
       done.click();
       // หลังกด Save/Schedule อาจมีป๊อปอัปแจ้งเตือน เช่น "We're still checking your content" (ปุ่ม Got it) -> กดรับทราบให้
       const closedOk = () => { ackNoticeDialogs(); return !uploadDialogOpen(); };
       if (!(await waitFor(closedOk, 30000, 500))) {
         // บางครั้งต้องกดซ้ำ (เช่น Studio ยังบันทึกข้อมูลก่อนหน้าอยู่)
         if (isVisible(done)) done.click();
-        if (!(await waitFor(closedOk, 30000, 500))) throw new Error('กด Save แล้วแต่หน้าต่างไม่ปิด — กด Save เองในหน้าต่าง แล้วกดลองใหม่');
+        if (!(await waitFor(closedOk, 30000, 500))) throw new Error(L('กด Save แล้วแต่หน้าต่างไม่ปิด — กด Save เองในหน้าต่าง แล้วกดลองใหม่', 'Clicked Save but the dialog did not close — click Save yourself in the dialog, then click Retry'));
       }
     } else {
       if (settings.autoNext && !publishAt) await goToVisibility(vis);
-      setItem(it, 'review', 'ตรวจข้อมูลในหน้าต่าง YouTube แล้วกด Save เพื่อไปไฟล์ถัดไป' + note);
+      setItem(it, 'review', L('ตรวจข้อมูลในหน้าต่าง YouTube แล้วกด Save เพื่อไปไฟล์ถัดไป', 'Check the details in the YouTube dialog, then click Save to move to the next file') + note);
       await waitFor(() => (it.draftId = it.draftId || dialogVideoId()) || !uploadDialogOpen(), 20000, 500);
-      await waitFor(() => { ackNoticeDialogs(); return !uploadDialogOpen() || stopReq; }, 3600000, 1000);
-      if (uploadDialogOpen()) throw new Error('หยุดคิวแล้ว');
+      // กดหยุดระหว่างนี้ = หยุดหลังคลิปนี้ (ไม่ปิดหน้าต่างที่ผู้ใช้กำลังตรวจทิ้ง) — คิวจะหยุดเองหลังคุณกด Save
+      await waitFor(() => { ackNoticeDialogs(); return !uploadDialogOpen(); }, 3600000, 1000);
+      if (uploadDialogOpen()) throw new Error(L('รอให้กด Save นานเกิน 1 ชั่วโมง', 'Waited over 1 hour for you to click Save'));
     }
     await sleep(1500);
     closeAfterDialogs();
@@ -1250,7 +1262,7 @@
 
   // รหัสวิดีโอจากลิงก์ในหน้าต่างอัปโหลด (youtu.be/xxxx)
   function dialogVideoId() {
-    const a = getDialog()?.querySelector(SEL.videoLink);
+    const a = getDialog()?.querySelector('ytcp-video-info a[href*="youtu"], .video-url-fadeable a[href*="youtu"], a[href*="youtu.be/"]');
     const m = a && a.href.match(/(?:youtu\.be\/|\/video\/|[?&]v=|\/shorts\/)([\w-]{11})/);
     return m ? m[1] : '';
   }
@@ -1283,14 +1295,20 @@
   async function runQueue() {
     if (running) return;
     const pendingN = queue.filter((i) => i.status === 'pending').length;
-    if (!pendingN) return toast('ไม่มีคลิปที่รอคิว');
+    if (!pendingN) return toast(L('ไม่มีคลิปที่รอคิว', 'No videos waiting in the queue'));
     const problem = channelProblem();
     if (problem) {
       openDrawer();
       return toast('⛔ ' + problem);
     }
+    // tracklist ที่ YouTube จะไม่สร้าง Chapters ให้ — ถามก่อนเริ่ม (อัปไปแล้วต้องตามแก้คำอธิบายทีละคลิป)
+    assignNumbers();
+    const badTl = queue.filter((i) => i.status === 'pending' && i.txt).map((i) => [i, itemTracklist(i)]).filter(([, tc]) => tc.errors.length);
+    if (badTl.length && !confirm(L(
+      `${badTl.length} คลิปมีปัญหา tracklist (YouTube จะไม่สร้าง Chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… และอีก ${badTl.length - 5} คลิป` : ''}\n\nอัปต่อเลยไหม? (กด Cancel เพื่อกลับไปแก้ไฟล์ .txt — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด)`,
+      `${badTl.length} video(s) have tracklist problems (YouTube won't create chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… and ${badTl.length - 5} more` : ''}\n\nUpload anyway? (Cancel to go back and fix the .txt files — details are on the red badge in each card)`))) return;
     const ch = getChannel();
-    if (settings.confirmStart && !confirm(`อัปโหลด ${pendingN} คลิป ไปที่ช่อง:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nถูกช่องใช่ไหม?`)) return;
+    if (settings.confirmStart && !confirm(L(`อัปโหลด ${pendingN} คลิป ไปที่ช่อง:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nถูกช่องใช่ไหม?`, `Upload ${pendingN} video(s) to channel:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nIs this the right channel?`))) return;
     running = true;
     stopReq = false;
     updateRunUI();
@@ -1302,7 +1320,7 @@
         if (!it) break;
         const problem = channelProblem();
         if (problem) {
-          toast('⛔ หยุดคิว: ' + problem);
+          toast(L('⛔ หยุดคิว: ', '⛔ Queue stopped: ') + problem);
           break;
         }
         try {
@@ -1311,9 +1329,9 @@
         } catch (e) {
           console.error('[YT Presets]', e);
           it.draftId = it.draftId || dialogVideoId();
-          setItem(it, 'error', e.message + (it.draftId ? ` · ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ลบใน Content ก่อนกดลองใหม่ จะได้ไม่ซ้ำ` : ''));
+          setItem(it, 'error', e.message + (it.draftId ? L(` · ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ลบใน Content ก่อนกดลองใหม่ จะได้ไม่ซ้ำ`, ` · The file is already uploaded as a draft (${it.draftId}). Delete it in Content before retrying to avoid duplicates`) : ''));
           closeStudioUploadDialog();
-          if (TXT.uploadLimit.test(e.message)) break;
+          if (/limit|ขีดจำกัด|daily/i.test(e.message)) break;
         }
         if (!stopReq && queue.some((i) => i.status === 'pending')) await sleep(settings.delay * 1000);
       }
@@ -1321,7 +1339,7 @@
       running = false;
       assignNumbers();
       renderQueue();
-      toast(stopReq ? `หยุดคิวแล้ว (สำเร็จ ${ok} คลิป)` : `คิวเสร็จแล้ว สำเร็จ ${ok} คลิป ✅`);
+      toast(stopReq ? L(`หยุดคิวแล้ว (สำเร็จ ${ok} คลิป)`, `Queue stopped (${ok} video(s) done)`) : L(`คิวเสร็จแล้ว สำเร็จ ${ok} คลิป ✅`, `Queue finished: ${ok} video(s) done ✅`));
     }
   }
 
@@ -1331,7 +1349,7 @@
     (e) => {
       const t = e.target;
       if (!settings.intercept || !(t instanceof HTMLInputElement) || t.type !== 'file') return;
-      if (!t.closest(SEL.dialog) || t.files.length < 2) return;
+      if (!t.closest('ytcp-uploads-dialog') || t.files.length < 2) return;
       e.stopImmediatePropagation();
       addFiles(t.files);
       t.value = '';
@@ -1343,7 +1361,7 @@
   document.addEventListener(
     'drop',
     (e) => {
-      if (injectingFile || !settings.intercept || !e.target.closest?.(SEL.dialog)) return;
+      if (injectingFile || !settings.intercept || !e.target.closest?.('ytcp-uploads-dialog')) return;
       const files = e.dataTransfer?.files;
       if (!files || files.length < 2) return;
       e.preventDefault();
@@ -1359,7 +1377,7 @@
   let session = null;
 
   async function applyToOpenDialog() {
-    if (!detailsOpen()) return toast('ยังไม่ได้เปิดหน้ากรอกรายละเอียดของ YouTube');
+    if (!detailsOpen()) return toast(L('ยังไม่ได้เปิดหน้ากรอกรายละเอียดของ YouTube', 'YouTube details page is not open yet'));
     const p = active();
     if (!session) session = { originalName: getTitleBox(getDialog()).textContent.trim(), n: 0 };
     session.n = session.n || (counters[p.id] || 0) + 1;
@@ -1369,7 +1387,7 @@
     counters[p.id] = Math.max(counters[p.id] || 0, session.n);
     save('counters', counters);
     if (settings.autoNext) await goToVisibility(p.visibility || 'PRIVATE');
-    toast(`ใส่ข้อมูลแล้ว: ${title}${tagsOk ? '' : ' (หาช่องแท็กไม่เจอ)'}`);
+    toast(L(`ใส่ข้อมูลแล้ว: ${title}${tagsOk ? '' : ' (หาช่องแท็กไม่เจอ)'}`, `Details filled in: ${title}${tagsOk ? '' : ' (tags field not found)'}`));
     renderPresetPreview();
   }
 
@@ -1384,15 +1402,16 @@
     const titleBox = getTitleBox(getDialog());
     s.originalName = (await waitFor(() => titleBox.textContent.trim(), 8000)) || '';
     const problem = channelProblem();
-    if (problem) toast('⚠️ ระวังอัปผิดช่อง: ' + problem);
+    if (problem) toast(L('⚠️ ระวังอัปผิดช่อง: ', '⚠️ Possible wrong channel: ') + problem);
     if (session === s && settings.autoApply && !running && !problem) {
       await sleep(800);
       if (session === s) applyToOpenDialog();
     }
   }, 1000);
 
+  let reloadingOnPurpose = false; // นำเข้าไฟล์ / เปลี่ยนภาษา: ข้อมูลใหม่บันทึกแล้ว ต้องรีโหลดให้ได้ ไม่งั้นค่าเก่าในหน้าจะเขียนทับ
   window.addEventListener('beforeunload', (e) => {
-    if (running || queue.some((i) => i.status === 'pending' || i.status === 'error')) {
+    if (!reloadingOnPurpose && (running || queue.some((i) => i.status === 'pending' || i.status === 'error'))) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -1438,6 +1457,8 @@
     alert: 'M12 9v4M12 17h.01M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
     send: 'M5 12h14M13 6l6 6-6 6',
     tv: 'M3 6h18a0 0 0 0 1 0 0v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM8 21h8M12 18v3',
+    swap: 'M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7',
+    ext: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
     clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3.5 2',
     shield: 'M12 3l8 3v6c0 4.8-3.4 8.3-8 9-4.6-.7-8-4.2-8-9V6z',
   };
@@ -1780,7 +1801,6 @@
     #ytp-root .tbx-ok{color:var(--ok)} #ytp-root .tbx-warn{color:var(--warn)} #ytp-root .tbx-err{color:var(--err)}
     #ytp-root .tbx-note{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:12px;line-height:1.55}
     #ytp-root .tbx-note.tbx-err{background:color-mix(in srgb,var(--err) 9%,var(--bg));border-color:color-mix(in srgb,var(--err) 40%,var(--line));margin:0 0 12px}
-    #ytp-root .tbx-note.tbx-warn{background:color-mix(in srgb,var(--warn) 10%,var(--bg));border-color:color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn)}
     #ytp-root .mut{color:var(--fg3);font-size:12px}
     #ytp-root #tbx-modal{position:fixed;inset:0;z-index:100003;background:rgba(5,5,10,.55);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center}
     #ytp-root #tbx-modal .box{background:var(--bg);color:var(--fg);width:min(580px,95vw);max-height:88vh;overflow:auto;border-radius:18px;padding:20px;
@@ -1833,7 +1853,7 @@
   const nav = h('div', { className: 'tabs' });
   const body = h('div', { className: 'body' });
   const footWrap = h('div');
-  for (const [key, label, ic] of [['queue', 'อัปโหลด', 'queue'], ['presets', 'พรีเซ็ต', 'layers'], ['claims', 'ลิขสิทธิ์', 'shield'], ['settings', 'ตั้งค่า', 'sliders']]) {
+  for (const [key, label, ic] of [['queue', L('อัปโหลด', 'Upload'), 'queue'], ['presets', L('พรีเซ็ต', 'Presets'), 'layers'], ['claims', L('ลิขสิทธิ์', 'Copyright'), 'shield'], ['settings', L('ตั้งค่า', 'Settings'), 'sliders']]) {
     tabCount[key] = h('span', { className: 'n' });
     tabs[key] = h('button', { onclick: () => showTab(key) }, icon(ic, 15), label, tabCount[key]);
     nav.append(tabs[key]);
@@ -1850,30 +1870,80 @@
     onclick: () => {
       if (settings.lockChannel) {
         settings.lockChannel = null;
-        toast('ปลดล็อกช่องแล้ว');
+        toast(L('ปลดล็อกช่องแล้ว', 'Channel unlocked'));
       } else {
         const c = getChannel();
-        if (!c.id) return toast('ตรวจไม่พบรหัสช่อง ลองเข้าหน้า Dashboard หรือ Content ก่อน');
+        if (!c.id) return toast(L('ตรวจไม่พบรหัสช่อง ลองเข้าหน้า Dashboard หรือ Content ก่อน', 'Could not detect the channel ID. Open the Dashboard or Content page first'));
         settings.lockChannel = { id: c.id, name: chanLabel(c) };
-        toast(`ล็อกไว้ที่ช่อง "${chanLabel(c)}" แล้ว ถ้าสลับไปช่องอื่นจะอัปไม่ได้`);
+        toast(L(`ล็อกไว้ที่ช่อง "${chanLabel(c)}" แล้ว ถ้าสลับไปช่องอื่นจะอัปไม่ได้`, `Locked to channel "${chanLabel(c)}". Uploads will be blocked on other channels`));
       }
       saveSettings();
       updateChannelUI();
     },
   }, lockIcon, lockTxt);
+  // รายการช่องที่เคยเข้า: คลิกแล้วเปิดช่องนั้นในแท็บใหม่ (หน้าเดียวกับที่เปิดอยู่)
+  // ใช้ได้กับช่องที่บัญชีนี้มีสิทธิ์ (เจ้าของ หรือได้รับเชิญผ่าน Permissions)
+  let producerIn = null; // ช่องชื่อโปรดิวเซอร์ในแท็บตั้งค่า (placeholder = ชื่อช่องปัจจุบัน)
+  let channels = load('channels', []);
+  const saveChannels = () => save('channels', channels);
+  // อ่านจากที่เก็บใหม่ทุกครั้ง: เปิดหลายแท็บ แต่ละแท็บจะได้ไม่เขียนทับรายการของกันและกัน
+  function rememberChannel(c) {
+    if (!c.id || !c.name) return;
+    channels = load('channels', []);
+    const old = channels.find((x) => x.id === c.id);
+    if (old && old.name === c.name && old.avatar === c.avatar) return;
+    channels = [{ id: c.id, name: c.name, avatar: c.avatar }, ...channels.filter((x) => x.id !== c.id)];
+    saveChannels();
+    if (!chanList.hidden) renderChanList();
+  }
+  const channelUrl = (id) => {
+    const p = location.pathname;
+    return 'https://studio.youtube.com' + (/\/channel\/UC[\w-]+/.test(p) ? p.replace(/\/channel\/UC[\w-]+/, '/channel/' + id) : '/channel/' + id);
+  };
+  const chanAddIn = h('input', { type: 'text', placeholder: L('รหัสช่อง UC… หรือลิงก์ช่อง', 'Channel ID UC… or channel link'), style: 'flex:1;min-width:0' });
+  function addChannel() {
+    channels = load('channels', []);
+    const id = (chanAddIn.value.match(/UC[\w-]{22}/) || [])[0];
+    if (!id) return toast(L('ไม่พบรหัสช่อง (ขึ้นต้นด้วย UC และยาว 24 ตัว)', 'No channel ID found (starts with UC, 24 characters)'));
+    if (!channels.some((x) => x.id === id)) { channels.push({ id, name: '', avatar: '' }); saveChannels(); }
+    chanAddIn.value = '';
+    renderChanList();
+  }
+  chanAddIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') addChannel(); });
+  const chanList = h('div', { className: 'sec', hidden: true, style: 'margin:0 16px 12px;padding:8px;border:1px solid var(--line);border-radius:var(--radius)' });
+  function renderChanList() {
+    channels = load('channels', []);
+    const cur = getChannel().id;
+    const rows = channels.map((c) => h('div', { style: 'display:flex;align-items:center;gap:8px;padding:4px 2px' },
+      c.avatar ? h('img', { src: c.avatar, alt: '', style: 'width:22px;height:22px;border-radius:50%' }) : icon('tv', 16),
+      h('div', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: c.id },
+        h('b', {}, c.name || c.id), c.id === cur ? h('small', { style: 'color:var(--fg3)' }, L(' · ช่องนี้', ' · this tab')) : null),
+      h('button', { className: 'btn sm', title: L('เปิดช่องนี้ในแท็บใหม่', 'Open this channel in a new tab'), onclick: () => window.open(channelUrl(c.id), '_blank') }, icon('ext', 13), L('แท็บใหม่', 'New tab')),
+      iconBtn('x', L('เอาออกจากรายการ', 'Remove from list'), () => { channels = load('channels', []).filter((x) => x.id !== c.id); saveChannels(); renderChanList(); })
+    ));
+    chanList.replaceChildren(
+      ...(rows.length ? rows : [h('small', { style: 'color:var(--fg3)' }, L('ยังไม่มีช่องในรายการ — เข้า Studio ของแต่ละช่องครั้งหนึ่ง สคริปต์จะจำให้เอง หรือใส่รหัสช่องด้านล่าง', 'No channels yet — open each channel in Studio once and the script remembers it, or add a channel ID below'))]),
+      h('div', { style: 'display:flex;gap:6px;margin-top:8px' }, chanAddIn, h('button', { className: 'btn sm', onclick: addChannel }, icon('plus', 13), L('เพิ่ม', 'Add')))
+    );
+  }
+  const swBtn = iconBtn('swap', L('ช่องอื่น ๆ · เปิดในแท็บใหม่', 'Other channels · open in a new tab'), () => {
+    chanList.hidden = !chanList.hidden;
+    if (!chanList.hidden) renderChanList();
+  });
   const chanBar = h('div', { className: 'chan' },
     chanAv,
-    h('div', { className: 'ct' }, h('div', { className: 'cap' }, 'กำลังอัปไปที่ช่อง'), chanName, chanSub),
+    h('div', { className: 'ct' }, h('div', { className: 'cap' }, L('กำลังอัปไปที่ช่อง', 'Uploading to channel')), chanName, chanSub),
+    swBtn,
     lockBtn
   );
 
   const drawer = h('div', { className: 'drawer' },
     h('div', { className: 'hd' },
       h('span', { className: 'logo' }, icon('upload', 18)),
-      h('div', { className: 'tt' }, h('b', {}, 'Upload Studio'), h('span', {}, 'อัปโหลดหลายคลิป · พรีเซ็ตชื่อ/คำอธิบาย')),
-      iconBtn('x', 'ปิด (Alt+P)', () => closeDrawer())
+      h('div', { className: 'tt' }, h('b', {}, 'Upload Studio'), h('span', {}, L('อัปโหลดหลายคลิป · พรีเซ็ตชื่อ/คำอธิบาย', 'Bulk video upload · title/description presets'))),
+      iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer())
     ),
-    chanBar, nav, body, footWrap
+    chanBar, chanList, nav, body, footWrap
   );
 
   let lastChanKey = '';
@@ -1884,17 +1954,19 @@
     const key = JSON.stringify([c, problem, lock]);
     if (key === lastChanKey) return;
     lastChanKey = key;
+    rememberChannel(c);
+    if (producerIn && c.name) producerIn.placeholder = c.name; // เว้นว่าง = ใช้ชื่อช่องนี้
     chanAv.replaceChildren(c.avatar ? h('img', { src: c.avatar, alt: '' }) : h('div', { className: 'ph' }, icon('tv', 18)));
     chanName.textContent = chanLabel(c);
     chanSub.textContent = problem || c.id || '—';
     chanBar.classList.toggle('bad', !!problem);
     chanBar.classList.toggle('locked', !!lock && !problem);
     lockIcon.replaceChildren(icon(lock ? 'lock' : 'unlock', 14));
-    lockTxt.textContent = lock ? 'ล็อกแล้ว' : 'ล็อกช่อง';
-    lockBtn.title = lock ? `ล็อกไว้ที่ "${lock.name}" · คลิกเพื่อปลดล็อก` : 'ล็อกให้อัปได้เฉพาะช่องนี้';
+    lockTxt.textContent = lock ? L('ล็อกแล้ว', 'Locked') : L('ล็อกช่อง', 'Lock channel');
+    lockBtn.title = lock ? L(`ล็อกไว้ที่ "${lock.name}" · คลิกเพื่อปลดล็อก`, `Locked to "${lock.name}" · click to unlock`) : L('ล็อกให้อัปได้เฉพาะช่องนี้', 'Only allow uploads to this channel');
     fabChan.textContent = (problem ? '⚠ ' : lock ? '🔒 ' : '') + chanLabel(c);
     fab.classList.toggle('bad', !!problem);
-    fab.title = problem ? problem : `ช่องปัจจุบัน: ${chanLabel(c)}`;
+    fab.title = problem ? problem : L(`ช่องปัจจุบัน: ${chanLabel(c)}`, `Current channel: ${chanLabel(c)}`);
     updateRunUI();
   }
   setInterval(updateChannelUI, 1500);
@@ -1923,9 +1995,9 @@
   const dropZone = h('div', { className: 'drop', onclick: () => fileInput.click() },
     h('div', { className: 'di' }, icon('upload', 22)),
     h('div', {},
-      h('b', {}, 'ลากไฟล์มาวาง หรือคลิกเพื่อเลือก'),
-      h('span', {}, 'เลือกได้หลายไฟล์ จับคู่ด้วยชื่อไฟล์อัตโนมัติ'),
-      h('div', {}, h('span', { className: 'kbd' }, '.mp4 คลิป'), h('span', { className: 'kbd' }, '.txt คำอธิบาย'), h('span', { className: 'kbd' }, '.jpg ภาพปก'))
+      h('b', {}, L('ลากไฟล์มาวาง หรือคลิกเพื่อเลือก', 'Drop files here or click to select')),
+      h('span', {}, L('เลือกได้หลายไฟล์ จับคู่ด้วยชื่อไฟล์อัตโนมัติ', 'Multiple files allowed, auto-matched by file name')),
+      h('div', {}, h('span', { className: 'kbd' }, L('.mp4 คลิป', '.mp4 video')), h('span', { className: 'kbd' }, L('.txt คำอธิบาย', '.txt description')), h('span', { className: 'kbd' }, L('.jpg ภาพปก', '.jpg thumbnail')))
     )
   );
   dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('hover'); });
@@ -1938,16 +2010,16 @@
   });
 
   const defaultPresetSel = h('select', {
-    title: 'พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่',
+    title: L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos'),
     onchange: (e) => { activeId = e.target.value; save('activeId', activeId); refreshLabels(); },
   });
   const applyAllBtn = h('button', {
-    className: 'btn sm', title: 'เปลี่ยนพรีเซ็ตของทุกคลิปที่ยังไม่ได้อัป',
+    className: 'btn sm', title: L('เปลี่ยนพรีเซ็ตของทุกคลิปที่ยังไม่ได้อัป', 'Change the preset of all videos not yet uploaded'),
     onclick: () => {
       queue.forEach((it) => { if (it.status === 'pending' || it.status === 'error') { it.presetId = activeId; it.titleEdited = false; } });
       renderQueue();
     },
-  }, icon('layers', 14), 'ใช้กับทุกคลิป');
+  }, icon('layers', 14), L('ใช้กับทุกคลิป', 'Apply to all'));
   const listEl = h('div');
   const progress = h('i', { style: 'width:0' });
   const progressPct = h('span', { className: 'cnt' });
@@ -1956,7 +2028,7 @@
     const b = h('b', {}, '0');
     return { el: h('div', { className: 'stat ' + cls }, b, h('span', {}, label)), b };
   };
-  const stats = { total: stat('', 'ทั้งหมด'), pending: stat('info', 'รอคิว'), done: stat('ok', 'เสร็จแล้ว'), error: stat('err', 'ผิดพลาด') };
+  const stats = { total: stat('', L('ทั้งหมด', 'Total')), pending: stat('info', L('รอคิว', 'Queued')), done: stat('ok', L('เสร็จแล้ว', 'Done')), error: stat('err', L('ผิดพลาด', 'Errors')) };
   const statsWrap = h('div', { className: 'stats', hidden: true }, Object.values(stats).map((s) => s.el));
 
   // ----- แผงตั้งเวลาปล่อย -----
@@ -1978,7 +2050,7 @@
   });
   const schedUnit = h('select', {
     onchange: (e) => { sch.unit = e.target.value; saveSettings(); onScheduleChange(); },
-  }, h('option', { value: 'day', selected: sch.unit !== 'hour' }, 'วัน'), h('option', { value: 'hour', selected: sch.unit === 'hour' }, 'ชั่วโมง'));
+  }, h('option', { value: 'day', selected: sch.unit !== 'hour' }, L('วัน', 'days')), h('option', { value: 'hour', selected: sch.unit === 'hour' }, L('ชั่วโมง', 'hours')));
   const quick = (label, fn) => h('button', { className: 'chip', onclick: () => { schedStart.value = sch.start = fn(); saveSettings(); onScheduleChange(); } }, label);
   const atToday = (hh) => () => {
     const d = new Date();
@@ -1988,18 +2060,18 @@
   };
   const schedBody = h('div', { className: 'sb' },
     h('div', { className: 'g3' },
-      h('div', {}, h('div', { className: 'mini' }, 'คลิปแรกปล่อย'), schedStart),
-      h('div', {}, h('div', { className: 'mini' }, 'ทุก ๆ'), schedEvery),
+      h('div', {}, h('div', { className: 'mini' }, L('คลิปแรกปล่อย', 'First video releases')), schedStart),
+      h('div', {}, h('div', { className: 'mini' }, L('ทุก ๆ', 'Every')), schedEvery),
       h('div', {}, h('div', { className: 'mini' }, '\u00a0'), schedUnit)
     ),
     h('div', { className: 'chips' },
-      quick('พรุ่งนี้ 19:00', tomorrow19),
-      quick('18:00 ถัดไป', atToday(18)),
-      quick('20:00 ถัดไป', atToday(20)),
-      quick('ภายใน 1 ชม.', () => toLocalInput(Math.ceil((Date.now() + 3600e3) / 900e3) * 900e3))
+      quick(L('พรุ่งนี้ 19:00', 'Tomorrow 19:00'), tomorrow19),
+      quick(L('18:00 ถัดไป', 'Next 18:00'), atToday(18)),
+      quick(L('20:00 ถัดไป', 'Next 20:00'), atToday(20)),
+      quick(L('ภายใน 1 ชม.', 'Within 1 hr'), () => toLocalInput(Math.ceil((Date.now() + 3600e3) / 900e3) * 900e3))
     ),
     h('div', { className: 'hint' }, icon('alert', 13),
-      h('span', {}, 'คลิปจะอัปเป็นส่วนตัว แล้วเปลี่ยนเป็นสาธารณะเองตามเวลาที่ตั้ง · แก้เวลาของแต่ละคลิปได้ในการ์ด'))
+      h('span', {}, L('คลิปจะอัปเป็นส่วนตัว แล้วเปลี่ยนเป็นสาธารณะเองตามเวลาที่ตั้ง · แก้เวลาของแต่ละคลิปได้ในการ์ด', 'Videos upload as private, then go public at the set time · edit each video\'s time in its card')))
   );
   const schedToggle = h('input', {
     type: 'checkbox', checked: !!sch.on,
@@ -2013,7 +2085,7 @@
   const schedPanel = h('div', { className: 'sched' },
     h('div', { className: 'sh' },
       h('span', { className: 'si' }, icon('clock', 16)),
-      h('div', { className: 'stx' }, h('b', {}, 'ตั้งเวลาปล่อยคลิป'), schedSummary),
+      h('div', { className: 'stx' }, h('b', {}, L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')), schedSummary),
       h('label', { className: 'sw' }, schedToggle, h('span', { className: 't' }))
     ),
     schedBody
@@ -2030,14 +2102,14 @@
     schedPanel.classList.toggle('on', !!sch.on);
     schedBody.hidden = !sch.on;
     const items = queue.filter((i) => i.status !== 'done');
-    if (!sch.on) schedSummary.textContent = 'ปิดอยู่ · คลิปจะเผยแพร่ตามการเปิดเผยของพรีเซ็ต';
-    else if (!on) schedSummary.textContent = 'เลือกเวลาปล่อยคลิปแรก';
+    if (!sch.on) schedSummary.textContent = L('ปิดอยู่ · คลิปจะเผยแพร่ตามการเปิดเผยของพรีเซ็ต', 'Off · videos are published using the preset\'s visibility');
+    else if (!on) schedSummary.textContent = L('เลือกเวลาปล่อยคลิปแรก', 'Pick the first video\'s release time');
     else {
-      const unit = sch.unit === 'hour' ? 'ชั่วโมง' : 'วัน';
+      const unit = sch.unit === 'hour' ? L('ชั่วโมง', 'hours') : L('วัน', 'days');
       const times = items.map(itemPublishAt).filter(Boolean).sort((a, b) => a - b);
       schedSummary.textContent = times.length > 1
-        ? `${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · ทุก ${sch.every} ${unit}`
-        : `เริ่ม ${fmtWhen(new Date(sch.start).getTime())} · ทุก ${sch.every} ${unit}`;
+        ? L(`${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · ทุก ${sch.every} ${unit}`, `${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · every ${sch.every} ${unit}`)
+        : L(`เริ่ม ${fmtWhen(new Date(sch.start).getTime())} · ทุก ${sch.every} ${unit}`, `Starts ${fmtWhen(new Date(sch.start).getTime())} · every ${sch.every} ${unit}`);
     }
     queue.forEach(updateItemUI);
     updateRunUI();
@@ -2056,8 +2128,8 @@
   const startSub = h('small');
   const startBtn = h('button', { className: 'btn go', onclick: runQueue },
     h('span', { className: 'gi' }, icon('play', 14)), h('span', { className: 'gt' }, startTxt, startSub));
-  const stopBtn = iconBtn('stop', 'หยุดหลังคลิปปัจจุบันเสร็จ', () => { stopReq = true; toast('จะหยุดหลังคลิปปัจจุบันเสร็จ'); }, 'outline danger');
-  const clearBtn = iconBtn('clear', 'ล้างคลิปที่อัปเสร็จออกจากรายการ', () => {
+  const stopBtn = iconBtn('stop', L('หยุดหลังคลิปปัจจุบันเสร็จ', 'Stop after the current video'), () => { stopReq = true; toast(L('จะหยุดหลังคลิปปัจจุบันเสร็จ', 'Will stop after the current video finishes')); }, 'outline danger');
+  const clearBtn = iconBtn('clear', L('ล้างคลิปที่อัปเสร็จออกจากรายการ', 'Clear finished videos from the list'), () => {
     for (let i = queue.length - 1; i >= 0; i--) if (queue[i].status === 'done') queue.splice(i, 1);
     renderQueue();
   }, 'outline');
@@ -2077,13 +2149,13 @@
     const msg = h('div', { className: 'msg' }, msgIcon, msgTxt);
     const thumbBox = h('div', { className: 'th' }, icon('film', 22), h('span', { className: 'sz' }, fmtSize(it.file.size)));
     const titleIn = h('input', {
-      type: 'text', placeholder: 'ชื่อคลิป',
+      type: 'text', placeholder: L('ชื่อคลิป', 'Video title'),
       oninput: (e) => { it.title = e.target.value; it.titleEdited = true; updateItemUI(it); },
     });
-    const resetBtn = iconBtn('refresh', 'สร้างชื่อจากพรีเซ็ตใหม่', () => { it.titleEdited = false; assignNumbers(); updateItemUI(it); }, 'outline');
+    const resetBtn = iconBtn('refresh', L('สร้างชื่อจากพรีเซ็ตใหม่', 'Regenerate title from preset'), () => { it.titleEdited = false; assignNumbers(); updateItemUI(it); }, 'outline');
     // แก้รายชื่อศิลปินของคลิปนี้ ({artists}) ลบให้ว่าง = กลับไปใช้ค่าอัตโนมัติจาก .txt
     const artistsIn = h('input', {
-      type: 'text', placeholder: 'คั่นด้วย , (อัตโนมัติจาก .txt)',
+      type: 'text', placeholder: L('คั่นด้วย , (อัตโนมัติจาก .txt)', 'Comma-separated (auto from .txt)'),
       oninput: (e) => { it.artists = e.target.value; it.artistsEdited = !!e.target.value.trim(); assignNumbers(); updateItemUI(it); },
     });
     // เวลาปล่อยของคลิปนี้ (แก้เองได้ ลบ/รีเซ็ต = กลับไปใช้เวลาที่คำนวณจากคิว)
@@ -2097,19 +2169,19 @@
       },
     });
     const whenLbl = h('span', { className: 'wl' });
-    const whenReset = iconBtn('refresh', 'ใช้เวลาตามคิว', () => { it.publishEdited = false; it.publishAt = null; onScheduleChange(); }, 'outline');
-    const whenBox = h('div', {}, h('div', { className: 'mini' }, 'เวลาปล่อย'), h('div', { className: 'when' }, whenIn, whenLbl, whenReset));
+    const whenReset = iconBtn('refresh', L('ใช้เวลาตามคิว', 'Use queue time'), () => { it.publishEdited = false; it.publishAt = null; onScheduleChange(); }, 'outline');
+    const whenBox = h('div', {}, h('div', { className: 'mini' }, L('เวลาปล่อย', 'Release time')), h('div', { className: 'when' }, whenIn, whenLbl, whenReset));
     const artistsMode = h('span', { style: 'font-weight:400' });
-    const artistsBox = h('div', {}, h('div', { className: 'mini' }, 'ศิลปิน', artistsMode), artistsIn);
+    const artistsBox = h('div', {}, h('div', { className: 'mini' }, L('ศิลปิน', 'Artists'), artistsMode), artistsIn);
     const presetSel = h('select', {
       onchange: (e) => { it.presetId = e.target.value; it.titleEdited = false; renderQueue(); },
     }, presetOptions(it.presetId));
     const retryBtn = h('button', { className: 'btn sm', onclick: () => {
-      if (it.draftId && !confirm(`คลิปนี้อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId})\nถ้าลองใหม่จะได้คลิปซ้ำ — ลบฉบับร่างใน Content แล้วหรือยัง?\n\nกด OK เพื่ออัปใหม่`)) return;
+      if (it.draftId && !confirm(L(`คลิปนี้อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId})\nถ้าลองใหม่จะได้คลิปซ้ำ — ลบฉบับร่างใน Content แล้วหรือยัง?\n\nกด OK เพื่ออัปใหม่`, `This video was already uploaded as a draft (${it.draftId})\nRetrying will create a duplicate — have you deleted the draft in Content?\n\nClick OK to upload again`))) return;
       it.draftId = '';
       setItem(it, 'pending'); assignNumbers(); renderQueue();
-    } }, icon('refresh', 13), 'ลองใหม่');
-    const removeBtn = iconBtn('x', 'เอาออกจากคิว', () => { queue.splice(queue.indexOf(it), 1); renderQueue(); }, 'danger');
+    } }, icon('refresh', 13), L('ลองใหม่', 'Retry'));
+    const removeBtn = iconBtn('x', L('เอาออกจากคิว', 'Remove from queue'), () => { queue.splice(queue.indexOf(it), 1); renderQueue(); }, 'danger');
     const att = h('div', { className: 'att' });
     const attachInput = h('input', {
       type: 'file', multiple: true, accept: '.txt,image/*', hidden: true,
@@ -2126,7 +2198,7 @@
       ),
       h('div', { className: 'fields' },
         h('div', {},
-          h('div', { className: 'mini' }, 'ชื่อคลิป'),
+          h('div', { className: 'mini' }, L('ชื่อคลิป', 'Video title')),
           h('div', { className: 'row' }, h('div', { className: 'field', style: 'flex:1' }, titleIn, cnt), resetBtn)
         ),
         whenBox,
@@ -2164,7 +2236,7 @@
     const p = presetById(it.presetId);
     u.artistsBox.hidden = !`${p.title} ${p.description} ${(p.tags || []).join(' ')}`.includes('{artists}');
     if (document.activeElement !== u.artistsIn) u.artistsIn.value = it.artistsEdited ? it.artists : itemVars(it).artists;
-    u.artistsMode.textContent = it.artistsEdited ? '· พิมพ์เอง (ลบให้ว่าง = อัตโนมัติ)' : '· อัตโนมัติจาก .txt';
+    u.artistsMode.textContent = it.artistsEdited ? L('· พิมพ์เอง (ลบให้ว่าง = อัตโนมัติ)', '· manual (clear = auto)') : L('· อัตโนมัติจาก .txt', '· auto from .txt');
     u.resetBtn.hidden = !editable || !it.titleEdited;
     const at = itemPublishAt(it);
     u.whenBox.hidden = !at;
@@ -2173,7 +2245,7 @@
       u.whenIn.disabled = !editable;
       const bad = editable && scheduleProblem(at);
       u.whenBox.querySelector('.when').classList.toggle('bad', !!bad);
-      u.whenLbl.replaceChildren(icon(bad ? 'alert' : 'clock', 12), bad ? 'อดีต/เร็วไป' : it.publishEdited ? 'ตั้งเอง' : 'ตามคิว');
+      u.whenLbl.replaceChildren(icon(bad ? 'alert' : 'clock', 12), bad ? L('อดีต/เร็วไป', 'Past/too soon') : it.publishEdited ? L('ตั้งเอง', 'Manual') : L('ตามคิว', 'Queue'));
       u.whenLbl.title = bad || '';
       u.whenReset.hidden = !editable || !it.publishEdited;
     }
@@ -2208,28 +2280,46 @@
       u.thumbBox.prepend(h('img', { src: u.thumbUrl, alt: '' }));
     } else if (!u.thumbUrl && oldImg) oldImg.remove();
 
-    const rm = (fn) => editable && h('span', { className: 'rm', title: 'เอาออก', onclick: fn }, icon('x', 11));
+    const rm = (fn) => editable && h('span', { className: 'rm', title: L('เอาออก', 'Remove'), onclick: fn }, icon('x', 11));
     const kids = [];
     if (it.txt) {
       const lines = it.txt.trim().split(/\r?\n/).length;
-      kids.push(h('span', { className: 'chip', title: it.txt.slice(0, 600) }, icon('file', 13), h('span', {}, `${it.txtName} · ${lines} บรรทัด`),
+      kids.push(h('span', { className: 'chip', title: it.txt.slice(0, 600) }, icon('file', 13), h('span', {}, L(`${it.txtName} · ${lines} บรรทัด`, `${it.txtName} · ${lines} lines`)),
         rm(() => { it.txt = ''; it.txtName = ''; it.titleEdited = false; assignNumbers(); updateItemUI(it); })));
+    }
+    if (it.txt) {
+      const tc = itemTracklist(it);
+      const probs = [...tc.errors, ...tc.warnings];
+      if (tc.errors.length) {
+        kids.push(h('span', { className: 'chip bad', title: L('YouTube จะไม่สร้าง Chapters จนกว่าจะแก้:\n', 'YouTube won\'t create chapters until fixed:\n') + tc.errors.map((x) => '• ' + x).join('\n') + (tc.warnings.length ? '\n\n' + tc.warnings.map((x) => '• ' + x).join('\n') : '') },
+          icon('alert', 13), h('span', {}, L(`tracklist: ${tc.errors.length} ปัญหา`, `Tracklist: ${tc.errors.length} problem(s)`))));
+      } else if (tc.warnings.length) {
+        kids.push(h('span', { className: 'chip bad', title: probs.map((x) => '• ' + x).join('\n') },
+          icon('alert', 13), h('span', {}, L(`tracklist: ${tc.warnings.length} คำเตือน`, `Tracklist: ${tc.warnings.length} warning(s)`))));
+      }
+      if (tc.count && !tc.errors.length) {
+        kids.push(h('span', { className: 'chip', title: L('ผ่านกฎ Chapters ของ YouTube', 'Passes YouTube\'s chapter rules') + (it.duration ? '' : L(' (ยังไม่ได้เช็กกับความยาวคลิป)', ' (not checked against video length)')) },
+          icon('check', 13), h('span', {}, L(`Chapters ${tc.count} ช่วง`, `${tc.count} chapters`))));
+      } else if (!tc.count) {
+        kids.push(h('span', { className: 'chip bad', title: L('ไฟล์ .txt ไม่มีบรรทัดที่ขึ้นต้นด้วยเวลา เช่น 00:00 ชื่อเพลง', 'The .txt has no lines starting with a time, e.g. 00:00 Song name') },
+          icon('alert', 13), h('span', {}, L('ไม่มี timestamp — ไม่มี Chapters', 'No timestamps — no chapters'))));
+      }
     }
     if (it.thumb) {
       const big = it.thumb.size > THUMB_MAX;
       kids.push(h('span', { className: 'chip' + (big ? ' bad' : ''), title: it.thumb.name }, icon('image', 13),
-        h('span', {}, big ? 'ภาพปกเกิน 2MB' : `ภาพปก · ${fmtSize(it.thumb.size)}`),
+        h('span', {}, big ? L('ภาพปกเกิน 2MB', 'Thumbnail over 2MB') : L(`ภาพปก · ${fmtSize(it.thumb.size)}`, `Thumbnail · ${fmtSize(it.thumb.size)}`)),
         rm(() => { it.thumb = null; updateItemUI(it); })));
     }
     const hits = it.txt && Claims ? Claims.claimedSongsIn(it.txt) : [];
     if (hits.length) {
       kids.push(h('span', {
         className: 'chip bad',
-        title: 'เพลงใน tracklist ที่เคยโดน claim:\n' + hits.map((x) => `• ${x.line}  (เคยโดน ${x.times} คลิป)`).join('\n'),
-      }, icon('alert', 13), h('span', {}, `${hits.length} เพลงเคยโดน claim`)));
+        title: L('เพลงใน tracklist ที่เคยโดน claim:\n', 'Tracklist songs previously claimed:\n') + hits.map((x) => L(`• ${x.line}  (เคยโดน ${x.times} คลิป)`, `• ${x.line}  (claimed on ${x.times} video(s))`)).join('\n'),
+      }, icon('alert', 13), h('span', {}, L(`${hits.length} เพลงเคยโดน claim`, `${hits.length} song(s) previously claimed`))));
     }
     if (editable && (!it.txt || !it.thumb)) {
-      kids.push(h('button', { className: 'chip add', onclick: () => u.attachInput.click() }, icon('clip', 13), 'แนบ .txt / ภาพปก'));
+      kids.push(h('button', { className: 'chip add', onclick: () => u.attachInput.click() }, icon('clip', 13), L('แนบ .txt / ภาพปก', 'Attach .txt / thumbnail')));
     }
     u.att.replaceChildren(...kids);
     u.att.hidden = !kids.length;
@@ -2240,8 +2330,8 @@
     if (!queue.length) {
       listEl.replaceChildren(h('div', { className: 'empty' },
         h('div', { className: 'ei' }, icon('film', 24)),
-        h('b', {}, 'ยังไม่มีคลิปในคิว'),
-        h('span', {}, 'ลากโฟลเดอร์คลิปทั้งชุดมาวางด้านบนได้เลย')));
+        h('b', {}, L('ยังไม่มีคลิปในคิว', 'No videos in the queue yet')),
+        h('span', {}, L('ลากโฟลเดอร์คลิปทั้งชุดมาวางด้านบนได้เลย', 'Drag a whole folder of videos onto the area above'))));
     } else {
       listEl.replaceChildren(...queue.map(buildCard));
       queue.forEach(updateItemUI);
@@ -2259,9 +2349,9 @@
     const ch = chanLabel(getChannel());
     startBtn.disabled = running || !pending || blocked;
     startBtn.classList.toggle('running', running);
-    const sched = scheduleOn() ? ' · ตั้งเวลา' : '';
-    startTxt.textContent = running ? `กำลังอัปโหลด ${done + 1}/${total}` : blocked ? 'ช่องไม่ตรงกับที่ล็อกไว้' : pending ? `เริ่มอัปโหลด ${pending} คลิป${sched}` : 'เริ่มอัปโหลด';
-    startSub.textContent = blocked ? 'ปลดล็อกหรือสลับกลับไปช่องที่ล็อกไว้' : `ไปที่ช่อง ${ch}`;
+    const sched = scheduleOn() ? L(' · ตั้งเวลา', ' · scheduled') : '';
+    startTxt.textContent = running ? L(`กำลังอัปโหลด ${done + errors + 1}/${total}`, `Uploading ${done + errors + 1}/${total}`) : blocked ? L('ช่องไม่ตรงกับที่ล็อกไว้', 'Channel does not match the locked one') : pending ? L(`เริ่มอัปโหลด ${pending} คลิป${sched}`, `Upload ${pending} video(s)${sched}`) : L('เริ่มอัปโหลด', 'Start upload');
+    startSub.textContent = blocked ? L('ปลดล็อกหรือสลับกลับไปช่องที่ล็อกไว้', 'Unlock, or switch back to the locked channel') : L(`ไปที่ช่อง ${ch}`, `To channel ${ch}`);
     stopBtn.disabled = !running;
     clearBtn.disabled = !done;
     applyAllBtn.disabled = running;
@@ -2271,7 +2361,7 @@
     stats.done.b.textContent = done;
     stats.error.b.textContent = errors;
     progressWrap.hidden = !total || (!running && !done);
-    const pct = total ? Math.round((done / total) * 100) : 0;
+    const pct = total ? Math.round(((done + errors) / total) * 100) : 0;
     progress.style.width = pct + '%';
     progressPct.textContent = pct + '%';
     fabBadge.hidden = !total;
@@ -2286,11 +2376,11 @@
   const fLabel = h('input', { type: 'text' });
   const fTitle = h('input', { type: 'text' });
   const fDesc = h('textarea');
-  const fTags = h('input', { type: 'text', placeholder: 'คั่นด้วยเครื่องหมายจุลภาค ,' });
+  const fTags = h('input', { type: 'text', placeholder: L('คั่นด้วยเครื่องหมายจุลภาค ,', 'Separate with commas ,') });
   const fEp = h('input', { type: 'number', min: 1 });
   const titleCnt = h('span', { className: 'cnt' });
   const visSeg = h('div', { className: 'seg' });
-  const fArtists = h('input', { type: 'text', placeholder: 'เช่น SZA, Chris Brown, Nessy J., BLXD' });
+  const fArtists = h('input', { type: 'text', placeholder: L('เช่น SZA, Chris Brown, Nessy J., BLXD', 'e.g. SZA, Chris Brown, Nessy J., BLXD') });
   const fArtistMax = h('input', { type: 'number', min: 1, max: 10 });
   const sampleIn = h('input', { type: 'text', value: 'nessy_j_mix.mp4' });
   // tracklist ตัวอย่างสำหรับดูพรีวิว (ลากไฟล์ .txt จริงมาวางที่ช่องทดลองเพื่อเปลี่ยนได้)
@@ -2301,14 +2391,13 @@
     '08:30 SZA - Snooze (Cover by BLXD)',
     '11:20 BLXD - Waiting On Me (ft. Brent Faiyaz)',
   ].join('\n');
-  const sampleTxtLbl = h('span', {}, 'tracklist ตัวอย่าง');
+  const sampleTxtLbl = h('span', {}, L('tracklist ตัวอย่าง', 'Sample tracklist'));
   const pvTitle = h('div', { className: 'vtl' });
   const pvChan = h('div', { className: 'vch' });
   const pvTags = h('div', { className: 'tagline' });
-  const pvWarn = h('div', { className: 'tbx-note tbx-warn', hidden: true });
   const varChips = h('div', { className: 'chips' },
     VARS.map((v) => h('button', {
-      className: 'chip var', title: 'แทรกลงช่องที่กำลังแก้',
+      className: 'chip var', title: L('แทรกลงช่องที่กำลังแก้', 'Insert into the field being edited'),
       onmousedown: (e) => e.preventDefault(),
       onclick: () => insertVar(`{${v}}`),
     }, `{${v}}`))
@@ -2325,7 +2414,7 @@
     e.stopPropagation();
     lastField = fDesc;
     insertVar((await readText(f)).replace(/\r\n/g, '\n').trim());
-    toast(`แทรกเนื้อหาจาก ${f.name} แล้ว`);
+    toast(L(`แทรกเนื้อหาจาก ${f.name} แล้ว`, `Inserted content from ${f.name}`));
   });
 
   function insertVar(text) {
@@ -2377,12 +2466,12 @@
   function renderPresetList() {
     presetList.replaceChildren(
       ...presets.map((p, i) => h('div', {
-        className: 'pitem' + (p.id === editId ? ' on' : ''), title: `Alt+${i + 1} = ตั้งเป็นพรีเซ็ตหลัก`,
+        className: 'pitem' + (p.id === editId ? ' on' : ''), title: L(`Alt+${i + 1} = ตั้งเป็นพรีเซ็ตหลัก`, `Alt+${i + 1} = set as default preset`),
         onclick: () => { editId = p.id; renderPresetEditor(); },
       },
         h('span', { className: 'k' }, String(i + 1)),
-        h('div', { className: 'pl' }, h('b', {}, p.label || '(ไม่มีชื่อ)'), h('span', {}, p.title || '')),
-        p.id === activeId && h('span', { className: 'main' }, icon('star', 10), 'หลัก')
+        h('div', { className: 'pl' }, h('b', {}, p.label || L('(ไม่มีชื่อ)', '(untitled)')), h('span', {}, p.title || '')),
+        p.id === activeId && h('span', { className: 'main' }, icon('star', 10), L('หลัก', 'Default'))
       ))
     );
   }
@@ -2417,79 +2506,75 @@
     titleCnt.textContent = `${t.length}/${TITLE_MAX}`;
     titleCnt.className = 'cnt' + (t.length > TITLE_MAX ? ' over' : '');
     pvTags.replaceChildren(...renderTags(p, vars).map((t) => h('span', {}, t)));
-    const bad = unknownVars(p);
-    pvWarn.hidden = !bad.length;
-    if (bad.length) pvWarn.textContent = `⚠ ไม่รู้จักตัวแปร ${bad.join(' ')} — จะขึ้นบน YouTube เป็นข้อความตรง ๆ (ดูชื่อที่ใช้ได้ที่ปุ่ม "ตัวแปร" ด้านล่าง)`;
   }
 
   const sec = (title, ic, ...kids) => h('div', { className: 'sec' }, h('h4', {}, icon(ic, 13), title), ...kids);
 
   panes.presets = h('div', {},
-    sec('พรีเซ็ตทั้งหมด', 'layers',
+    sec(L('พรีเซ็ตทั้งหมด', 'All presets'), 'layers',
       presetList,
       h('div', { className: 'row', style: 'margin-top:10px;flex-wrap:wrap' },
         h('button', { className: 'btn sm', onclick: () => {
-          const p = { id: 'p' + Date.now().toString(36), label: '✨ พรีเซ็ตใหม่', title: '{name}', description: '', tags: [], visibility: 'PRIVATE' };
+          const p = { id: 'p' + Date.now().toString(36), label: L('✨ พรีเซ็ตใหม่', '✨ New preset'), title: '{name}', description: '', tags: [], visibility: 'PRIVATE' };
           presets.push(p); save('presets', presets); editId = p.id; renderPresetEditor(); refreshLabels(); fLabel.focus(); fLabel.select();
-        } }, icon('plus', 13), 'ใหม่'),
+        } }, icon('plus', 13), L('ใหม่', 'New')),
         h('button', { className: 'btn sm', onclick: () => {
           const p = { ...structuredClone(editing()), id: 'p' + Date.now().toString(36) };
-          p.label += ' (สำเนา)';
+          p.label += L(' (สำเนา)', ' (copy)');
           presets.push(p); save('presets', presets); editId = p.id; renderPresetEditor(); refreshLabels();
-        } }, icon('copy', 13), 'ทำสำเนา'),
-        h('button', { className: 'btn sm', onclick: () => { activeId = editId; save('activeId', activeId); refreshLabels(); renderPresetList(); toast(`ตั้ง "${editing().label}" เป็นพรีเซ็ตหลักแล้ว`); } }, icon('star', 13), 'ตั้งเป็นหลัก'),
+        } }, icon('copy', 13), L('ทำสำเนา', 'Duplicate')),
+        h('button', { className: 'btn sm', onclick: () => { activeId = editId; save('activeId', activeId); refreshLabels(); renderPresetList(); toast(L(`ตั้ง "${editing().label}" เป็นพรีเซ็ตหลักแล้ว`, `Set "${editing().label}" as the default preset`)); } }, icon('star', 13), L('ตั้งเป็นหลัก', 'Set as default')),
         h('span', { style: 'flex:1' }),
         h('button', { className: 'btn sm ghost danger', onclick: () => {
-          if (presets.length < 2) return toast('ต้องมีพรีเซ็ตอย่างน้อย 1 อัน');
-          if (!confirm(`ลบพรีเซ็ต "${editing().label}"?`)) return;
+          if (presets.length < 2) return toast(L('ต้องมีพรีเซ็ตอย่างน้อย 1 อัน', 'You must keep at least 1 preset'));
+          if (!confirm(L(`ลบพรีเซ็ต "${editing().label}"?`, `Delete preset "${editing().label}"?`))) return;
           presets = presets.filter((p) => p.id !== editId);
           save('presets', presets);
           if (!presets.some((p) => p.id === activeId)) { activeId = presets[0].id; save('activeId', activeId); }
           queue.forEach((it) => { if (!presets.some((p) => p.id === it.presetId)) it.presetId = activeId; });
           editId = activeId; renderPresetEditor(); refreshLabels(); renderQueue();
-        } }, icon('clear', 13), 'ลบ')
+        } }, icon('clear', 13), L('ลบ', 'Delete'))
       )
     ),
-    sec('ตัวอย่างบน YouTube', 'tv',
+    sec(L('ตัวอย่างบน YouTube', 'YouTube preview'), 'tv',
       h('div', { className: 'yt' },
         h('div', { className: 'vt' }, icon('play', 26), h('span', { className: 'sz' }, '2:53:12')),
         h('div', { className: 'vtx' }, pvTitle, pvChan)
       ),
       pvTags,
-      pvWarn,
-      h('div', { className: 'lbl' }, h('span', {}, 'ทดลองกับไฟล์'), sampleTxtLbl),
+      h('div', { className: 'lbl' }, h('span', {}, L('ทดลองกับไฟล์', 'Test with a file')), sampleTxtLbl),
       sampleIn,
-      h('div', { className: 'hint', style: 'margin-top:6px' }, icon('clip', 13), 'ลาก .mp4 หรือ .txt จริงมาวางที่ช่องนี้เพื่อดูผลลัพธ์')
+      h('div', { className: 'hint', style: 'margin-top:6px' }, icon('clip', 13), L('ลาก .mp4 หรือ .txt จริงมาวางที่ช่องนี้เพื่อดูผลลัพธ์', 'Drop a real .mp4 or .txt here to preview the result'))
     ),
-    sec('ข้อมูลคลิป', 'film',
-      h('div', { className: 'lbl' }, 'ชื่อพรีเซ็ต'), fLabel,
-      h('div', { className: 'lbl' }, h('span', {}, 'ชื่อคลิป'), titleCnt), fTitle,
-      h('div', { className: 'lbl' }, h('span', {}, 'คำอธิบาย'), h('span', {}, 'ลาก .txt มาวางเพื่อแทรกข้อความ')), fDesc,
-      h('div', { className: 'lbl' }, 'แท็ก'), fTags,
-      h('div', { className: 'lbl' }, h('span', {}, 'ตัวแปร'), h('span', {}, 'คลิกเพื่อแทรกในช่องที่กำลังแก้')), varChips,
+    sec(L('ข้อมูลคลิป', 'Video details'), 'film',
+      h('div', { className: 'lbl' }, L('ชื่อพรีเซ็ต', 'Preset name')), fLabel,
+      h('div', { className: 'lbl' }, h('span', {}, L('ชื่อคลิป', 'Video title')), titleCnt), fTitle,
+      h('div', { className: 'lbl' }, h('span', {}, L('คำอธิบาย', 'Description')), h('span', {}, L('ลาก .txt มาวางเพื่อแทรกข้อความ', 'Drop a .txt here to insert its text'))), fDesc,
+      h('div', { className: 'lbl' }, L('แท็ก', 'Tags')), fTags,
+      h('div', { className: 'lbl' }, h('span', {}, L('ตัวแปร', 'Variables')), h('span', {}, L('คลิกเพื่อแทรกในช่องที่กำลังแก้', 'Click to insert into the field being edited'))), varChips,
       h('div', { className: 'hint', style: 'margin-top:10px' }, icon('alert', 13),
-        h('span', {}, 'ครอบด้วย [[ ... ]] เพื่อให้ส่วนนั้นหายไปเมื่อตัวแปรข้างในว่าง เช่น [[ | {bpm} BPM]]'))
+        h('span', {}, L('ครอบด้วย [[ ... ]] เพื่อให้ส่วนนั้นหายไปเมื่อตัวแปรข้างในว่าง เช่น [[ | {bpm} BPM]]', 'Wrap in [[ ... ]] to hide that part when the variable inside is empty, e.g. [[ | {bpm} BPM]]')))
     ),
-    sec('ศิลปิน', 'queue',
-      h('div', { className: 'lbl' }, h('span', {}, 'ให้ขึ้นก่อนใน {artists}'), h('span', {}, 'เฉพาะคนที่อยู่ใน tracklist')), fArtists,
+    sec(L('ศิลปิน', 'Artists'), 'queue',
+      h('div', { className: 'lbl' }, h('span', {}, L('ให้ขึ้นก่อนใน {artists}', 'Prioritised in {artists}')), h('span', {}, L('เฉพาะคนที่อยู่ใน tracklist', 'Only those in the tracklist'))), fArtists,
       h('div', { className: 'kv', style: 'margin-top:8px' },
-        h('div', {}, h('b', {}, 'จำนวนสูงสุดในชื่อคลิป'), h('small', {}, 'ถ้าชื่อยาวเกิน 100 ตัวอักษรจะลดให้อัตโนมัติ')), fArtistMax)
+        h('div', {}, h('b', {}, L('จำนวนสูงสุดในชื่อคลิป', 'Max in video title')), h('small', {}, L('ถ้าชื่อยาวเกิน 100 ตัวอักษรจะลดให้อัตโนมัติ', 'Auto-reduced if the title exceeds 100 characters'))), fArtistMax)
     ),
-    sec('การเผยแพร่', 'send',
+    sec(L('การเผยแพร่', 'Publishing'), 'send',
       visSeg,
       h('div', { className: 'kv', style: 'margin-top:8px' },
-        h('div', {}, h('b', {}, 'EP ถัดไป'), h('small', {}, 'ค่าของ {n} สำหรับคลิปถัดไป')), fEp)
+        h('div', {}, h('b', {}, L('EP ถัดไป', 'Next EP')), h('small', {}, L('ค่าของ {n} สำหรับคลิปถัดไป', 'Value of {n} for the next video'))), fEp)
     )
   );
   footers.presets = h('div', { className: 'ft' },
-    h('button', { className: 'btn', style: 'flex:1', onclick: applyToOpenDialog, title: 'ใส่พรีเซ็ตหลักลงหน้าต่างอัปโหลดที่เปิดอยู่' }, icon('send', 14), 'ใส่ลงหน้าต่างที่เปิดอยู่'),
+    h('button', { className: 'btn', style: 'flex:1', onclick: applyToOpenDialog, title: L('ใส่พรีเซ็ตหลักลงหน้าต่างอัปโหลดที่เปิดอยู่', 'Apply the default preset to the open upload dialog') }, icon('send', 14), L('ใส่ลงหน้าต่างที่เปิดอยู่', 'Apply to open window')),
     h('button', { className: 'btn ghost danger', onclick: () => {
-      if (!confirm('คืนค่าพรีเซ็ตทั้งหมดเป็นค่าเริ่มต้น? พรีเซ็ตที่แก้ไว้จะหายไป')) return;
+      if (!confirm(L('คืนค่าพรีเซ็ตทั้งหมดเป็นค่าเริ่มต้น? พรีเซ็ตที่แก้ไว้จะหายไป', 'Reset all presets to defaults? Your edited presets will be lost.'))) return;
       presets = structuredClone(DEFAULT_PRESETS); save('presets', presets);
       activeId = editId = presets[0].id; save('activeId', activeId);
       queue.forEach((it) => { if (!presets.some((p) => p.id === it.presetId)) it.presetId = activeId; });
       renderPresetEditor(); refreshLabels(); renderQueue();
-    } }, icon('refresh', 14), 'คืนค่าเริ่มต้น')
+    } }, icon('refresh', 14), L('คืนค่าเริ่มต้น', 'Reset to defaults'))
   );
 
   // ----- แท็บตั้งค่า -----
@@ -2501,13 +2586,36 @@
     );
   }
   // ----- ส่งออก/นำเข้าพรีเซ็ตและการตั้งค่า (ไฟล์ JSON) -----
-  // ไม่รวมช่องที่ล็อกไว้, ประวัติอัปโหลด และประวัติเพลงลิขสิทธิ์ เพราะผูกกับช่องของแต่ละคน
+  // ไม่รวมช่องที่ล็อกไว้, ภาษา, ประวัติอัปโหลด และประวัติเพลงลิขสิทธิ์ เพราะผูกกับเครื่อง/ช่องของแต่ละคน
+  // ค่าส่วนตัว (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP) ส่งออกไปด้วยเพื่อใช้สำรอง
+  // แต่ตอนนำเข้าจะใช้ก็ต่อเมื่อผู้ใช้ยืนยันว่าเป็นไฟล์ของตัวเอง
   const BACKUP_APP = 'yt-upload-presets';
-  const BACKUP_FORMAT = 1; // ขยับเลขนี้เมื่อโครงไฟล์สำรองเปลี่ยนจนรุ่นเก่าอ่านไม่ครบ
+  const PERSONAL_SETTINGS = ['producer', 'schedule'];
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  // ล้างพรีเซ็ตจากไฟล์ให้เป็นรูปแบบที่สคริปต์ใช้ได้ (ไฟล์ที่ชนิดข้อมูลผิดจะทำให้แผงเปิดไม่ขึ้น)
+  function cleanPresets(list) {
+    if (!Array.isArray(list) || !list.length) return null;
+    const ids = new Set();
+    const out = [];
+    for (const p of list) {
+      if (!isObj(p) || typeof p.id !== 'string' || !p.id || typeof p.label !== 'string' || ids.has(p.id)) return null;
+      ids.add(p.id);
+      out.push({ ...p,
+        title: typeof p.title === 'string' ? p.title : '{name}',
+        description: typeof p.description === 'string' ? p.description : '',
+        tags: strList(p.tags),
+        artistPriority: strList(p.artistPriority),
+        artistMax: Math.max(1, parseInt(p.artistMax, 10) || 4),
+        visibility: p.visibility in VIS ? p.visibility : 'PRIVATE',
+      });
+    }
+    return out;
+  }
   function exportBackup() {
-    const { lockChannel, ...rest } = settings;
+    const { lockChannel, lang, ...rest } = settings;
     const data = {
-      app: BACKUP_APP, format: BACKUP_FORMAT, version: GM_info.script.version, exportedAt: new Date().toISOString(),
+      app: BACKUP_APP, format: 1, version: GM_info.script.version, exportedAt: new Date().toISOString(),
       presets, activeId, counters, settings: rest, claimsCfg: load('cfg', {}),
     };
     const d = new Date();
@@ -2517,124 +2625,141 @@
     });
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    toast(`ส่งออกพรีเซ็ต ${presets.length} รายการแล้ว`);
+    toast(L(`ส่งออกพรีเซ็ต ${presets.length} รายการแล้ว`, `Exported ${presets.length} presets`));
   }
   async function importBackup(file) {
-    if (running) return toast('หยุดคิวก่อนแล้วค่อยนำเข้า');
+    if (running || queue.some((i) => i.status === 'pending' || i.status === 'error')) return toast(L('ล้างคิวอัปโหลดก่อนแล้วค่อยนำเข้า (หน้าจะรีโหลด ไฟล์ในคิวจะหาย)', 'Clear the upload queue before importing (the page reloads and queued files would be lost)'));
     let data;
-    try { data = JSON.parse(await file.text()); } catch { return toast('อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ .json ที่ส่งออกจากสคริปต์นี้'); }
-    const okPresets = Array.isArray(data?.presets) && data.presets.length &&
-      data.presets.every((p) => p && typeof p.id === 'string' && typeof p.label === 'string');
-    if (data?.app !== BACKUP_APP || !okPresets) return toast('ไฟล์นี้ไม่ใช่ไฟล์สำรองของ YouTube Upload Presets');
-    const fmt = Number(data.format) || 1;
-    if (fmt > BACKUP_FORMAT) return toast(`ไฟล์สำรองนี้มาจากสคริปต์เวอร์ชันใหม่กว่า (format ${fmt}) — อัปเดตสคริปต์ก่อนแล้วนำเข้าอีกครั้ง`);
-    const names = data.presets.map((p) => p.label).join(', ');
-    if (!confirm(`นำเข้าพรีเซ็ต ${data.presets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน) แล้วหน้าจะรีโหลด`)) return;
-    save('presets', fixLegacyTrapsoulTitles(data.presets));
-    save('activeId', data.presets.some((p) => p.id === data.activeId) ? data.activeId : data.presets[0].id);
-    if (data.settings && typeof data.settings === 'object') {
+    try { data = JSON.parse(await file.text()); } catch { return toast(L('อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ .json ที่ส่งออกจากสคริปต์นี้', 'Can\'t read the file — it must be a .json file exported from this script')); }
+    const newPresets = data?.app === BACKUP_APP ? cleanPresets(data.presets) : null;
+    if (!newPresets) return toast(L('ไฟล์นี้ไม่ใช่ไฟล์สำรองของ YouTube Upload Presets หรือข้อมูลเสียหาย', 'This is not a YouTube Upload Presets backup file, or it is damaged'));
+    const names = newPresets.map((p) => p.label).join(', ');
+    if (!confirm(L(`นำเข้าพรีเซ็ต ${newPresets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน) แล้วหน้าจะรีโหลด`, `Import ${newPresets.length} presets (${names}) and settings?\n\nExisting presets and settings on this device will be replaced (locked channel and language stay unchanged) and the page will reload.`))) return;
+    const own = confirm(L(
+      'เป็นไฟล์สำรองของช่องคุณเองไหม?\n\nOK = ใช่ นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nCancel = ไฟล์ของคนอื่น นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน',
+      'Is this a backup of your own channel?\n\nOK = yes, also import personal values (producer name, schedule, your own artist names, EP numbers)\nCancel = someone else\'s file: import only presets and general settings, your personal values stay unchanged'));
+    save('presets', newPresets);
+    save('activeId', newPresets.some((p) => p.id === data.activeId) ? data.activeId : newPresets[0].id);
+    if (isObj(data.settings)) {
       const next = { ...settings };
-      for (const [k, v] of Object.entries(data.settings)) if (k in settings && k !== 'lockChannel') next[k] = v;
+      for (const [k, v] of Object.entries(data.settings)) {
+        if (!(k in settings) || k === 'lockChannel' || k === 'lang' || (!own && PERSONAL_SETTINGS.includes(k))) continue;
+        if (k === 'schedule') { if (isObj(v)) next.schedule = { ...settings.schedule, on: !!v.on, start: typeof v.start === 'string' ? v.start : '', every: Math.max(1, parseInt(v.every, 10) || 1), unit: v.unit === 'hour' ? 'hour' : 'day' }; continue; }
+        if (typeof v === typeof settings[k]) next[k] = v; // ชนิดข้อมูลต้องตรงกับของเดิม
+      }
       save('settings', next);
     }
-    if (data.claimsCfg && typeof data.claimsCfg === 'object') save('cfg', { ...load('cfg', {}), ...data.claimsCfg });
-    if (data.counters && typeof data.counters === 'object' &&
-      confirm('นำเข้าเลข EP ({n}) จากไฟล์ด้วยไหม?\n\nกด OK ถ้าเป็นไฟล์สำรองของช่องคุณเอง · กด Cancel ถ้าเป็นไฟล์ของคนอื่น (เลข EP เดิมจะไม่เปลี่ยน)')) {
-      save('counters', data.counters);
+    if (isObj(data.claimsCfg)) {
+      const cur = load('cfg', {});
+      for (const [k, v] of Object.entries(data.claimsCfg)) {
+        if (!own && k === 'ownNames') continue;
+        if (['string', 'boolean', 'number'].includes(typeof v)) cur[k] = v;
+      }
+      save('cfg', cur);
     }
+    if (own && isObj(data.counters)) save('counters', Object.fromEntries(Object.entries(data.counters).filter(([, v]) => Number.isFinite(v))));
+    reloadingOnPurpose = true;
     location.reload();
   }
   const backupIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
     onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importBackup(f); } });
 
   panes.settings = h('div', {},
-    sec('อัปโหลดแบบคิว', 'queue',
-      sw('autoSave', 'กด Save ให้อัตโนมัติ', 'ตั้งการเปิดเผยตามพรีเซ็ตแล้วกด Save ต่อไฟล์ถัดไปเลย ถ้าปิดไว้จะรอให้คุณตรวจแล้วกด Save เองทีละคลิป'),
-      sw('thumb', 'อัปภาพปกให้อัตโนมัติ', 'ใช้ไฟล์ .jpg/.png ชื่อเดียวกับคลิป (ไม่เกิน 2MB และช่องต้องยืนยันตัวตนแล้ว)'),
-      sw('intercept', 'รับหลายไฟล์จากหน้าต่างของ YouTube', 'เลือกหรือลากหลายไฟล์ในหน้าต่างอัปโหลดปกติของ Studio จะส่งมาเข้าคิวนี้แทน')
+    sec(L('อัปโหลดแบบคิว', 'Queue upload'), 'queue',
+      sw('autoSave', L('กด Save ให้อัตโนมัติ', 'Auto-press Save'), L('ตั้งการเปิดเผยตามพรีเซ็ตแล้วกด Save ต่อไฟล์ถัดไปเลย ถ้าปิดไว้จะรอให้คุณตรวจแล้วกด Save เองทีละคลิป', 'Sets visibility from the preset, presses Save and moves on to the next file. When off, waits for you to review and press Save on each video yourself.')),
+      sw('thumb', L('อัปภาพปกให้อัตโนมัติ', 'Auto-upload thumbnail'), L('ใช้ไฟล์ .jpg/.png ชื่อเดียวกับคลิป (ไม่เกิน 2MB และช่องต้องยืนยันตัวตนแล้ว)', 'Uses a .jpg/.png with the same name as the video (max 2MB; channel must be verified)')),
+      sw('intercept', L('รับหลายไฟล์จากหน้าต่างของ YouTube', 'Take multiple files from YouTube\'s dialog'), L('เลือกหรือลากหลายไฟล์ในหน้าต่างอัปโหลดปกติของ Studio จะส่งมาเข้าคิวนี้แทน', 'Selecting or dropping multiple files in Studio\'s normal upload dialog sends them to this queue instead'))
     ),
-    sec('ความปลอดภัย', 'lock',
-      sw('confirmStart', 'ถามยืนยันชื่อช่องก่อนเริ่มคิว', 'แสดงชื่อช่องปัจจุบันให้ยืนยันทุกครั้งที่กดเริ่ม'),
+    sec(L('ความปลอดภัย', 'Safety'), 'lock',
+      sw('autoAcceptInvite', L('กดยอมรับคำเชิญสิทธิ์ช่องให้อัตโนมัติ', 'Auto-accept channel permission invites'), L('เปิดลิงก์ ACCEPT INVITATION จากอีเมลของ YouTube แล้วสคริปต์กด Accept ให้', 'Open the ACCEPT INVITATION link from the YouTube email and the script presses Accept for you')),
+      sw('confirmStart', L('ถามยืนยันชื่อช่องก่อนเริ่มคิว', 'Confirm channel name before starting the queue'), L('แสดงชื่อช่องปัจจุบันให้ยืนยันทุกครั้งที่กดเริ่ม', 'Shows the current channel name for confirmation every time you press Start')),
       h('div', { className: 'hint', style: 'margin-top:6px' }, icon('lock', 13),
-        h('span', {}, 'กดปุ่ม "ล็อกช่อง" ด้านบนเพื่อให้อัปได้เฉพาะช่องนั้น ถ้าสลับช่อง คิวจะหยุดเอง'))
+        h('span', {}, L('กดปุ่ม "ล็อกช่อง" ด้านบนเพื่อให้อัปได้เฉพาะช่องนั้น ถ้าสลับช่อง คิวจะหยุดเอง', 'Press the "Lock channel" button above to upload only to that channel. If you switch channels, the queue stops automatically.')))
     ),
-    sec('อัปโหลดทีละไฟล์ (หน้าต่างปกติของ YouTube)', 'upload',
-      sw('autoApply', 'เติมข้อมูลอัตโนมัติ', 'ใส่ชื่อ/คำอธิบาย/แท็กจากพรีเซ็ตหลักให้ทันทีเมื่อเลือกไฟล์'),
-      sw('autoNext', 'กด Next ไปหน้าการเปิดเผย', 'เลือกการเปิดเผยตามพรีเซ็ตให้ แต่ไม่กด Save')
+    sec(L('อัปโหลดทีละไฟล์ (หน้าต่างปกติของ YouTube)', 'Single-file upload (YouTube\'s normal dialog)'), 'upload',
+      sw('autoApply', L('เติมข้อมูลอัตโนมัติ', 'Auto-fill details'), L('ใส่ชื่อ/คำอธิบาย/แท็กจากพรีเซ็ตหลักให้ทันทีเมื่อเลือกไฟล์', 'Fills title/description/tags from the default preset as soon as a file is selected')),
+      sw('autoNext', L('กด Next ไปหน้าการเปิดเผย', 'Press Next to the Visibility page'), L('เลือกการเปิดเผยตามพรีเซ็ตให้ แต่ไม่กด Save', 'Selects visibility from the preset but doesn\'t press Save'))
     ),
-    sec('ตรวจปัญหา', 'alert',
+    sec(L('ตรวจปัญหา', 'Troubleshooting'), 'alert',
       h('div', { className: 'hint' }, icon('alert', 13),
-        h('span', {}, 'เปิดหน้าต่างอัปโหลดค้างไว้ที่หน้ากรอกรายละเอียด (มีส่วน Thumbnail) แล้วกดปุ่มนี้ ข้อมูลโครงสร้างหน้าจะถูกคัดลอก ส่งไปให้ผู้พัฒนาแก้สคริปต์ได้ (อ่านอย่างเดียว ไม่กดอะไรในหน้า)')),
+        h('span', {}, L('เปิดหน้าต่างอัปโหลดค้างไว้ที่หน้ากรอกรายละเอียด (มีส่วน Thumbnail) แล้วกดปุ่มนี้ ข้อมูลโครงสร้างหน้าจะถูกคัดลอก ส่งไปให้ผู้พัฒนาแก้สคริปต์ได้ (อ่านอย่างเดียว ไม่กดอะไรในหน้า)', 'Keep the upload dialog open on the details page (with the Thumbnail section) and press this button. The page structure info is copied so you can send it to the developer to fix the script (read-only, nothing on the page is clicked).'))),
       h('button', { className: 'btn sm', style: 'margin-top:10px', onclick: () => {
         const info = diagnoseUploadDialog();
         GM_setClipboard(JSON.stringify(info, null, 1));
-        toast(info.error ? info.error : 'คัดลอกข้อมูลตรวจปัญหาแล้ว — วางส่งให้ผู้พัฒนาได้เลย');
-      } }, icon('copy', 13), 'คัดลอกข้อมูลหน้าต่างอัปโหลด')
+        toast(info.error ? info.error : L('คัดลอกข้อมูลตรวจปัญหาแล้ว — วางส่งให้ผู้พัฒนาได้เลย', 'Troubleshooting info copied — paste it to the developer'));
+      } }, icon('copy', 13), L('คัดลอกข้อมูลหน้าต่างอัปโหลด', 'Copy upload dialog info'))
     ),
-    sec('ทั่วไป', 'sliders',
+    sec(L('ทั่วไป', 'General'), 'sliders',
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'ชื่อโปรดิวเซอร์ {producer}'), h('small', {}, 'ใช้ในชื่อคลิป/คำอธิบาย/แท็ก เช่น "Prod. by {producer}" · เว้นว่าง = ใช้ชื่อช่องปัจจุบัน')),
-        h('input', { type: 'text', value: settings.producer, placeholder: getChannel().name || 'ชื่อช่อง',
-          oninput: (e) => { settings.producer = e.target.value.trim(); saveSettings(); refreshLabels(); } })
+        h('div', {}, h('b', {}, 'Language / ภาษา'), h('small', {}, L('เปลี่ยนแล้วหน้าจะรีโหลด', 'The page reloads after changing'))),
+        h('select', { onchange: (e) => {
+          if (running) { e.target.value = LANG; return toast(L('หยุดคิวก่อนแล้วค่อยเปลี่ยนภาษา', 'Stop the queue before changing language')); }
+          settings.lang = e.target.value; saveSettings(); location.reload();
+        } }, [['en', 'English'], ['th', 'ไทย']].map(([v, l]) => h('option', { value: v, selected: LANG === v }, l)))
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'หมวดหมู่'), h('small', {}, 'ข้อความตามที่ Studio แสดง เช่น Music หรือ เพลง · เว้นว่าง = ไม่ตั้ง')),
+        h('div', {}, h('b', {}, L('ชื่อโปรดิวเซอร์ {producer}', 'Producer name {producer}')), h('small', {}, L('ใช้ในชื่อคลิป/คำอธิบาย/แท็ก เช่น "Prod. by {producer}" · เว้นว่าง = ใช้ชื่อช่องปัจจุบัน', 'Used in video title/description/tags, e.g. "Prod. by {producer}" · blank = current channel name'))),
+        (producerIn = h('input', { type: 'text', value: settings.producer, placeholder: getChannel().name || L('ชื่อช่อง', 'Channel name'),
+          oninput: (e) => { settings.producer = e.target.value.trim(); saveSettings(); refreshLabels(); } }))
+      ),
+      h('div', { className: 'kv' },
+        h('div', {}, h('b', {}, L('หมวดหมู่', 'Category')), h('small', {}, L('ข้อความตามที่ Studio แสดง เช่น Music หรือ เพลง · เว้นว่าง = ไม่ตั้ง', 'Text as Studio shows it, e.g. Music or เพลง · blank = don\'t set'))),
         h('input', { type: 'text', value: settings.category, oninput: (e) => { settings.category = e.target.value.trim(); saveSettings(); } })
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'Paid promotion'), h('small', {}, 'คลิปมีการโปรโมตแบบชำระเงินไหม')),
+        h('div', {}, h('b', {}, 'Paid promotion'), h('small', {}, L('คลิปมีการโปรโมตแบบชำระเงินไหม', 'Does the video include paid promotion?'))),
         h('select', { onchange: (e) => { settings.paidPromotion = e.target.value; saveSettings(); } },
-          [['no', 'ไม่มี'], ['yes', 'มี'], ['skip', 'ไม่ตอบ']].map(([v, l]) => h('option', { value: v, selected: settings.paidPromotion === v }, l)))
+          [['no', L('ไม่มี', 'No')], ['yes', L('มี', 'Yes')], ['skip', L('ไม่ตอบ', 'Don\'t answer')]].map(([v, l]) => h('option', { value: v, selected: settings.paidPromotion === v }, l)))
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'ขั้น Monetisation'), h('small', {}, 'เปิด/ปิดโฆษณาให้คลิปใหม่')),
+        h('div', {}, h('b', {}, L('ขั้น Monetisation', 'Monetisation step')), h('small', {}, L('เปิด/ปิดโฆษณาให้คลิปใหม่', 'Turn ads on/off for new videos'))),
         h('select', { onchange: (e) => { settings.monetization = e.target.value; saveSettings(); } },
-          [['on', 'เปิดโฆษณา (On)'], ['off', 'ปิดโฆษณา (Off)'], ['skip', 'ทำเอง']].map(([v, l]) => h('option', { value: v, selected: settings.monetization === v }, l)))
+          [['on', L('เปิดโฆษณา (On)', 'Ads on (On)')], ['off', L('ปิดโฆษณา (Off)', 'Ads off (Off)')], ['skip', L('ทำเอง', 'Manual')]].map(([v, l]) => h('option', { value: v, selected: settings.monetization === v }, l)))
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'ขั้น Ad suitability'), h('small', {}, 'ติ๊ก "None of the above" = ยืนยันว่าคลิปไม่มีเนื้อหาในหมวดเหล่านั้น แล้วกด Submit rating (ส่งแล้วแก้ไม่ได้)')),
+        h('div', {}, h('b', {}, L('ขั้น Ad suitability', 'Ad suitability step')), h('small', {}, L('ติ๊ก "None of the above" = ยืนยันว่าคลิปไม่มีเนื้อหาในหมวดเหล่านั้น แล้วกด Submit rating (ส่งแล้วแก้ไม่ได้)', 'Tick "None of the above" = confirm the video has none of that content, then press Submit rating (can\'t be changed after submitting)'))),
         h('select', { onchange: (e) => { settings.adSuitability = e.target.value; saveSettings(); } },
-          [['none', 'None of the above'], ['skip', 'ทำเอง']].map(([v, l]) => h('option', { value: v, selected: settings.adSuitability === v }, l)))
+          [['none', 'None of the above'], ['skip', L('ทำเอง', 'Manual')]].map(([v, l]) => h('option', { value: v, selected: settings.adSuitability === v }, l)))
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'AI use (เนื้อหาดัดแปลง/สังเคราะห์)'), h('small', {}, 'คำถาม "Was AI used to generate or edit your content…"')),
+        h('div', {}, h('b', {}, L('AI use (เนื้อหาดัดแปลง/สังเคราะห์)', 'AI use (altered/synthetic content)')), h('small', {}, L('คำถาม "Was AI used to generate or edit your content…"', 'The "Was AI used to generate or edit your content…" question'))),
         h('select', { onchange: (e) => { settings.alteredContent = e.target.value; saveSettings(); } },
-          [['skip', 'ไม่ตอบ'], ['no', 'ไม่ใช่'], ['yes', 'ใช่']].map(([v, l]) => h('option', { value: v, selected: settings.alteredContent === v }, l)))
+          [['skip', L('ไม่ตอบ', 'Don\'t answer')], ['no', L('ไม่ใช่', 'No')], ['yes', L('ใช่', 'Yes')]].map(([v, l]) => h('option', { value: v, selected: settings.alteredContent === v }, l)))
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'ปีที่ใช้ใน {year}'), h('small', {}, 'เว้นว่าง = ปีปัจจุบันอัตโนมัติ')),
+        h('div', {}, h('b', {}, L('ปีที่ใช้ใน {year}', 'Year used in {year}')), h('small', {}, L('เว้นว่าง = ปีปัจจุบันอัตโนมัติ', 'Blank = current year automatically'))),
         h('input', {
           type: 'number', min: 2000, max: 2100, placeholder: String(new Date().getFullYear()), value: settings.year,
           oninput: (e) => { settings.year = e.target.value.trim(); saveSettings(); refreshLabels(); },
         })
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'รอใส่ภาพปกนานสุด'), h('small', {}, 'นาที · ภาพปกใส่ได้หลังวิดีโออัปขึ้นไปแล้ว ไฟล์ใหญ่ตั้งเผื่อไว้')),
+        h('div', {}, h('b', {}, L('รอใส่ภาพปกนานสุด', 'Max thumbnail wait')), h('small', {}, L('นาที · ภาพปกใส่ได้หลังวิดีโออัปขึ้นไปแล้ว ไฟล์ใหญ่ตั้งเผื่อไว้', 'Minutes · thumbnail can be set only after the video has uploaded; allow extra for large files'))),
         h('input', { type: 'number', min: 1, max: 600, value: settings.thumbWaitMin, onchange: (e) => { settings.thumbWaitMin = Math.max(1, Number(e.target.value) || 120); saveSettings(); } })
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'จังหวะการทำงาน'), h('small', {}, 'หน้าเว็บโหลดช้า / เน็ตช้า ให้เลือก "ช้า" หรือ "ช้ามาก" สคริปต์จะพักและรอแต่ละขั้นนานขึ้น')),
-        h('select', { onchange: (e) => { settings.pace = e.target.value; saveSettings(); toast(`จังหวะการทำงาน: ${e.target.selectedOptions[0].textContent}`); } },
-          [['normal', 'ปกติ (x1)'], ['slow', 'ช้า (x1.6)'], ['slower', 'ช้ามาก (x2.5)']].map(([v, l]) => h('option', { value: v, selected: (settings.pace || 'normal') === v }, l)))
+        h('div', {}, h('b', {}, L('จังหวะการทำงาน', 'Pace')), h('small', {}, L('หน้าเว็บโหลดช้า / เน็ตช้า ให้เลือก "ช้า" หรือ "ช้ามาก" สคริปต์จะพักและรอแต่ละขั้นนานขึ้น', 'If the page or connection is slow, choose "Slow" or "Very slow" — the script will pause and wait longer at each step'))),
+        h('select', { onchange: (e) => { settings.pace = e.target.value; saveSettings(); toast(L(`จังหวะการทำงาน: ${e.target.selectedOptions[0].textContent}`, `Pace: ${e.target.selectedOptions[0].textContent}`)); } },
+          [['normal', L('ปกติ (x1)', 'Normal (x1)')], ['slow', L('ช้า (x1.6)', 'Slow (x1.6)')], ['slower', L('ช้ามาก (x2.5)', 'Very slow (x2.5)')]].map(([v, l]) => h('option', { value: v, selected: (settings.pace || 'normal') === v }, l)))
       ),
       h('div', { className: 'kv' },
-        h('div', {}, h('b', {}, 'พักระหว่างไฟล์'), h('small', {}, 'หน่วยวินาที')),
+        h('div', {}, h('b', {}, L('พักระหว่างไฟล์', 'Pause between files')), h('small', {}, L('หน่วยวินาที', 'Seconds'))),
         h('input', { type: 'number', min: 0, max: 120, value: settings.delay, onchange: (e) => { settings.delay = Math.max(0, Number(e.target.value) || 0); saveSettings(); } })
       )
     ),
-    sec('สำรอง / แชร์การตั้งค่า', 'copy',
+    sec(L('สำรอง / แชร์การตั้งค่า', 'Back up / share settings'), 'copy',
       h('div', { className: 'hint' }, icon('file', 13),
-        h('span', {}, 'ส่งออกพรีเซ็ต การตั้งค่า และการตั้งค่าแท็บลิขสิทธิ์เป็นไฟล์ .json ไว้สำรองหรือส่งให้เพื่อนนำเข้า (ไม่รวมช่องที่ล็อกไว้และประวัติอัปโหลด)')),
+        h('span', {}, L('ส่งออกพรีเซ็ต การตั้งค่า และการตั้งค่าแท็บลิขสิทธิ์เป็นไฟล์ .json ไว้สำรองหรือส่งให้เพื่อนนำเข้า (ไม่รวมช่องที่ล็อกไว้และประวัติอัปโหลด)', 'Export presets, settings and copyright tab settings to a .json file as a backup or to share with a friend (excludes the locked channel and upload history)'))),
       h('div', { style: 'display:flex;gap:8px;margin-top:10px' },
         backupIn,
-        h('button', { className: 'btn sm', onclick: exportBackup }, icon('download', 13), 'ส่งออก (.json)'),
-        h('button', { className: 'btn sm', onclick: () => backupIn.click() }, icon('upload', 13), 'นำเข้า'))
+        h('button', { className: 'btn sm', onclick: exportBackup }, icon('download', 13), L('ส่งออก (.json)', 'Export (.json)')),
+        h('button', { className: 'btn sm', onclick: () => backupIn.click() }, icon('upload', 13), L('นำเข้า', 'Import')))
     ),
     h('div', { className: 'sec' },
       h('div', { className: 'hint' }, icon('sliders', 13),
-        h('span', {}, h('kbd', {}, 'Alt'), ' + ', h('kbd', {}, 'P'), ' เปิด/ปิดแผง · ', h('kbd', {}, 'Alt'), ' + ', h('kbd', {}, '1…9'), ' เลือกพรีเซ็ตหลัก')),
+        h('span', {}, h('kbd', {}, 'Alt'), ' + ', h('kbd', {}, 'P'), L(' เปิด/ปิดแผง · ', ' toggle panel · '), h('kbd', {}, 'Alt'), ' + ', h('kbd', {}, '1…9'), L(' เลือกพรีเซ็ตหลัก', ' select default preset'))),
       h('div', { className: 'hint', style: 'margin-top:8px' }, icon('alert', 13),
-        h('span', {}, 'ระหว่างที่คิวทำงาน อย่าปิดหรือรีเฟรชแท็บนี้ · YouTube จำกัดจำนวนอัปโหลดต่อวัน ถ้าชนลิมิตคิวจะหยุดเอง'))
+        h('span', {}, L('ระหว่างที่คิวทำงาน อย่าปิดหรือรีเฟรชแท็บนี้ · YouTube จำกัดจำนวนอัปโหลดต่อวัน ถ้าชนลิมิตคิวจะหยุดเอง', 'While the queue is running, don\'t close or refresh this tab · YouTube limits uploads per day; if you hit the limit the queue stops automatically')))
     )
   );
 
@@ -2674,7 +2799,8 @@
 
     const visible = (el) => !!el && (el.offsetParent !== null ||
       (el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none'));
-      const findText = (re, sel = SEL.clickable, rootEl = document) =>
+    const CLICKABLE = 'button, ytcp-button, tp-yt-paper-button, [role="button"], ytcp-button-shape button';
+    const findText = (re, sel = CLICKABLE, rootEl = document) =>
       [...rootEl.querySelectorAll(sel)].filter((el) => visible(el) && re.test(el.innerText.trim()));
     const isDisabled = (el) =>
       el.disabled || el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true' ||
@@ -2695,35 +2821,11 @@
     }
     const channelName = () => chanLabel(getChannel()) || currentChannel();
     const chGet = (name, def, ch = currentChannel()) => load(name + ':' + ch, def);
-    const chSet = (name, val, ch = currentChannel()) => { invalidateCounts(); return save(name + ':' + ch, val); };
-
-    /* ---------- ตัวเลขที่เอาไปโชว์ (claimScan / songHistory เป็นก้อนใหญ่ อ่านทุก tick ไม่ไหว) ---------- */
-    // tick วิ่งทุก 0.8 วินาที -> อ่าน storage ใหม่เมื่อหมดอายุ หรือเมื่อมีการเขียนทับ (chSet / setSongs)
-    const COUNTS_TTL = 3000;
-    let countsAt = 0;
-    let countsCache = null;
-    function invalidateCounts() { countsAt = 0; }
-    function getCounts() {
-      if (countsCache && Date.now() - countsAt < COUNTS_TTL) return countsCache;
-      const scan = chGet('claimScan', null);
-      const adsScan = chGet('adsScan', null);
-      const adsResults = chGet('adsResults', {});
-      countsCache = {
-        hasScan: !!scan,
-        scanDate: scan ? scan.date : '',
-        claims: scan ? scan.rows.length : 0,
-        claimVideos: scan ? new Set(scan.rows.map((r) => r.videoId)).size : 0,
-        songs: Object.keys(getSongs()).length,
-        hasAdsScan: !!adsScan,
-        adsTodo: adsScan ? adsScan.rows.filter((r) => !(adsResults[r.videoId] || {}).state).length : 0,
-      };
-      countsAt = Date.now();
-      return countsCache;
-    }
+    const chSet = (name, val, ch = currentChannel()) => save(name + ':' + ch, val);
 
     async function authHeader() {
       const m = document.cookie.match(/(?:^|; )(?:SAPISID|__Secure-3PAPISID)=([^;]+)/);
-      if (!m) throw new Error('ไม่ได้ล็อกอิน (ไม่พบคุกกี้ SAPISID)');
+      if (!m) throw new Error(L('ไม่ได้ล็อกอิน (ไม่พบคุกกี้ SAPISID)', 'Not signed in (SAPISID cookie not found)'));
       const ts = Math.floor(Date.now() / 1000);
       const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(`${ts} ${m[1]} https://studio.youtube.com`));
       return `SAPISIDHASH ${ts}_${[...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
@@ -2757,6 +2859,7 @@
       return (hh ? hh + ':' + String(m).padStart(2, '0') : m) + ':' + String(s2).padStart(2, '0');
     };
     const short = (e) => String(e || '').replace(/^.*?(IMPACT|STATUS|OPTION)_/, '').replace(/_/g, ' ').toLowerCase();
+    const privacyOf = (p) => String(p || '').replace(/^VIDEO_PRIVACY_/, '').replace(/_/g, ' ').toLowerCase(); // VIDEO_PRIVACY_PUBLIC → public
 
     // ข้อมูลเพลงจาก claim มีหลายรูปแบบ (soundRecording, composition, web, …) → ไล่หา title / artists / label
     function claimInfo(c) {
@@ -2791,7 +2894,7 @@
         vids.push(...(j.videos || []));
         tok = j.nextPageToken;
         pages++;
-        scanProg = { label: `${label} อ่านแล้ว ${vids.length} คลิป`, done: 0, total: 0 };
+        scanProg = { label: L(`${label} อ่านแล้ว ${vids.length} คลิป`, `${label}: read ${vids.length} videos`), done: 0, total: 0 };
         renderStatus();
         await sleep(300);
       } while (tok && pages < 400);
@@ -2800,19 +2903,19 @@
 
     async function scanClaims({ show = true } = {}) {
       if (scanning) return null;
-      if (!ycfg('INNERTUBE_CONTEXT')) { log('Studio ยังโหลดไม่เสร็จ ลองใหม่ในอีกไม่กี่วินาที', 'warn'); return null; }
+      if (!ycfg('INNERTUBE_CONTEXT')) { log(L('Studio ยังโหลดไม่เสร็จ ลองใหม่ในอีกไม่กี่วินาที', 'Studio hasn\'t finished loading — try again in a few seconds'), 'warn'); return null; }
       scanning = true;
-      scanProg = { label: 'กำลังอ่านรายการวิดีโอ…', done: 0, total: 0 };
+      scanProg = { label: L('กำลังอ่านรายการวิดีโอ…', 'Reading video list…'), done: 0, total: 0 };
       const CH = currentChannel();
       const chName = channelName();
       const own = cfg().ownNames.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
       try {
-        log('สแกน: กำลังอ่านรายการวิดีโอ…');
-        const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true, copyrightSummary: { all: true }, allRestrictions: { all: true } }, 'กำลังอ่านรายการวิดีโอ…');
+        log(L('สแกน: กำลังอ่านรายการวิดีโอ…', 'Scan: reading video list…'));
+        const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true, copyrightSummary: { all: true }, allRestrictions: { all: true } }, L('กำลังอ่านรายการวิดีโอ…', 'Reading video list…'));
         const claimed = vids.filter((v) =>
           +((v.copyrightSummary || {}).activeThirdPartyClaimsCount || 0) > 0 ||
           ((v.allRestrictions || {}).restrictions || []).some((r) => r.reason === 'VIDEO_RESTRICTION_REASON_COPYRIGHT'));
-        log(`สแกน: ${claimed.length} จาก ${vids.length} คลิปมี claim — กำลังอ่านรายละเอียด…`);
+        log(L(`สแกน: ${claimed.length} จาก ${vids.length} คลิปมี claim — กำลังอ่านรายละเอียด…`, `Scan: ${claimed.length} of ${vids.length} videos have a claim — reading details…`));
 
         const rows = [];
         for (let i = 0; i < claimed.length; i++) {
@@ -2836,7 +2939,7 @@
               const m = await yti('copyright/get_creator_received_claim_matches', { videoId: v.videoId, channelId: CH, claimId: c.claimId });
               segs = (((m.matches || {}).claimMatches) || []).map((x) => x.videoSegment).filter(Boolean)
                 .map((sg) => [(+sg.startMillis || 0) / 1000, (+sg.endMillis || 0) / 1000]);
-            } catch (e) { log(`${v.title}: ช่วงเวลา — ${e.message}`, 'warn'); }
+            } catch (e) { log(L(`${v.title}: ช่วงเวลา — ${e.message}`, `${v.title}: time ranges — ${e.message}`), 'warn'); }
             if (!segs.length && c.matchDetails) {
               const st = +c.matchDetails.longestMatchStartTimeSeconds || 0;
               segs = [[st, st + (+c.matchDetails.longestMatchDurationSeconds || 0)]];
@@ -2845,7 +2948,7 @@
             // แก้บัคเดิม: เดิมอ่าน rec.recordLabel ซึ่งไม่มีอยู่จริง ทำให้ label ว่างตลอด
             const hay = (artists + ' ' + claimant + ' ' + rec.label).toLowerCase();
             rows.push({
-              videoId: v.videoId, video: v.title, privacy: short(v.privacy), length: +v.lengthSeconds || 0,
+              videoId: v.videoId, video: v.title, privacy: privacyOf(v.privacy), length: +v.lengthSeconds || 0,
               claimId: c.claimId, song: rec.title || '(ไม่ทราบชื่อ)', artists, label: rec.label, claimant,
               type: short(c.type), status: short(c.status), impact: impacts, segments: segs,
               claimedSec: segs.reduce((a, sg) => a + (sg[1] - sg[0]), 0),
@@ -2855,19 +2958,19 @@
             });
             await sleep(250);
           }
-          scanProg = { label: `อ่านรายละเอียด claim ${i + 1} / ${claimed.length}: ${v.title}`, done: i + 1, total: claimed.length };
+          scanProg = { label: L(`อ่านรายละเอียด claim ${i + 1} / ${claimed.length}: ${v.title}`, `Reading claim details ${i + 1} / ${claimed.length}: ${v.title}`), done: i + 1, total: claimed.length };
           renderStatus();
           await sleep(300);
         }
 
         chSet('claimScan', { date: new Date().toISOString(), total: vids.length, rows, channel: CH, channelName: chName }, CH);
         recordSongs(rows, chName);
-        log(`สแกนเสร็จ ✓ ${chName}: ${rows.length} claim ใน ${claimed.length} คลิป`, 'ok');
-        flash('สแกนเสร็จแล้ว', `${rows.length} claim ใน ${claimed.length} จาก ${vids.length} คลิป`);
+        log(L(`สแกนเสร็จ ✓ ${chName}: ${rows.length} claim ใน ${claimed.length} คลิป`, `Scan complete ✓ ${chName}: ${rows.length} claims in ${claimed.length} videos`), 'ok');
+        flash(L('สแกนเสร็จแล้ว', 'Scan complete'), L(`${rows.length} claim ใน ${claimed.length} จาก ${vids.length} คลิป`, `${rows.length} claims in ${claimed.length} of ${vids.length} videos`));
         if (show) showClaims();
         return rows;
       } catch (e) {
-        log('สแกนไม่สำเร็จ: ' + e.message, 'err');
+        log(L('สแกนไม่สำเร็จ: ', 'Scan failed: ') + e.message, 'err');
         return null;
       } finally {
         scanning = false;
@@ -2878,7 +2981,7 @@
 
     function claimsCSV() {
       const scan = chGet('claimScan', null);
-      if (!scan) return log('ยังไม่ได้สแกน', 'warn');
+      if (!scan) return log(L('ยังไม่ได้สแกน', 'Not scanned yet'), 'warn');
       const head = ['video', 'video_url', 'privacy', 'video_length', 'song', 'artists', 'label', 'claimant', 'own_music',
         'type', 'status', 'impact', 'claimed_segments', 'claimed_total', 'can_trim', 'options', 'claim_id'];
       const lines = scan.rows.map((r) => [r.video, `https://studio.youtube.com/video/${r.videoId}/claims`, r.privacy, fmt(r.length),
@@ -2899,7 +3002,7 @@
 
     function showClaims() {
       const scan = chGet('claimScan', null);
-      if (!scan) return log(`ยังไม่ได้สแกนช่อง ${channelName()} — กด "สแกน claim" ก่อน`, 'warn');
+      if (!scan) return log(L(`ยังไม่ได้สแกนช่อง ${channelName()} — กด "สแกน claim" ก่อน`, `Channel ${channelName()} not scanned yet — press "Scan claims" first`), 'warn');
       const picked = new Set(chGet('trimQueue', []));
       const results = chGet('trimResults', {});
       const rows = scan.rows;
@@ -2909,7 +3012,7 @@
 
       const trimBtnM = h('button', { className: 'btn go sm', onclick: () => openTrimConfirm() });
       const refreshCount = () => {
-        trimBtnM.textContent = `✂ ตัดที่เลือก (${picked.size})`;
+        trimBtnM.textContent = L(`✂ ตัดที่เลือก (${picked.size})`, `✂ Trim selected (${picked.size})`);
         trimBtnM.disabled = !picked.size;
       };
       const setPicked = (key, on) => { on ? picked.add(key) : picked.delete(key); chSet('trimQueue', [...picked]); refreshCount(); };
@@ -2918,7 +3021,7 @@
 
       const seenVideo = new Set();
       const table = h('table', { className: 'tbx-table' },
-        h('thead', {}, h('tr', {}, ['ตัด', 'วิดีโอ', 'เพลงที่โดน claim', 'ผู้ claim', 'ช่วงที่โดน', 'ผลกระทบ / ผล'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, [L('ตัด', 'Trim'), L('วิดีโอ', 'Video'), L('เพลงที่โดน claim', 'Claimed song'), L('ผู้ claim', 'Claimant'), L('ช่วงที่โดน', 'Claimed range'), L('ผลกระทบ / ผล', 'Impact / Result')].map((t) => h('th', {}, t)))),
         h('tbody', {}, rows.map((r) => {
           const key = r.videoId + ':' + r.claimId;
           const res = results[key];
@@ -2926,7 +3029,7 @@
           if (doneAlready) picked.delete(key);
           const cb = h('input', {
             type: 'checkbox', checked: picked.has(key) && !doneAlready, disabled: !r.canTrim || doneAlready,
-            title: doneAlready ? 'จัดการแล้ว' : r.canTrim ? 'เพิ่มในรายการตัด' : 'YouTube ไม่มีตัวเลือก Trim สำหรับ claim นี้',
+            title: doneAlready ? L('จัดการแล้ว', 'Already handled') : r.canTrim ? L('เพิ่มในรายการตัด', 'Add to trim list') : L('YouTube ไม่มีตัวเลือก Trim สำหรับ claim นี้', 'YouTube offers no Trim option for this claim'),
             onchange: (e) => setPicked(key, e.target.checked),
           });
           cb._row = r; cb._key = key;
@@ -2940,37 +3043,37 @@
             h('td', {},
               h('a', { href: `/video/${r.videoId}/claims`, target: '_blank' }, r.video),
               h('div', { className: 'mut' }, `${r.privacy} · ${fmt(r.length)}`),
-              soon && h('div', { className: 'tbx-warn' }, `⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`),
-              firstOfVideo && h('button', { className: 'btn sm', style: 'margin-top:4px', onclick: () => showTracklistFix(r.videoId) }, '📝 tracklist หลังตัด')),
+              soon && h('div', { className: 'tbx-warn' }, L(`⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`, `⏰ Scheduled ${fmtWhen(r.publishAt)}`)),
+              firstOfVideo && h('button', { className: 'btn sm', style: 'margin-top:4px', onclick: () => showTracklistFix(r.videoId) }, L('📝 tracklist หลังตัด', '📝 Tracklist after trim'))),
             h('td', {}, r.song, h('div', { className: 'mut' }, [r.artists, r.label].filter(Boolean).join(' · '))),
-            h('td', {}, r.claimant, r.own && h('div', { className: 'tbx-warn' }, '★ เพลงของคุณเอง')),
+            h('td', {}, r.claimant, r.own && h('div', { className: 'tbx-warn' }, L('★ เพลงของคุณเอง', '★ Your own song'))),
             h('td', {}, r.segments.map((sg) => fmt(sg[0]) + '–' + fmt(sg[1])).join(', ') || '?',
-              h('div', { className: pct >= 50 ? 'tbx-err' : 'mut' }, `${fmt(r.claimedSec)} (${pct}% ของคลิป)`)),
-            h('td', {}, r.impact || 'ไม่มีผลกระทบ', r.canTrim ? null : h('div', { className: 'mut' }, 'ไม่มีตัวเลือก Trim'), stateBadge(res)));
+              h('div', { className: pct >= 50 ? 'tbx-err' : 'mut' }, L(`${fmt(r.claimedSec)} (${pct}% ของคลิป)`, `${fmt(r.claimedSec)} (${pct}% of video)`))),
+            h('td', {}, r.impact || L('ไม่มีผลกระทบ', 'No impact'), r.canTrim ? null : h('div', { className: 'mut' }, L('ไม่มีตัวเลือก Trim', 'No Trim option')), stateBadge(res)));
         })));
       chSet('trimQueue', [...picked]);
       const selectWhere = (fn) => { cbs.forEach((cb) => { if (!cb.disabled) { cb.checked = fn(cb._row); setPicked(cb._key, cb.checked); } }); };
       refreshCount();
 
       const m = openModal(
-        h('h3', {}, `Claim ลิขสิทธิ์ — ${scan.channelName || channelName()}`),
+        h('h3', {}, L(`Claim ลิขสิทธิ์ — ${scan.channelName || channelName()}`, `Copyright claims — ${scan.channelName || channelName()}`)),
         h('div', { className: 'mut', style: 'margin-bottom:10px' },
-          `${rows.length} claim ใน ${videos} คลิป (จากทั้งหมด ${scan.total}) · สแกนเมื่อ ${new Date(scan.date).toLocaleString('th-TH')}` +
-          (ownCount ? ` · ${ownCount} รายการดูเหมือนเป็นเพลงของคุณเอง (★) — ให้ค่ายเพลง/ดิสทริบิวเตอร์ allowlist ช่องแทนการตัด` : '')),
+          L(`${rows.length} claim ใน ${videos} คลิป (จากทั้งหมด ${scan.total}) · สแกนเมื่อ ${new Date(scan.date).toLocaleString(LOCALE)}`, `${rows.length} claims in ${videos} videos (of ${scan.total} total) · scanned ${new Date(scan.date).toLocaleString(LOCALE)}`) +
+          (ownCount ? L(` · ${ownCount} รายการดูเหมือนเป็นเพลงของคุณเอง (★) — ให้ค่ายเพลง/ดิสทริบิวเตอร์ allowlist ช่องแทนการตัด`, ` · ${ownCount} look like your own songs (★) — have your label/distributor allowlist the channel instead of trimming`) : '')),
         h('div', { className: 'chips', style: 'margin-bottom:10px' },
-          h('span', { className: 'mut' }, 'เลือก:'),
-          h('button', { className: 'chip', onclick: () => selectWhere(() => true) }, 'ทุกอันที่ตัดได้'),
-          h('button', { className: 'chip', onclick: () => selectWhere((r) => !r.own) }, 'ไม่ใช่เพลงของตัวเอง'),
-          h('button', { className: 'chip', onclick: () => selectWhere((r) => r.hasImpact) }, 'กระทบวิดีโอ (รายได้/จำกัด/บล็อก)'),
-          h('button', { className: 'chip', onclick: () => selectWhere((r) => r.hasImpact && r.publishAt > Date.now()) }, '⏰ ตั้งเวลาไว้ + กระทบ'),
-          h('button', { className: 'chip', onclick: () => selectWhere((r) => r.length && r.claimedSec / r.length < 0.2) }, 'ช่วงที่โดน < 20%'),
-          h('button', { className: 'chip', onclick: () => selectWhere(() => false) }, 'ไม่เลือก')),
-        rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, 'ไม่พบ claim 🎉'),
+          h('span', { className: 'mut' }, L('เลือก:', 'Select:')),
+          h('button', { className: 'chip', onclick: () => selectWhere(() => true) }, L('ทุกอันที่ตัดได้', 'All trimmable')),
+          h('button', { className: 'chip', onclick: () => selectWhere((r) => !r.own) }, L('ไม่ใช่เพลงของตัวเอง', 'Not my own songs')),
+          h('button', { className: 'chip', onclick: () => selectWhere((r) => r.hasImpact) }, L('กระทบวิดีโอ (รายได้/จำกัด/บล็อก)', 'Affects video (revenue/restricted/blocked)')),
+          h('button', { className: 'chip', onclick: () => selectWhere((r) => r.hasImpact && r.publishAt > Date.now()) }, L('⏰ ตั้งเวลาไว้ + กระทบ', '⏰ Scheduled + affected')),
+          h('button', { className: 'chip', onclick: () => selectWhere((r) => r.length && r.claimedSec / r.length < 0.2) }, L('ช่วงที่โดน < 20%', 'Claimed range < 20%')),
+          h('button', { className: 'chip', onclick: () => selectWhere(() => false) }, L('ไม่เลือก', 'None'))),
+        rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, L('ไม่พบ claim 🎉', 'No claims found 🎉')),
         h('div', { className: 'row', style: 'margin-top:14px' },
-          h('span', { className: 'mut', style: 'flex:1' }, 'ติ๊กเลือกแค่สร้างรายการ ยังไม่มีอะไรเปลี่ยนบน YouTube จนกว่าจะกดเริ่มตัด'),
+          h('span', { className: 'mut', style: 'flex:1' }, L('ติ๊กเลือกแค่สร้างรายการ ยังไม่มีอะไรเปลี่ยนบน YouTube จนกว่าจะกดเริ่มตัด', 'Ticking only builds a list — nothing changes on YouTube until you start trimming')),
           h('button', { className: 'btn sm', onclick: claimsCSV }, '⬇ CSV'),
-          h('button', { className: 'btn sm', onclick: () => { closeModal(); scanClaims(); } }, '↻ สแกนใหม่'),
-          h('button', { className: 'btn sm', onclick: () => closeModal() }, 'ปิด'),
+          h('button', { className: 'btn sm', onclick: () => { closeModal(); scanClaims(); } }, L('↻ สแกนใหม่', '↻ Rescan')),
+          h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ปิด', 'Close')),
           trimBtnM));
       m.box.style.width = 'min(1100px,95vw)';
     }
@@ -3022,19 +3125,19 @@
       if (!videoId) {
         // ยังไม่ได้เลือกคลิป: ให้เลือกจากคลิปที่สแกนเจอ claim
         const vids = [...new Map(((scan && scan.rows) || []).map((r) => [r.videoId, r])).values()];
-        if (!vids.length) return toast('ยังไม่มีคลิปที่โดน claim — กด "สแกน claim" ก่อน');
+        if (!vids.length) return toast(L('ยังไม่มีคลิปที่โดน claim — กด "สแกน claim" ก่อน', 'No claimed videos yet — press "Scan claims" first'));
         openModal(
-          h('h3', {}, '📝 เลือกคลิปที่จะแก้ tracklist'),
+          h('h3', {}, L('📝 เลือกคลิปที่จะแก้ tracklist', '📝 Choose a video to fix its tracklist')),
           h('div', { className: 'plist', style: 'margin-top:10px' }, vids.map((r) => h('div', { className: 'pitem', onclick: () => showTracklistFix(r.videoId) },
-            h('div', { className: 'pl' }, h('b', {}, r.video), h('span', {}, `${fmt(r.length)} · ${uploadOf(r.videoId) ? 'มี tracklist จากประวัติการอัป' : 'ต้องวาง tracklist เอง'}`))))),
-          h('div', { className: 'row', style: 'margin-top:14px;justify-content:flex-end' }, h('button', { className: 'btn sm', onclick: () => closeModal() }, 'ปิด')));
+            h('div', { className: 'pl' }, h('b', {}, r.video), h('span', {}, L(`${fmt(r.length)} · ${uploadOf(r.videoId) ? 'มี tracklist จากประวัติการอัป' : 'ต้องวาง tracklist เอง'}`, `${fmt(r.length)} · ${uploadOf(r.videoId) ? 'Tracklist from upload history' : 'Paste tracklist manually'}`)))))),
+          h('div', { className: 'row', style: 'margin-top:14px;justify-content:flex-end' }, h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ปิด', 'Close'))));
         return;
       }
       const rows = ((scan && scan.rows) || []).filter((r) => r.videoId === videoId);
       const results = chGet('trimResults', {});
       const up = uploadOf(videoId);
       const length = (rows[0] && rows[0].length) || 0;
-      const src = h('textarea', { value: (up && (up.txt || '')) || '', placeholder: 'วาง tracklist เดิม (00:00 ศิลปิน - เพลง) หรือลากไฟล์ .txt มาวาง' });
+      const src = h('textarea', { value: (up && (up.txt || '')) || '', placeholder: L('วาง tracklist เดิม (00:00 ศิลปิน - เพลง) หรือลากไฟล์ .txt มาวาง', 'Paste the original tracklist (00:00 Artist - Song) or drop a .txt file here') });
       src.addEventListener('dragover', (e) => e.preventDefault());
       src.addEventListener('drop', async (e) => {
         const f = [...(e.dataTransfer?.files || [])].find(isTxt);
@@ -3049,32 +3152,32 @@
         const res = results[r.videoId + ':' + r.claimId];
         const cb = h('input', { type: 'checkbox', checked: !!(res && res.state === 'saved'), onchange: () => update() });
         cb._seg = sg;
-        return h('label', { className: 'tbx-cb' }, cb, `${fmt(sg[0])}–${fmt(sg[1])} · ${r.song}`, res && res.state === 'saved' ? h('span', { className: 'tbx-ok' }, ' (ตัดแล้ว)') : null);
+        return h('label', { className: 'tbx-cb' }, cb, `${fmt(sg[0])}–${fmt(sg[1])} · ${r.song}`, res && res.state === 'saved' ? h('span', { className: 'tbx-ok' }, L(' (ตัดแล้ว)', ' (trimmed)')) : null);
       }));
       function update() {
         const segs = [...m.box.querySelectorAll('.tbx-cb input')].filter((c) => c.checked).map((c) => c._seg);
         const r = fixTracklist(src.value, segs, length);
         outBox.value = r.text;
         info.textContent = segs.length
-          ? `ตัด ${segs.length} ช่วง · ลบ ${r.removed.length} เพลง${r.removed.length ? ': ' + r.removed.join(', ') : ''} · เหลือ ${r.kept} เพลง`
-          : 'ติ๊กช่วงที่ถูกตัด (หรือจะตัด) เพื่อดูผล';
+          ? L(`ตัด ${segs.length} ช่วง · ลบ ${r.removed.length} เพลง${r.removed.length ? ': ' + r.removed.join(', ') : ''} · เหลือ ${r.kept} เพลง`, `Trim ${segs.length} ranges · remove ${r.removed.length} songs${r.removed.length ? ': ' + r.removed.join(', ') : ''} · ${r.kept} songs left`)
+          : L('ติ๊กช่วงที่ถูกตัด (หรือจะตัด) เพื่อดูผล', 'Tick the trimmed (or to-be-trimmed) ranges to see the result');
       }
       src.addEventListener('input', update);
       const m = openModal(
-        h('h3', {}, '📝 tracklist หลังตัดลิขสิทธิ์'),
-        h('div', { className: 'mut', style: 'margin-bottom:8px' }, `${(rows[0] && rows[0].video) || videoId} · ความยาวเดิม ${fmt(length)}` + (up ? ' · ดึง tracklist จากประวัติการอัปโหลด' : '')),
-        h('div', { className: 'lbl' }, 'ช่วงที่ตัด'),
-        segChecks.length ? h('div', {}, segChecks) : h('div', { className: 'mut' }, 'ไม่มีข้อมูลช่วงเวลา — สแกน claim ใหม่ก่อน'),
-        h('div', { className: 'lbl' }, 'tracklist เดิม'), src,
-        h('div', { className: 'lbl' }, 'tracklist ใหม่'), outBox, info,
+        h('h3', {}, L('📝 tracklist หลังตัดลิขสิทธิ์', '📝 Tracklist after copyright trim')),
+        h('div', { className: 'mut', style: 'margin-bottom:8px' }, L(`${(rows[0] && rows[0].video) || videoId} · ความยาวเดิม ${fmt(length)}`, `${(rows[0] && rows[0].video) || videoId} · original length ${fmt(length)}`) + (up ? L(' · ดึง tracklist จากประวัติการอัปโหลด', ' · tracklist pulled from upload history') : '')),
+        h('div', { className: 'lbl' }, L('ช่วงที่ตัด', 'Trimmed ranges')),
+        segChecks.length ? h('div', {}, segChecks) : h('div', { className: 'mut' }, L('ไม่มีข้อมูลช่วงเวลา — สแกน claim ใหม่ก่อน', 'No time range data — rescan claims first')),
+        h('div', { className: 'lbl' }, L('tracklist เดิม', 'Original tracklist')), src,
+        h('div', { className: 'lbl' }, L('tracklist ใหม่', 'New tracklist')), outBox, info,
         h('div', { className: 'hint', style: 'margin-top:8px' }, icon('alert', 13),
-          h('span', {}, 'เพลงที่ถูกตัดเกินครึ่งจะถูกลบ เวลาของเพลงหลังจุดตัดจะเลื่อนขึ้นตามความยาวที่ตัด ใช้หลังจาก YouTube ประมวลผลการตัดเสร็จแล้ว')),
+          h('span', {}, L('เพลงที่ถูกตัดเกินครึ่งจะถูกลบ เวลาของเพลงหลังจุดตัดจะเลื่อนขึ้นตามความยาวที่ตัด ใช้หลังจาก YouTube ประมวลผลการตัดเสร็จแล้ว', 'Songs more than half trimmed are removed; songs after a cut shift earlier by the trimmed length. Use after YouTube has finished processing the trim.'))),
         h('div', { className: 'row', style: 'margin-top:14px;justify-content:flex-end' },
-          h('button', { className: 'btn sm', onclick: () => closeModal() }, 'ปิด'),
+          h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ปิด', 'Close')),
           h('button', { className: 'btn go sm', onclick: () => {
             GM_setClipboard(outBox.value);
-            toast('คัดลอก tracklist ใหม่แล้ว ไปวางในคำอธิบายของวิดีโอได้เลย');
-          } }, '📋 คัดลอก tracklist ใหม่')));
+            toast(L('คัดลอก tracklist ใหม่แล้ว ไปวางในคำอธิบายของวิดีโอได้เลย', 'New tracklist copied — paste it into the video description'));
+          } }, L('📋 คัดลอก tracklist ใหม่', '📋 Copy new tracklist'))));
       m.box.style.width = 'min(760px,95vw)';
       update();
     }
@@ -3087,15 +3190,12 @@
         return id;
       } catch (e) { return Math.random().toString(36).slice(2); }
     })();
-    const LEASE_STALE = 20000; // ไม่ต่ออายุเกินเท่านี้ = ถือว่าแท็บนั้นปิดไปแล้ว แท็บอื่นยึดงานต่อได้
-    const LEASE_RENEW = 5000; // ต่ออายุทุก ๆ เท่านี้ (ไม่ต้องเขียนทุก tick — เดิมเขียนลง storage ~75 ครั้ง/นาที)
     function isWorker(force = false) {
       const key = 'tabLock:' + currentChannel();
       const l = load(key, null);
       const now = Date.now();
-      const mine = !!l && l.id === TAB_ID;
-      if (force || !l || mine || now - l.ts > LEASE_STALE) {
-        if (!mine || now - l.ts > LEASE_RENEW) save(key, { id: TAB_ID, ts: now });
+      if (force || !l || l.id === TAB_ID || now - l.ts > 20000) {
+        save(key, { id: TAB_ID, ts: now });
         return true;
       }
       return false;
@@ -3104,7 +3204,7 @@
     /* ---------- ประวัติเพลงที่โดน claim (ทุกช่อง) ---------- */
     const songNorm = (t) => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim();
     const getSongs = () => load('songHistory', {});
-    const setSongs = (v) => { invalidateCounts(); save('songHistory', v); };
+    const setSongs = (v) => save('songHistory', v);
 
     function recordSongs(rows, chName) {
       const db = getSongs();
@@ -3127,7 +3227,7 @@
         v.impact = r.impact || '';
       }
       setSongs(db);
-      if (added) log(`🎵 เพิ่มเพลงใหม่ ${added} เพลงในประวัติ`, 'ok');
+      if (added) log(L(`🎵 เพิ่มเพลงใหม่ ${added} เพลงในประวัติ`, `🎵 Added ${added} new songs to history`), 'ok');
     }
 
     function markSongTrimmed(item) {
@@ -3178,7 +3278,7 @@
       const rows = parseCSV(await file.text());
       const head = (rows.shift() || []).map((x) => x.trim());
       const col = (n) => head.indexOf(n);
-      if (col('song') < 0) return toast('ไฟล์นี้ไม่ใช่ CSV ประวัติเพลง (ต้องมีคอลัมน์ song)');
+      if (col('song') < 0) return toast(L('ไฟล์นี้ไม่ใช่ CSV ประวัติเพลง (ต้องมีคอลัมน์ song)', 'This is not a song history CSV (needs a song column)'));
       const db = getSongs();
       let n = 0;
       for (const r of rows) {
@@ -3198,7 +3298,7 @@
         n++;
       }
       setSongs(db);
-      toast(`นำเข้าประวัติเพลง ${n} เพลงแล้ว`);
+      toast(L(`นำเข้าประวัติเพลง ${n} เพลงแล้ว`, `Imported ${n} songs into history`));
       renderStatus();
       refreshClaimWarnings();
     }
@@ -3241,57 +3341,57 @@
           : sortBy === 'recent' ? b.lastSeen.localeCompare(a.lastSeen)
           : sortBy === 'artist' ? a.artists.localeCompare(b.artists) || a.title.localeCompare(b.title)
           : a.title.localeCompare(b.title));
-        countEl.textContent = q ? `${list.length} จาก ${total} เพลง` : `${total} เพลง`;
+        countEl.textContent = q ? L(`${list.length} จาก ${total} เพลง`, `${list.length} of ${total} songs`) : L(`${total} เพลง`, `${total} songs`);
         tbody.replaceChildren(...list.map((e) => {
           const vids = Object.values(e.videos);
           const channels = [...new Set(vids.map((v) => v.channel))].filter(Boolean).join(', ');
-          const del = h('button', { className: 'btn sm', title: 'ลบออกจากประวัติ', onclick: () => {
+          const del = h('button', { className: 'btn sm', title: L('ลบออกจากประวัติ', 'Remove from history'), onclick: () => {
             if (del.dataset.armed) { const d = getSongs(); delete d[e.key]; setSongs(d); draw(); refreshClaimWarnings(); }
-            else { del.dataset.armed = '1'; del.textContent = 'แน่ใจ?'; }
+            else { del.dataset.armed = '1'; del.textContent = L('แน่ใจ?', 'Sure?'); }
           } }, '✕');
           return h('tr', {},
             h('td', {}, h('b', {}, e.title), e.types.length ? h('div', { className: 'mut' }, e.types.join(', ')) : null),
             h('td', {}, e.artists || '—', e.label ? h('div', { className: 'mut' }, e.label) : null),
             h('td', {}, e.claimants.join(', ') || '—'),
-            h('td', { style: 'white-space:nowrap' }, h('b', {}, String(e.n)), ' คลิป', e.trimmed ? h('div', { className: 'tbx-ok' }, `✂ ตัดแล้ว ${e.trimmed}`) : null),
+            h('td', { style: 'white-space:nowrap' }, h('b', {}, String(e.n)), L(' คลิป', ' videos'), e.trimmed ? h('div', { className: 'tbx-ok' }, L(`✂ ตัดแล้ว ${e.trimmed}`, `✂ Trimmed ${e.trimmed}`)) : null),
             h('td', { className: 'mut' }, channels),
-            h('td', { className: 'mut', style: 'white-space:nowrap' }, new Date(e.lastSeen).toLocaleDateString('th-TH')),
+            h('td', { className: 'mut', style: 'white-space:nowrap' }, new Date(e.lastSeen).toLocaleDateString(LOCALE)),
             h('td', {}, del));
         }));
         if (!list.length) tbody.append(h('tr', {}, h('td', { colSpan: 7, className: 'mut', style: 'text-align:center;padding:16px' },
-          total ? 'ไม่พบเพลงที่ค้นหา' : 'ยังไม่มีข้อมูล — กด "สแกน claim" หรือนำเข้า CSV จากสคริปต์เดิม')));
+          total ? L('ไม่พบเพลงที่ค้นหา', 'No matching songs') : L('ยังไม่มีข้อมูล — กด "สแกน claim" หรือนำเข้า CSV จากสคริปต์เดิม', 'No data yet — press "Scan claims" or import a CSV from the old script'))));
       }
-      const search = h('input', { type: 'text', placeholder: 'ค้นหาเพลง ศิลปิน ค่าย หรือผู้ claim…', oninput: (e) => { q = e.target.value; draw(); } });
+      const search = h('input', { type: 'text', placeholder: L('ค้นหาเพลง ศิลปิน ค่าย หรือผู้ claim…', 'Search song, artist, label or claimant…'), oninput: (e) => { q = e.target.value; draw(); } });
       const sortSel = h('select', { style: 'width:auto', onchange: (e) => { sortBy = e.target.value; draw(); } },
-        h('option', { value: 'count' }, 'โดนบ่อยสุด'), h('option', { value: 'recent' }, 'ล่าสุด'),
-        h('option', { value: 'title' }, 'ชื่อเพลง A–Z'), h('option', { value: 'artist' }, 'ศิลปิน A–Z'));
+        h('option', { value: 'count' }, L('โดนบ่อยสุด', 'Most claimed')), h('option', { value: 'recent' }, L('ล่าสุด', 'Latest')),
+        h('option', { value: 'title' }, L('ชื่อเพลง A–Z', 'Title A–Z')), h('option', { value: 'artist' }, L('ศิลปิน A–Z', 'Artist A–Z')));
       const importIn = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true, onchange: async (e) => { if (e.target.files[0]) await importSongsCSV(e.target.files[0]); e.target.value = ''; draw(); } });
       let clearArmed = false;
       const clearBtn = h('button', { className: 'btn sm danger', onclick: () => {
-        if (!clearArmed) { clearArmed = true; clearBtn.textContent = 'กดอีกครั้งเพื่อลบทั้งหมด'; return; }
-        setSongs({}); draw(); refreshClaimWarnings(); clearBtn.textContent = 'ลบทั้งหมด'; clearArmed = false;
-      } }, 'ลบทั้งหมด');
+        if (!clearArmed) { clearArmed = true; clearBtn.textContent = L('กดอีกครั้งเพื่อลบทั้งหมด', 'Press again to delete all'); return; }
+        setSongs({}); draw(); refreshClaimWarnings(); clearBtn.textContent = L('ลบทั้งหมด', 'Delete all'); clearArmed = false;
+      } }, L('ลบทั้งหมด', 'Delete all'));
       const m = openModal(
-        h('h3', {}, '🎵 เพลงที่เคยโดน claim'),
-        h('div', { className: 'mut', style: 'margin-bottom:10px' }, 'ทุกเพลงที่เคยโดน claim ในทุกช่องของคุณ เช็กก่อนใส่เพลงในมิกซ์ใหม่ (ตอนลาก .txt เข้าคิว สคริปต์จะเตือนให้อัตโนมัติ)'),
+        h('h3', {}, L('🎵 เพลงที่เคยโดน claim', '🎵 Previously claimed songs')),
+        h('div', { className: 'mut', style: 'margin-bottom:10px' }, L('ทุกเพลงที่เคยโดน claim ในทุกช่องของคุณ เช็กก่อนใส่เพลงในมิกซ์ใหม่ (ตอนลาก .txt เข้าคิว สคริปต์จะเตือนให้อัตโนมัติ)', 'Every song ever claimed across all your channels. Check before adding songs to a new mix (the script warns automatically when you drop a .txt into the queue).')),
         h('div', { className: 'row', style: 'margin-bottom:10px' }, search, sortSel, countEl),
         h('div', { className: 'tbx-scroll' },
           h('table', { className: 'tbx-table' },
-            h('thead', {}, h('tr', {}, ['เพลง', 'ศิลปิน', 'ผู้ claim', 'โดนใน', 'ช่อง', 'ล่าสุด', ''].map((t) => h('th', {}, t)))),
+            h('thead', {}, h('tr', {}, [L('เพลง', 'Song'), L('ศิลปิน', 'Artist'), L('ผู้ claim', 'Claimant'), L('โดนใน', 'Claimed in'), L('ช่อง', 'Channel'), L('ล่าสุด', 'Latest'), ''].map((t) => h('th', {}, t)))),
             tbody)),
         h('div', { className: 'row', style: 'margin-top:14px' },
           clearBtn, importIn,
-          h('button', { className: 'btn sm', title: 'ไฟล์ claimed-songs-*.csv จากสคริปต์ YT Studio Helper เดิม', onclick: () => importIn.click() }, '⬆ นำเข้า CSV'),
+          h('button', { className: 'btn sm', title: L('ไฟล์ claimed-songs-*.csv จากสคริปต์ YT Studio Helper เดิม', 'claimed-songs-*.csv file from the old YT Studio Helper script'), onclick: () => importIn.click() }, L('⬆ นำเข้า CSV', '⬆ Import CSV')),
           h('span', { style: 'flex:1' }),
           h('button', { className: 'btn sm', onclick: songsCSV }, '⬇ CSV'),
-          h('button', { className: 'btn go sm', onclick: () => closeModal() }, 'ปิด')));
+          h('button', { className: 'btn go sm', onclick: () => closeModal() }, L('ปิด', 'Close'))));
       m.box.style.width = 'min(1100px,95vw)';
       draw();
       search.focus();
     }
 
     /* ---------- โฆษณา: หาคลิปที่ปิดโฆษณาไว้ แล้วเปิด ---------- */
-    const ADS_STEPS = ['เปิดคลิป', 'แก้สถานะ', 'เลือก On', 'ตอบคำถาม & Save', 'ตรวจผล'];
+    const ADS_STEPS = [L('เปิดคลิป', 'Open video'), L('แก้สถานะ', 'Edit status'), L('เลือก On', 'Select On'), L('ตอบคำถาม & Save', 'Answer questions & Save'), L('ตรวจผล', 'Verify')];
     let adsScanning = false;
     let adsStage = { idx: -1, detail: '' };
     const setAdsStage = (idx, detail = '') => { adsStage = { idx, detail }; renderStatus(); };
@@ -3300,24 +3400,24 @@
 
     async function scanAds({ show = true } = {}) {
       if (adsScanning || scanning) return null;
-      if (!ycfg('INNERTUBE_CONTEXT')) { log('Studio ยังโหลดไม่เสร็จ ลองใหม่ในอีกไม่กี่วินาที', 'warn'); return null; }
+      if (!ycfg('INNERTUBE_CONTEXT')) { log(L('Studio ยังโหลดไม่เสร็จ ลองใหม่ในอีกไม่กี่วินาที', 'Studio hasn\'t finished loading — try again in a few seconds'), 'warn'); return null; }
       adsScanning = true;
-      scanProg = { label: 'กำลังเช็กคลิปที่ปิดโฆษณา…', done: 0, total: 0 };
+      scanProg = { label: L('กำลังเช็กคลิปที่ปิดโฆษณา…', 'Checking videos with ads off…'), done: 0, total: 0 };
       try {
-        const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true, monetization: { all: true } }, 'กำลังเช็กคลิปที่ปิดโฆษณา…');
+        const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true, monetization: { all: true } }, L('กำลังเช็กคลิปที่ปิดโฆษณา…', 'Checking videos with ads off…'));
         const rows = vids.filter((v) => /_OFF$/.test(((v.monetization || {}).adMonetization || {}).userSetMonetization || ''))
           .map((v) => {
             const eff = ((v.monetization || {}).adMonetization || {}).effectiveStatus || '';
-            return { videoId: v.videoId, video: v.title, privacy: short(v.privacy), length: +v.lengthSeconds || 0, ineligible: /INELIGIBLE/.test(eff), status: short(eff) };
+            return { videoId: v.videoId, video: v.title, privacy: privacyOf(v.privacy), length: +v.lengthSeconds || 0, ineligible: /INELIGIBLE/.test(eff), status: short(eff) };
           });
         chSet('adsScan', { date: new Date().toISOString(), total: vids.length, rows });
         const ok = rows.filter((r) => !r.ineligible).length;
-        log(`💰 ${rows.length} จาก ${vids.length} คลิปปิดโฆษณาอยู่ (${ok} คลิปเปิดได้เลย)`, 'ok');
-        flash('เช็กโฆษณาเสร็จแล้ว', `${rows.length} คลิปปิดโฆษณา · ${ok} คลิปพร้อมเปิด`);
+        log(L(`💰 ${rows.length} จาก ${vids.length} คลิปปิดโฆษณาอยู่ (${ok} คลิปเปิดได้เลย)`, `💰 ${rows.length} of ${vids.length} videos have ads off (${ok} can be turned on now)`), 'ok');
+        flash(L('เช็กโฆษณาเสร็จแล้ว', 'Ads check complete'), L(`${rows.length} คลิปปิดโฆษณา · ${ok} คลิปพร้อมเปิด`, `${rows.length} videos with ads off · ${ok} ready to turn on`));
         if (show) showAds();
         return rows;
       } catch (e) {
-        log('เช็กโฆษณาไม่สำเร็จ: ' + e.message, 'err');
+        log(L('เช็กโฆษณาไม่สำเร็จ: ', 'Ads check failed: ') + e.message, 'err');
         return null;
       } finally {
         adsScanning = false;
@@ -3337,10 +3437,10 @@
         closeModal();
         startAdsRun(rows);
       } });
-      const refresh = () => { goBtn.textContent = `💰 เปิดโฆษณา (${picked.size})`; goBtn.disabled = !picked.size; };
+      const refresh = () => { goBtn.textContent = L(`💰 เปิดโฆษณา (${picked.size})`, `💰 Turn on ads (${picked.size})`); goBtn.disabled = !picked.size; };
       const cbs = [];
       const table = h('table', { className: 'tbx-table' },
-        h('thead', {}, h('tr', {}, ['', 'วิดีโอ', 'การเปิดเผย', 'สถานะจาก YouTube', 'ผล'].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['', L('วิดีโอ', 'Video'), L('การเปิดเผย', 'Visibility'), L('สถานะจาก YouTube', 'YouTube status'), L('ผล', 'Result')].map((t) => h('th', {}, t)))),
         h('tbody', {}, scan.rows.map((r) => {
           const res = results[r.videoId];
           const cb = h('input', { type: 'checkbox', checked: picked.has(r.videoId), onchange: (e) => { e.target.checked ? picked.add(r.videoId) : picked.delete(r.videoId); refresh(); } });
@@ -3349,40 +3449,46 @@
             h('td', {}, cb),
             h('td', {}, h('a', { href: `/video/${r.videoId}/monetization`, target: '_blank' }, r.video), h('div', { className: 'mut' }, fmt(r.length))),
             h('td', {}, r.privacy),
-            h('td', {}, r.ineligible ? h('span', { className: 'tbx-warn' }, '⚠ YouTube แจ้งว่าไม่มีสิทธิ์') : 'ปิดโฆษณาไว้ (ตั้งค่า)'),
-            h('td', {}, res ? h('span', { className: res.state === 'on' ? 'tbx-ok' : 'tbx-err' }, res.state === 'on' ? '✅ เปิดแล้ว' : '❌ ' + res.msg) : ''));
+            h('td', {}, r.ineligible ? h('span', { className: 'tbx-warn' }, L('⚠ YouTube แจ้งว่าไม่มีสิทธิ์', '⚠ YouTube says ineligible')) : L('ปิดโฆษณาไว้ (ตั้งค่า)', 'Ads off (setting)')),
+            h('td', {}, res ? h('span', { className: res.state === 'on' ? 'tbx-ok' : 'tbx-err' }, res.state === 'on' ? L('✅ เปิดแล้ว', '✅ Turned on') : '❌ ' + res.msg) : ''));
         })));
       const sel = (fn) => { cbs.forEach((cb) => { cb.checked = fn(cb._r); cb.checked ? picked.add(cb._r.videoId) : picked.delete(cb._r.videoId); }); refresh(); };
       const ok = scan.rows.filter((r) => !r.ineligible).length;
       const m = openModal(
-        h('h3', {}, `💰 คลิปที่ปิดโฆษณา — ${channelName()}`),
-        h('div', { className: 'mut', style: 'margin-bottom:8px' }, `${scan.rows.length} จาก ${scan.total} คลิป · ${ok} คลิปแค่ปิดในการตั้งค่า · เช็กเมื่อ ${new Date(scan.date).toLocaleString('th-TH')}`),
-        h('div', { className: 'mut', style: 'margin-bottom:8px' }, '"ไม่มีสิทธิ์" หมายถึง YouTube บล็อกโฆษณาเอง (เช่นโดน claim หรือติดนโยบาย) เปิดการตั้งค่าได้ แต่คลิปนั้นอาจยังไม่มีรายได้จนกว่าจะแก้สาเหตุ'),
+        h('h3', {}, L(`💰 คลิปที่ปิดโฆษณา — ${channelName()}`, `💰 Videos with ads off — ${channelName()}`)),
+        h('div', { className: 'mut', style: 'margin-bottom:8px' }, L(`${scan.rows.length} จาก ${scan.total} คลิป · ${ok} คลิปแค่ปิดในการตั้งค่า · เช็กเมื่อ ${new Date(scan.date).toLocaleString(LOCALE)}`, `${scan.rows.length} of ${scan.total} videos · ${ok} only turned off in settings · checked ${new Date(scan.date).toLocaleString(LOCALE)}`)),
+        h('div', { className: 'mut', style: 'margin-bottom:8px' }, L('"ไม่มีสิทธิ์" หมายถึง YouTube บล็อกโฆษณาเอง (เช่นโดน claim หรือติดนโยบาย) เปิดการตั้งค่าได้ แต่คลิปนั้นอาจยังไม่มีรายได้จนกว่าจะแก้สาเหตุ', '"Ineligible" means YouTube blocks ads itself (e.g. a claim or policy issue). You can turn the setting on, but the video may not earn until the cause is fixed.')),
         h('div', { className: 'chips', style: 'margin-bottom:8px' },
-          h('span', { className: 'mut' }, 'เลือก:'),
-          h('button', { className: 'chip', onclick: () => sel((r) => !r.ineligible) }, 'แค่ปิดในการตั้งค่า'),
-          h('button', { className: 'chip', onclick: () => sel((r) => !r.ineligible && r.privacy === 'public') }, 'เฉพาะสาธารณะ'),
-          h('button', { className: 'chip', onclick: () => sel(() => true) }, 'ทั้งหมด'),
-          h('button', { className: 'chip', onclick: () => sel(() => false) }, 'ไม่เลือก')),
-        scan.rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, '🎉 ทุกคลิปเปิดโฆษณาแล้ว'),
+          h('span', { className: 'mut' }, L('เลือก:', 'Select:')),
+          h('button', { className: 'chip', onclick: () => sel((r) => !r.ineligible) }, L('แค่ปิดในการตั้งค่า', 'Only off in settings')),
+          h('button', { className: 'chip', onclick: () => sel((r) => !r.ineligible && /public$/.test(r.privacy)) }, L('เฉพาะสาธารณะ', 'Public only')),
+          h('button', { className: 'chip', onclick: () => sel(() => true) }, L('ทั้งหมด', 'All')),
+          h('button', { className: 'chip', onclick: () => sel(() => false) }, L('ไม่เลือก', 'None'))),
+        scan.rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, L('🎉 ทุกคลิปเปิดโฆษณาแล้ว', '🎉 All videos have ads on')),
         h('div', { className: 'row', style: 'margin-top:14px' },
-          h('button', { className: 'btn sm', onclick: () => { closeModal(); scanAds(); } }, '↻ เช็กใหม่'),
+          h('button', { className: 'btn sm', onclick: () => { closeModal(); scanAds(); } }, L('↻ เช็กใหม่', '↻ Recheck')),
           h('span', { style: 'flex:1' }),
-          h('button', { className: 'btn sm', onclick: () => closeModal() }, 'ปิด'), goBtn));
+          h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ปิด', 'Close')), goBtn));
       m.box.style.width = 'min(900px,95vw)';
       refresh();
     }
 
+    // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา / Collab) ทำได้ทีละงาน — ถ้าเริ่มทับกัน งานเดิมจะโดนเปลี่ยนหน้ากลางขั้น
+    function otherJobBusy(except) {
+      const tr = getRun(), ar = getAdsRun(), cr = getCollabRun();
+      return (except !== 'trim' && (trimBusy || !!(tr && tr.active))) ||
+        (except !== 'ads' && (adsBusy || !!(ar && ar.active))) ||
+        (except !== 'collab' && (collabBusy || !!(cr && cr.active)));
+    }
     function startAdsRun(rows) {
-      const tr = getRun();
-      if (tr && tr.active) { log('ยังตัดลิขสิทธิ์อยู่ — เปิดโฆษณาหลังตัดเสร็จ', 'warn'); return; }
-      if (uploadBusy()) { log('คิวอัปโหลดยังทำงานอยู่ — การเปิดโฆษณาต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ', 'warn'); }
+      if (otherJobBusy('ads')) { log(L('ยังมีงานตัดลิขสิทธิ์/Collab อยู่ — รอให้เสร็จหรือกดหยุดก่อนแล้วค่อยเปิดโฆษณา', 'A trim/Collab job is still running — wait for it or press Stop before turning on ads'), 'warn'); return; }
+      if (uploadBusy()) { log(L('คิวอัปโหลดยังทำงานอยู่ — การเปิดโฆษณาต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ', 'Upload queue is still running — turning on ads needs page changes, will start after the upload queue finishes'), 'warn'); }
       isWorker(true);
       setAdsRun({ active: true, items: rows.map((r) => ({ videoId: r.videoId, video: r.video, state: 'pending', msg: '' })), started: new Date().toISOString() });
-      log(`💰 กำลังเปิดโฆษณา ${rows.length} คลิป`, 'ok');
+      log(L(`💰 กำลังเปิดโฆษณา ${rows.length} คลิป`, `💰 Turning on ads for ${rows.length} videos`), 'ok');
       adsStep();
     }
-    function stopAdsRun(reason = 'เปิดโฆษณาเสร็จ') {
+    function stopAdsRun(reason = L('เปิดโฆษณาเสร็จ', 'Ads turned on')) {
       const run = getAdsRun();
       if (!run || !run.active) return;
       run.active = false;
@@ -3390,7 +3496,7 @@
       const on = run.items.filter((i) => i.state === 'on').length;
       const failed = run.items.filter((i) => i.state === 'failed').length;
       const left = run.items.filter((i) => i.state === 'pending').length;
-      const summary = [`เปิดแล้ว ${on}`, failed ? `ไม่สำเร็จ ${failed}` : '', left ? `ยังไม่ได้ทำ ${left}` : ''].filter(Boolean).join(' · ');
+      const summary = [L(`เปิดแล้ว ${on}`, `On ${on}`), failed ? L(`ไม่สำเร็จ ${failed}`, `Failed ${failed}`) : '', left ? L(`ยังไม่ได้ทำ ${left}`, `Not done ${left}`) : ''].filter(Boolean).join(' · ');
       adsStage = { idx: -1, detail: '' };
       log(`${reason}: ${summary}`, 'ok');
       flash(reason, summary, failed ? 'err' : 'ok', 15000);
@@ -3401,7 +3507,7 @@
       chSet('adsResults', res);
       const run = getAdsRun();
       if (run) { const it = run.items.find((x) => x.videoId === item.videoId); if (it) { it.state = state; it.msg = msg; } setAdsRun(run); }
-      log(`${state === 'on' ? '✅ เปิดโฆษณาแล้ว' : '❌ เปิดโฆษณาไม่สำเร็จ'}: ${item.video}${msg ? ' (' + msg + ')' : ''}`, state === 'on' ? 'ok' : 'err');
+      log(L(`${state === 'on' ? '✅ เปิดโฆษณาแล้ว' : '❌ เปิดโฆษณาไม่สำเร็จ'}: ${item.video}${msg ? ' (' + msg + ')' : ''}`, `${state === 'on' ? '✅ Ads turned on' : '❌ Failed to turn on ads'}: ${item.video}${msg ? ' (' + msg + ')' : ''}`), state === 'on' ? 'ok' : 'err');
     }
     async function adsIsOn(videoId) {
       const j = await yti('creator/get_creator_videos', { failOnError: true, videoIds: [videoId], mask: { videoId: true, monetization: { all: true } } });
@@ -3417,9 +3523,10 @@
       if (!item) return stopAdsRun();
       adsBusy = true;
       if (!location.pathname.startsWith(`/video/${item.videoId}/monetization`)) {
-        if (uploadBusy()) { setAdsStage(-1, '⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก'); adsBusy = false; return; }
-        setAdsStage(0, 'กำลังเปิดหน้าการสร้างรายได้ของคลิป…');
+        if (uploadBusy()) { setAdsStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue')); adsBusy = false; return; }
+        setAdsStage(0, L('กำลังเปิดหน้าการสร้างรายได้ของคลิป…', 'Opening the video\'s monetisation page…'));
         location.href = `/video/${item.videoId}/monetization`;
+        setTimeout(() => { adsBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
         return;
       }
       try {
@@ -3427,68 +3534,236 @@
       } catch (e) {
         setAdsResult(item, 'failed', e.message);
       }
-      setAdsStage(-1, 'คลิปถัดไปในไม่กี่วินาที…');
+      setAdsStage(-1, L('คลิปถัดไปในไม่กี่วินาที…', 'Next video in a few seconds…'));
       await sleep(3000);
       adsBusy = false;
     }
 
     async function adsOne(item) {
-      if (await adsIsOn(item.videoId)) return setAdsResult(item, 'on', 'เปิดอยู่แล้ว');
-      setAdsStage(1, 'กด "Edit video monetisation status"…');
-      const box = await waitFor(() => { const b = document.querySelector(SEL.monetBox); return b && visible(b) ? b : null; }, 25000);
-      if (!box) throw new Error('ไม่พบส่วนการสร้างรายได้ในหน้า');
+      if (await adsIsOn(item.videoId)) return setAdsResult(item, 'on', L('เปิดอยู่แล้ว', 'Already on'));
+      setAdsStage(1, L('กด "Edit video monetisation status"…', 'Clicking "Edit video monetisation status"…'));
+      const box = await waitFor(() => { const b = document.querySelector('ytcp-video-monetization'); return b && visible(b) ? b : null; }, 25000);
+      if (!box) throw new Error(L('ไม่พบส่วนการสร้างรายได้ในหน้า', 'Monetisation section not found on the page'));
       await sleep(2500);
       let on = null;
       for (let i = 0; i < 4 && !on; i++) {
-        const edit = [...box.querySelectorAll(SEL.iconOrButton)].find((b) => visible(b) &&
-          TXT.monetStatus.test(b.getAttribute('aria-label') || '')) || box.querySelector(SEL.iconButton);
-        if (!edit) throw new Error('ไม่พบปุ่ม "Edit video monetisation status"');
+        const edit = [...box.querySelectorAll('ytcp-icon-button, button')].find((b) => visible(b) &&
+          /moneti[sz]ation status/i.test(b.getAttribute('aria-label') || '')) || box.querySelector('ytcp-icon-button');
+        if (!edit) throw new Error(L('ไม่พบปุ่ม "Edit video monetisation status"', '"Edit video monetisation status" button not found'));
         edit.click();
-        on = await waitFor(() => [...document.querySelectorAll(SEL.radioOn)].find(visible), 3000);
+        on = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-radio-button#radio-on, tp-yt-paper-radio-button[name="ON"]')].find(visible), 3000);
         if (!on) await sleep(1500);
       }
-      if (!on) throw new Error('ตัวเลือก On / Off ไม่เปิดขึ้นมา');
-      setAdsStage(2, 'เลือก "On"…');
+      if (!on) throw new Error(L('ตัวเลือก On / Off ไม่เปิดขึ้นมา', 'On / Off options did not open'));
+      setAdsStage(2, L('เลือก "On"…', 'Selecting "On"…'));
       on.click();
       await sleep(600);
-      const pop = on.closest(SEL.paperDialog) || document;
-      const nextBtn = await waitFor(() => [...pop.querySelectorAll('button')].find((b) => visible(b) && TXT.nextOrDone.test(b.innerText.trim()) && !isDisabled(b)), 5000);
+      const pop = on.closest('tp-yt-paper-dialog') || document;
+      const nextBtn = await waitFor(() => [...pop.querySelectorAll('button')].find((b) => visible(b) && /^(Next|Done)$/i.test(b.innerText.trim()) && !isDisabled(b)), 5000);
       if (nextBtn) nextBtn.click();
-      const qDlg = await waitFor(() => [...document.querySelectorAll(SEL.paperDialog)].find((d) => visible(d) && TXT.tellUsWhats.test(d.innerText)), 6000);
+      const qDlg = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-dialog')].find((d) => visible(d) && /Tell us what.s in your video/i.test(d.innerText)), 6000);
       if (qDlg) {
-        setAdsStage(3, 'คำถามความเหมาะสม: ติ๊ก "None of the above"…');
-        const submitBtn = () => [...qDlg.querySelectorAll('button')].find((b) => visible(b) && TXT.submit.test(b.innerText.trim()));
+        setAdsStage(3, L('คำถามความเหมาะสม: ติ๊ก "None of the above"…', 'Ad suitability questions: ticking "None of the above"…'));
+        const submitBtn = () => [...qDlg.querySelectorAll('button')].find((b) => visible(b) && /^Submit$/i.test(b.innerText.trim()));
         const inner = qDlg.querySelector('[role="checkbox"][aria-label="None of the above"]') ||
-          deepAll(qDlg, '[role="checkbox"]').find((e) => TXT.noneOfAbove.test(e.getAttribute('aria-label') || ''));
-        if (!inner) throw new Error('ไม่พบ "None of the above" ในคำถาม');
-        const host = inner.closest(SEL.checkboxLit) || inner;
+          deepAll(qDlg, '[role="checkbox"]').find((e) => /None of the above/i.test(e.getAttribute('aria-label') || ''));
+        if (!inner) throw new Error(L('ไม่พบ "None of the above" ในคำถาม', '"None of the above" not found in the questions'));
+        const host = inner.closest('ytcp-checkbox-lit') || inner;
         if (inner.getAttribute('aria-checked') !== 'true') host.click();
         let ready = await waitFor(() => { const b = submitBtn(); return b && !isDisabled(b) ? b : null; }, 3000);
         if (!ready && inner.getAttribute('aria-checked') !== 'true') { inner.click(); ready = await waitFor(() => { const b = submitBtn(); return b && !isDisabled(b) ? b : null; }, 3000); }
-        if (!ready) throw new Error('ปุ่ม Submit ยังกดไม่ได้หลังติ๊ก "None of the above"');
+        if (!ready) throw new Error(L('ปุ่ม Submit ยังกดไม่ได้หลังติ๊ก "None of the above"', 'Submit button still disabled after ticking "None of the above"'));
         ready.click();
         const closed = await waitFor(() => !visible(qDlg), 15000);
-        if (!closed) throw new Error('หน้าต่างคำถามไม่ปิดหลังกด Submit');
+        if (!closed) throw new Error(L('หน้าต่างคำถามไม่ปิดหลังกด Submit', 'Questions dialog did not close after Submit'));
         await sleep(800);
       }
-      setAdsStage(3, 'กด Save…');
-      const saveHost = await waitFor(() => { const x = document.querySelector(SEL.adsSaveHost); return x && visible(x) && !isDisabled(x) ? x : null; }, 10000);
-      if (!saveHost) throw new Error('ปุ่ม Save ไม่พร้อม');
+      setAdsStage(3, L('กด Save…', 'Clicking Save…'));
+      const saveHost = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && visible(x) && !isDisabled(x) ? x : null; }, 10000);
+      if (!saveHost) throw new Error(L('ปุ่ม Save ไม่พร้อม', 'Save button not ready'));
       (saveHost.querySelector('button') || saveHost).click();
-      const saved = await waitFor(() => { const x = document.querySelector(SEL.adsSaveHost); return x && isDisabled(x); }, 20000);
-      const extra = [...document.querySelectorAll(SEL.paperDialog)].find((d) => visible(d));
-      if (!saved && extra) throw new Error('YouTube ถามเพิ่มหลัง Save: "' + extra.innerText.replace(/\s+/g, ' ').slice(0, 120) + '" — ทำคลิปนี้ด้วยมือ');
-      setAdsStage(4, 'ตรวจกับ YouTube ว่าเปิดโฆษณาแล้ว…');
+      const saved = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && isDisabled(x); }, 20000);
+      const extra = [...document.querySelectorAll('tp-yt-paper-dialog')].find((d) => visible(d));
+      if (!saved && extra) throw new Error(L('YouTube ถามเพิ่มหลัง Save: "', 'YouTube asked more after Save: "') + extra.innerText.replace(/\s+/g, ' ').slice(0, 120) + L('" — ทำคลิปนี้ด้วยมือ', '" — do this video manually'));
+      setAdsStage(4, L('ตรวจกับ YouTube ว่าเปิดโฆษณาแล้ว…', 'Checking with YouTube that ads are on…'));
       let okNow = false;
       for (let i = 0; i < 5 && !okNow; i++) { await sleep(1500); okNow = await adsIsOn(item.videoId); }
-      if (!okNow) throw new Error('บันทึกแล้ว แต่ YouTube ยังแจ้งว่าปิดโฆษณาอยู่');
-      setAdsResult(item, 'on', qDlg ? 'ตอบคำถาม: none of the above' : '');
+      if (!okNow) throw new Error(L('บันทึกแล้ว แต่ YouTube ยังแจ้งว่าปิดโฆษณาอยู่', 'Saved, but YouTube still reports ads are off'));
+      setAdsResult(item, 'on', qDlg ? L('ตอบคำถาม: none of the above', 'Answered questions: none of the above') : '');
+    }
+
+    /* ---------- Collab: เลือกคลิปที่อัปแล้ว → เชิญช่องอื่นเป็นผู้ร่วมสร้าง ---------- */
+    // เปิด /video/<id>/edit ทีละคลิป → Show more → Invite a collaborator (ใช้ inviteCollaborators ร่วมกับหน้าอัปโหลด)
+    // ลิงก์คำเชิญผูกกับช่อง ไม่ผูกกับคลิป: ช่องเดียวกันได้ลิงก์เดียว ส่งครั้งเดียวพอ แต่ต้องส่งให้อีกฝ่ายเปิดเอง
+    const COLLAB_STEPS = [L('เปิดคลิป', 'Open video'), L('เชิญ', 'Invite'), L('บันทึก', 'Save')];
+    let collabScanning = false;
+    let collabBusy = false;
+    let collabStage = { idx: -1, detail: '' };
+    const setCollabStage = (idx, detail = '') => { collabStage = { idx, detail }; renderStatus(); };
+    const getCollabRun = () => chGet('collabRun', null);
+    const setCollabRun = (r) => chSet('collabRun', r);
+    const collabLinks = () => chGet('collabLinks', {}); // handle -> link
+
+    async function scanCollab() {
+      if (collabScanning || scanning || adsScanning) return;
+      if (!ycfg('INNERTUBE_CONTEXT')) { log(L('Studio ยังโหลดไม่เสร็จ ลองใหม่ในอีกไม่กี่วินาที', 'Studio hasn\'t finished loading — try again in a few seconds'), 'warn'); return; }
+      collabScanning = true;
+      try {
+        const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true }, L('กำลังอ่านรายการคลิป…', 'Reading video list…'));
+        const rows = vids.map((v) => ({ videoId: v.videoId, video: v.title, privacy: privacyOf(v.privacy), length: +v.lengthSeconds || 0 }));
+        chSet('collabScan', { date: new Date().toISOString(), total: rows.length, rows });
+        log(L(`🤝 อ่านรายการแล้ว ${rows.length} คลิป`, `🤝 Loaded ${rows.length} videos`), 'ok');
+        showCollab();
+      } catch (e) {
+        log(L('อ่านรายการคลิปไม่สำเร็จ: ', 'Could not read the video list: ') + e.message, 'err');
+      } finally {
+        collabScanning = false;
+        scanProg = null;
+        renderStatus();
+      }
+    }
+
+    function showCollab() {
+      const scan = chGet('collabScan', null);
+      if (!scan) { scanCollab(); return; }
+      const results = chGet('collabResults', {});
+      const picked = new Set();
+      const handlesIn = h('input', { type: 'text', value: load('collabHandles', ''), placeholder: '@handle1, @handle2',
+        oninput: (e) => save('collabHandles', e.target.value) });
+      const findIn = h('input', { type: 'text', placeholder: L('ค้นหาชื่อคลิป…', 'Search video titles…'), style: 'flex:1;min-width:0' });
+      const goBtn = h('button', { className: 'btn go sm', onclick: () => {
+        const handles = parseHandles(handlesIn.value);
+        if (!handles.length) return flash(L('ใส่ @handle ของช่องที่จะเชิญก่อน', 'Enter the @handle of the channel to invite first'), '', 'err');
+        const rows = scan.rows.filter((r) => picked.has(r.videoId));
+        if (!rows.length) return;
+        closeModal();
+        startCollabRun(rows, handles);
+      } });
+      const refresh = () => { goBtn.textContent = L(`🤝 เชิญ (${picked.size} คลิป)`, `🤝 Invite (${picked.size} videos)`); goBtn.disabled = !picked.size; };
+      const trs = [];
+      const table = h('table', { className: 'tbx-table' },
+        h('thead', {}, h('tr', {}, ['', L('วิดีโอ', 'Video'), L('การเปิดเผย', 'Visibility'), 'Collab'].map((t) => h('th', {}, t)))),
+        h('tbody', {}, scan.rows.map((r) => {
+          const res = results[r.videoId];
+          const cb = h('input', { type: 'checkbox', onchange: (e) => { e.target.checked ? picked.add(r.videoId) : picked.delete(r.videoId); refresh(); } });
+          const tr = h('tr', {},
+            h('td', {}, cb),
+            h('td', {}, h('a', { href: `/video/${r.videoId}/edit`, target: '_blank' }, r.video), h('div', { className: 'mut' }, fmt(r.length))),
+            h('td', {}, r.privacy),
+            h('td', {}, res ? h('span', { className: res.state === 'done' ? 'tbx-ok' : 'tbx-err' }, (res.state === 'done' ? '✅ ' : '❌ ') + res.msg) : ''));
+          tr._r = r; tr._cb = cb; trs.push(tr);
+          return tr;
+        })));
+      const shown = () => trs.filter((tr) => !tr.hidden);
+      findIn.addEventListener('input', () => { const q = findIn.value.trim().toLowerCase(); trs.forEach((tr) => { tr.hidden = !!q && !tr._r.video.toLowerCase().includes(q); }); });
+      const sel = (fn) => { shown().forEach((tr) => { tr._cb.checked = fn(tr._r); tr._cb.checked ? picked.add(tr._r.videoId) : picked.delete(tr._r.videoId); }); refresh(); };
+      const links = Object.entries(collabLinks());
+      const m = openModal(
+        h('h3', {}, L(`🤝 Collab — ${channelName()}`, `🤝 Collab — ${channelName()}`)),
+        h('div', { className: 'mut', style: 'margin-bottom:8px' }, L(
+          `${scan.total} คลิป · อ่านเมื่อ ${new Date(scan.date).toLocaleString(LOCALE)} · YouTube ไม่ส่งคำเชิญให้เอง หลังเชิญเสร็จต้องส่งลิงก์คำเชิญให้อีกฝ่ายเปิดแล้วกดยอมรับ (ช่องละลิงก์เดียว ใช้ได้กับทุกคลิป)`,
+          `${scan.total} videos · read ${new Date(scan.date).toLocaleString(LOCALE)} · YouTube doesn't send the invite itself: after inviting, send the invite link to the other channel to open and accept (one link per channel, covers every video)`)),
+        h('div', { className: 'lbl' }, h('span', {}, L('ช่องที่จะเชิญ', 'Channels to invite')), h('span', {}, L('@handle คั่นด้วย , (สูงสุด 10)', '@handle, comma-separated (max 10)'))), handlesIn,
+        links.length ? h('div', { className: 'tbx-note', style: 'margin-top:8px' },
+          h('b', {}, L('ลิงก์คำเชิญ (ส่งให้อีกฝ่าย)', 'Invite links (send to the other channel)')),
+          ...links.map(([hd, link]) => h('div', { className: 'row', style: 'gap:6px;margin-top:4px' },
+            h('span', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, `${hd}: ${link}`),
+            h('button', { className: 'btn sm', onclick: () => { GM_setClipboard(link); flash(L(`คัดลอกลิงก์ของ ${hd} แล้ว`, `Copied ${hd}'s link`)); } }, L('คัดลอก', 'Copy'))))) : null,
+        h('div', { className: 'row', style: 'gap:8px;margin:10px 0 8px;flex-wrap:wrap' },
+          findIn,
+          h('button', { className: 'chip', onclick: () => sel(() => true) }, L('ทั้งหมดที่แสดง', 'All shown')),
+          h('button', { className: 'chip', onclick: () => sel((r) => /public$/.test(r.privacy)) }, L('เฉพาะสาธารณะ', 'Public only')),
+          h('button', { className: 'chip', onclick: () => sel((r) => !results[r.videoId]) }, L('ยังไม่เคยเชิญ', 'Not invited yet')),
+          h('button', { className: 'chip', onclick: () => sel(() => false) }, L('ไม่เลือก', 'None'))),
+        scan.rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, L('ช่องนี้ยังไม่มีคลิป', 'This channel has no videos yet')),
+        h('div', { className: 'row', style: 'margin-top:14px' },
+          h('button', { className: 'btn sm', onclick: () => { closeModal(); scanCollab(); } }, L('↻ อ่านรายการใหม่', '↻ Reload list')),
+          h('span', { style: 'flex:1' }),
+          h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ปิด', 'Close')), goBtn));
+      m.box.style.width = 'min(900px,95vw)';
+      refresh();
+    }
+
+    function startCollabRun(rows, handles) {
+      const tr = getRun();
+      const ar = getAdsRun();
+      if (otherJobBusy('collab') || (tr && tr.active) || (ar && ar.active)) { log(L('ยังมีงานตัดลิขสิทธิ์/เปิดโฆษณาอยู่ — รอให้เสร็จก่อนแล้วค่อยเชิญ', 'A trim/ads job is still running — wait for it to finish before inviting'), 'warn'); return; }
+      if (uploadBusy()) log(L('คิวอัปโหลดยังทำงานอยู่ — การเชิญต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ', 'Upload queue is still running — inviting needs page changes, will start after the upload queue finishes'), 'warn');
+      isWorker(true);
+      setCollabRun({ active: true, handles, items: rows.map((r) => ({ videoId: r.videoId, video: r.video, state: 'pending', msg: '' })), started: new Date().toISOString() });
+      log(L(`🤝 กำลังเชิญ ${handles.join(', ')} ใน ${rows.length} คลิป`, `🤝 Inviting ${handles.join(', ')} to ${rows.length} videos`), 'ok');
+      collabStep();
+    }
+    function stopCollabRun(reason = L('เชิญเสร็จ', 'Invites finished')) {
+      const run = getCollabRun();
+      if (!run || !run.active) return;
+      run.active = false;
+      setCollabRun(run);
+      collabStage = { idx: -1, detail: '' };
+      const done = run.items.filter((i) => i.state === 'done').length;
+      const failed = run.items.filter((i) => i.state === 'failed').length;
+      const left = run.items.filter((i) => i.state === 'pending').length;
+      const summary = [L(`สำเร็จ ${done}`, `Done ${done}`), failed ? L(`ไม่สำเร็จ ${failed}`, `Failed ${failed}`) : '', left ? L(`ยังไม่ได้ทำ ${left}`, `Not done ${left}`) : ''].filter(Boolean).join(' · ');
+      log(`${reason}: ${summary}`, 'ok');
+      flash(reason, summary + L(' · อย่าลืมส่งลิงก์คำเชิญให้อีกฝ่าย (ปุ่ม 🤝 Collab)', ' · Remember to send the invite link (🤝 Collab button)'), failed ? 'err' : 'ok', 15000);
+    }
+    function setCollabResult(item, state, msg) {
+      const res = chGet('collabResults', {});
+      res[item.videoId] = { state, msg, date: new Date().toISOString() };
+      chSet('collabResults', res);
+      const run = getCollabRun();
+      if (run) { const it = run.items.find((x) => x.videoId === item.videoId); if (it) { it.state = state; it.msg = msg; } setCollabRun(run); }
+      log(`${state === 'done' ? '🤝' : '❌'} ${item.video}: ${msg}`, state === 'done' ? 'ok' : 'err');
+    }
+
+    async function collabStep() {
+      const run = getCollabRun();
+      if (!run || !run.active || collabBusy) return;
+      const item = run.items.find((i) => i.state === 'pending');
+      if (!item) return stopCollabRun();
+      collabBusy = true;
+      if (!location.pathname.startsWith(`/video/${item.videoId}/edit`)) {
+        if (uploadBusy()) { setCollabStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for the upload queue to clear (page change needed)')); collabBusy = false; return; }
+        setCollabStage(0, L('กำลังเปิดหน้ารายละเอียดของคลิป…', 'Opening the video details page…'));
+        location.href = `/video/${item.videoId}/edit`;
+        setTimeout(() => { collabBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
+        return;
+      }
+      try {
+        const page = await waitFor(() => { const p = document.querySelector('ytcp-video-details-section'); return p && visible(p) ? p : null; }, 25000);
+        if (!page) throw new Error(L('ไม่พบหน้ารายละเอียดคลิป', 'Video details page not found'));
+        await sleep(2000);
+        setCollabStage(1, L(`เชิญ ${run.handles.join(', ')}…`, `Inviting ${run.handles.join(', ')}…`));
+        const r = await inviteCollaborators(run.handles, page);
+        if (r.links.length) {
+          chSet('collabLinks', Object.assign(collabLinks(), Object.fromEntries(r.links.map((x) => [x.handle, x.link]))));
+          setCollabStage(2, L('กด Save…', 'Clicking Save…'));
+          // หน้าแก้ไขคลิป: ปุ่ม Save ของหน้าอาจเปิดให้กดช้า — รอสูงสุด 8 วิ (ถ้าไม่เปิดเลย = หน้าต่างเชิญบันทึกให้แล้ว)
+          const sv = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && visible(x) && !isDisabled(x) ? x : null; }, 8000);
+          if (sv) {
+            (sv.querySelector('button') || sv).click();
+            const saved = await waitFor(() => { const x = document.querySelector('ytcp-button#save'); return x && isDisabled(x); }, 20000);
+            if (!saved) throw new Error(L('กด Save ของหน้าแล้วแต่ยังไม่บันทึก', 'Clicked the page Save but it did not save'));
+          }
+        }
+        const parts = [
+          r.links.length ? L(`เชิญ ${r.links.map((x) => x.handle).join(', ')}`, `Invited ${r.links.map((x) => x.handle).join(', ')}`) : '',
+          r.skipped.length ? L(`มีอยู่แล้ว ${r.skipped.join(', ')}`, `Already added ${r.skipped.join(', ')}`) : '',
+          ...r.errors,
+        ].filter(Boolean);
+        setCollabResult(item, r.links.length || (r.skipped.length && !r.errors.length) ? 'done' : 'failed', parts.join(' · ') || L('ไม่มีอะไรเปลี่ยน', 'Nothing changed'));
+      } catch (e) {
+        setCollabResult(item, 'failed', e.message);
+      }
+      setCollabStage(-1, L('คลิปถัดไปในไม่กี่วินาที…', 'Next video in a few seconds…'));
+      await sleep(3000);
+      collabBusy = false;
     }
 
     /* ---------- ตัดลิขสิทธิ์ (Take action → Trim out segment → Save) ---------- */
     const TRIM_LABEL = {
-      pending: '⏳ รอ', saved: '✅ ตัดแล้ว', gone: '✅ claim หายไปแล้ว', failed: '❌ ไม่สำเร็จ',
-      skipped: '⏭ ข้าม', later: '⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ',
+      pending: L('⏳ รอ', '⏳ Pending'), saved: L('✅ ตัดแล้ว', '✅ Trimmed'), gone: L('✅ claim หายไปแล้ว', '✅ Claim gone'), failed: L('❌ ไม่สำเร็จ', '❌ Failed'),
+      skipped: L('⏭ ข้าม', '⏭ Skipped'), later: L('⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ', '⏳ Queued — will trim after the previous trim on this video finishes'),
     };
     const getRun = () => chGet('trimRun', null);
     const setRun = (r) => chSet('trimRun', r);
@@ -3512,35 +3787,36 @@
       const scan = chGet('claimScan', null);
       const picked = new Set(chGet('trimQueue', []));
       const rows = (scan ? scan.rows : []).filter((r) => picked.has(r.videoId + ':' + r.claimId));
-      if (!rows.length) return log('ยังไม่ได้เลือก claim', 'warn');
+      if (!rows.length) return log(L('ยังไม่ได้เลือก claim', 'No claims selected'), 'warn');
       const videos = new Set(rows.map((r) => r.videoId)).size;
       const own = rows.filter((r) => r.own).length;
       const total = rows.reduce((a, r) => a + r.claimedSec, 0);
       const mode = cfg().autoSaveTrim ? 'auto' : 'review';
       openModal(
-        h('h3', {}, `ตัด ${rows.length} claim ใน ${videos} คลิป?`),
+        h('h3', {}, L(`ตัด ${rows.length} claim ใน ${videos} คลิป?`, `Trim ${rows.length} claims in ${videos} videos?`)),
         h('div', { style: 'line-height:1.6' },
-          `จะตัดภาพ + เสียงออกรวม ${fmt(total)} ด้วยเครื่องมือ "Trim out segment" ของ YouTube `,
-          h('b', {}, 'การตัดที่บันทึกแล้วย้อนกลับไม่ได้'), ' และ YouTube ใช้เวลาประมวลผลหลายชั่วโมงต่อคลิป'),
-        own ? h('div', { className: 'tbx-warn', style: 'margin-top:8px' }, `⚠ ${own} รายการเป็น claim บนเพลงของคุณเอง (★) ถ้าตัดจะเสียเพลงของตัวเองออกจากคลิป`) : null,
-        uploadBusy() ? h('div', { className: 'tbx-warn', style: 'margin-top:8px' }, '⏸ คิวอัปโหลดยังมีไฟล์อยู่ การตัดต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ') : null,
-        !studioIsEnglish() ? h('div', { className: 'tbx-err', style: 'margin-top:8px' }, '⚠ Studio ไม่ได้ตั้งเป็นภาษาอังกฤษ ปุ่มต่าง ๆ จะหาไม่เจอ — เปลี่ยนภาษาเป็น English ก่อน') : null,
-        h('div', { className: 'mut', style: 'margin-top:8px' }, 'คลิปหนึ่งตัดได้ทีละครั้ง ถ้าคลิปเดียวมีหลาย claim จะตัดอันแรกก่อน ที่เหลือจะตัดต่อให้เองเมื่อ YouTube ประมวลผลเสร็จ'),
+          L(`จะตัดภาพ + เสียงออกรวม ${fmt(total)} ด้วยเครื่องมือ "Trim out segment" ของ YouTube `, `This will cut video + audio totalling ${fmt(total)} using YouTube's "Trim out segment" tool. `),
+          h('b', {}, L('การตัดที่บันทึกแล้วย้อนกลับไม่ได้', 'Saved trims cannot be undone')), L(' และ YouTube ใช้เวลาประมวลผลหลายชั่วโมงต่อคลิป', ', and YouTube takes several hours to process each video')),
+        own ? h('div', { className: 'tbx-warn', style: 'margin-top:8px' }, L(`⚠ ${own} รายการเป็น claim บนเพลงของคุณเอง (★) ถ้าตัดจะเสียเพลงของตัวเองออกจากคลิป`, `⚠ ${own} items are claims on your own music (★) — trimming will remove your own music from the video`)) : null,
+        uploadBusy() ? h('div', { className: 'tbx-warn', style: 'margin-top:8px' }, L('⏸ คิวอัปโหลดยังมีไฟล์อยู่ การตัดต้องเปลี่ยนหน้า จะเริ่มหลังคิวอัปโหลดเสร็จ', '⏸ Upload queue still has files. Trimming needs page changes, will start after the upload queue finishes')) : null,
+        !studioIsEnglish() ? h('div', { className: 'tbx-err', style: 'margin-top:8px' }, L('⚠ Studio ไม่ได้ตั้งเป็นภาษาอังกฤษ ปุ่มต่าง ๆ จะหาไม่เจอ — เปลี่ยนภาษาเป็น English ก่อน', '⚠ Studio is not set to English, buttons won\'t be found — switch the language to English first')) : null,
+        h('div', { className: 'mut', style: 'margin-top:8px' }, L('คลิปหนึ่งตัดได้ทีละครั้ง ถ้าคลิปเดียวมีหลาย claim จะตัดอันแรกก่อน ที่เหลือจะตัดต่อให้เองเมื่อ YouTube ประมวลผลเสร็จ', 'Each video can only be trimmed once at a time. If a video has several claims, the first is trimmed now and the rest continue automatically once YouTube finishes processing')),
         h('div', { className: 'tbx-note' },
-          mode === 'auto' ? '⚡ อัตโนมัติทั้งหมด: Save → "I acknowledge" → Confirm changes ทุก claim' : '👀 โหมดตรวจเอง: คุณกด Save และยืนยันการตัดเองทีละอัน',
-          h('div', { className: 'mut' }, 'เปลี่ยนได้ที่ ⚙ ตั้งค่าลิขสิทธิ์ → "ตัดอัตโนมัติทั้งหมด"')),
+          mode === 'auto' ? L('⚡ อัตโนมัติทั้งหมด: Save → "I acknowledge" → Confirm changes ทุก claim', '⚡ Fully automatic: Save → "I acknowledge" → Confirm changes for every claim') : L('👀 โหมดตรวจเอง: คุณกด Save และยืนยันการตัดเองทีละอัน', '👀 Review mode: you click Save and confirm each trim yourself'),
+          h('div', { className: 'mut' }, L('เปลี่ยนได้ที่ ⚙ ตั้งค่าลิขสิทธิ์ → "ตัดอัตโนมัติทั้งหมด"', 'Change this in ⚙ Copyright settings → "Fully automatic trim"'))),
         h('div', { className: 'row', style: 'margin-top:14px;justify-content:flex-end' },
-          h('button', { className: 'btn sm', onclick: () => closeModal() }, 'ยกเลิก'),
-          h('button', { className: 'btn go sm', onclick: () => { closeModal(); startTrimRun(rows, mode); } }, 'เริ่มตัด')));
+          h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ยกเลิก', 'Cancel')),
+          h('button', { className: 'btn go sm', onclick: () => { closeModal(); startTrimRun(rows, mode); } }, L('เริ่มตัด', 'Start trim'))));
     }
 
     function startTrimRun(rows, mode, fromFollowUp = false) {
       const cur = getRun();
       if (cur && cur.active) {
-        log('ยังตัดชุดก่อนไม่เสร็จ — รอให้เสร็จหรือกดหยุดก่อน แล้วค่อยเริ่มชุดใหม่', 'warn');
-        toast('ยังตัดชุดก่อนไม่เสร็จ');
+        log(L('ยังตัดชุดก่อนไม่เสร็จ — รอให้เสร็จหรือกดหยุดก่อน แล้วค่อยเริ่มชุดใหม่', 'Previous batch is still trimming — wait for it to finish or press Stop before starting a new batch'), 'warn');
+        toast(L('ยังตัดชุดก่อนไม่เสร็จ', 'Previous batch still trimming'));
         return;
       }
+      if (otherJobBusy('trim')) { log(L('ยังมีงานเปิดโฆษณา/Collab อยู่ — รอให้เสร็จหรือกดหยุดก่อนแล้วค่อยตัด', 'An ads/Collab job is still running — wait for it or press Stop before trimming'), 'warn'); return; }
       const seen = new Set();
       const waiting = fromFollowUp ? {} : fuGet();
       const items = rows.map((r) => {
@@ -3553,18 +3829,24 @@
       items.filter((i) => i.state === 'later').forEach((i) => { fuAdd(i); setResult(i, 'later'); });
       fuNext = Date.now() + Math.max(2, parseFloat(cfg().followUpMinutes) || 10) * 60e3;
       isWorker(true);
-      log(`เริ่มตัด (${mode === 'auto' ? 'บันทึกอัตโนมัติ' : 'ตรวจเองทีละอัน'}) — ${items.filter((i) => i.state === 'pending').length} รายการ`, 'ok');
+      log(L(`เริ่มตัด (${mode === 'auto' ? 'บันทึกอัตโนมัติ' : 'ตรวจเองทีละอัน'}) — ${items.filter((i) => i.state === 'pending').length} รายการ`, `Trim started (${mode === 'auto' ? 'auto-save' : 'review each'}) — ${items.filter((i) => i.state === 'pending').length} items`), 'ok');
       trimStep();
     }
 
-    function stopTrimRun(reason = 'หยุดแล้ว') {
+    // byUser: ผู้ใช้กดหยุดเอง → ยกเลิกคิวตัดต่อทั้งหมดของช่องนี้ด้วย ไม่ให้ fuCheck เริ่มตัดต่อเอง (การตัดย้อนกลับไม่ได้)
+    function stopTrimRun(reason = L('หยุดแล้ว', 'Stopped'), byUser = false) {
+      if (byUser && fuCount()) {
+        const n = fuCount();
+        fuSet({});
+        log(L(`ยกเลิกคิวตัดต่อ ${n} claim แล้ว`, `Cancelled ${n} queued follow-up trims`), 'warn');
+      }
       const run = getRun();
       if (!run || !run.active) return;
       run.active = false;
       setRun(run);
       const c = run.items.reduce((a, i) => { a[i.state] = (a[i.state] || 0) + 1; return a; }, {});
-      const summary = [`ตัดแล้ว ${c.saved || 0}`, c.gone ? `claim หายแล้ว ${c.gone}` : '', c.skipped ? `ข้าม ${c.skipped}` : '',
-        c.failed ? `ไม่สำเร็จ ${c.failed}` : '', c.later ? `รอคิวตัดต่อ ${c.later}` : '', c.pending ? `ยังไม่ได้ทำ ${c.pending}` : ''].filter(Boolean).join(' · ');
+      const summary = [L(`ตัดแล้ว ${c.saved || 0}`, `Trimmed ${c.saved || 0}`), c.gone ? L(`claim หายแล้ว ${c.gone}`, `Claim gone ${c.gone}`) : '', c.skipped ? L(`ข้าม ${c.skipped}`, `Skipped ${c.skipped}`) : '',
+        c.failed ? L(`ไม่สำเร็จ ${c.failed}`, `Failed ${c.failed}`) : '', c.later ? L(`รอคิวตัดต่อ ${c.later}`, `Queued for follow-up ${c.later}`) : '', c.pending ? L(`ยังไม่ได้ทำ ${c.pending}`, `Not done ${c.pending}`) : ''].filter(Boolean).join(' · ');
       log(`${reason}: ${summary}`, 'ok');
       trimStage = { idx: -1, detail: '' };
       flash(reason, summary, c.failed ? 'err' : 'ok', 15000);
@@ -3619,32 +3901,32 @@
           let j;
           try {
             j = await yti('creator/list_creator_received_claims', { videoId, criticalRead: true, includeLicensingOptions: false, isCreatorMusicV2: true });
-          } catch (e) { log(`เช็กคลิป ${v.video} ไม่สำเร็จ: ${e.message}`, 'warn'); continue; }
+          } catch (e) { log(L(`เช็กคลิป ${v.video} ไม่สำเร็จ: ${e.message}`, `Failed to check video ${v.video}: ${e.message}`), 'warn'); continue; }
           const active = {};
           (j.receivedClaims || []).forEach((c) => { if (c.status === 'RECEIVED_CLAIM_STATUS_ACTIVE') active[c.claimId] = c; });
           v.pending = v.pending.filter((p) => {
             if (active[p.claimId]) return true;
-            const res = chGet('trimResults', {}); res[p.key] = { state: 'gone', msg: 'ปล่อยแล้ว', date: new Date().toISOString() }; chSet('trimResults', res);
-            log(`✅ claim หายไปแล้ว: ${v.video} — ${p.song}`, 'ok');
+            const res = chGet('trimResults', {}); res[p.key] = { state: 'gone', msg: L('ปล่อยแล้ว', 'Released'), date: new Date().toISOString() }; chSet('trimResults', res);
+            log(L(`✅ claim หายไปแล้ว: ${v.video} — ${p.song}`, `✅ Claim gone: ${v.video} — ${p.song}`), 'ok');
             return false;
           });
           if (!v.pending.length) { delete fu[videoId]; continue; }
           const stillThere = v.lastClaimId && active[v.lastClaimId];
           const hours = (Date.now() - (v.lastSavedAt || 0)) / 3600e3;
           if (stillThere && hours < 48) {
-            log(`⏳ ${v.video}: การตัดครั้งก่อนยังประมวลผล (${hours < 1 ? Math.round(hours * 60) + ' นาที' : hours.toFixed(1) + ' ชม.'}) — รอ ${v.pending.length} claim`);
+            log(L(`⏳ ${v.video}: การตัดครั้งก่อนยังประมวลผล (${hours < 1 ? Math.round(hours * 60) + ' นาที' : hours.toFixed(1) + ' ชม.'}) — รอ ${v.pending.length} claim`, `⏳ ${v.video}: previous trim still processing (${hours < 1 ? Math.round(hours * 60) + ' min' : hours.toFixed(1) + ' h'}) — ${v.pending.length} claims waiting`));
             continue;
           }
           const next = v.pending.find((p) => ((active[p.claimId].nontakedownClaimActions || {}).options || []).includes('NON_TAKEDOWN_CLAIM_OPTION_TRIM'));
-          if (!next) { log(`⏳ ${v.video}: ยังไม่มีตัวเลือก Trim — จะเช็กใหม่`); continue; }
+          if (!next) { log(L(`⏳ ${v.video}: ยังไม่มีตัวเลือก Trim — จะเช็กใหม่`, `⏳ ${v.video}: no Trim option yet — will check again`)); continue; }
           ready.push({ videoId, claimId: next.claimId, song: next.song, video: v.video });
         }
         fuSet(fu);
         if (ready.length) {
-          log(`▶ ${ready.length} คลิปประมวลผลเสร็จแล้ว — ตัด claim ถัดไป`, 'ok');
+          log(L(`▶ ${ready.length} คลิปประมวลผลเสร็จแล้ว — ตัด claim ถัดไป`, `▶ ${ready.length} videos finished processing — trimming next claim`), 'ok');
           startTrimRun(ready, cfg().autoSaveTrim ? 'auto' : 'review', true);
         } else if (Object.keys(fu).length) {
-          log(`เช็กครั้งถัดไป ${new Date(fuNext).toLocaleTimeString('th-TH').slice(0, 5)}`);
+          log(L(`เช็กครั้งถัดไป ${new Date(fuNext).toLocaleTimeString(LOCALE).slice(0, 5)}`, `Next check ${new Date(fuNext).toLocaleTimeString(LOCALE).slice(0, 5)}`));
         }
       } finally {
         fuBusy = false;
@@ -3684,20 +3966,20 @@
       try {
         const hours = Math.max(0.5, parseFloat(cfg().apEveryHours) || 6);
         setAP(Object.assign(getAP(), { next: Date.now() + hours * 3600e3, last: Date.now() }));
-        log(`🤖 Auto-pilot เริ่มรอบใหม่ที่ ${channelName()}`, 'ok');
+        log(L(`🤖 Auto-pilot เริ่มรอบใหม่ที่ ${channelName()}`, `🤖 Auto-pilot starting a new cycle on ${channelName()}`), 'ok');
         const rows = await scanClaims({ show: false });
         if (!rows) return;
         const pick = apPick(rows);
         if (!pick.length) {
-          log(`🤖 ไม่มีอะไรต้องตัด เช็กครั้งถัดไป ${new Date(getAP().next).toLocaleString('th-TH')}`, 'ok');
+          log(L(`🤖 ไม่มีอะไรต้องตัด เช็กครั้งถัดไป ${new Date(getAP().next).toLocaleString(LOCALE)}`, `🤖 Nothing to trim, next check ${new Date(getAP().next).toLocaleString(LOCALE)}`), 'ok');
           if (cfg().apAdsOn) {
             const adsRows = await scanAds({ show: false });
             const todo = (adsRows || []).filter((r) => !r.ineligible);
-            if (todo.length) { log(`🤖 เปิดโฆษณา ${todo.length} คลิป`, 'warn'); startAdsRun(todo); }
+            if (todo.length) { log(L(`🤖 เปิดโฆษณา ${todo.length} คลิป`, `🤖 Turning on ads for ${todo.length} videos`), 'warn'); startAdsRun(todo); }
           }
           return;
         }
-        log(`🤖 ตัดอัตโนมัติ ${pick.length} claim`, 'warn');
+        log(L(`🤖 ตัดอัตโนมัติ ${pick.length} claim`, `🤖 Auto-trimming ${pick.length} claims`), 'warn');
         startTrimRun(pick, 'auto');
       } finally {
         apBusy = false;
@@ -3708,43 +3990,43 @@
       const ap = getAP();
       if (ap.on) {
         setAP({ on: false, next: 0 });
-        log('🤖 ปิด Auto-pilot ของ ' + channelName(), 'ok');
+        log(L('🤖 ปิด Auto-pilot ของ ', '🤖 Auto-pilot turned off for ') + channelName(), 'ok');
         renderStatus();
         return;
       }
       const c = cfg();
       const rules = [
-        `ทุก ${c.apEveryHours} ชั่วโมง: สแกนช่องนี้ใหม่`,
-        c.apOnlyImpact ? 'เฉพาะ claim ที่กระทบวิดีโอ (ไม่มีรายได้ / จำกัด / บล็อก)' : 'ทุก claim ที่ตัดได้',
-        c.apSkipOwn ? `ไม่ตัดเพลงของตัวเอง (${c.ownNames})` : 'รวมเพลงของตัวเองด้วย',
-        `ข้าม claim ที่ยาวเกิน ${c.apMaxPct}% ของคลิป`,
-        `สูงสุด ${c.apMaxPerCycle} claim ต่อรอบ · คลิปที่ตั้งเวลาปล่อยไว้จะถูกตัดก่อน`,
+        L(`ทุก ${c.apEveryHours} ชั่วโมง: สแกนช่องนี้ใหม่`, `Every ${c.apEveryHours} hours: rescan this channel`),
+        c.apOnlyImpact ? L('เฉพาะ claim ที่กระทบวิดีโอ (ไม่มีรายได้ / จำกัด / บล็อก)', 'Only claims that affect the video (no revenue / restricted / blocked)') : L('ทุก claim ที่ตัดได้', 'Every trimmable claim'),
+        c.apSkipOwn ? L(`ไม่ตัดเพลงของตัวเอง (${c.ownNames})`, `Don't trim your own music (${c.ownNames})`) : L('รวมเพลงของตัวเองด้วย', 'Include your own music too'),
+        L(`ข้าม claim ที่ยาวเกิน ${c.apMaxPct}% ของคลิป`, `Skip claims longer than ${c.apMaxPct}% of the video`),
+        L(`สูงสุด ${c.apMaxPerCycle} claim ต่อรอบ · คลิปที่ตั้งเวลาปล่อยไว้จะถูกตัดก่อน`, `Up to ${c.apMaxPerCycle} claims per cycle · scheduled videos are trimmed first`),
       ];
       openModal(
-        h('h3', {}, `เปิด Auto-pilot ให้ช่อง ${channelName()}?`),
-        h('div', { style: 'line-height:1.6' }, 'สคริปต์จะสแกนและ ', h('b', {}, 'บันทึกการตัดโดยไม่ถาม'), ' — การตัดย้อนกลับไม่ได้'),
+        h('h3', {}, L(`เปิด Auto-pilot ให้ช่อง ${channelName()}?`, `Turn on Auto-pilot for channel ${channelName()}?`)),
+        h('div', { style: 'line-height:1.6' }, L('สคริปต์จะสแกนและ ', 'The script will scan and '), h('b', {}, L('บันทึกการตัดโดยไม่ถาม', 'save trims without asking')), L(' — การตัดย้อนกลับไม่ได้', ' — trims cannot be undone')),
         h('ul', { style: 'line-height:1.7;margin:10px 0;padding-left:20px' }, rules.map((r) => h('li', {}, r))),
-        h('div', { className: 'mut' }, 'ต้องเปิดแท็บ YouTube Studio ของช่องนี้ค้างไว้ 1 แท็บ และเครื่องไม่หลับ ระหว่างที่คิวอัปโหลดยังทำงาน Auto-pilot จะรอ'),
+        h('div', { className: 'mut' }, L('ต้องเปิดแท็บ YouTube Studio ของช่องนี้ค้างไว้ 1 แท็บ และเครื่องไม่หลับ ระหว่างที่คิวอัปโหลดยังทำงาน Auto-pilot จะรอ', 'Keep 1 YouTube Studio tab for this channel open and the computer awake. Auto-pilot waits while the upload queue is running')),
         h('div', { className: 'row', style: 'margin-top:14px;justify-content:flex-end' },
-          h('button', { className: 'btn sm', onclick: () => closeModal() }, 'ยกเลิก'),
+          h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ยกเลิก', 'Cancel')),
           h('button', { className: 'btn go sm', onclick: () => {
             closeModal();
             setAP({ on: true, next: 0 });
-            log('🤖 เปิด Auto-pilot ของ ' + channelName(), 'ok');
+            log(L('🤖 เปิด Auto-pilot ของ ', '🤖 Auto-pilot turned on for ') + channelName(), 'ok');
             renderStatus();
-          } }, 'เปิด')));
+          } }, L('เปิด', 'Turn on'))));
     }
 
     /* ---------- ยืนยัน "Confirm changes" ---------- */
     let confirmClickedAt = 0;
     document.addEventListener('click', (e) => {
-      const b = e.target && e.target.closest && e.target.closest(SEL.buttonOrYtcp);
-      if (b && TXT.confirmChanges.test((b.innerText || '').trim())) confirmClickedAt = Date.now();
+      const b = e.target && e.target.closest && e.target.closest('button, ytcp-button');
+      if (b && /^Confirm changes$/i.test((b.innerText || '').trim())) confirmClickedAt = Date.now();
     }, true);
     function findConfirmDialog() {
-      return [...document.querySelectorAll(SEL.anyDialog)].find((d) =>
-        visible(d) && TXT.confirmChangesLoose.test(d.innerText) && TXT.acknowledge.test(d.innerText) &&
-        !d.querySelector(SEL.nestedDialog)) || null;
+      return [...document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role="dialog"]')].find((d) =>
+        visible(d) && /Confirm changes/i.test(d.innerText) && /acknowledge/i.test(d.innerText) &&
+        !d.querySelector('tp-yt-paper-dialog, [role="dialog"]')) || null;
     }
     function deepAll(rootEl, sel, out = []) {
       rootEl.querySelectorAll(sel).forEach((e) => out.push(e));
@@ -3765,12 +4047,12 @@
       if (approving) return false;
       approving = true;
       try {
-        const confirmBtn = () => [...dlg.querySelectorAll('button')].find((b) => visible(b) && TXT.confirmChanges.test(b.innerText.trim()));
+        const confirmBtn = () => [...dlg.querySelectorAll('button')].find((b) => visible(b) && /^Confirm changes$/i.test(b.innerText.trim()));
         const ready = () => { const b = confirmBtn(); return b && !isDisabled(b) ? b : null; };
         if (!ready()) {
-          const host = dlg.querySelector(SEL.checkboxHost);
+          const host = dlg.querySelector('ytcp-checkbox-lit, tp-yt-paper-checkbox, ytcp-checkbox');
           const inner = deepAll(dlg, '[role="checkbox"], input[type="checkbox"], #checkbox').find(visible);
-          const label = [...dlg.querySelectorAll('*')].find((e) => e.childElementCount === 0 && TXT.acknowledgeFull.test(e.textContent));
+          const label = [...dlg.querySelectorAll('*')].find((e) => e.childElementCount === 0 && /I acknowledge/i.test(e.textContent));
           const tries = [
             () => host && host.click(),
             () => inner && inner.click(),
@@ -3789,13 +4071,13 @@
         }
         const btn = await waitFor(ready, 3000);
         if (!btn) {
-          const info = deepAll(dlg, SEL.checkboxAny).map((e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '')).join(', ');
-          log('ติ๊ก "I acknowledge" ไม่ได้ — ติ๊กเองด้วยมือ (เจอ: ' + (info || 'ไม่มี checkbox') + ')', 'err');
+          const info = deepAll(dlg, '[role="checkbox"], input[type="checkbox"], ytcp-checkbox-lit').map((e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '')).join(', ');
+          log(L('ติ๊ก "I acknowledge" ไม่ได้ — ติ๊กเองด้วยมือ (เจอ: ', 'Couldn\'t tick "I acknowledge" — tick it manually (found: ') + (info || L('ไม่มี checkbox', 'no checkbox')) + ')', 'err');
           return false;
         }
         btn.click();
         confirmClickedAt = Date.now();
-        log('✔ ยืนยันการตัดแล้ว (YouTube จะประมวลผลภายในไม่กี่นาทีถึงหลายชั่วโมง)', 'ok');
+        log(L('✔ ยืนยันการตัดแล้ว (YouTube จะประมวลผลภายในไม่กี่นาทีถึงหลายชั่วโมง)', '✔ Trim confirmed (YouTube will process it within a few minutes to several hours)'), 'ok');
         return true;
       } finally {
         approving = false;
@@ -3807,14 +4089,15 @@
       const run = getRun();
       if (!run || !run.active || trimBusy) return;
       const item = run.items.find((i) => i.state === 'pending');
-      if (!item) return stopTrimRun('ตัดเสร็จแล้ว');
+      if (!item) return stopTrimRun(L('ตัดเสร็จแล้ว', 'Trimming finished'));
       trimBusy = true;
       const path = `/video/${item.videoId}/claims`;
       if (!new RegExp(`^/video/${item.videoId}/(claims|copyright)`).test(location.pathname)) {
-        if (uploadBusy()) { setTrimStage(-1, '⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก'); trimBusy = false; return; }
-        setTrimStage(0, 'กำลังเปิดหน้า claim ของคลิปนี้…');
-        log(`กำลังเปิด ${item.video}…`);
+        if (uploadBusy()) { setTrimStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue')); trimBusy = false; return; }
+        setTrimStage(0, L('กำลังเปิดหน้า claim ของคลิปนี้…', 'Opening this video\'s claims page…'));
+        log(L(`กำลังเปิด ${item.video}…`, `Opening ${item.video}…`));
         location.href = path;
+        setTimeout(() => { trimBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
         return;
       }
       try {
@@ -3822,14 +4105,14 @@
       } catch (e) {
         setResult(item, 'failed', e.message);
       }
-      setTrimStage(-1, 'claim ถัดไปในไม่กี่วินาที…');
+      setTrimStage(-1, L('claim ถัดไปในไม่กี่วินาที…', 'Next claim in a few seconds…'));
       await sleep(4000);
       trimBusy = false;
     }
 
-    const closeDialogs = () => document.querySelectorAll(SEL.paperDialog).forEach((d) => {
+    const closeDialogs = () => document.querySelectorAll('tp-yt-paper-dialog').forEach((d) => {
       if (!visible(d)) return;
-      const c = [...d.querySelectorAll('button')].find((b) => visible(b) && TXT.cancelOrClose.test(b.innerText.trim()));
+      const c = [...d.querySelectorAll('button')].find((b) => visible(b) && /^(Cancel|Close)$/i.test(b.innerText.trim()));
       c && c.click();
     });
 
@@ -3852,46 +4135,46 @@
     }
 
     async function trimOne(item, mode) {
-      if (!studioIsEnglish()) throw new Error('Studio ไม่ได้ตั้งเป็นภาษาอังกฤษ — เปลี่ยนเป็น English แล้วลองใหม่');
-      setTrimStage(1, 'เช็กว่า claim ยังอยู่…');
+      if (!studioIsEnglish()) throw new Error(L('Studio ไม่ได้ตั้งเป็นภาษาอังกฤษ — เปลี่ยนเป็น English แล้วลองใหม่', 'Studio is not set to English — switch to English and try again'));
+      setTrimStage(1, L('เช็กว่า claim ยังอยู่…', 'Checking the claim is still there…'));
       const j = await yti('creator/list_creator_received_claims', { videoId: item.videoId, criticalRead: true, includeLicensingOptions: false, isCreatorMusicV2: true });
       const claim = (j.receivedClaims || []).find((c) => c.claimId === item.claimId);
-      if (!claim || claim.status !== 'RECEIVED_CLAIM_STATUS_ACTIVE') return setResult(item, 'gone', claim ? short(claim.status) : 'ปล่อยแล้ว');
+      if (!claim || claim.status !== 'RECEIVED_CLAIM_STATUS_ACTIVE') return setResult(item, 'gone', claim ? short(claim.status) : L('ปล่อยแล้ว', 'Released'));
       const opts = (claim.nontakedownClaimActions || {}).options || [];
-      if (!opts.includes('NON_TAKEDOWN_CLAIM_OPTION_TRIM')) return setResult(item, 'failed', 'ไม่มีตัวเลือก Trim แล้ว (คลิปอาจยังประมวลผลการแก้ครั้งก่อน)');
+      if (!opts.includes('NON_TAKEDOWN_CLAIM_OPTION_TRIM')) return setResult(item, 'failed', L('ไม่มีตัวเลือก Trim แล้ว (คลิปอาจยังประมวลผลการแก้ครั้งก่อน)', 'Trim option no longer available (the video may still be processing a previous edit)'));
       const song = (claimInfo(claim).title || (item.song !== '(ไม่ทราบชื่อ)' ? item.song : '') || '').trim();
       const allClaims = j.receivedClaims || [];
 
-      setTrimStage(2, 'หา claim ในหน้าแล้วกด "Take action"…');
+      setTrimStage(2, L('หา claim ในหน้าแล้วกด "Take action"…', 'Finding the claim on the page and clicking "Take action"…'));
       const rows = await waitFor(() => {
-        const r = [...document.querySelectorAll(SEL.claimRow)].filter(visible);
+        const r = [...document.querySelectorAll('ytcr-video-content-list-row')].filter(visible);
         return r.length ? r : null;
       }, 25000);
-      if (!rows) throw new Error('รายการ claim ไม่โหลด');
+      if (!rows) throw new Error(L('รายการ claim ไม่โหลด', 'Claim list did not load'));
       const row = pickRow(rows, allClaims, claim, song);
-      if (!row) throw new Error(`แยกไม่ออกว่าแถวไหนใน ${rows.length} claim คือ "${song || 'claim นี้'}" — ทำด้วยมือ`);
-      const take = [...row.querySelectorAll('button')].find((b) => visible(b) && TXT.takeAction.test(b.innerText.trim()));
-      if (!take) throw new Error('ไม่มีปุ่ม "Take action" สำหรับ claim นี้');
+      if (!row) throw new Error(L(`แยกไม่ออกว่าแถวไหนใน ${rows.length} claim คือ "${song || 'claim นี้'}" — ทำด้วยมือ`, `Can't tell which of the ${rows.length} claim rows is "${song || 'this claim'}" — do it manually`));
+      const take = [...row.querySelectorAll('button')].find((b) => visible(b) && /^Take action$/i.test(b.innerText.trim()));
+      if (!take) throw new Error(L('ไม่มีปุ่ม "Take action" สำหรับ claim นี้', 'No "Take action" button for this claim'));
       take.click();
 
-      const leaf = await waitFor(() => [...document.querySelectorAll(`${SEL.paperDialog} *`)].find((e) =>
-        visible(e) && e.childElementCount === 0 && TXT.trimOutSegment.test(e.textContent.trim())), 8000);
-      if (!leaf) { closeDialogs(); throw new Error('ไม่มีตัวเลือก "Trim out segment"'); }
+      const leaf = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-dialog *')].find((e) =>
+        visible(e) && e.childElementCount === 0 && /^Trim out segment$/i.test(e.textContent.trim())), 8000);
+      if (!leaf) { closeDialogs(); throw new Error(L('ไม่มีตัวเลือก "Trim out segment"', 'No "Trim out segment" option')); }
       const opt = leaf.closest('button') || leaf;
-      if (isDisabled(opt)) { closeDialogs(); throw new Error('Trim ถูกปิดสำหรับ claim นี้'); }
+      if (isDisabled(opt)) { closeDialogs(); throw new Error(L('Trim ถูกปิดสำหรับ claim นี้', 'Trim is disabled for this claim')); }
       opt.click();
-      const cont = await waitFor(() => findText(TXT.continueBtn).find((b) => b.tagName === 'BUTTON' && !isDisabled(b)), 5000);
-      if (!cont) { closeDialogs(); throw new Error('ปุ่ม Continue กดไม่ได้'); }
+      const cont = await waitFor(() => findText(/^Continue$/i).find((b) => b.tagName === 'BUTTON' && !isDisabled(b)), 5000);
+      if (!cont) { closeDialogs(); throw new Error(L('ปุ่ม Continue กดไม่ได้', 'Continue button is disabled')); }
       cont.click();
 
-      setTrimStage(3, 'เปิดหน้าตัด…');
+      setTrimStage(3, L('เปิดหน้าตัด…', 'Opening the trim editor…'));
       const dlg = await waitFor(() => {
-        const d = document.querySelector(SEL.trimDialog);
-        return d && visible(d.querySelector(SEL.trimContinue)) ? d : null;
+        const d = document.querySelector('ytcr-editing-tool-dialog');
+        return d && visible(d.querySelector('#continue-button')) ? d : null;
       }, 20000);
-      if (!dlg) { closeDialogs(); throw new Error('หน้าตัดไม่เปิด'); }
-      const times = (dlg.innerText.match(TXT.trimTimes) || []).slice(1).join('–');
-      const saveBtn = dlg.querySelector(`${SEL.trimContinue} button`) || dlg.querySelector(SEL.trimContinue);
+      if (!dlg) { closeDialogs(); throw new Error(L('หน้าตัดไม่เปิด', 'Trim editor did not open')); }
+      const times = (dlg.innerText.match(/Start time\s*([\d:]+)[\s\S]*?End time\s*([\d:]+)/) || []).slice(1).join('–');
+      const saveBtn = dlg.querySelector('#continue-button button') || dlg.querySelector('#continue-button');
       let saveAt = 0;
       saveBtn.addEventListener('click', () => { saveAt = Date.now(); }, { capture: true });
 
@@ -3899,13 +4182,13 @@
       if (mode === 'auto') {
         await sleep(1500);
         await waitFor(() => !isDisabled(saveBtn), 10000);
-        setTrimStage(4, `บันทึกการตัด ${times}…`);
-        log(`บันทึกการตัด ${times} ใน ${item.video}…`);
+        setTrimStage(4, L(`บันทึกการตัด ${times}…`, `Saving trim ${times}…`));
+        log(L(`บันทึกการตัด ${times} ใน ${item.video}…`, `Saving trim ${times} in ${item.video}…`));
         saveBtn.click();
         saveAt = saveAt || Date.now();
       } else {
-        setTrimStage(4, `👉 ตาคุณ: เช็กช่วง ${times} แล้วกด Save (หรือ Cancel เพื่อข้าม)`);
-        log(`👉 เช็กช่วง ${times} ใน "${item.video}" แล้วกด Save (หรือ Cancel เพื่อข้าม)`, 'warn');
+        setTrimStage(4, L(`👉 ตาคุณ: เช็กช่วง ${times} แล้วกด Save (หรือ Cancel เพื่อข้าม)`, `👉 Your turn: check range ${times}, then click Save (or Cancel to skip)`));
+        log(L(`👉 เช็กช่วง ${times} ใน "${item.video}" แล้วกด Save (หรือ Cancel เพื่อข้าม)`, `👉 Check range ${times} in "${item.video}", then click Save (or Cancel to skip)`), 'warn');
       }
 
       const t0 = Date.now();
@@ -3916,26 +4199,26 @@
         const cd = findConfirmDialog();
         if (cd && saveAt && confirmClickedAt < saveAt) {
           if (mode === 'auto') {
-            setTrimStage(5, 'ติ๊ก "I acknowledge" แล้วกด "Confirm changes"…');
+            setTrimStage(5, L('ติ๊ก "I acknowledge" แล้วกด "Confirm changes"…', 'Ticking "I acknowledge" and clicking "Confirm changes"…'));
             await approveConfirm(cd);
-          } else setTrimStage(5, '👉 ตาคุณ: ติ๊ก "I acknowledge" แล้วกด "Confirm changes"');
+          } else setTrimStage(5, L('👉 ตาคุณ: ติ๊ก "I acknowledge" แล้วกด "Confirm changes"', '👉 Your turn: tick "I acknowledge" and click "Confirm changes"'));
         }
-        const open = visible(dlg.querySelector(SEL.paperDialog)) || visible(dlg.querySelector(SEL.trimContinue)) || findConfirmDialog();
+        const open = visible(dlg.querySelector('tp-yt-paper-dialog')) || visible(dlg.querySelector('#continue-button')) || findConfirmDialog();
         if (!open) break;
-        if (mode === 'auto' && Date.now() - t0 > 90000) throw new Error('ยืนยันการตัดไม่เสร็จภายใน 90 วินาที');
+        if (mode === 'auto' && Date.now() - t0 > 90000) throw new Error(L('ยืนยันการตัดไม่เสร็จภายใน 90 วินาที', 'Trim confirmation did not finish within 90 seconds'));
       }
       const saved = !!saveAt && confirmClickedAt >= saveAt;
       if (saved) {
-        const extra = await waitFor(() => [...document.querySelectorAll(SEL.paperDialog)].filter(visible)
-          .map((d) => [...d.querySelectorAll('button')].find((b) => visible(b) && !isDisabled(b) && TXT.okOrGotIt.test(b.innerText.trim())))
+        const extra = await waitFor(() => [...document.querySelectorAll('tp-yt-paper-dialog')].filter(visible)
+          .map((d) => [...d.querySelectorAll('button')].find((b) => visible(b) && !isDisabled(b) && /^(OK|Got it|Done|Close)$/i.test(b.innerText.trim())))
           .find(Boolean), 3000);
         if (extra) extra.click();
       }
-      setResult(item, saved ? 'saved' : 'skipped', saved ? times : 'ยกเลิก');
+      setResult(item, saved ? 'saved' : 'skipped', saved ? times : L('ยกเลิก', 'Cancelled'));
     }
 
     /* ---------- สถานะ ---------- */
-    const TRIM_STEPS = ['เปิดคลิป', 'เช็ก claim', 'Take action', 'หน้าตัด', 'Save', 'ยืนยัน'];
+    const TRIM_STEPS = [L('เปิดคลิป', 'Open video'), L('เช็ก claim', 'Check claim'), 'Take action', L('หน้าตัด', 'Trim editor'), 'Save', L('ยืนยัน', 'Confirm')];
     let trimStage = { idx: -1, detail: '' };
     let transient = null;
     let workerHere = true;
@@ -3947,57 +4230,67 @@
     }
     const dur = (ms) => {
       const m = Math.max(0, Math.round(ms / 60000));
-      return m < 60 ? `${m} นาที` : `${Math.floor(m / 60)} ชม. ${m % 60} นาที`;
+      return m < 60 ? L(`${m} นาที`, `${m} min`) : L(`${Math.floor(m / 60)} ชม. ${m % 60} นาที`, `${Math.floor(m / 60)} h ${m % 60} min`);
     };
 
     function computeStatus() {
       const run = getRun();
+      if (collabScanning) return { icon: '🤝', kind: 'busy', title: L('กำลังอ่านรายการคลิปสำหรับ Collab', 'Reading videos for Collab'), detail: (scanProg || {}).label || '', progress: null };
       if (scanning || adsScanning) {
-        const p = scanProg || { label: 'กำลังเริ่ม…' };
-        return { icon: adsScanning ? '💰' : '🔍', kind: 'busy', title: adsScanning ? 'กำลังหาคลิปที่ปิดโฆษณา' : 'กำลังสแกน claim ของช่องนี้',
+        const p = scanProg || { label: L('กำลังเริ่ม…', 'Starting…') };
+        return { icon: adsScanning ? '💰' : '🔍', kind: 'busy', title: adsScanning ? L('กำลังหาคลิปที่ปิดโฆษณา', 'Finding videos with ads off') : L('กำลังสแกน claim ของช่องนี้', 'Scanning this channel\'s claims'),
           detail: p.label, progress: p.total ? p.done / p.total : null };
+      }
+      const crun = getCollabRun();
+      if (crun && crun.active) {
+        const fin = crun.items.filter((i) => i.state !== 'pending').length;
+        const cur = crun.items.find((i) => i.state === 'pending');
+        return { icon: '🤝', kind: 'busy', title: L(`กำลังเชิญ Collab คลิป ${Math.min(fin + 1, crun.items.length)} จาก ${crun.items.length}`, `Inviting collaborators: video ${Math.min(fin + 1, crun.items.length)} of ${crun.items.length}`),
+          detail: cur ? cur.video : L('กำลังจบ…', 'Finishing…'), progress: crun.items.length ? fin / crun.items.length : 0,
+          steps: COLLAB_STEPS, stepIdx: workerHere ? collabStage.idx : -1, stepDetail: workerHere ? collabStage.detail : L('↪ ทำงานอยู่ในแท็บ Studio อื่น', '↪ Running in another Studio tab') };
       }
       const arun = getAdsRun();
       if (arun && arun.active) {
         const fin = arun.items.filter((i) => i.state !== 'pending').length;
         const cur = arun.items.find((i) => i.state === 'pending');
-        return { icon: '💰', kind: 'busy', title: `กำลังเปิดโฆษณา คลิป ${Math.min(fin + 1, arun.items.length)} จาก ${arun.items.length}`,
-          detail: cur ? cur.video : 'กำลังจบ…', progress: arun.items.length ? fin / arun.items.length : 0,
-          steps: ADS_STEPS, stepIdx: workerHere ? adsStage.idx : -1, stepDetail: workerHere ? adsStage.detail : '↪ ทำงานอยู่ในแท็บ Studio อื่น' };
+        return { icon: '💰', kind: 'busy', title: L(`กำลังเปิดโฆษณา คลิป ${Math.min(fin + 1, arun.items.length)} จาก ${arun.items.length}`, `Turning on ads: video ${Math.min(fin + 1, arun.items.length)} of ${arun.items.length}`),
+          detail: cur ? cur.video : L('กำลังจบ…', 'Finishing…'), progress: arun.items.length ? fin / arun.items.length : 0,
+          steps: ADS_STEPS, stepIdx: workerHere ? adsStage.idx : -1, stepDetail: workerHere ? adsStage.detail : L('↪ ทำงานอยู่ในแท็บ Studio อื่น', '↪ Running in another Studio tab') };
       }
       if (run && run.active) {
         const todo = run.items.filter((i) => i.state !== 'later');
         const finished = todo.filter((i) => i.state !== 'pending').length;
         const cur = todo.find((i) => i.state === 'pending');
-        return { icon: '✂️', kind: 'busy', title: `กำลังตัด claim ${Math.min(finished + 1, todo.length)} จาก ${todo.length}`,
-          detail: cur ? `${cur.video} — ${cur.song}` : 'กำลังจบ…', progress: todo.length ? finished / todo.length : 0,
-          steps: TRIM_STEPS, stepIdx: workerHere ? trimStage.idx : -1, stepDetail: workerHere ? trimStage.detail : '↪ ทำงานอยู่ในแท็บ Studio อื่น' };
+        return { icon: '✂️', kind: 'busy', title: L(`กำลังตัด claim ${Math.min(finished + 1, todo.length)} จาก ${todo.length}`, `Trimming claim ${Math.min(finished + 1, todo.length)} of ${todo.length}`),
+          detail: cur ? `${cur.video} — ${cur.song}` : L('กำลังจบ…', 'Finishing…'), progress: todo.length ? finished / todo.length : 0,
+          steps: TRIM_STEPS, stepIdx: workerHere ? trimStage.idx : -1, stepDetail: workerHere ? trimStage.detail : L('↪ ทำงานอยู่ในแท็บ Studio อื่น', '↪ Running in another Studio tab') };
       }
       if (transient && transient.until > Date.now()) return transient;
-      if (fuBusy) return { icon: '🔄', kind: 'busy', title: 'กำลังเช็กว่า YouTube ตัดครั้งก่อนเสร็จหรือยัง…', detail: '' };
-      if (apBusy) return { icon: '🤖', kind: 'busy', title: 'Auto-pilot กำลังเริ่มรอบใหม่…', detail: '' };
+      if (fuBusy) return { icon: '🔄', kind: 'busy', title: L('กำลังเช็กว่า YouTube ตัดครั้งก่อนเสร็จหรือยัง…', 'Checking whether YouTube finished the previous trim…'), detail: '' };
+      if (apBusy) return { icon: '🤖', kind: 'busy', title: L('Auto-pilot กำลังเริ่มรอบใหม่…', 'Auto-pilot starting a new cycle…'), detail: '' };
       const waiting = fuCount();
       if (waiting) {
         const vids = Object.keys(fuGet()).length;
-        return { icon: '⏳', kind: 'wait', title: 'รอ YouTube ประมวลผลการตัด',
-          detail: `รอตัดอีก ${waiting} claim ใน ${vids} คลิป · เช็กครั้งถัดไปในอีก ${dur(fuNext - Date.now())}` };
+        return { icon: '⏳', kind: 'wait', title: L('รอ YouTube ประมวลผลการตัด', 'Waiting for YouTube to process trims'),
+          detail: L(`รอตัดอีก ${waiting} claim ใน ${vids} คลิป · เช็กครั้งถัดไปในอีก ${dur(fuNext - Date.now())}`, `${waiting} claims left to trim in ${vids} videos · next check in ${dur(fuNext - Date.now())}`) };
       }
       const ap = getAP();
-      if (ap.on) return { icon: '🤖', kind: 'ok', title: 'Auto-pilot เปิดอยู่', detail: uploadBusy() ? '⏸ รอคิวอัปโหลดเสร็จ' : `สแกน + ตัดครั้งถัดไปในอีก ${dur((ap.next || 0) - Date.now())}` };
-      const n = getCounts();
-      if (n.hasScan) {
-        return { icon: '✓', kind: 'idle', title: 'พร้อม', detail: `สแกนล่าสุด ${dur(Date.now() - new Date(n.scanDate).getTime())} ที่แล้ว: ${n.claims} claim ใน ${n.claimVideos} คลิป` };
+      if (ap.on) return { icon: '🤖', kind: 'ok', title: L('Auto-pilot เปิดอยู่', 'Auto-pilot is on'), detail: uploadBusy() ? L('⏸ รอคิวอัปโหลดเสร็จ', '⏸ Waiting for the upload queue to finish') : L(`สแกน + ตัดครั้งถัดไปในอีก ${dur((ap.next || 0) - Date.now())}`, `Next scan + trim in ${dur((ap.next || 0) - Date.now())}`) };
+      const scan = chGet('claimScan', null);
+      if (scan) {
+        const vids = new Set(scan.rows.map((r) => r.videoId)).size;
+        return { icon: '✓', kind: 'idle', title: L('พร้อม', 'Ready'), detail: L(`สแกนล่าสุด ${dur(Date.now() - new Date(scan.date).getTime())} ที่แล้ว: ${scan.rows.length} claim ใน ${vids} คลิป`, `Last scan ${dur(Date.now() - new Date(scan.date).getTime())} ago: ${scan.rows.length} claims in ${vids} videos`) };
       }
-      return { icon: '✓', kind: 'idle', title: 'พร้อม', detail: 'กด "สแกน claim" เพื่อเช็กช่องนี้' };
+      return { icon: '✓', kind: 'idle', title: L('พร้อม', 'Ready'), detail: L('กด "สแกน claim" เพื่อเช็กช่องนี้', 'Click "Scan claims" to check this channel') };
     }
 
     /* ---------- แผงในแท็บ "ลิขสิทธิ์" ---------- */
     let logBox = null;
     function log(msg, type = '') {
       console.log('[Upload Studio]', msg);
-      if (type === 'err') flash('มีเรื่องต้องดู', msg, 'err', 12000);
+      if (type === 'err') flash(L('มีเรื่องต้องดู', 'Needs attention'), msg, 'err', 12000);
       if (!logBox) return;
-      logBox.prepend(h('div', { className: type ? 'tbx-' + type : '' }, new Date().toLocaleTimeString('th-TH').slice(0, 5) + '  ' + msg));
+      logBox.prepend(h('div', { className: type ? 'tbx-' + type : '' }, new Date().toLocaleTimeString(LOCALE).slice(0, 5) + '  ' + msg));
       while (logBox.childElementCount > 80) logBox.lastChild.remove();
     }
 
@@ -4006,48 +4299,42 @@
       logBox = h('div', { id: 'tbx-log', hidden: !load('logOpen', false) });
       UI.card = h('div', { className: 'tbx-card idle' });
       UI.lang = h('div', { className: 'tbx-note tbx-err', hidden: true },
-        '⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา');
-      UI.scanBtn = h('button', { className: 'btn go', onclick: () => scanClaims() }, icon('refresh', 14), 'สแกน claim');
-      UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: 'หาคลิปที่ปิดโฆษณาแล้วเปิดให้' }, '💰 โฆษณาปิดอยู่');
-      UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun('คุณกดหยุด'); stopAdsRun('คุณกดหยุด'); renderStatus(); } }, icon('stop', 14), 'หยุด');
-      UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, '📋 รายการ claim');
-      UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: 'เพลงและศิลปินที่เคยโดน claim ทุกช่อง' }, '🎵 เพลงที่เคยโดน');
+        L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language'));
+      UI.scanBtn = h('button', { className: 'btn go', onclick: () => scanClaims() }, icon('refresh', 14), L('สแกน claim', 'Scan claims'));
+      UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on') }, L('💰 โฆษณาปิดอยู่', '💰 Ads off'));
+      UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun(L('คุณกดหยุด', 'You stopped it'), true); stopAdsRun(L('คุณกดหยุด', 'You stopped it')); stopCollabRun(L('คุณกดหยุด', 'You stopped it')); renderStatus(); } }, icon('stop', 14), L('หยุด', 'Stop'));
+      UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, L('📋 รายการ claim', '📋 Claim list'));
+      UI.collabBtn = h('button', { className: 'btn', onclick: () => (chGet('collabScan', null) ? showCollab() : scanCollab()), title: L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators') }, '🤝 Collab');
+      UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels') }, L('🎵 เพลงที่เคยโดน', '🎵 Claimed songs'));
       UI.apTog = h('input', { type: 'checkbox', onclick: (e) => { e.preventDefault(); toggleAutopilot(); } });
       UI.apSub = h('small');
       UI.logBtn = h('button', { className: 'btn ghost sm', onclick: () => {
         logBox.hidden = !logBox.hidden;
         save('logOpen', !logBox.hidden);
-        UI.logBtn.textContent = logBox.hidden ? 'แสดงกิจกรรม ▾' : 'ซ่อนกิจกรรม ▴';
-      } }, logBox.hidden ? 'แสดงกิจกรรม ▾' : 'ซ่อนกิจกรรม ▴');
+        UI.logBtn.textContent = logBox.hidden ? L('แสดงกิจกรรม ▾', 'Show activity ▾') : L('ซ่อนกิจกรรม ▴', 'Hide activity ▴');
+      } }, logBox.hidden ? L('แสดงกิจกรรม ▾', 'Show activity ▾') : L('ซ่อนกิจกรรม ▴', 'Hide activity ▴'));
       UI.row1 = h('div', { className: 'tbx-grid3' }, UI.scanBtn, UI.adsBtn, UI.stopBtn);
-      UI.row2 = h('div', { className: 'tbx-grid2' }, UI.listBtn, UI.songBtn);
+      UI.row2 = h('div', { className: 'tbx-grid2', style: 'grid-template-columns:1fr 1fr 1fr' }, UI.listBtn, UI.songBtn, UI.collabBtn);
       return h('div', {},
         UI.lang,
-        h('div', { className: 'sec' }, h('h4', {}, icon('shield', 13), 'สถานะ'), UI.card, UI.row1, UI.row2),
+        h('div', { className: 'sec' }, h('h4', {}, icon('shield', 13), L('สถานะ', 'Status')), UI.card, UI.row1, UI.row2),
         h('div', { className: 'sec' },
           h('label', { className: 'sw' }, UI.apTog, h('span', { className: 't' }), h('span', {}, h('b', {}, '🤖 Auto-pilot'), UI.apSub)),
           h('div', { className: 'row', style: 'margin-top:6px;flex-wrap:wrap' },
-            h('button', { className: 'btn sm', onclick: openSettings }, icon('sliders', 13), 'ตั้งค่าลิขสิทธิ์'),
-            h('button', { className: 'btn sm', onclick: () => showTracklistFix('') }, '📝 แก้ tracklist'),
-            h('button', { className: 'btn sm', onclick: uploadsCSV, title: 'ประวัติคลิปที่อัปผ่านสคริปต์นี้' }, '⬇ ประวัติการอัป'))),
-        h('div', { className: 'sec' }, h('div', { className: 'row' }, h('b', { style: 'flex:1' }, 'กิจกรรม'), UI.logBtn), logBox));
+            h('button', { className: 'btn sm', onclick: openSettings }, icon('sliders', 13), L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')),
+            h('button', { className: 'btn sm', onclick: () => showTracklistFix('') }, L('📝 แก้ tracklist', '📝 Fix tracklist')),
+            h('button', { className: 'btn sm', onclick: uploadsCSV, title: L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script') }, L('⬇ ประวัติการอัป', '⬇ Upload history')))),
+        h('div', { className: 'sec' }, h('div', { className: 'row' }, h('b', { style: 'flex:1' }, L('กิจกรรม', 'Activity')), UI.logBtn), logBox));
     }
 
-    let lastStatusSig = '';
     function renderStatus() {
       if (!UI.card) return;
       const s = computeStatus();
       const run = getRun();
       const arun = getAdsRun();
-      const busyRun = !!(run && run.active) || !!(arun && arun.active);
-      const busyScan = scanning || adsScanning;
-      const n = getCounts();
-      const ap = getAP();
-      const c = cfg();
-      // tick เรียกทุก 0.8 วินาที — ถ้าไม่มีอะไรเปลี่ยน ก็ไม่ต้องสร้าง DOM ใหม่
-      const sig = JSON.stringify([s, busyRun, busyScan, n, ap.on, c.apEveryHours, studioIsEnglish()]);
-      if (sig === lastStatusSig) return;
-      lastStatusSig = sig;
+      const crun = getCollabRun();
+      const busyRun = !!(run && run.active) || !!(arun && arun.active) || !!(crun && crun.active);
+      const busyScan = scanning || adsScanning || collabScanning;
       UI.card.className = 'tbx-card ' + (s.kind || 'idle');
       const kids = [h('div', { className: 'ti' }, h('span', {}, s.icon), h('span', {}, s.title))];
       if (s.detail) kids.push(h('div', { className: 'de' }, s.detail));
@@ -4058,40 +4345,44 @@
         if (s.stepDetail) kids.push(h('div', { className: 'tbx-sd' }, s.stepDetail));
       }
       UI.card.replaceChildren(...kids);
-      UI.listBtn.textContent = n.hasScan ? `📋 รายการ claim (${n.claims})` : '📋 รายการ claim';
-      UI.songBtn.textContent = `🎵 เพลงที่เคยโดน (${n.songs})`;
-      UI.adsBtn.textContent = n.hasAdsScan ? `💰 โฆษณาปิดอยู่ (${n.adsTodo})` : '💰 โฆษณาปิดอยู่';
+      const scan = chGet('claimScan', null);
+      UI.listBtn.textContent = scan ? L(`📋 รายการ claim (${scan.rows.length})`, `📋 Claim list (${scan.rows.length})`) : L('📋 รายการ claim', '📋 Claim list');
+      UI.songBtn.textContent = L(`🎵 เพลงที่เคยโดน (${Object.keys(getSongs()).length})`, `🎵 Claimed songs (${Object.keys(getSongs()).length})`);
+      const adsScan = chGet('adsScan', null);
+      UI.adsBtn.textContent = adsScan ? L(`💰 โฆษณาปิดอยู่ (${adsScan.rows.filter((r) => !(chGet('adsResults', {})[r.videoId] || {}).state).length})`, `💰 Ads off (${adsScan.rows.filter((r) => !(chGet('adsResults', {})[r.videoId] || {}).state).length})`) : L('💰 โฆษณาปิดอยู่', '💰 Ads off');
       UI.scanBtn.hidden = UI.adsBtn.hidden = busyRun || busyScan;
-      UI.stopBtn.hidden = !busyRun;
+      UI.stopBtn.hidden = !busyRun && !fuCount(); // มีคิวตัดต่อรออยู่ก็กดหยุดได้
       UI.row2.hidden = busyRun || busyScan;
       UI.row1.className = busyRun ? 'tbx-grid1' : 'tbx-grid3';
+      const ap = getAP();
       UI.apTog.checked = !!ap.on;
-      UI.apSub.textContent = ap.on ? `เปิด · สแกน + ตัดทุก ${c.apEveryHours} ชม.` : 'ปิด · สแกนและตัดอัตโนมัติตามรอบเวลา';
+      const c = cfg();
+      UI.apSub.textContent = ap.on ? L(`เปิด · สแกน + ตัดทุก ${c.apEveryHours} ชม.`, `On · scan + trim every ${c.apEveryHours} h`) : L('ปิด · สแกนและตัดอัตโนมัติตามรอบเวลา', 'Off · scan and trim automatically on a schedule');
       UI.lang.hidden = studioIsEnglish();
       if (tabCount.claims) tabCount.claims.textContent = busyRun ? '●' : '';
     }
 
     /* ---------- ตั้งค่า ---------- */
     const SETTINGS = [
-      { title: 'Claim และการตัด', items: [
-        ['ownNames', 'ชื่อศิลปิน / ค่ายของตัวเอง', 'claim ที่มีชื่อเหล่านี้จะถูกมาร์ก ★ เพลงของคุณเอง (คั่นด้วย ,)'],
-        ['autoSaveTrim', 'ตัดอัตโนมัติทั้งหมด', 'กด Save ในหน้าตัด → ติ๊ก "I acknowledge" → กด "Confirm changes" ให้ ถ้าปิด คุณต้องยืนยันเองทีละอัน'],
-        ['autoSaveManualTrim', 'ตอนตัดเองด้วยมือ: กด Save และ Confirm changes ให้อัตโนมัติ', 'ปิดไว้ดีกว่า — ถ้าเปิด สคริปต์จะกด Save หลังเปิดหน้าตัด 1.5 วินาที และยืนยันทุกหน้าต่าง "Confirm changes" (รวม mute / replace song) ให้ทันที'],
-        ['followUpMinutes', 'เช็กทุก N นาที', 'คลิปที่มี 2 claim ขึ้นไป: ความถี่ในการเช็กว่าการตัดครั้งก่อนเสร็จหรือยัง'],
+      { title: L('Claim และการตัด', 'Claims and trimming'), items: [
+        ['ownNames', L('ชื่อศิลปิน / ค่ายของตัวเอง', 'Your own artist / label names'), L('claim ที่มีชื่อเหล่านี้จะถูกมาร์ก ★ เพลงของคุณเอง (คั่นด้วย ,)', 'Claims with these names are marked ★ your own music (comma-separated)')],
+        ['autoSaveTrim', L('ตัดอัตโนมัติทั้งหมด', 'Fully automatic trim'), L('กด Save ในหน้าตัด → ติ๊ก "I acknowledge" → กด "Confirm changes" ให้ ถ้าปิด คุณต้องยืนยันเองทีละอัน', 'Clicks Save in the trim editor → ticks "I acknowledge" → clicks "Confirm changes" for you. If off, you confirm each one yourself')],
+        ['autoSaveManualTrim', L('ตอนตัดเองด้วยมือ: กด Save และ Confirm changes ให้อัตโนมัติ', 'When trimming manually: auto-click Save and Confirm changes'), L('ปิดไว้ดีกว่า — ถ้าเปิด สคริปต์จะกด Save หลังเปิดหน้าตัด 1.5 วินาที และยืนยันทุกหน้าต่าง "Confirm changes" (รวม mute / replace song) ให้ทันที', 'Better left off — if on, the script clicks Save 1.5 seconds after the trim editor opens and immediately confirms every "Confirm changes" dialog (including mute / replace song)')],
+        ['followUpMinutes', L('เช็กทุก N นาที', 'Check every N minutes'), L('คลิปที่มี 2 claim ขึ้นไป: ความถี่ในการเช็กว่าการตัดครั้งก่อนเสร็จหรือยัง', 'Videos with 2+ claims: how often to check whether the previous trim has finished')],
       ] },
       { title: 'Auto-pilot', items: [
-        ['apEveryHours', 'ทำงานทุก N ชั่วโมง'],
-        ['apOnlyImpact', 'เฉพาะ claim ที่กระทบวิดีโอ (ไม่มีรายได้ / จำกัด / บล็อก)'],
-        ['apSkipOwn', 'ไม่ตัดเพลงของตัวเอง (★)'],
-        ['apMaxPct', 'ข้าม claim ที่ยาวเกิน N % ของคลิป'],
-        ['apMaxPerCycle', 'จำนวน claim สูงสุดต่อรอบ'],
-        ['apAdsOn', 'เปิดโฆษณาให้คลิปที่ปิดไว้ด้วย', 'เฉพาะคลิปที่ปิดในการตั้งค่า ไม่รวมคลิปที่ YouTube แจ้งว่าไม่มีสิทธิ์'],
+        ['apEveryHours', L('ทำงานทุก N ชั่วโมง', 'Run every N hours')],
+        ['apOnlyImpact', L('เฉพาะ claim ที่กระทบวิดีโอ (ไม่มีรายได้ / จำกัด / บล็อก)', 'Only claims that affect the video (no revenue / restricted / blocked)')],
+        ['apSkipOwn', L('ไม่ตัดเพลงของตัวเอง (★)', 'Don\'t trim your own music (★)')],
+        ['apMaxPct', L('ข้าม claim ที่ยาวเกิน N % ของคลิป', 'Skip claims longer than N % of the video')],
+        ['apMaxPerCycle', L('จำนวน claim สูงสุดต่อรอบ', 'Max claims per cycle')],
+        ['apAdsOn', L('เปิดโฆษณาให้คลิปที่ปิดไว้ด้วย', 'Also turn on ads for videos that have them off'), L('เฉพาะคลิปที่ปิดในการตั้งค่า ไม่รวมคลิปที่ YouTube แจ้งว่าไม่มีสิทธิ์', 'Only videos turned off in settings, not ones YouTube marks as ineligible')],
       ] },
     ];
     function openSettings() {
       const c = cfg();
       const fields = {};
-      const kids = [h('h3', {}, '⚙ ตั้งค่าลิขสิทธิ์')];
+      const kids = [h('h3', {}, L('⚙ ตั้งค่าลิขสิทธิ์', '⚙ Copyright settings'))];
       for (const sc of SETTINGS) {
         kids.push(h('div', { className: 'tbx-sec' }, sc.title));
         for (const [k, label, hint] of sc.items) {
@@ -4108,17 +4399,17 @@
       }
       let resetArmed = false;
       const resetBtn = h('button', { className: 'btn sm danger', onclick: () => {
-        if (!resetArmed) { resetArmed = true; resetBtn.textContent = 'กดอีกครั้งเพื่อคืนค่า'; return; }
-        saveCfg({}); closeModal(); renderStatus(); log('คืนค่าตั้งค่าลิขสิทธิ์แล้ว', 'ok');
-      } }, 'คืนค่าเริ่มต้น');
+        if (!resetArmed) { resetArmed = true; resetBtn.textContent = L('กดอีกครั้งเพื่อคืนค่า', 'Click again to reset'); return; }
+        saveCfg({}); closeModal(); renderStatus(); log(L('คืนค่าตั้งค่าลิขสิทธิ์แล้ว', 'Copyright settings reset'), 'ok');
+      } }, L('คืนค่าเริ่มต้น', 'Reset to defaults'));
       kids.push(h('div', { className: 'row', style: 'margin-top:16px' },
         resetBtn, h('span', { style: 'flex:1' }),
-        h('button', { className: 'btn sm', onclick: () => closeModal() }, 'ยกเลิก'),
+        h('button', { className: 'btn sm', onclick: () => closeModal() }, L('ยกเลิก', 'Cancel')),
         h('button', { className: 'btn go sm', onclick: () => {
           const n = Object.assign({}, cfg());
           for (const [k, el] of Object.entries(fields)) n[k] = el.type === 'checkbox' ? el.checked : el.value;
-          saveCfg(n); closeModal(); renderStatus(); flash('บันทึกการตั้งค่าแล้ว');
-        } }, 'บันทึก')));
+          saveCfg(n); closeModal(); renderStatus(); flash(L('บันทึกการตั้งค่าแล้ว', 'Settings saved'));
+        } }, L('บันทึก', 'Save'))));
       openModal(...kids);
     }
 
@@ -4127,21 +4418,23 @@
     function tick() {
       const run = getRun();
       const running2 = !!(run && run.active);
-      const busy = trimBusy || scanning || apBusy || fuBusy || adsBusy || adsScanning;
+      // แย่งสิทธิ์ทำงานเฉพาะตอนแท็บนี้กำลังทำงานที่เปลี่ยนหน้าอยู่ (การสแกนอ่านอย่างเดียว ไม่ต้องแย่งจากแท็บที่กำลังตัด)
+      const busy = trimBusy || apBusy || fuBusy || adsBusy || collabBusy;
       const ready = !!ycfg('INNERTUBE_CONTEXT') && isWorker(busy);
       workerHere = ready;
       const arun = getAdsRun();
-      const adsRunning = !!(arun && arun.active);
-      // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา) รอจนคิวอัปโหลดว่าง
-      const canNavigate = !uploadBusy();
-      if (ready && canNavigate && adsRunning && !running2 && !adsBusy && !trimStarting) {
+      const crun = getCollabRun();
+      const adsRunning = !!(arun && arun.active) || !!(crun && crun.active);
+      // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา / Collab) รอจนคิวอัปโหลดว่าง และไม่เปลี่ยนหน้าระหว่างที่แท็บนี้กำลังสแกน
+      const canNavigate = !uploadBusy() && !scanning && !adsScanning && !collabScanning;
+      if (ready && canNavigate && adsRunning && !running2 && !adsBusy && !collabBusy && !trimBusy && !trimStarting) {
         trimStarting = true;
-        setTimeout(() => { trimStarting = false; adsStep(); }, 2500);
+        setTimeout(() => { trimStarting = false; crun && crun.active ? collabStep() : adsStep(); }, 2500);
       }
       const ap = getAP();
       if (ready && canNavigate && !adsRunning && !adsScanning && ap.on && !running2 && !apBusy && !scanning && Date.now() >= (ap.next || 0)) apCycle();
       if (ready && canNavigate && !adsRunning && !adsScanning && !running2 && !apBusy && !scanning && !fuBusy && Date.now() >= fuNext && fuCount()) fuCheck();
-      if (ready && canNavigate && running2 && !trimBusy && !trimStarting) {
+      if (ready && canNavigate && running2 && !trimBusy && !adsBusy && !collabBusy && !trimStarting) {
         trimStarting = true;
         setTimeout(() => { trimStarting = false; trimStep(); }, 2500);
       }
@@ -4149,12 +4442,12 @@
       const c = cfg();
       if (!running2 && /\/video\/[^/]+\/(claims|copyright)/.test(location.pathname)) {
         if (c.autoSaveManualTrim) {
-          const ed = document.querySelector(SEL.trimDialog);
-          const sb = ed && (ed.querySelector(`${SEL.trimContinue} button`) || ed.querySelector(SEL.trimContinue));
+          const ed = document.querySelector('ytcr-editing-tool-dialog');
+          const sb = ed && (ed.querySelector('#continue-button button') || ed.querySelector('#continue-button'));
           if (visible(sb) && !isDisabled(sb) && !findConfirmDialog() && !ed.__tbxSaving) {
             ed.__tbxSaving = true;
             setTimeout(() => {
-              if (visible(sb) && !isDisabled(sb)) { log('บันทึกการตัดให้อัตโนมัติ…'); sb.click(); }
+              if (visible(sb) && !isDisabled(sb)) { log(L('บันทึกการตัดให้อัตโนมัติ…', 'Auto-saving trim…')); sb.click(); }
               setTimeout(() => { ed.__tbxSaving = false; }, 10000);
             }, 1500);
           }
@@ -4170,21 +4463,13 @@
     return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus };
   })();
   panes.claims = Claims.buildPane();
-  let tickFailed = false;
-  setInterval(() => {
-    try {
-      Claims.tick();
-    } catch (e) {
-      console.error('[Upload Studio] tick', e);
-      if (!tickFailed) {
-        tickFailed = true; // บอกครั้งเดียว ไม่ต้องเตือนทุกรอบ
-        toast('⚠ ส่วนลิขสิทธิ์หยุดทำงาน: ' + e.message + ' — ลองรีโหลดหน้า');
-      }
-    }
-  }, 800);
+  setInterval(() => Claims.tick(), 800);
 
   document.addEventListener('keydown', (e) => {
     if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    // กำลังพิมพ์ในช่องข้อความ: ปล่อยให้พิมพ์ (บน Mac Option+P / Option+เลข คือการพิมพ์อักษรพิเศษ)
+    const t = e.target;
+    if (/Mac/i.test(navigator.platform) && t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
     if (e.code === 'KeyP') {
       drawer.classList.contains('open') ? closeDrawer() : openDrawer();
       e.preventDefault();
@@ -4194,7 +4479,7 @@
         activeId = p.id;
         save('activeId', activeId);
         refreshLabels();
-        toast(`พรีเซ็ตหลัก: ${p.label}`);
+        toast(L(`พรีเซ็ตหลัก: ${p.label}`, `Main preset: ${p.label}`));
         e.preventDefault();
       }
     }
