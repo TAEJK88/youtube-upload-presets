@@ -58,10 +58,16 @@ New section `// ===== งานที่กำลังทำ (progress) =====` 
 In `test/harness.mjs`, after the line `const TRACKLIST = block('const parseTime =', 'function showTracklistFix');` add:
 
 ```js
+// parseUploadPct reads TXT.uploadPct, so the registry has to be in scope too
+const TXTREG = block('// ===== ข้อความที่ Studio แสดง =====', '// ===== ชื่อ element ของ Studio');
 const ACTIVITY = block('// ===== งานที่กำลังทำ (progress) =====', '// ===== Studio DOM automation');
 ```
 
-Then inside the `new Function(...)` template string, add `${ACTIVITY}` immediately after `${TRACKLIST}`, and add `parseUploadPct, activityFrom,` to the returned object literal.
+Then inside the `new Function(...)` template string, add `${TXTREG}` and `${ACTIVITY}` in that
+order immediately after `${TRACKLIST}`, and add `parseUploadPct, activityFrom,` to the
+returned object literal.
+
+`TXT` is a block of regex literals with no dependencies, so it slices cleanly on its own.
 
 - [ ] **Step 2: Write the failing test**
 
