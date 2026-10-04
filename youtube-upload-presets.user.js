@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.14.0
+// @version      4.15.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -125,7 +125,7 @@
     collabInviteLink: '.invite-link',
     // --- หน้ารับคำเชิญสิทธิ์ช่อง ---
     inviteClickable: 'button, ytcp-button, tp-yt-paper-button, yt-button-shape button, a[role="button"]',
-    inviteContainer: 'tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main',
+    inviteContainer: 'ytcp-collaboration-acceptance-dialog, tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main',
     inviteDecline: '#deny-button', // ปุ่ม Decline คู่กับ Accept บนบัตรคำเชิญ — ใช้ยืนยันว่าหน้านี้มีคำเชิญจริง
     inviteListDialog: 'ytcp-video-collaborations-list-dialog', // รายการ "Collaboration requests" (มีหลายคลิป)
     inviteRequestRow: 'ytcp-video-row', // แถวคำเชิญ 1 คลิป — ใช้ได้เฉพาะเมื่อค้นภายใน inviteListDialog เท่านั้น
@@ -261,9 +261,11 @@
     const rowTitle = (r) => normText(r.querySelector(SEL.inviteRowTitle)?.textContent).slice(0, 60);
 
     const MAX = 25; // กันวนไม่รู้จบถ้าแถวไม่หายไปหลังกดยอมรับ
+    const IDLE_BEFORE_DONE = 8; // รอบที่ว่างติดกันก่อนจะสรุปว่าหมดแล้ว
     let tries = 0;
     let done = 0;      // จำนวนคำเชิญที่กดยอมรับไปแล้ว
     let opened = 0;    // จำนวนแถวที่กดเปิด
+    let idle = 0;      // รอบที่ไม่เจออะไรเลยติดต่อกัน
     let lastAction = 0;
     // 180 วิ: ลิงก์คำเชิญมักเด้งผ่านหน้าเลือกบัญชี/ล็อกอินก่อน หน้าจริงจึงมาช้ากว่า 60 วิเดิม
     const stop = () => { clearInterval(timer); inviteWatching = false; };
@@ -290,6 +292,7 @@
       if (b) {
         if (done >= MAX) return finish();
         done++;
+        idle = 0;
         lastAction = Date.now();
         say(`accepting request ${done}`, b);
         // ytcp-button เป็นเปลือก — กดปุ่มจริงข้างในเหมือนที่ clickIn ทำ
@@ -301,13 +304,16 @@
       if (row) {
         if (opened >= MAX) return finish();
         opened++;
+        idle = 0;
         lastAction = Date.now();
         say(`opening request ${opened}: ${rowTitle(row)}`);
         (row.querySelector(SEL.inviteRowOpen) || row).click();
         return;
       }
-      // 3) ไม่เหลือทั้งหน้าต่างยอมรับและรายการ = ทำครบแล้ว
-      if (done) finish();
+      // 3) ไม่เหลือทั้งหน้าต่างยอมรับและรายการ — แต่ YouTube ใช้เวลาสลับคำเชิญถัดไปเข้ามา
+      // (และกล่องรายการขึ้น "Oops, something went wrong" อยู่พักหนึ่ง) จึงรอให้ว่างติดกัน
+      // หลายรอบก่อนค่อยสรุป ไม่งั้นจะเลิกตั้งแต่คำเชิญแรก
+      if (done && ++idle >= IDLE_BEFORE_DONE) finish();
     }, 1000);
   }
   watchInvite();

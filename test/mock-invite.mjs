@@ -6,7 +6,7 @@
 // With a single request YouTube skips the list and opens the modal directly.
 import { makeDocument } from './fake-dom.mjs';
 
-export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url } = {}) {
+export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0 } = {}) {
   const doc = makeDocument();
   const truth = { opened: [], accepted: [], declined: [] };
   const el = (tag, attrs = {}, text) => {
@@ -70,14 +70,17 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
     listHost.hidden = remaining.length === 0;
   };
 
+  let held = 0;
   acceptBtn.onclick = () => {
     if (!current) return;
     truth.accepted.push(current);
     const i = remaining.indexOf(current);
     if (i >= 0) remaining.splice(i, 1);
     closeModal();
-    renderList();
+    if (gapTicks) { held = gapTicks; listHost.hidden = true; } else renderList();
   };
+  // called by the test clock each poll, so the stall is measured in polls
+  truth.pump = () => { if (held > 0 && --held === 0) renderList(); };
   denyBtn.onclick = () => {
     if (!current) return;
     truth.declined.push(current);

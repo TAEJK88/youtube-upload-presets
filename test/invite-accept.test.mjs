@@ -5,7 +5,7 @@ import { mockInvitePage } from './mock-invite.mjs';
 
 // watchInvite polls on a 1s interval; drive that clock by hand so the tests are
 // instant and deterministic rather than sleeping.
-function fakeClock() {
+function fakeClock(pump) {
   let now = 0;
   const timers = [];
   const win = {
@@ -17,6 +17,7 @@ function fakeClock() {
     for (let i = 0; i < n; i++) {
       now += 1000;
       Date.now = () => now;
+      if (pump) pump();
       timers.filter((t) => !t.dead).forEach((t) => t.fn());
     }
   };
@@ -26,7 +27,7 @@ function fakeClock() {
 
 function run(opts, ticks = 40) {
   const page = mockInvitePage(opts);
-  const clock = fakeClock();
+  const clock = fakeClock(page.truth.pump);
   Object.assign(page.win, { setInterval: clock.win.setInterval, clearInterval: clock.win.clearInterval });
   const watchInvite = makeWatcher(page.doc, page.win);
   try {
@@ -85,4 +86,18 @@ test('a non-invite Studio URL never arms the watcher', () => {
 test('the un-redirected collaboration URL arms the watcher', () => {
   const { truth } = run({ titles: ['Video A'], url: 'https://studio.youtube.com/channel/UC1/collaboration/UC2?si=x' });
   assert.deepEqual(truth.accepted, ['Video A']);
+});
+
+test('a slow next request is not abandoned', () => {
+  // observed live: after an accept, YouTube leaves "Oops, something went wrong"
+  // on the list for a few seconds before the next request appears. Finishing on
+  // the first empty poll would stop at one.
+  const { truth } = run({ titles: ['Video A', 'Video B', 'Video C'], gapTicks: 5 });
+  assert.deepEqual(truth.accepted, ['Video A', 'Video B', 'Video C']);
+});
+
+test('a gap longer than the idle window ends the run cleanly', () => {
+  const { truth, alive } = run({ titles: ['Video A', 'Video B'], gapTicks: 40 });
+  assert.deepEqual(truth.accepted, ['Video A'], 'stops rather than polling forever');
+  assert.equal(alive, false);
 });
