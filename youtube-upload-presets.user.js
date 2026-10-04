@@ -1179,8 +1179,26 @@
     // ปีให้ตรงกับระบบที่ Studio ใช้ (พ.ศ. / ค.ศ.)
     return out.replace(/\d{4}/, String(date.getFullYear() + (buddhist ? 543 : 0)));
   }
-  const formatStudioTime = (date) =>
-    new Intl.DateTimeFormat(`${studioLang()}-u-ca-gregory`, { hour: 'numeric', minute: '2-digit' }).format(date);
+  // จัดรูปแบบเวลาให้ตรงกับช่องเวลาของ Studio (ดูจากค่าเดิม เช่น "08:00" / "8:00" / "8:00 AM")
+  const formatStudioTime = (date, sample = '') => {
+    const s = String(sample).trim();
+    if (/^\d{1,2}:\d{2}$/.test(s)) {
+      const h = date.getHours();
+      return `${/^\d\d:/.test(s) ? pad(h) : h}:${pad(date.getMinutes())}`;
+    }
+    return new Intl.DateTimeFormat(`${studioLang()}-u-ca-gregory`, { hour: 'numeric', minute: '2-digit' }).format(date);
+  };
+  // แปลงข้อความเวลาเป็นนาทีนับจากเที่ยงคืน ("08:00" = "8:00" = "8:00 AM" = 480) คืน null ถ้าอ่านไม่ได้
+  function parseClock(text) {
+    const s = String(text || '').toLowerCase();
+    const m = s.match(/(\d{1,2})[:.](\d{2})/);
+    if (!m) return null;
+    let h = Number(m[1]);
+    const min = Number(m[2]);
+    if (/\b(pm|p\.m\.)|หลังเที่ยง/.test(s) && h < 12) h += 12;
+    else if (/\b(am|a\.m\.)|ก่อนเที่ยง/.test(s) && h === 12) h = 0;
+    return h * 60 + min;
+  }
 
   // ตั้งเวลาปล่อยในหน้า Visibility คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
   async function setSchedule(date) {
@@ -1215,7 +1233,8 @@
       return isVisible(i) && i;
     }, 4000);
     if (!timeInput) return L('ไม่พบช่องเวลา', 'Time field not found');
-    const timeText = formatStudioTime(date);
+    const timeText = formatStudioTime(date, timeInput.value);
+    const wantMin = date.getHours() * 60 + date.getMinutes();
     const norm = (x) => String(x).toLowerCase().replace(/[\s,.]/g, '');
     // ช่องเวลาของ Studio เป็นช่องเลือกจากรายการ (00:00, 00:15, …) พิมพ์อย่างเดียวค่าไม่ถูกบันทึก (รูป 6: ค้าง 00:00)
     // วิธีที่ 1: คลิกช่องแล้วเลือกเวลาจากรายการ  วิธีที่ 2 (เวลาที่ไม่อยู่ในรายการ เช่น 19:07): พิมพ์ + Enter + Tab
@@ -1223,7 +1242,7 @@
       timeInput.focus();
       timeInput.click();
       const item = await waitFor(() => [...document.querySelectorAll(SEL.timeOption)]
-        .find((e) => e.getClientRects().length && norm(e.textContent) === norm(timeText)), 2500);
+        .find((e) => e.getClientRects().length && parseClock(e.textContent) === wantMin), 2500);
       if (item) {
         item.scrollIntoView({ block: 'center' });
         item.click();
@@ -1244,7 +1263,9 @@
     // ถ้าไม่ตรงจะถือว่าไม่สำเร็จ (ไม่กด Save) ดีกว่าเสี่ยงปล่อยผิดวัน/ผิดเวลา
     const shownDate = (dlg.querySelector(SEL.datePickerTrigger)?.textContent || trigger.textContent || '').trim();
     const shownTime = (dlg.querySelector(SEL.timeInput)?.value || '').trim();
-    if (norm(shownDate) !== norm(dateText) || norm(shownTime) !== norm(timeText)) {
+    // วันที่: ตัดเลข 0 นำหน้าออกก่อนเทียบ ("05 Oct" = "5 Oct")  เวลา: เทียบเป็นนาที ("08:00" = "8:00")
+    const normDate = (x) => norm(x).replace(/(^|D)0+(d)/g, '$1$2');
+    if (normDate(shownDate) !== normDate(dateText) || parseClock(shownTime) !== wantMin) {
       return L(`Studio ไม่รับวันเวลา (ตั้ง "${dateText} ${timeText}" แต่แสดง "${shownDate} ${shownTime}")`, `Studio rejected the date/time (set "${dateText} ${timeText}" but shows "${shownDate} ${shownTime}")`);
     }
     return '';
