@@ -138,3 +138,18 @@ export function makeWatcher(doc, win) {
   return run(L, doc, win.location, win.getComputedStyle, win.setInterval, win.clearInterval,
     () => 0, win.console, () => ({}));
 }
+
+// ----- which surface the details fields live on -----
+// The same title/description selectors appear in the upload dialog and on the
+// /video/<id>/edit page; this picks whichever is present.
+const DETAILS_HOST = block('const getDialog =', 'const findTagsInput =');
+
+export function makeDetails(doc) {
+  return new Function(
+    'document', 'isVisible',
+    `'use strict';
+    ${SEL_BLOCK}
+    ${DETAILS_HOST}
+    return { getDialog, getDetailsHost, getTitleBox, getDescBox, onEditPage, detailsOpen };`
+  )(doc, (el) => !!el && el.isConnected && el.getClientRects().length > 0);
+}

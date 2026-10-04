@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.13.0
+// @version      4.14.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -773,7 +773,17 @@
   const getDialog = () => document.querySelector(SEL.dialog);
   const getTitleBox = (dlg) => dlg && dlg.querySelector(SEL.titleBox);
   const getDescBox = (dlg) => dlg && dlg.querySelector(SEL.descBox);
-  const detailsOpen = () => isVisible(getTitleBox(getDialog()));
+  // ช่องกรอกรายละเอียดมีอยู่ 2 ที่ และใช้ selector ชุดเดียวกัน:
+  //   - ในหน้าต่างอัปโหลด (ytcp-uploads-dialog)
+  //   - ในหน้าแก้ไขคลิปที่อัปไปแล้ว /video/<id>/edit (ytcp-video-details-section)
+  // ของเดิมมองหาแต่หน้าต่างอัปโหลด ปุ่ม "ใส่ลงหน้าต่างที่เปิดอยู่" จึงขึ้นว่า
+  // "ยังไม่ได้เปิดหน้ากรอกรายละเอียด" ทั้งที่เปิดหน้าแก้ไขคลิปอยู่
+  const getDetailsHost = () => {
+    const dlg = getDialog();
+    return getTitleBox(dlg) ? dlg : document.querySelector(SEL.detailsSection);
+  };
+  const onEditPage = () => !getDialog() && !!document.querySelector(SEL.detailsSection);
+  const detailsOpen = () => isVisible(getTitleBox(getDetailsHost()));
   // หน้าต่างอัปโหลดยังเปิดอยู่ (ขั้นไหนก็ได้) — ใช้ตัดสินว่าผู้ใช้กด Save/ปิดหน้าต่างแล้วหรือยัง
   const uploadDialogOpen = () => {
     const d = getDialog()?.querySelector(SEL.paperDialog);
@@ -819,7 +829,7 @@
   }
 
   async function fillDetails({ title, description, tags }) {
-    const dlg = getDialog();
+    const dlg = getDetailsHost();
     setEditable(getTitleBox(dlg), title);
     const descBox = getDescBox(dlg);
     if (descBox && description) setEditable(descBox, description);
@@ -1797,15 +1807,19 @@
   async function applyToOpenDialog() {
     if (!detailsOpen()) return toast(L('ยังไม่ได้เปิดหน้ากรอกรายละเอียดของ YouTube', 'YouTube details page is not open yet'));
     const p = active();
-    if (!session) session = { originalName: getTitleBox(getDialog()).textContent.trim(), n: 0 };
+    if (!session) session = { originalName: normText(getTitleBox(getDetailsHost()).textContent), n: 0 };
     session.n = session.n || (counters[p.id] || 0) + 1;
     const vars = buildVars(session.originalName, session.n, '', { preset: p });
     const title = makeTitle(p, vars);
     const tagsOk = await fillDetails({ title, description: renderDesc(p, vars), tags: renderTags(p, vars) });
     counters[p.id] = Math.max(counters[p.id] || 0, session.n);
     save('counters', counters);
-    if (settings.autoNext) await goToVisibility(p.visibility || 'PRIVATE');
-    toast(L(`ใส่ข้อมูลแล้ว: ${title}${tagsOk ? '' : ' (หาช่องแท็กไม่เจอ)'}`, `Details filled in: ${title}${tagsOk ? '' : ' (tags field not found)'}`));
+    // หน้าแก้ไขคลิปไม่มีขั้น Next/การเปิดเผย — ข้ามไป แล้วเตือนให้กด Save ของ YouTube เอง
+    if (settings.autoNext && !onEditPage()) await goToVisibility(p.visibility || 'PRIVATE');
+    const note = tagsOk ? '' : L(' (หาช่องแท็กไม่เจอ)', ' (tags field not found)');
+    toast(onEditPage()
+      ? L(`ใส่ข้อมูลแล้ว: ${title}${note} — กด Save ของ YouTube เพื่อบันทึก`, `Details filled in: ${title}${note} — press YouTube's Save to keep it`)
+      : L(`ใส่ข้อมูลแล้ว: ${title}${note}`, `Details filled in: ${title}${note}`));
     renderPresetPreview();
   }
 
