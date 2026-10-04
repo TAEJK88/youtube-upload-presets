@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.12.0
+// @version      4.13.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
