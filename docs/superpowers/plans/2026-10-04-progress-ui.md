@@ -678,10 +678,11 @@ Expected: every reference resolves to a declaration in this plan — no typos. `
 This is the only way to test the DOM side; the suite covers the pure functions only.
 
 1. Reload Studio with the script installed.
-2. Queue two small clips and press start. Confirm: the bar appears above the tabs, shows "Uploading 1/2" with a percentage that moves, the uploading card grows its own bar, and the FAB shows a ring plus percentage with the drawer shut.
+2. Queue two small clips and press start. Confirm: the bar appears above the tabs, shows "Uploading 1/2" with a percentage that moves, the uploading card grows its own bar, and the FAB shows a progress line along its bottom edge plus the percentage with the drawer shut.
 3. Switch to the Presets tab mid-upload. The bar must stay visible.
-4. Click the bar. It must jump to the Queue tab.
-5. Let the queue finish. Bar and ring must disappear and the FAB badge return to a plain count.
+4. Click the bar. It must jump to the Queue tab. Tab to it and press Enter — same result.
+5. Click the FAB while a task runs with the drawer shut. It must open on that task's own tab.
+6. Let the queue finish. Bar and progress line must disappear and the FAB badge return to a plain count.
 6. With the queue empty, run a claim scan. The bar must show the scan with its 🔍 icon and route to the Claims tab when clicked.
 
 - [ ] **Step 10: Commit**

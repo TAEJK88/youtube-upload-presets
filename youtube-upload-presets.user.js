@@ -2037,6 +2037,7 @@
     #ytp-root .tbx-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--brand2));transition:width .4s}
     #ytp-root .tbx-bar.ind i{width:35%!important;animation:ytp-ind 1.2s infinite ease-in-out}
     #ytp-root .act{margin:0 16px 12px;padding:9px 12px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);cursor:pointer}
+    #ytp-root .act:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
     #ytp-root .act:hover{background:var(--surface2)}
     #ytp-root .act .arow{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
     #ytp-root .act .at{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2095,7 +2096,12 @@
   const fabLabel = h('span', { className: 'fpr' });
   const fabChan = h('span', { className: 'fch' });
   const fabBadge = h('span', { className: 'badge', hidden: true });
-  const fab = h('button', { className: 'fab', onclick: () => (drawer.classList.contains('open') ? closeDrawer() : openDrawer()) },
+  // เปิดแล้ว = ปิด · ยังไม่เปิด = เปิดที่แท็บของงานที่กำลังทำ (ว่าง = แท็บล่าสุด)
+  const fab = h('button', { className: 'fab', onclick: () => {
+    if (drawer.classList.contains('open')) return closeDrawer();
+    const a = activity();
+    openDrawer(a ? a.tab : undefined);
+  } },
     h('span', { className: 'logo' }, icon('play', 15)),
     h('span', { className: 'fcol' }, fabChan, fabLabel),
     fabBadge
@@ -2112,7 +2118,9 @@
   const actTitle = h('span', { className: 'at' });
   const actPct = h('span', { className: 'ap' });
   const actFill = h('i');
-  const actBar = h('div', { className: 'act', hidden: true, onclick: () => showTab(actBar._tab || 'queue') },
+  const goActTab = () => showTab(actBar._tab || 'queue');
+  const actBar = h('div', { className: 'act', hidden: true, role: 'button', tabIndex: 0, onclick: goActTab,
+    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goActTab(); } } },
     h('div', { className: 'arow' }, actIcon, actTitle, actPct),
     h('div', { className: 'tbx-bar' }, actFill)
   );
