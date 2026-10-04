@@ -55,6 +55,7 @@
     invalidFormat: /invalid file format|รูปแบบไฟล์ไม่ถูกต้อง/i, // Studio ไม่รับชนิดไฟล์นี้
     thumbButton: /upload|thumbnail|ภาพปก|ภาพขนาดย่อ|อัปโหลดไฟล์/i, // ปุ่มที่เกี่ยวกับภาพปก (ใช้ตอนตรวจปัญหา)
     uploadLimit: /limit|ขีดจำกัด|daily/i, // ชนขีดจำกัดการอัปต่อวัน -> หยุดคิว
+    uploadPct: /(\d{1,3})\s*%/, // เปอร์เซ็นต์ในข้อความความคืบหน้าของ Studio
     // --- ยังต้องใช้ Studio ภาษาอังกฤษ (ส่วนลิขสิทธิ์ — ดู studioIsEnglish) ---
     monetStatus: /moneti[sz]ation status/i, // ปุ่มแก้สถานะการสร้างรายได้
     nextOrDone: /^(Next|Done)$/i, // ปุ่ม Next / Done ในแบบสอบถาม
@@ -95,7 +96,8 @@
     menuItem: 'tp-yt-paper-item, ytcp-text-menu [role="menuitem"], [role="menuitem"]',
     firstMenuItem: 'tp-yt-paper-item#text-item-0, #text-item-0',
     uploadMenuButton: '#upload-icon, #upload-button, ytcp-button#upload-button, ytcp-icon-button#upload-icon',
-    uploadProgress: 'ytcp-video-upload-progress, .progress-label, ytcp-video-upload-progress-hover',
+    uploadProgress: 'ytcp-video-upload-progress, ytcp-video-upload-progress-hover',
+    uploadProgressFallback: '.progress-label', // คลาสทั่วไป — ใช้เฉพาะตอนไม่พบ element เฉพาะข้างบน
     // --- หน้ากรอกรายละเอียด ---
     titleBox: '#title-textarea #textbox',
     descBox: '#description-textarea #textbox',
@@ -702,6 +704,51 @@
       setTimeout(() => done(0), 15000);
       v.src = url;
     });
+  }
+
+  // ===== งานที่กำลังทำ (progress) =====
+  // ฟังก์ชันล้วนสองตัวสำหรับแถบความคืบหน้า — ห้ามแตะ DOM / queue / settings (test/ ตัดบล็อกนี้ไปเทสต์)
+
+  // ดึงเปอร์เซ็นต์จากข้อความความคืบหน้าของ Studio เช่น "Uploading 45% … 3 minutes left"
+  // คืน 0..1 หรือ null ถ้าไม่มีตัวเลขเปอร์เซ็นต์ (Studio เปลี่ยนรูปแบบ -> แถบถอยไปนับเป็นคลิป)
+  function parseUploadPct(text) {
+    const m = String(text || '').match(TXT.uploadPct);
+    if (!m) return null;
+    return Math.max(0, Math.min(1, +m[1] / 100));
+  }
+
+  // ตัดสินว่าตอนนี้มี "งาน" อะไรกำลังทำอยู่ — คืนอันเดียว หรือ null ถ้าว่าง
+  //   q      = สรุปสถานะคิวอัปโหลด { running, inFlight, total, done, errors }
+  //   claims = ผลจาก computeStatus() ของโมดูลลิขสิทธิ์ (หรือ null)
+  //   prog   = { pct, text } ของคลิปที่กำลังอัป (หรือ null)
+  // คิวอัปโหลดมาก่อนเสมอ: สแกน claim อ่านอย่างเดียวและทับซ้อนกับการอัปได้
+  // แถบใช้ done เป็นฐาน (ความหมายเดียวกับแถบในแท็บคิว) คลิปที่ error ไม่ดันแถบ แต่ดันเลขลำดับ
+  function activityFrom(q, claims, prog) {
+    if (q.running || q.inFlight) {
+      const pct = prog && typeof prog.pct === 'number' ? prog.pct : 0;
+      return {
+        task: 'upload',
+        icon: '⬆',
+        tab: 'queue',
+        count: { at: q.done + q.errors + 1, of: q.total },
+        title: '', // ผู้เรียกเติมข้อความผ่าน L() เพราะฟังก์ชันนี้ต้องล้วน
+        detail: (prog && prog.text) || '',
+        progress: q.total ? Math.min(1, (q.done + pct) / q.total) : null,
+      };
+    }
+    // computeStatus() คืนสถานะตอนว่างด้วย ('พร้อม' / 'Auto-pilot เปิดอยู่') -> นับแค่ busy กับ wait
+    if (claims && (claims.kind === 'busy' || claims.kind === 'wait')) {
+      return {
+        task: 'claims',
+        icon: claims.icon || '',
+        tab: 'claims',
+        count: null,
+        title: claims.title || '',
+        detail: claims.detail || '',
+        progress: typeof claims.progress === 'number' ? claims.progress : null,
+      };
+    }
+    return null;
   }
 
   // ===== Studio DOM automation =====
@@ -1358,8 +1405,18 @@
   }
 
   function uploadProgressText() {
-    const el = getDialog()?.querySelector(SEL.uploadProgress);
+    const dlg = getDialog();
+    // element เฉพาะของการอัปมาก่อน · .progress-label เป็นคลาสทั่วไป อาจเป็นเปอร์เซ็นต์ของอย่างอื่นในหน้าต่าง
+    const el = dlg?.querySelector(SEL.uploadProgress) || dlg?.querySelector(SEL.uploadProgressFallback);
     return el ? (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '';
+  }
+
+  // ความคืบหน้าของคลิปที่กำลังอัป · อัปเดตจาก tick ทุก 0.8 วินาที (uploadOne ไม่ต้องรู้เรื่องนี้)
+  let uploadProg = null; // { pct: 0..1 | null, text: string }
+  function pollUploadProgress() {
+    if (!running) { uploadProg = null; return; }
+    const text = uploadProgressText();
+    uploadProg = { pct: parseUploadPct(text), text };
   }
 
   // ===== ช่องที่กำลังใช้งาน (กันอัปผิดช่อง) =====
@@ -1504,6 +1561,8 @@
   }
 
   function setItem(it, status, msg = '') {
+    // สลับคลิป: ค่าความคืบหน้าของคลิปก่อนหน้าใช้ต่อไม่ได้ (poll รอบถัดไปอีก 0.8 วินาที)
+    if (it.status !== status && (status === 'uploading' || it.status === 'uploading')) uploadProg = null;
     it.status = status;
     it.msg = msg;
     updateItemUI(it);
@@ -1876,6 +1935,8 @@
     #ytp-root .fab .fpr{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #ytp-root .fab .badge{background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;border-radius:999px;
       padding:2px 8px;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+    #ytp-root .fab.busy{background-image:linear-gradient(90deg,var(--brand) calc(var(--p,0) * 1%),#2a2a33 0);
+      background-repeat:no-repeat;background-size:calc(100% - 16px) 3px;background-position:8px calc(100% - 5px)}
     #ytp-root .fab.bad{border-color:var(--err);box-shadow:0 0 0 3px rgba(244,63,94,.35),0 10px 30px -6px rgba(0,0,0,.45)}
     #ytp-root .fab.bad .fch{color:#fda4af}
 
@@ -2146,6 +2207,13 @@
     #ytp-root .tbx-bar{height:6px;background:var(--surface2);border-radius:99px;margin-top:8px;overflow:hidden}
     #ytp-root .tbx-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--brand2));transition:width .4s}
     #ytp-root .tbx-bar.ind i{width:35%!important;animation:ytp-ind 1.2s infinite ease-in-out}
+    #ytp-root .act{margin:0 16px 12px;padding:9px 12px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);cursor:pointer}
+    #ytp-root .act:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+    #ytp-root .act:hover{background:var(--surface2)}
+    #ytp-root .act .arow{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
+    #ytp-root .act .at{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #ytp-root .act .ap{color:var(--fg3);font-variant-numeric:tabular-nums}
+    #ytp-root .act .tbx-bar{margin-top:6px}
     #ytp-root .tbx-steps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
     #ytp-root .tbx-steps span{font-size:10.5px;padding:2px 8px;border-radius:999px;background:var(--surface2);color:var(--fg3)}
     #ytp-root .tbx-steps span.done{color:var(--ok);background:color-mix(in srgb,var(--ok) 12%,transparent)}
@@ -2199,7 +2267,12 @@
   const fabLabel = h('span', { className: 'fpr' });
   const fabChan = h('span', { className: 'fch' });
   const fabBadge = h('span', { className: 'badge', hidden: true });
-  const fab = h('button', { className: 'fab', onclick: () => (drawer.classList.contains('open') ? closeDrawer() : openDrawer()) },
+  // เปิดแล้ว = ปิด · ยังไม่เปิด = เปิดที่แท็บของงานที่กำลังทำ (ว่าง = แท็บล่าสุด)
+  const fab = h('button', { className: 'fab', onclick: () => {
+    if (drawer.classList.contains('open')) return closeDrawer();
+    const a = activity();
+    openDrawer(a ? a.tab : undefined);
+  } },
     h('span', { className: 'logo' }, icon('play', 15)),
     h('span', { className: 'fcol' }, fabChan, fabLabel),
     fabBadge
@@ -2211,6 +2284,17 @@
   const footers = {};
   let currentTab = 'queue';
   const nav = h('div', { className: 'tabs' });
+  // แถบงานที่กำลังทำ — อยู่เหนือแท็บ เห็นได้ทุกแท็บ · ซ่อนตอนว่าง
+  const actIcon = h('span', { className: 'ai' });
+  const actTitle = h('span', { className: 'at' });
+  const actPct = h('span', { className: 'ap' });
+  const actFill = h('i');
+  const goActTab = () => showTab(actBar._tab || 'queue');
+  const actBar = h('div', { className: 'act', hidden: true, role: 'button', tabIndex: 0, onclick: goActTab,
+    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goActTab(); } } },
+    h('div', { className: 'arow' }, actIcon, actTitle, actPct),
+    h('div', { className: 'tbx-bar' }, actFill)
+  );
   const body = h('div', { className: 'body' });
   const footWrap = h('div');
   for (const [key, label, ic] of [['queue', L('อัปโหลด', 'Upload'), 'queue'], ['presets', L('พรีเซ็ต', 'Presets'), 'layers'], ['claims', L('ลิขสิทธิ์', 'Copyright'), 'shield'], ['settings', L('ตั้งค่า', 'Settings'), 'sliders']]) {
@@ -2303,7 +2387,7 @@
       h('div', { className: 'tt' }, h('b', {}, 'Upload Studio'), h('span', {}, L('อัปโหลดหลายคลิป · พรีเซ็ตชื่อ/คำอธิบาย', 'Bulk video upload · title/description presets'))),
       iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer())
     ),
-    chanBar, chanList, nav, body, footWrap
+    chanBar, chanList, actBar, nav, body, footWrap
   );
 
   let lastChanKey = '';
@@ -2507,6 +2591,8 @@
     const msgTxt = h('span');
     const msgIcon = h('span');
     const msg = h('div', { className: 'msg' }, msgIcon, msgTxt);
+    const upFill = h('i');
+    const upBar = h('div', { className: 'tbx-bar', hidden: true }, upFill);
     const thumbBox = h('div', { className: 'th' }, icon('film', 22), h('span', { className: 'sz' }, fmtSize(it.file.size)));
     const titleIn = h('input', {
       type: 'text', placeholder: L('ชื่อคลิป', 'Video title'),
@@ -2565,6 +2651,7 @@
         artistsBox,
         att
       ),
+      upBar,
       msg,
       attachInput
     );
@@ -2577,7 +2664,7 @@
       el.classList.remove('drag');
       attachToItem(it, e.dataTransfer.files);
     });
-    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset };
+    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset };
     return el;
   }
 
@@ -2616,6 +2703,10 @@
     u.msgTxt.textContent = it.msg;
     u.msgIcon.replaceChildren(icon(MSG_ICON[it.status], 14));
     u.msg.hidden = !it.msg;
+    // แถบความคืบหน้าของคลิปที่กำลังอัปอยู่ (เปอร์เซ็นต์จาก Studio) · อ่านไม่ได้ = ซ่อน
+    const pct = it.status === 'uploading' && uploadProg ? uploadProg.pct : null;
+    u.upBar.hidden = pct === null;
+    if (pct !== null) u.upFill.style.width = Math.round(pct * 100) + '%';
     renderAttachments(it, editable);
   }
 
@@ -2724,9 +2815,69 @@
     const pct = total ? Math.round(((done + errors) / total) * 100) : 0;
     progress.style.width = pct + '%';
     progressPct.textContent = pct + '%';
-    fabBadge.hidden = !total;
-    fabBadge.textContent = running ? `${done}/${total}` : String(pending || total);
+    // ป้าย FAB เป็นของ renderActivity() ทั้งตอนมีงานและตอนว่าง
     tabCount.queue.textContent = total ? String(total) : '';
+    renderActivity(); // ทางเดียว: renderActivity ไม่เรียก updateRunUI กลับ
+  }
+
+  // งานที่กำลังทำอยู่ตอนนี้ (อันเดียว) — null ถ้าว่าง · ดู activityFrom() สำหรับกติกาการเลือก
+  function activity() {
+    const count = (st) => queue.filter((i) => i.status === st).length;
+    const q = {
+      running,
+      inFlight: queue.some((i) => i.status === 'uploading' || i.status === 'review'),
+      total: queue.length,
+      done: count('done'),
+      errors: count('error'),
+    };
+    // โมดูลลิขสิทธิ์พังไม่ควรลาก UI ของคิวไปด้วย
+    let claims = null;
+    try { claims = Claims && Claims.status ? Claims.status() : null; } catch (e) { claims = null; }
+    const a = activityFrom(q, claims, uploadProg);
+    if (a && a.task === 'upload') {
+      a.title = L(`กำลังอัปโหลด ${a.count.at}/${a.count.of}`, `Uploading ${a.count.at}/${a.count.of}`);
+    }
+    return a;
+  }
+
+  // วาดแถบงาน · ถูกเรียกทุก 0.8 วินาที -> ไม่มีอะไรเปลี่ยนก็ไม่แตะ DOM (แบบเดียวกับ updateChannelUI)
+  // ฟังก์ชันนี้เป็นเจ้าของ fabBadge ทั้งตอนมีงานและตอนว่าง (updateRunUI ไม่แตะป้ายนี้แล้ว)
+  let lastActSig = '';
+  function renderActivity() {
+    const a = activity();
+    const pending = queue.filter((i) => i.status === 'pending').length;
+    const total = queue.length;
+    const pct = a && a.progress !== null ? Math.round(a.progress * 100) : null;
+    // pending/total อยู่ในลายเซ็นด้วย ไม่งั้นตอนว่างป้าย FAB จะไม่อัปเดต
+    const sig = JSON.stringify([a, pending, total]);
+    if (sig === lastActSig) return;
+    lastActSig = sig;
+    // ขยับแค่แถบของคลิปที่กำลังอัป — ห้ามเรียก updateItemUI ที่นี่ เพราะมันลาก
+    // renderAttachments -> Claims.claimedSongsIn -> getSongs() (อ่าน songHistory ทั้งก้อน) มาทุก tick
+    const up = queue.find((i) => i.status === 'uploading');
+    if (up && up.ui) {
+      const p = uploadProg ? uploadProg.pct : null;
+      up.ui.upBar.hidden = p === null;
+      if (p !== null) up.ui.upFill.style.width = Math.round(p * 100) + '%';
+    }
+    actBar.hidden = !a;
+    if (a) {
+      actBar._tab = a.tab;
+      actBar.title = a.detail || '';
+      actIcon.textContent = a.icon;
+      actTitle.textContent = a.title;
+      actPct.textContent = pct === null ? '' : pct + '%';
+      actFill.parentElement.classList.toggle('ind', pct === null);
+      actFill.style.width = pct === null ? '' : pct + '%';
+    }
+    // FAB: มีงาน = ไอคอน + เปอร์เซ็นต์ และมีเส้นความคืบหน้าที่ขอบล่าง · ว่าง = จำนวนคลิปที่รอ
+    // เส้นความคืบหน้าขึ้นเฉพาะตอนมีเปอร์เซ็นต์จริง · งานที่ไม่รู้ความคืบหน้า (เช่นรอ YouTube ประมวลผล)
+    // โชว์แค่ไอคอนบนป้าย ไม่งั้นเส้น 0% จะดูเหมือนค้าง
+    fab.classList.toggle('busy', !!a && pct !== null);
+    fab.style.setProperty('--p', pct === null ? 0 : pct);
+    fabBadge.hidden = !a && !total;
+    if (a) fabBadge.textContent = pct === null ? a.icon : `${a.icon} ${pct}%`;
+    else fabBadge.textContent = String(pending || total);
   }
 
   // ----- แท็บพรีเซ็ต -----
@@ -4866,11 +5017,13 @@
       renderStatus();
     }
 
-    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus };
+    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus };
   })();
   panes.claims = Claims.buildPane();
   let tickFailed = false;
+  let progressFailed = false;
   setInterval(() => {
+    // แยก try สองก้อน: ส่วนลิขสิทธิ์พังไม่ควรทำให้แถบความคืบหน้าหยุด และกลับกันด้วย
     try {
       Claims.tick();
     } catch (e) {
@@ -4879,6 +5032,17 @@
         tickFailed = true; // บอกครั้งเดียว ไม่ต้องเตือนทุกรอบ
         toast(L('⚠ ส่วนลิขสิทธิ์หยุดทำงาน: ' + e.message + ' — ลองรีโหลดหน้า',
           '⚠ The copyright section stopped: ' + e.message + ' — try reloading the page'));
+      }
+    }
+    try {
+      pollUploadProgress();
+      renderActivity();
+    } catch (e) {
+      console.error('[Upload Studio] progress', e);
+      if (!progressFailed) {
+        progressFailed = true;
+        toast(L('⚠ แถบความคืบหน้าหยุดทำงาน: ' + e.message + ' — ลองรีโหลดหน้า',
+          '⚠ The progress bar stopped: ' + e.message + ' — try reloading the page'));
       }
     }
   }, 800);
