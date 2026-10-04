@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.11.0
+// @version      4.12.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -34,6 +34,8 @@
     // --- ใช้ได้ทั้งอังกฤษและไทย ---
     acceptInvite: /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i, // ปุ่มยอมรับคำเชิญสิทธิ์ช่อง
     aboutInvite: /invit|collaborat|เชิญ|ผู้ร่วมสร้าง/i, // กล่องข้อความต้องพูดถึงคำเชิญ (กันกดปุ่มผิด)
+    saveButton: /^(save|บันทึก)$/i, // ปุ่ม Save ของหน้าต่าง (ใช้ตอนหา id ไม่เจอ)
+    cancelButton: /^(cancel|discard|ยกเลิก|ละทิ้ง)$/i, // ปุ่ม Cancel ของหน้าต่าง (ใช้ตอนหา id ไม่เจอ)
     aiUseHeading: /^(ai use|การใช้ ai|altered content)$/i, // หัวข้อ "AI use" ในหน้ารายละเอียด
     yes: /^(yes|ใช่)$/i, // ปุ่มตัวเลือก Yes
     no: /^(no|ไม่|ไม่ใช่)$/i, // ปุ่มตัวเลือก No
@@ -122,6 +124,11 @@
     // --- หน้ารับคำเชิญสิทธิ์ช่อง ---
     inviteClickable: 'button, ytcp-button, tp-yt-paper-button, yt-button-shape button, a[role="button"]',
     inviteContainer: 'tp-yt-paper-dialog, ytcp-dialog, [role="dialog"], ytd-popup-container, form, main',
+    inviteDecline: '#deny-button', // ปุ่ม Decline คู่กับ Accept บนบัตรคำเชิญ — ใช้ยืนยันว่าหน้านี้มีคำเชิญจริง
+    inviteListDialog: 'ytcp-video-collaborations-list-dialog', // รายการ "Collaboration requests" (มีหลายคลิป)
+    inviteRequestRow: 'ytcp-video-row', // แถวคำเชิญ 1 คลิป — ใช้ได้เฉพาะเมื่อค้นภายใน inviteListDialog เท่านั้น
+    inviteRowOpen: '#thumbnail-anchor', // กดรูปย่อของแถวเพื่อเปิดหน้าต่างยอมรับ
+    inviteRowTitle: '#video-title',
     // --- Monetisation / Ad suitability ---
     monetBox: 'ytcp-video-monetization',
     monetDialog: 'ytcp-video-monetization-edit-dialog',
@@ -162,36 +169,153 @@
     studioSaveHost: 'ytcp-button#save',
   };
 
+  // ===== collab: การเทียบข้อความ และการสรุปผล (ไม่แตะ DOM — มีเทสต์ใน test/collab.test.mjs) =====
+  const normText = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const parseHandles = (v) => String(v || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).map((s) => (s.startsWith('@') ? s : '@' + s));
+
+  // แถวผลค้นหา (#channel-info) ไม่มีตัวคั่นที่แน่นอน — เจอได้ทั้ง "@handle",
+  // "@handle · 1.2K subscribers" และ "@handle\n1.2K subscribers" → ยอมรับได้หมด
+  // แต่ต้องจบที่ตัวอักษรที่ใช้ในชื่อ handle ไม่ได้ ไม่งั้น @thai จะไปตรงกับ @thaibeats
+  const collabRowMatches = (info, handle) => {
+    const want = String(handle || '').toLowerCase();
+    if (want.length < 2 || !want.startsWith('@')) return false;
+    const got = normText(info).toLowerCase();
+    if (!got.startsWith(want)) return false;
+    const next = got.charAt(want.length);
+    return next === '' || !/[a-z0-9._-]/.test(next);
+  };
+
+  // ปุ่มยอมรับคำเชิญ: ดูทั้ง aria-label และข้อความในปุ่ม (เดิมดู aria-label ก่อนแล้วไม่ถอยไปดูข้อความ
+  // ปุ่มที่มี aria-label ยาว ๆ เลยไม่เคยตรง) และยุบช่องว่าง/ขึ้นบรรทัดใหม่จากเทมเพลตก่อนเทียบ
+  const acceptLabelMatches = (...labels) => labels.some((l) => normText(l) && TXT.acceptInvite.test(normText(l)));
+
+  // สรุปผลของคลิปหนึ่ง — "สำเร็จ" ต้องแปลว่า YouTube บันทึกให้จริงเท่านั้น
+  // res.saved: true = กด Save แล้วหน้าต่างปิดจริง, false = กดไม่สำเร็จ, null = ไม่มีอะไรต้องบันทึก
+  function inviteOutcome(res) {
+    const invited = res.links.map((x) => x.handle).join(', ');
+    const parts = [
+      res.links.length ? L(`เชิญ ${invited}`, `Invited ${invited}`) : '',
+      res.skipped.length ? L(`มีอยู่แล้ว ${res.skipped.join(', ')}`, `Already added ${res.skipped.join(', ')}`) : '',
+      ...res.errors,
+    ].filter(Boolean);
+    const persisted = res.links.length ? res.saved === true : true;
+    const worked = persisted && (res.links.length || (res.skipped.length && !res.errors.length));
+    return { state: worked ? 'done' : 'failed', msg: parts.join(' · ') || L('ไม่มีอะไรเปลี่ยน', 'Nothing changed') };
+  }
+
   // ===== รับคำเชิญสิทธิ์ช่องอัตโนมัติ =====
   // เปิดลิงก์ "ACCEPT INVITATION" จากอีเมล noreply@youtube.com แล้วสคริปต์กดยอมรับให้
   // กดเฉพาะปุ่ม Accept/ยอมรับ ที่อยู่ในกล่องข้อความที่พูดถึงคำเชิญเท่านั้น
+  // ลิงก์คำเชิญ /channel/<เรา>/collaboration/<เจ้าของ> ถูก YouTube เด้งต่อไปที่
+  //   /channel/<เรา>/videos/upload?d=acd&…&inviterChannelId=<เจ้าของ>
+  // คำว่า collaboration หายไปจาก path หมด เหลือร่องรอยอยู่แค่ใน query string เท่านั้น
+  // (นี่คือสาเหตุที่เวอร์ชันก่อนซึ่งดูแต่ pathname ไม่เคยเริ่มเฝ้าหน้าคำเชิญเลย)
+  const INVITE_URL = /invit|collaborat|collab|permission|[?&]d=acd\b/i;
+  const inviteUrlNow = () => INVITE_URL.test(location.pathname + location.search + location.hash);
+  const inviteNote = (text, ok = true) => {
+    const note = document.createElement('div');
+    note.textContent = `${ok ? '✅' : '⚠️'} ${text} (YouTube Upload Presets)`;
+    note.style.cssText = `position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;background:${ok ? '#111' : '#7a3b00'};color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui;max-width:90vw;text-align:center`;
+    document.body.append(note);
+    setTimeout(() => note.remove(), 10000);
+  };
+  // ปุ่มอาจอยู่ใน shadow root ของ web component → ต้องไล่ลงไปด้วย
+  function deepFind(root, sel, out = []) {
+    root.querySelectorAll(sel).forEach((e) => out.push(e));
+    root.querySelectorAll('*').forEach((e) => { if (e.shadowRoot) deepFind(e.shadowRoot, sel, out); });
+    return out;
+  }
+
+  let inviteWatching = false;
   function watchInvite() {
+    if (inviteWatching) return; // กันตั้งนาฬิกาซ้อนกันตอนหน้าเปลี่ยนรัว ๆ
     if ((GM_getValue('settings') || {}).autoAcceptInvite === false) return;
-    // ใน Studio ทำเฉพาะหน้าคำเชิญ (ลิงก์ Collab = /channel/<เรา>/collaboration/<เจ้าของ>) ไม่ไล่กดปุ่มทุกหน้า
-    if (location.hostname === 'studio.youtube.com' && !/invit|collaborat|permission/i.test(location.pathname)) return;
+    // ใน Studio ทำเฉพาะหน้าคำเชิญ ไม่ไล่กดปุ่มทุกหน้า
+    if (location.hostname === 'studio.youtube.com' && !inviteUrlNow()) return;
+    inviteWatching = true;
+    // "ไม่ได้เฝ้า" กับ "เฝ้าแล้วแต่ไม่เจอปุ่ม" หน้าตาเหมือนกันหมดจากข้างนอก — log ไว้ให้แยกออก
+    const say = (msg, ...rest) => console.info('[YT Upload Presets] invite: ' + msg, ...rest);
+    say('watching ' + location.pathname + location.search);
     const visible = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+    const live = (b) => visible(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true';
+    // ปุ่มยอมรับที่กดได้จริง + มีหลักฐานว่าหน้านี้เป็นคำเชิญจริง ๆ
+    // เดิมใช้ "ข้อความในกล่องพูดถึงคำเชิญ" เป็นตัวกัน แต่บนหน้า Studio ทุกหน้ามีแท็บชื่อ
+    // "Collaborations" อยู่แล้ว เงื่อนไขนั้นจึงเป็นจริงเสมอและกันอะไรไม่ได้เลย
+    // ใช้ลายเซ็นของบัตรคำเชิญแทน: ปุ่ม Accept จะมาคู่กับปุ่ม Decline (#deny-button) เสมอ
+    const acceptBtn = () => deepFind(document, SEL.inviteClickable).find((b) => {
+      if (!acceptLabelMatches(b.getAttribute('aria-label'), b.textContent) || !live(b)) return false;
+      const box = b.closest(SEL.inviteContainer) || document.body;
+      const declineNearby = deepFind(box, SEL.inviteDecline).some(visible);
+      return declineNearby || inviteUrlNow();
+    });
+    // คำเชิญหลายคลิปจะขึ้นเป็น "รายการ" ก่อน (ไม่มีปุ่ม Accept ในรายการ) ต้องกดรูปย่อของแต่ละแถว
+    // เพื่อเปิดหน้าต่างยอมรับทีละคลิป · ถ้ามีคลิปเดียว YouTube ข้ามรายการไปที่หน้าต่างยอมรับเลย
+    // ค้นแถวเฉพาะในกล่องรายการเท่านั้น — ytcp-video-row เป็น element เดียวกับตารางคลิปของหน้าหลัก
+    const requestRow = () => {
+      const host = document.querySelector(SEL.inviteListDialog);
+      if (!host || !visible(host.querySelector(SEL.paperDialog))) return null;
+      return [...host.querySelectorAll(SEL.inviteRequestRow)].find(visible) || null;
+    };
+    const rowTitle = (r) => normText(r.querySelector(SEL.inviteRowTitle)?.textContent).slice(0, 60);
+
+    const MAX = 25; // กันวนไม่รู้จบถ้าแถวไม่หายไปหลังกดยอมรับ
     let tries = 0;
+    let done = 0;      // จำนวนคำเชิญที่กดยอมรับไปแล้ว
+    let opened = 0;    // จำนวนแถวที่กดเปิด
+    let lastAction = 0;
+    // 180 วิ: ลิงก์คำเชิญมักเด้งผ่านหน้าเลือกบัญชี/ล็อกอินก่อน หน้าจริงจึงมาช้ากว่า 60 วิเดิม
+    const stop = () => { clearInterval(timer); inviteWatching = false; };
+    const finish = () => {
+      stop();
+      if (done) inviteNote(done > 1
+        ? L(`ยอมรับคำเชิญให้แล้ว ${done} คลิป`, `Accepted ${done} collaboration requests`)
+        : L('ยอมรับคำเชิญเรียบร้อย', 'Invitation accepted'));
+      say(`finished — accepted ${done}`);
+    };
     const timer = setInterval(() => {
-      if (++tries > 60) return clearInterval(timer);
-      for (const b of document.querySelectorAll(SEL.inviteClickable)) {
-        const label = (b.getAttribute('aria-label') || b.textContent || '').trim();
-        if (!TXT.acceptInvite.test(label) || !visible(b) || b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
-        // หน้าคำเชิญใน Studio (เช็ก path แล้วข้างบน) อาจไม่มีกล่อง dialog — ใช้ทั้งหน้าได้; บน www.youtube.com ต้องอยู่ในกล่อง
-        const box = b.closest(SEL.inviteContainer) ||
-          (location.hostname === 'studio.youtube.com' ? document.body : null);
-        if (!box || !TXT.aboutInvite.test(box.innerText || box.textContent || '')) continue;
-        clearInterval(timer);
-        b.click();
-        const note = document.createElement('div');
-        note.textContent = L('✅ กดยอมรับคำเชิญให้แล้ว (YouTube Upload Presets)', '✅ Invitation accepted (YouTube Upload Presets)');
-        note.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;background:#111;color:#fff;padding:10px 16px;border-radius:10px;font:600 13px system-ui';
-        document.body.append(note);
-        setTimeout(() => note.remove(), 6000);
+      if (++tries > 180) {
+        stop();
+        if (done) inviteNote(L(`ยอมรับไปแล้ว ${done} คลิป แต่ยังมีค้างอยู่ — ช่วยเช็กในหน้าอีกที`, `Accepted ${done}, but some may remain — please check the page`), false);
+        // เงียบไป 3 นาทีโดยไม่มีอะไรเกิดขึ้น = หน้านี้ไม่มีคำเชิญให้ยอมรับ (เช่นยอมรับไปแล้ว
+        // หรือเข้าผิดบัญชี) บอกไว้ใน console จะได้ไม่ต้องเดาว่าสคริปต์ทำงานไหม
+        else say('gave up — no collaboration request appeared in 180s (already accepted, or signed in as the wrong channel?)');
         return;
       }
+      if (Date.now() - lastAction < 2500) return; // ให้หน้าต่างเปิด/ปิดให้เสร็จก่อนค่อยทำต่อ
+
+      // 1) หน้าต่างยอมรับเปิดอยู่ → กด Accept
+      const b = acceptBtn();
+      if (b) {
+        if (done >= MAX) return finish();
+        done++;
+        lastAction = Date.now();
+        say(`accepting request ${done}`, b);
+        // ytcp-button เป็นเปลือก — กดปุ่มจริงข้างในเหมือนที่ clickIn ทำ
+        (b.querySelector('button') || b).click();
+        return;
+      }
+      // 2) ยังอยู่ที่รายการ → กดรูปย่อของแถวแรกที่เหลือเพื่อเปิดหน้าต่างยอมรับ
+      const row = requestRow();
+      if (row) {
+        if (opened >= MAX) return finish();
+        opened++;
+        lastAction = Date.now();
+        say(`opening request ${opened}: ${rowTitle(row)}`);
+        (row.querySelector(SEL.inviteRowOpen) || row).click();
+        return;
+      }
+      // 3) ไม่เหลือทั้งหน้าต่างยอมรับและรายการ = ทำครบแล้ว
+      if (done) finish();
     }, 1000);
   }
   watchInvite();
+  // Studio เปลี่ยนหน้าแบบ SPA — ลิงก์คำเชิญมักเด้งผ่านหน้าอื่นก่อน ถ้าเฝ้าแค่ตอนโหลดครั้งแรกจะพลาด
+  let inviteUrl = location.href;
+  setInterval(() => {
+    if (location.href === inviteUrl) return;
+    inviteUrl = location.href;
+    if (inviteUrlNow()) watchInvite();
+  }, 1000);
   // นอก Studio (เช่นหน้าคำเชิญบน www.youtube.com) ทำแค่รับคำเชิญ
   if (location.hostname !== 'studio.youtube.com') return;
 
@@ -688,12 +812,42 @@
   // ค้นหา @handle → เลือกแถวที่ #channel-info ขึ้นต้นด้วย @handle ตรงตัว → ytcp-video-collaborator-manage-dialog กด Create link
   // → ytcp-video-collaborator-invite-link-dialog แสดงลิงก์ (span.invite-link) → ปิด → Save
   // YouTube ไม่ส่งคำเชิญให้เอง ต้องส่งลิงก์ให้อีกฝ่ายเปิดแล้วกดยอมรับ (ลิงก์ใช้ได้หลังกด Save)
-  const parseHandles = (v) => String(v || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).map((s) => (s.startsWith('@') ? s : '@' + s));
-  const clickIn = (root, sel) => { const b = root && root.querySelector(sel); if (!b) return false; (b.querySelector('button') || b).click(); return true; };
+  const isOff = (el) => !el || el.disabled || el.hasAttribute('disabled') ||
+    el.getAttribute('aria-disabled') === 'true' || !!el.closest('[disabled],[aria-disabled="true"]');
+  // กดปุ่มในหน้าต่าง — ต้องเห็นปุ่มและกดได้จริง ไม่งั้นคืน false (เดิมคืน true ทุกครั้งที่ "เจอ element"
+  // ปุ่ม Save ที่ยังกดไม่ได้จึงถูกนับว่ากดสำเร็จ แล้วรายงานว่าเชิญเสร็จทั้งที่ไม่ได้บันทึกอะไรเลย)
+  const clickIn = (root, sel) => {
+    const host = root && [...root.querySelectorAll(sel)].find((b) => isVisible(b) && !isOff(b));
+    if (!host) return false;
+    (host.querySelector('button') || host).click();
+    return true;
+  };
+  // พิมพ์ลงช่องค้นหาของหน้าต่างเชิญ — ใช้ execCommand เหมือน typeInto เพราะ Polymer ไม่รับรู้
+  // การ set .value ตรง ๆ แต่ไม่กด Enter (Enter จะไปเลือกผลลัพธ์แถวแรกซึ่งอาจเป็นช่องผิด)
+  async function typeSearch(input, text) {
+    if (!text && !input.value) return;
+    input.focus();
+    input.select?.();
+    document.execCommand('selectAll', false, null);
+    if (text) document.execCommand('insertText', false, text);
+    else document.execCommand('delete', false, null);
+    if (input.value !== text) input.value = text; // เผื่อเบราว์เซอร์ไม่รองรับ execCommand
+    for (const type of ['input', 'change']) input.dispatchEvent(new Event(type, { bubbles: true }));
+    await sleep(600); // ให้ Studio ยิงค้นหา (debounce)
+  }
+  // ปุ่มในหน้าต่างที่หา id ไม่เจอ (YouTube เปลี่ยน id) → หาจากข้อความบนปุ่มแทน
+  const clickByText = (root, re) => {
+    const host = root && [...root.querySelectorAll(SEL.button)]
+      .find((b) => isVisible(b) && !isOff(b) && re.test(normText(b.textContent)));
+    if (!host) return false;
+    (host.querySelector('button') || host).click();
+    return true;
+  };
   const shownDialog = (tag) => { const d = document.querySelector(tag); return d && isVisible(d.querySelector(SEL.paperDialog)) ? d : null; };
 
   async function inviteCollaborators(handles, dlg = getDialog()) {
-    const res = { links: [], errors: [], skipped: [] };
+    // saved: null = ไม่มีอะไรต้องบันทึก, true = บันทึกแล้วจริง, false = บันทึกไม่สำเร็จ
+    const res = { links: [], errors: [], skipped: [], saved: null };
     if (!handles.length) return res;
     let btn = dlg.querySelector(SEL.collabButton);
     if (!isVisible(btn)) {
@@ -707,39 +861,56 @@
     const cd = await waitFor(() => shownDialog(SEL.collabDialog), 6000);
     if (!cd) { res.errors.push(L('เปิดหน้าต่างเชิญผู้ร่วมสร้างไม่ได้', 'Could not open the collaborator dialog')); return res; }
 
-    const existing = new Set([...cd.querySelectorAll(SEL.collabExistingName)].map((e) => e.textContent.trim().toLowerCase()).filter(Boolean));
+    const existing = new Set([...cd.querySelectorAll(SEL.collabExistingName)].map((e) => normText(e.textContent).toLowerCase()).filter(Boolean));
     for (const handle of handles.slice(0, 10)) {
-      const input = cd.querySelector(SEL.collabSearch);
-      input.focus();
-      input.value = handle;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      const want = handle.toLowerCase();
-      const row = await waitFor(() => [...cd.querySelectorAll(SEL.collabOption)].find((r) => {
-        const info = (r.querySelector(SEL.collabChannelInfo)?.textContent || '').trim().toLowerCase();
-        return isVisible(r) && (info === want || info.startsWith(want + ' '));
-      }), 8000);
+      // #search-input เป็น host ของ paper-input ในบางเวอร์ชัน — ต้องลงไปถึง <input> จริง
+      // และพิมพ์ด้วย typeInto (execCommand) เหมือนช่องอื่น ๆ ของสคริปต์ การ set .value ตรง ๆ
+      // Polymer ไม่รับรู้ ทำให้ไม่มีผลการค้นหาขึ้นมาเลย
+      const host = cd.querySelector(SEL.collabSearch);
+      const input = host && (host.matches('input,textarea') ? host : host.querySelector('input,textarea'));
+      if (!input) { res.errors.push(L(`${handle}: ไม่พบช่องค้นหาในหน้าต่างเชิญ`, `${handle}: search box not found in the invite dialog`)); break; }
+      await typeSearch(input, '');     // ล้างคำค้นเดิมก่อน ไม่งั้นแถวของ handle ก่อนหน้ายังค้างอยู่
+      await typeSearch(input, handle);
+      const row = await waitFor(() => [...cd.querySelectorAll(SEL.collabOption)].find((r) =>
+        isVisible(r) && collabRowMatches(r.querySelector(SEL.collabChannelInfo)?.textContent, handle)), 8000);
       if (!row) {
         const limit = isVisible(cd.querySelector(SEL.collabLimitReached));
         res.errors.push(limit ? L(`${handle}: เชิญครบจำนวนสูงสุดแล้ว`, `${handle}: invitation limit reached`) : L(`${handle}: ไม่พบช่องนี้`, `${handle}: channel not found`));
         if (limit) break;
         continue;
       }
-      const rowName = (row.querySelector(SEL.collabDisplayName)?.textContent || '').trim().toLowerCase();
-      if (existing.has(rowName)) { res.skipped.push(handle); continue; }
+      // ช่องที่เป็นผู้ร่วมสร้างอยู่แล้ว — เทียบทั้งชื่อที่แสดงและ @handle เพราะรายชื่อเดิมอาจขึ้นได้ทั้งสองแบบ
+      const rowName = normText(row.querySelector(SEL.collabDisplayName)?.textContent).toLowerCase();
+      if (existing.has(rowName) || existing.has(handle.toLowerCase())) { res.skipped.push(handle); continue; }
       row.click();
       const md = await waitFor(() => shownDialog(SEL.collabManageDialog), 6000);
       if (!md || !clickIn(md, SEL.collabCreateLink)) { res.errors.push(L(`${handle}: ไม่พบปุ่ม Create link`, `${handle}: "Create link" button not found`)); continue; }
       const ld = await waitFor(() => shownDialog(SEL.collabLinkDialog), 8000);
-      const link = ld && (await waitFor(() => (ld.querySelector(SEL.collabInviteLink)?.textContent || '').trim(), 4000));
+      const link = ld && (await waitFor(() => normText(ld.querySelector(SEL.collabInviteLink)?.textContent), 4000));
       if (link) res.links.push({ handle, link });
       else res.errors.push(L(`${handle}: ไม่ได้ลิงก์คำเชิญ`, `${handle}: no invitation link`));
-      if (ld) clickIn(ld, SEL.dialogClose);
+      if (ld) clickIn(ld, SEL.dialogClose) || clickByText(ld, TXT.okOrGotIt) || clickIn(ld, SEL.dialogCancel);
       await waitFor(() => !shownDialog(SEL.collabLinkDialog), 3000);
+      // ไม่กดปิดหน้าต่าง manage เอง (อาจทิ้งคำเชิญที่เพิ่งสร้าง) แค่รอให้มันปิดเอง
+      await waitFor(() => !shownDialog(SEL.collabManageDialog), 3000);
       await sleep(400);
     }
-    if (res.links.length) clickIn(cd, SEL.dialogSave);
-    else clickIn(cd, SEL.dialogCancel);
-    await waitFor(() => !shownDialog(SEL.collabDialog), 6000);
+    // ต้องกด Save ให้สำเร็จจริง ๆ ไม่งั้นคำเชิญที่สร้างไว้จะหายไปทั้งหมดตอนปิดหน้าต่าง
+    // (บั๊กเดิม: clickIn คืน true แม้ปุ่มยังกดไม่ได้ และผลของ waitFor ถูกทิ้ง → รายงานว่าสำเร็จทั้งที่ไม่ได้บันทึก)
+    if (!res.links.length) {
+      clickIn(cd, SEL.dialogCancel) || clickByText(cd, TXT.cancelButton) || clickIn(cd, SEL.dialogClose);
+      await waitFor(() => !shownDialog(SEL.collabDialog), 6000);
+      return res;
+    }
+    // ปุ่ม Save ต้องเป็นของหน้าต่างหลัก ไม่ใช่ของหน้าต่างซ้อน (manage / link) ที่อาจยังค้างอยู่
+    const own = (b) => !b.closest(`${SEL.collabManageDialog},${SEL.collabLinkDialog}`);
+    const saveBtn = () => [...cd.querySelectorAll(SEL.dialogSave)].find((b) => own(b) && isVisible(b) && !isOff(b)) ||
+      [...cd.querySelectorAll(SEL.button)].find((b) => own(b) && isVisible(b) && !isOff(b) && TXT.saveButton.test(normText(b.textContent)));
+    const clickedSave = await waitFor(() => { const b = saveBtn(); if (!b) return false; (b.querySelector('button') || b).click(); return true; }, 8000, 500);
+    const closed = clickedSave && await waitFor(() => !shownDialog(SEL.collabDialog), 10000);
+    res.saved = !!closed;
+    if (!clickedSave) res.errors.push(L('ปุ่ม Save ในหน้าต่างเชิญกดไม่ได้ — คำเชิญยังไม่ถูกบันทึก', 'The invite dialog\'s Save button never became clickable — the invitations were not saved'));
+    else if (!closed) res.errors.push(L('กด Save ในหน้าต่างเชิญแล้วแต่หน้าต่างไม่ปิด — คำเชิญอาจยังไม่ถูกบันทึก', 'Clicked Save in the invite dialog but it did not close — the invitations may not be saved'));
     return res;
   }
 
@@ -3901,6 +4072,7 @@
           h('button', { className: 'chip', onclick: () => sel(() => true) }, L('ทั้งหมดที่แสดง', 'All shown')),
           h('button', { className: 'chip', onclick: () => sel((r) => /public$/.test(r.privacy)) }, L('เฉพาะสาธารณะ', 'Public only')),
           h('button', { className: 'chip', onclick: () => sel((r) => !results[r.videoId]) }, L('ยังไม่เคยเชิญ', 'Not invited yet')),
+          h('button', { className: 'chip', onclick: () => sel((r) => (results[r.videoId] || {}).state === 'failed') }, L('เฉพาะที่ไม่สำเร็จ', 'Failed only')),
           h('button', { className: 'chip', onclick: () => sel(() => false) }, L('ไม่เลือก', 'None'))),
         scan.rows.length ? h('div', { className: 'tbx-scroll' }, table) : h('div', { className: 'tbx-ok' }, L('ช่องนี้ยังไม่มีคลิป', 'This channel has no videos yet')),
         h('div', { className: 'row', style: 'margin-top:14px' },
@@ -3962,23 +4134,26 @@
         await sleep(2000);
         setCollabStage(1, L(`เชิญ ${run.handles.join(', ')}…`, `Inviting ${run.handles.join(', ')}…`));
         const r = await inviteCollaborators(run.handles, page);
-        if (r.links.length) {
-          chSet('collabLinks', Object.assign(collabLinks(), Object.fromEntries(r.links.map((x) => [x.handle, x.link]))));
+        // เก็บลิงก์ไว้เสมอ แม้บันทึกไม่สำเร็จ — ลิงก์ผูกกับช่อง ไม่ได้ผูกกับคลิป
+        if (r.links.length) chSet('collabLinks', Object.assign(collabLinks(), Object.fromEntries(r.links.map((x) => [x.handle, x.link]))));
+        if (r.links.length && r.saved) {
           setCollabStage(2, L('กด Save…', 'Clicking Save…'));
-          // หน้าแก้ไขคลิป: ปุ่ม Save ของหน้าอาจเปิดให้กดช้า — รอสูงสุด 8 วิ (ถ้าไม่เปิดเลย = หน้าต่างเชิญบันทึกให้แล้ว)
+          // หน้าแก้ไขคลิป: ปุ่ม Save ของหน้าอาจเปิดให้กดช้า — รอสูงสุด 8 วิ
+          // (ถ้าไม่เปิดเลย = ไม่มีอะไรค้างให้บันทึก เพราะหน้าต่างเชิญปิดไปเรียบร้อยแล้ว)
           const sv = await waitFor(() => { const x = document.querySelector(SEL.studioSaveHost); return x && visible(x) && !isDisabled(x) ? x : null; }, 8000);
           if (sv) {
             (sv.querySelector('button') || sv).click();
             const saved = await waitFor(() => { const x = document.querySelector(SEL.studioSaveHost); return x && isDisabled(x); }, 20000);
-            if (!saved) throw new Error(L('กด Save ของหน้าแล้วแต่ยังไม่บันทึก', 'Clicked the page Save but it did not save'));
+            if (!saved) { r.saved = false; r.errors.push(L('กด Save ของหน้าแล้วแต่ยังไม่บันทึก', 'Clicked the page Save but it did not save')); }
           }
         }
-        const parts = [
-          r.links.length ? L(`เชิญ ${r.links.map((x) => x.handle).join(', ')}`, `Invited ${r.links.map((x) => x.handle).join(', ')}`) : '',
-          r.skipped.length ? L(`มีอยู่แล้ว ${r.skipped.join(', ')}`, `Already added ${r.skipped.join(', ')}`) : '',
-          ...r.errors,
-        ].filter(Boolean);
-        setCollabResult(item, r.links.length || (r.skipped.length && !r.errors.length) ? 'done' : 'failed', parts.join(' · ') || L('ไม่มีอะไรเปลี่ยน', 'Nothing changed'));
+        // หน้าต่างเชิญค้างอยู่จะบังหน้าถัดไป — ปิดให้เรียบร้อยก่อนเปลี่ยนหน้า
+        if (!r.saved && shownDialog(SEL.collabDialog)) {
+          clickIn(shownDialog(SEL.collabDialog), SEL.dialogCancel) || clickByText(shownDialog(SEL.collabDialog), TXT.cancelButton);
+          await waitFor(() => !shownDialog(SEL.collabDialog), 5000);
+        }
+        const out = inviteOutcome(r);
+        setCollabResult(item, out.state, out.msg);
       } catch (e) {
         setCollabResult(item, 'failed', e.message);
       }

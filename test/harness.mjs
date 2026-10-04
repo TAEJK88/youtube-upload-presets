@@ -76,3 +76,60 @@ export function migrate(initial = {}) {
   const out = run((k) => store[k], (k, v) => { store[k] = v; }, console, L);
   return { store, ...out };
 }
+
+// ----- collab (invite / accept) -----
+// The matching and result-reporting rules are pure, so they are sliced out and
+// tested without a DOM. Everything else in the collab flow talks to Studio.
+const TXT_BLOCK = block('const TXT = {', '// ===== ชื่อ element ของ Studio =====');
+const COLLAB = block('// ===== collab: การเทียบข้อความ', '// ===== รับคำเชิญสิทธิ์ช่องอัตโนมัติ');
+
+export const C = new Function(
+  'L',
+  `'use strict';
+  ${TXT_BLOCK}
+  ${COLLAB}
+  ${constLine('INVITE_URL')}
+  return { normText, collabRowMatches, acceptLabelMatches, inviteOutcome, parseHandles, TXT, INVITE_URL };`
+)(L);
+
+// ----- the collab dialog flow, driven against a fake DOM -----
+// inviteCollaborators() is the part that actually talks to Studio, so the pure
+// slices above cannot cover it. test/fake-dom.mjs is just big enough to run it.
+const COLLAB_DOM = block('// ===== Collaboration:', '// เลือกหมวดหมู่');
+const SEL_BLOCK = block('const SEL = {', '// ===== collab: การเทียบข้อความ');
+const UTIL_BLOCK = block('const sleep =', 'const getDialog ='); // sleep / isVisible / waitFor
+
+export function makeInviter(doc, { pace = 0.01 } = {}) {
+  const run = new Function(
+    'L', 'document', 'T',
+    `'use strict';
+    ${TXT_BLOCK}
+    ${SEL_BLOCK}
+    ${UTIL_BLOCK}
+    ${COLLAB}
+    ${COLLAB_DOM}
+    return { inviteCollaborators, parseHandles, SEL };`
+  );
+  return run(L, doc, (ms) => ms * pace);
+}
+
+// ----- the accept-invite watcher, driven against a fake DOM -----
+// Sliced from `let inviteWatching` down to the SPA re-arm poller below it.
+const WATCH = block('let inviteWatching = false;', '// Studio เปลี่ยนหน้าแบบ SPA');
+const INVITE_HELPERS = block('// ลิงก์คำเชิญ /channel/', 'let inviteWatching = false;');
+
+export function makeWatcher(doc, win) {
+  const run = new Function(
+    'L', 'document', 'location', 'getComputedStyle', 'setInterval', 'clearInterval', 'setTimeout', 'console', 'GM_getValue',
+    `'use strict';
+    ${TXT_BLOCK}
+    ${SEL_BLOCK}
+    ${COLLAB}
+    ${INVITE_HELPERS}
+    ${WATCH}
+    return watchInvite;`
+  );
+  // the toast's auto-remove timer is irrelevant here and would keep node alive
+  return run(L, doc, win.location, win.getComputedStyle, win.setInterval, win.clearInterval,
+    () => 0, win.console, () => ({}));
+}

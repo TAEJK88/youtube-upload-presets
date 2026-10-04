@@ -12,15 +12,29 @@ After installing, set your producer name in **Settings → General** and your ow
 
 ## Running tests
 
-The pure functions (templating, chapter rules, tracklist rewriting, storage migrations)
-are covered by zero-dependency tests. They slice the relevant blocks out of the userscript
-and run them with stubs, so there is no build step:
+The pure functions (templating, chapter rules, tracklist rewriting, storage migrations,
+collab matching) are covered by zero-dependency tests. They slice the relevant blocks out
+of the userscript and run them with stubs, so there is no build step:
 
 ```sh
 node --test test/*.test.mjs
 ```
 
 Run them before bumping `@version`.
+
+The collab flows talk to Studio, so they cannot be tested as pure functions.
+`test/fake-dom.mjs` is a small DOM (selectors, `closest`, `click`, visibility) that two
+mocks build on:
+
+- `test/mock-studio.mjs` → the collaborator dialog, driving the real
+  `inviteCollaborators()` in `test/collab-dialog.test.mjs`.
+- `test/mock-invite.mjs` → the "Collaboration requests" list and its accept modal,
+  driving the real `watchInvite()` in `test/invite-accept.test.mjs`.
+
+Both mocks record what actually happened (saved / accepted) separately from what the
+script reports, which is what catches a run that claims success without doing anything.
+Both are built from markup captured off real Studio pages; if YouTube changes that
+markup, update the mock alongside `SEL` so the tests keep describing reality.
 
 ## Where to look when YouTube changes Studio
 
