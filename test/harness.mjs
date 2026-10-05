@@ -153,3 +153,20 @@ export function makeDetails(doc) {
     return { getDialog, getDetailsHost, getTitleBox, getDescBox, onEditPage, detailsOpen };`
   )(doc, (el) => !!el && el.isConnected && el.getClientRects().length > 0);
 }
+
+// ----- the channel switcher -----
+const SWITCHER = block('// ===== สลับช่องให้อัตโนมัติ', 'let inviteWatching = false;');
+
+export function makeSwitcher(doc, win, store) {
+  return new Function(
+    'L', 'document', 'location', 'setInterval', 'clearInterval', 'console',
+    'GM_getValue', 'GM_setValue',
+    `'use strict';
+    ${TXT_BLOCK}
+    ${SEL_BLOCK}
+    ${COLLAB}
+    ${SWITCHER}
+    return { watchChannelSwitcher, switchToChannel, recoverAfterSwitch };`
+  )(L, doc, win.location, win.setInterval, win.clearInterval, { info() {} },
+    (k, d) => (k in store ? store[k] : d), (k, v) => { store[k] = v; });
+}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.26.1
+// @version      4.26.2
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -135,6 +135,8 @@
     inviteRowTitle: '#video-title',
     // --- หน้าสลับช่องของ YouTube (www.youtube.com/channel_switcher → /account) ---
     switcherItem: 'ytd-account-item-renderer', // หนึ่งแถว = หนึ่งช่อง (ไม่มี UC id ในแถว มีแต่ชื่อกับ @handle)
+    switcherItemClick: 'tp-yt-paper-icon-item', // ตัวที่กดได้จริงในแถว
+    switcherConfirm: 'ytd-popup-container yt-confirm-dialog-renderer #confirm-button', // ปุ่ม "Got it" ของช่องที่เราเป็นผู้จัดการ
     // --- Monetisation / Ad suitability ---
     monetBox: 'ytcp-video-monetization',
     monetDialog: 'ytcp-video-monetization-edit-dialog',
@@ -272,19 +274,34 @@
     if (!want) return;
     const say = (m) => console.info('[YT Upload Presets] switch: ' + m);
     say(`looking for ${want.handle || want.name} on the channel switcher`);
+    const vis = (e) => !!e && e.getClientRects().length > 0;
     let tries = 0;
+    let picked = false;
     const timer = setInterval(() => {
-      if (++tries > 60 || !pendingSwitch()) { clearInterval(timer); return; }
+      if (++tries > 60) { clearInterval(timer); return; }
+      // ช่องที่เราเป็น "ผู้จัดการ" (manager) ไม่สลับทันที แต่เด้งกล่องบอกว่ากิจกรรมส่วนตัว
+      // ยังนับกับบัญชีเดิมอยู่ ต้องกด "Got it" ก่อนถึงจะสลับจริง — ช่องที่เราเป็นเจ้าของ
+      // ไม่มีกล่องนี้ (serviceEndpoint ต่างกัน: openPopupAction vs ปลายทางสลับช่องตรง ๆ)
+      const okHost = document.querySelector(SEL.switcherConfirm);
+      const okBtn = okHost && (okHost.querySelector('button') || okHost);
+      if (picked && vis(okBtn) && TXT.dismissNotice.test(normText(okBtn.textContent))) {
+        clearInterval(timer);
+        say('confirming the manager-channel notice');
+        okBtn.click();
+        return;
+      }
+      if (picked) return; // กดแถวไปแล้ว — รอกล่องยืนยัน หรือรอ YouTube พาไปเอง
+      if (!pendingSwitch()) { clearInterval(timer); return; }
       const row = [...document.querySelectorAll(SEL.switcherItem)]
-        .find((r) => r.getClientRects().length > 0 && switcherRowMatches(r.textContent, want.handle, want.name));
+        .find((r) => vis(r) && switcherRowMatches(r.textContent, want.handle, want.name));
       if (!row) return;
-      clearInterval(timer);
+      picked = true;
       clearSwitch();
       // YouTube เด้งไป next ทันทีโดยที่ session ใหม่ยังไม่ทันมีผล หน้าแรกที่โหลดจึงขึ้น Oops
       // ได้ ทั้งที่สลับช่องสำเร็จแล้ว — จดไว้ว่าเพิ่งสลับ เพื่อให้โหลดซ้ำให้เองถ้าเจอหน้านั้น
       GM_setValue(SWITCHED_KEY, { at: Date.now(), tries: 0 });
       say(`switching to ${want.handle || want.name}`);
-      row.click();
+      (row.querySelector(SEL.switcherItemClick) || row).click();
     }, 500);
   }
   watchChannelSwitcher();
