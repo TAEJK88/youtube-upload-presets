@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.17.0
+// @version      4.18.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -699,19 +699,25 @@
     return { errors, warnings, count: stamps.length };
   }
   // ความยาวคลิปจาก metadata ของไฟล์ (อ่านแค่ส่วนหัว ไม่โหลดทั้งไฟล์) · อ่านไม่ได้ = 0 (ข้ามการเช็กความยาว)
-  function videoDuration(file) {
+  // เคยเจอบน Studio จริง: video ที่ไม่ได้อยู่ในหน้าบางครั้งไม่โหลด metadata เลย (ได้ 0) -> แปะลงหน้าแบบซ่อน และลองซ้ำอีกรอบ
+  function videoDurationOnce(file, wait) {
     return new Promise((resolve) => {
       const v = document.createElement('video');
       const url = URL.createObjectURL(file);
       let settled = false;
-      const done = (d) => { if (settled) return; settled = true; URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(Number.isFinite(d) ? d : 0); };
+      const done = (d) => { if (settled) return; settled = true; URL.revokeObjectURL(url); v.removeAttribute('src'); v.remove(); resolve(Number.isFinite(d) && d > 0 ? d : 0); };
       v.preload = 'metadata';
       v.muted = true;
+      v.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:-10px';
       v.onloadedmetadata = () => done(v.duration);
       v.onerror = () => done(0);
-      setTimeout(() => done(0), 15000);
+      setTimeout(() => done(0), wait);
+      document.body.append(v);
       v.src = url;
     });
+  }
+  async function videoDuration(file) {
+    return (await videoDurationOnce(file, 12000)) || (await videoDurationOnce(file, 20000));
   }
 
   // ===== งานที่กำลังทำ (progress) =====
@@ -1567,7 +1573,8 @@
       const it = { id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0 };
       queue.push(it);
       added.push(it);
-      videoDuration(file).then((d) => { it.duration = d; if (it.ui) updateItemUI(it); }); // ใช้เช็ก timestamp เกินความยาวคลิป
+      it.durState = 'loading';
+      videoDuration(file).then((d) => { it.duration = d; it.durState = d ? 'ok' : 'fail'; if (it.ui) updateItemUI(it); }); // ใช้เช็ก timestamp เกินความยาวคลิป
     }
     const byKey = new Map();
     for (const it of queue) if (it.status !== 'done') byKey.set(baseKey(it.file.name), it);
@@ -2090,11 +2097,6 @@
       display:flex;flex-direction:column;overflow:hidden;
       transform:translateX(calc(100% + 24px));transition:transform .28s cubic-bezier(.2,.8,.2,1)}
     #ytp-root .drawer.open{transform:none}
-    #ytp-root .hd{display:flex;align-items:center;gap:12px;padding:16px 16px 12px}
-    #ytp-root .hd .logo{width:38px;height:38px;border-radius:11px}
-    #ytp-root .hd .tt{flex:1;min-width:0}
-    #ytp-root .hd .tt b{display:block;font-size:15px;font-weight:700;letter-spacing:-.01em}
-    #ytp-root .hd .tt span{font-size:12px;color:var(--fg3)}
     #ytp-root .ib{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;border:1px solid transparent;
       background:none;color:var(--fg2);cursor:pointer;transition:.15s;flex:0 0 auto}
     #ytp-root .ib:hover{background:var(--surface2);color:var(--fg)}
@@ -2417,7 +2419,7 @@
     #ytp-root .card .hdr{cursor:pointer}
     #ytp-root .card .tl{font-size:12.5px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #ytp-root .card .tl.over{color:var(--err)}
-    #ytp-root .card .wt{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--brand);white-space:nowrap}
+    #ytp-root .card .wt{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--fg2);white-space:nowrap}
     #ytp-root .card .wt.bad{color:var(--err)}
     #ytp-root .card .ib.sm{width:26px;height:26px;border-radius:7px}
     #ytp-root .card .exp .ic{transition:transform .18s}
@@ -2458,6 +2460,12 @@
     #ytp-root .stats{display:flex;flex-wrap:wrap;gap:6px}
     #ytp-root .stat{display:flex;align-items:baseline;gap:6px;padding:4px 10px;border-radius:999px}
     #ytp-root .stat b{display:inline;font-size:14px}
+    #ytp-root .drawer>.chan{margin-top:12px}
+    #ytp-root .chan .cap{font-size:10.5px}
+    #ytp-root .sched .g3 .mini,#ytp-root .when .mini,#ytp-root .card .fields .mini{font-size:12px}
+    #ytp-root .pill{font-size:11.5px}
+    #ytp-root .chip.warnc{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+    #ytp-root .card .ord .ib:not(:disabled){color:var(--fg)}
     @keyframes ytp-fade{from{opacity:0}to{opacity:1}}
     @keyframes ytp-ind{0%{margin-left:-35%}100%{margin-left:100%}}
     @keyframes ytp-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
@@ -2677,12 +2685,8 @@
     lockBtn
   );
 
-  const drawer = h('div', { className: 'drawer' },
-    h('div', { className: 'hd' },
-      h('span', { className: 'logo' }, icon('upload', 18)),
-      h('div', { className: 'tt' }, h('b', {}, 'Upload Studio'), h('span', {}, L('อัปโหลดหลายคลิป · พรีเซ็ตชื่อ/คำอธิบาย', 'Bulk video upload · title/description presets'))),
-      iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer())
-    ),
+  chanBar.append(iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer()));
+  const drawer = h('div', { className: 'drawer', 'aria-label': 'Upload Studio' },
     chanBar, chanList, actBar, nav, body, footWrap
   );
 
@@ -3008,7 +3012,7 @@
     const msg = h('div', { className: 'msg' }, msgIcon, msgTxt);
     const upFill = h('i');
     const upBar = h('div', { className: 'tbx-bar', hidden: true }, upFill);
-    const thumbBox = h('div', { className: 'th' }, icon('film', 22), h('span', { className: 'sz' }, fmtSize(it.file.size)));
+    const thumbBox = h('div', { className: 'th', title: fmtSize(it.file.size) }, icon('film', 22), h('span', { className: 'sz' }, fmtSize(it.file.size)));
     const titleIn = h('input', {
       type: 'text', placeholder: L('ชื่อคลิป', 'Video title'),
       oninput: (e) => { it.title = e.target.value; it.titleEdited = true; updateItemUI(it); },
@@ -3116,10 +3120,15 @@
 
   const MSG_ICON = { pending: 'alert', uploading: 'upload', review: 'alert', done: 'check', error: 'alert' };
 
+  const fmtDur = (sec) => {
+    const t = Math.round(sec), hh = Math.floor(t / 3600), mm = Math.floor((t % 3600) / 60), ss = t % 60;
+    return (hh ? hh + ':' + pad(mm) : mm) + ':' + pad(ss);
+  };
   function updateItemUI(it) {
     saveMemo();
     const u = it.ui;
     if (!u) return;
+    u.thumbBox.querySelector('.sz').textContent = it.duration ? fmtDur(it.duration) : fmtSize(it.file.size);
     const [label] = STATUS[it.status];
     const editable = it.status === 'pending' || it.status === 'error';
     u.el.className = 'card ' + it.status + (it.open ? ' open' : '');
@@ -3214,8 +3223,12 @@
           icon('alert', 13), h('span', {}, L(`tracklist: ${tc.warnings.length} คำเตือน`, `Tracklist: ${tc.warnings.length} warning(s)`))));
       }
       if (tc.count && !tc.errors.length) {
-        kids.push(h('span', { className: 'chip', title: L('ผ่านกฎ Chapters ของ YouTube', 'Passes YouTube\'s chapter rules') + (it.duration ? '' : L(' (ยังไม่ได้เช็กกับความยาวคลิป)', ' (not checked against video length)')) },
-          icon('check', 13), h('span', {}, L(`Chapters ${tc.count} ช่วง`, `${tc.count} chapters`))));
+        const durNote = it.duration ? '' : it.durState === 'loading'
+          ? L(' · กำลังอ่านความยาวคลิป…', ' · reading video length…')
+          : L(' · อ่านความยาวคลิปไม่ได้ จึงยังไม่ได้เช็กว่า timestamp เกินความยาวคลิปไหม', ' · could not read the video length, so timestamps were not checked against it');
+        kids.push(h('span', { className: 'chip' + (it.durState === 'fail' ? ' warnc' : ''), title: L('ผ่านกฎ Chapters ของ YouTube', 'Passes YouTube\'s chapter rules') + durNote },
+          icon(it.durState === 'fail' ? 'alert' : 'check', 13),
+          h('span', {}, L(`Chapters ${tc.count} ช่วง`, `${tc.count} chapters`) + (it.durState === 'fail' ? L(' · ไม่ได้เช็กความยาว', ' · length not checked') : ''))));
       } else if (!tc.count) {
         kids.push(h('span', { className: 'chip bad', title: L('ไฟล์ .txt ไม่มีบรรทัดที่ขึ้นต้นด้วยเวลา เช่น 00:00 ชื่อเพลง', 'The .txt has no lines starting with a time, e.g. 00:00 Song name') },
           icon('alert', 13), h('span', {}, L('ไม่มี timestamp — ไม่มี Chapters', 'No timestamps — no chapters'))));
@@ -3534,6 +3547,15 @@
         } }, icon('clear', 13), L('ลบ', 'Delete'))
       )
     ),
+    sec(L('ข้อมูลคลิป', 'Video details'), 'film',
+      h('div', { className: 'lbl' }, L('ชื่อพรีเซ็ต', 'Preset name')), fLabel,
+      h('div', { className: 'lbl' }, h('span', {}, L('ชื่อคลิป', 'Video title')), titleCnt), fTitle,
+      h('div', { className: 'lbl' }, h('span', {}, L('คำอธิบาย', 'Description')), h('span', {}, L('ลาก .txt มาวางเพื่อแทรกข้อความ', 'Drop a .txt here to insert its text'))), fDesc,
+      h('div', { className: 'lbl' }, L('แท็ก', 'Tags')), fTags,
+      h('div', { className: 'lbl' }, h('span', {}, L('ตัวแปร', 'Variables')), h('span', {}, L('คลิกเพื่อแทรกในช่องที่กำลังแก้', 'Click to insert into the field being edited'))), varChips,
+      h('div', { className: 'hint', style: 'margin-top:10px' }, icon('alert', 13),
+        h('span', {}, L('ครอบด้วย [[ ... ]] เพื่อให้ส่วนนั้นหายไปเมื่อตัวแปรข้างในว่าง เช่น [[ | {bpm} BPM]]', 'Wrap in [[ ... ]] to hide that part when the variable inside is empty, e.g. [[ | {bpm} BPM]]')))
+    ),
     sec(L('ตัวอย่างบน YouTube', 'YouTube preview'), 'tv',
       h('div', { className: 'yt' },
         h('div', { className: 'vt' }, icon('play', 26), h('span', { className: 'sz' }, '2:53:12')),
@@ -3544,15 +3566,6 @@
       h('div', { className: 'lbl' }, h('span', {}, L('ทดลองกับไฟล์', 'Test with a file')), sampleTxtLbl),
       sampleIn,
       h('div', { className: 'hint', style: 'margin-top:6px' }, icon('clip', 13), L('ลาก .mp4 หรือ .txt จริงมาวางที่ช่องนี้เพื่อดูผลลัพธ์', 'Drop a real .mp4 or .txt here to preview the result'))
-    ),
-    sec(L('ข้อมูลคลิป', 'Video details'), 'film',
-      h('div', { className: 'lbl' }, L('ชื่อพรีเซ็ต', 'Preset name')), fLabel,
-      h('div', { className: 'lbl' }, h('span', {}, L('ชื่อคลิป', 'Video title')), titleCnt), fTitle,
-      h('div', { className: 'lbl' }, h('span', {}, L('คำอธิบาย', 'Description')), h('span', {}, L('ลาก .txt มาวางเพื่อแทรกข้อความ', 'Drop a .txt here to insert its text'))), fDesc,
-      h('div', { className: 'lbl' }, L('แท็ก', 'Tags')), fTags,
-      h('div', { className: 'lbl' }, h('span', {}, L('ตัวแปร', 'Variables')), h('span', {}, L('คลิกเพื่อแทรกในช่องที่กำลังแก้', 'Click to insert into the field being edited'))), varChips,
-      h('div', { className: 'hint', style: 'margin-top:10px' }, icon('alert', 13),
-        h('span', {}, L('ครอบด้วย [[ ... ]] เพื่อให้ส่วนนั้นหายไปเมื่อตัวแปรข้างในว่าง เช่น [[ | {bpm} BPM]]', 'Wrap in [[ ... ]] to hide that part when the variable inside is empty, e.g. [[ | {bpm} BPM]]')))
     ),
     sec(L('ศิลปิน', 'Artists'), 'queue',
       h('div', { className: 'lbl' }, h('span', {}, L('ให้ขึ้นก่อนใน {artists}', 'Prioritised in {artists}')), h('span', {}, L('เฉพาะคนที่อยู่ใน tracklist', 'Only those in the tracklist'))), fArtists,
