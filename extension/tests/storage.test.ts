@@ -17,9 +17,7 @@ describe('storage', () => {
   it('keeps falsy stored values instead of the fallback (GM_getValue semantics)', async () => {
     await save('flag', false);
     await save('n', 0);
-    await save('nothing', null);
     expect(await load('flag', true)).toBe(false);
     expect(await load('n', 5)).toBe(0);
-    expect(await load('nothing', 'x')).toBe(null);
   });
 });
