@@ -1,8 +1,13 @@
 import { browser } from 'wxt/browser';
 import { onMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
+import { initI18n } from '@/lib/i18n';
+import { runMigrations } from '@/lib/migrations';
 
 export default defineBackground(() => {
+  // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
+  initI18n().then(runMigrations).catch((e) => console.error('[ytup] startup', e));
+
   // Toolbar icon opens the panel; the panel is off everywhere except Studio tabs.
   browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
   browser.sidePanel.setOptions({ enabled: false }).catch(console.error);
