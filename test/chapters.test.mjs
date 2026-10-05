@@ -89,3 +89,25 @@ test('hh:mm:ss timestamps are recognised', () => {
   assert.deepEqual(r.errors, []);
   assert.equal(r.count, 3);
 });
+
+test('fixChapters sets the first timestamp to 0:00 and keeps the rest of the line', () => {
+  const r = S.fixChapters('Tracklist:\n00:05 A - One\n03:00 B\n06:00 C');
+  assert.equal(r.text, 'Tracklist:\n0:00 A - One\n03:00 B\n06:00 C');
+  assert.equal(r.changes.length, 1);
+  assert.deepEqual(ok(r.text).errors, []);
+});
+
+test('fixChapters sorts timestamp lines without moving other lines', () => {
+  const r = S.fixChapters('Intro text\n0:00 A\n6:00 C\nmiddle\n3:00 B');
+  assert.equal(r.text, 'Intro text\n0:00 A\n3:00 B\nmiddle\n6:00 C');
+  assert.deepEqual(ok(r.text).errors, []);
+});
+
+test('fixChapters keeps hh:mm:ss form for the first timestamp', () => {
+  assert.equal(S.fixChapters('0:00:07 A\n0:10:00 B\n1:00:00 C').text, '0:00:00 A\n0:10:00 B\n1:00:00 C');
+});
+
+test('fixChapters reports nothing to fix for valid lists and text without times', () => {
+  assert.deepEqual(S.fixChapters('0:00 A\n0:10 B\n0:20 C').changes, []);
+  assert.deepEqual(S.fixChapters('no times here').changes, []);
+});

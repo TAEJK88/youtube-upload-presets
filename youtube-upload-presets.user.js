@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.22.0
+// @version      4.23.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -699,6 +699,31 @@
       else if (k) seen.set(k, s.line);
     }
     return { errors, warnings, count: stamps.length };
+  }
+  // แก้ปัญหา Chapters ที่แก้ให้ได้โดยไม่ต้องเดา: timestamp แรกไม่ใช่ 0:00 และบรรทัด timestamp เรียงผิดลำดับ
+  // (เปลี่ยนเฉพาะตัวเลขเวลา / สลับเฉพาะบรรทัดที่มีเวลา ข้อความอื่นอยู่ที่เดิม) — ช่วงสั้นกว่า 10 วิ หรือเกินความยาวคลิปแก้ให้ไม่ได้
+  // คืน { text, changes } · changes ว่าง = ไม่มีอะไรที่แก้ให้ได้
+  function fixChapters(text) {
+    const RE = /^(\s*[[(]?)((?:\d{1,2}:)?\d{1,3}:\d{1,2})(\b.*)$/;
+    const lines = String(text).split('\n');
+    const idx = [];
+    lines.forEach((l, i) => { if (RE.test(l)) idx.push(i); });
+    if (!idx.length) return { text, changes: [] };
+    const secs = (l) => l.match(RE)[2].split(':').map(Number).reduce((a, x) => a * 60 + x, 0);
+    const changes = [];
+    const ts = idx.map((i) => lines[i]);
+    const sorted = [...ts].sort((a, b) => secs(a) - secs(b));
+    if (sorted.some((l, k) => l !== ts[k])) {
+      sorted.forEach((l, k) => { lines[idx[k]] = l; });
+      changes.push(L('เรียงบรรทัด timestamp ตามเวลา', 'Sorted the timestamp lines by time'));
+    }
+    const first = lines[idx[0]];
+    if (secs(first) !== 0) {
+      const m = first.match(RE);
+      lines[idx[0]] = m[1] + (m[2].split(':').length === 3 ? '0:00:00' : '0:00') + m[3];
+      changes.push(L(`timestamp แรก ${m[2]} → 0:00`, `First timestamp ${m[2]} → 0:00`));
+    }
+    return { text: lines.join('\n'), changes };
   }
   // ความยาวคลิปจาก metadata ของไฟล์ (อ่านแค่ส่วนหัว ไม่โหลดทั้งไฟล์) · อ่านไม่ได้ = 0 (ข้ามการเช็กความยาว)
   // เคยเจอบน Studio จริง: video ที่ไม่ได้อยู่ในหน้าบางครั้งไม่โหลด metadata เลย (ได้ 0) -> แปะลงหน้าแบบซ่อน และลองซ้ำอีกรอบ
@@ -1605,8 +1630,14 @@
     const vids = allVids.filter((f) => !inQueue.has(f.name + '|' + f.size));
     const dupN = allVids.length - vids.length;
     const added = [];
+    const chId = getChannel().id;
+    const history = getUploads();
+    let prevN = 0;
     for (const file of vids) {
       const it = { id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0 };
+      // เคยอัปไฟล์นี้ (ชื่อ+ขนาดเดียวกัน) ขึ้นช่องนี้แล้ว -> ใส่คิวแต่ติดป้ายแดง และเตือนอีกครั้งก่อนเริ่ม (อัปซ้ำโดยตั้งใจยังทำได้)
+      it.prev = history.find((u) => u.file === file.name && u.size === file.size && (!chId || u.channel === chId)) || null;
+      if (it.prev) prevN++;
       queue.push(it);
       added.push(it);
       it.durState = 'loading';
@@ -1634,6 +1665,7 @@
     if (unmatched) parts.push(L(`ไม่มีคลิปชื่อตรงกัน ${unmatched} ไฟล์`, `${unmatched} file(s) with no matching video name`));
     const restored = restoreMemo(added); // หลังแนบ .txt (การแนบรีเซ็ตชื่อเป็นค่าจากพรีเซ็ต)
     if (restored) parts.push(L(`ใช้ค่าที่แก้ไว้เดิม ${restored} คลิป`, `Restored your edits for ${restored} video(s)`));
+    if (prevN) parts.push(L(`เคยอัปขึ้นช่องนี้แล้ว ${prevN} คลิป (ป้ายแดง)`, `${prevN} already uploaded to this channel (red badge)`));
     if (dupN) parts.push(L(`มีในคิวแล้ว ${dupN} คลิป`, `${dupN} already in the queue`));
     if (skipped) parts.push(L(`ข้าม ${skipped} ไฟล์`, `Skipped ${skipped} file(s)`));
     if (parts.length) toast(parts.join(' · '));
@@ -1663,11 +1695,54 @@
     if (it.publishFinal) return it.publishFinal;
     if (!scheduleOn()) return null;
     if (it.publishEdited && it.publishAt) return it.publishAt;
+    return queueSlots().map.get(it) ?? null;
+  }
+  // ช่องเวลาของคลิปในคิวตามลำดับ: เริ่มที่ effectiveStart แล้วทีละ step
+  // ข้ามช่วงที่ (ก) มีคลิปตั้งเวลาไว้ในช่องแล้ว หรือ (ข) มีคลิปในคิวที่ตั้งเวลาเอง — ถือว่าชนเมื่อห่างกันไม่ถึงครึ่ง step
+  // (ปล่อยวันละคลิป: คลิปที่ตั้งไว้ 19:00 วันเดียวกันกับช่อง 08:00 ถือว่าชน -> เลื่อนไปวันถัดไป)
+  function queueSlots() {
+    const map = new Map();
     const start = effectiveStart();
-    if (!start) return null;
-    const k = queue.filter((x) => ['pending', 'uploading', 'review'].includes(x.status) && !(x.publishEdited && x.publishAt)).indexOf(it);
-    if (k < 0) return null;
-    return start + k * stepMs();
+    if (!start) return { map, skipped: 0 };
+    const step = stepMs();
+    const live = (x) => ['pending', 'uploading', 'review'].includes(x.status);
+    const taken = [
+      ...takenSlots().map((x) => x.at),
+      ...queue.filter((x) => live(x) && x.publishEdited && x.publishAt).map((x) => x.publishAt),
+    ];
+    const busy = (t) => taken.some((a) => Math.abs(a - t) < step / 2);
+    let t = start;
+    let skipped = 0;
+    for (const x of queue.filter((q) => live(q) && !(q.publishEdited && q.publishAt))) {
+      for (let g = 0; busy(t) && g < 1000; g++) { t += step; skipped++; }
+      map.set(x, t);
+      t += step;
+    }
+    return { map, skipped };
+  }
+  // คลิปที่ตั้งเวลาไว้ในช่องปัจจุบัน (แคชต่อช่อง 5 นาที) — ไม่นับคลิปที่คิวนี้เพิ่งอัปเอง
+  const chanSched = { ch: '', at: 0, list: [], loading: null };
+  const takenSlots = () => (chanSched.ch && chanSched.ch === getChannel().id
+    ? chanSched.list.filter((x) => !queue.some((i) => i.videoId && i.videoId === x.videoId)) : []);
+  function refreshChanSched(force = false) {
+    const ch = getChannel().id;
+    if (!ch || !Claims || !Claims.listScheduled) return Promise.resolve();
+    if (!force && chanSched.ch === ch && Date.now() - chanSched.at < 300e3) return Promise.resolve();
+    if (chanSched.loading) return chanSched.loading;
+    chanSched.loading = (async () => {
+      try {
+        const list = await Claims.listScheduled();
+        if (list) { chanSched.list = list; chanSched.ch = ch; }
+      } catch (e) {
+        console.warn('[YT Presets] scheduled list', e);
+      } finally {
+        chanSched.at = Date.now(); // ล้มเหลวก็พัก 5 นาที ไม่ยิงซ้ำรัว ๆ
+        if (chanSched.ch !== ch) { chanSched.ch = ch; chanSched.list = []; }
+        chanSched.loading = null;
+        if (typeof onScheduleChange === 'function') onScheduleChange();
+      }
+    })();
+    return chanSched.loading;
   }
   // เวลาเริ่มที่ใช้จริง: ถ้าเวลาที่ตั้งไว้ผ่านไปแล้ว (หรือเหลือไม่ถึง 15 นาที) เลื่อน "ทั้งชุด" ไปช่องแรกที่ยังตั้งได้
   // เลื่อนทีละคลิปไม่ได้ — คลิปที่ถูกเลื่อนจะไปชนช่องของคลิปถัดไป (เช่น 2 คลิปได้ 08:00 วันเดียวกัน)
@@ -1860,8 +1935,10 @@
     const pendingItems = queue.filter((i) => i.status === 'pending');
     const badTl = pendingItems.filter((i) => i.txt).map((i) => [i, itemTracklist(i)]).filter(([, tc]) => tc.errors.length);
     const badTime = pendingItems.filter((i) => scheduleProblem(itemPublishAt(i)));
+    const prevUp = pendingItems.filter((i) => i.prev);
+    await refreshChanSched(true); // เช็กคลิปที่ตั้งเวลาไว้ในช่องล่าสุด ก่อนแสดงเวลาที่จะใช้จริง
     // ยืนยันครั้งเดียวในแผง: ช่องปลายทาง + สรุปคิว + ปัญหาที่ควรรู้ก่อนเริ่ม
-    if (settings.confirmStart || badTl.length || badTime.length) {
+    if (settings.confirmStart || badTl.length || badTime.length || prevUp.length) {
       const ch = getChannel();
       const times = pendingItems.map(itemPublishAt).filter(Boolean).sort((a, b) => a - b);
       const vis = [...new Set(pendingItems.map((i) => presetById(i.presetId).visibility || 'PRIVATE'))].join(', ');
@@ -1887,9 +1964,11 @@
             noThumb ? h('span', {}, L('ไม่มีภาพปก', 'No thumbnail')) : null, noThumb ? h('span', {}, L(`${noThumb} คลิป`, `${noThumb} video(s)`)) : null),
           badTime.length ? warnList(L(`เวลาปล่อยผ่านไปแล้ว/เร็วไป ${badTime.length} คลิป`, `${badTime.length} release time(s) in the past / too soon`),
             badTime.map((i) => `${i.file.name}: ${fmtWhen(itemPublishAt(i))}`)) : null,
+          prevUp.length ? warnList(L(`เคยอัปขึ้นช่องนี้แล้ว ${prevUp.length} คลิป — จะได้คลิปซ้ำ`, `${prevUp.length} already uploaded to this channel — they will be duplicated`),
+            prevUp.map((i) => `${i.file.name}: ${i.prev.title || i.prev.videoId || ''}`)) : null,
           badTl.length ? warnList(L(`tracklist มีปัญหา ${badTl.length} คลิป — YouTube จะไม่สร้าง Chapters`, `${badTl.length} tracklist problem(s) — YouTube won't create chapters`),
             badTl.map(([i, tc]) => `${i.file.name}: ${tc.errors[0]}`)) : null,
-          badTl.length || badTime.length ? h('div', { className: 'mut', style: 'margin-top:8px' }, L('กดยกเลิกเพื่อกลับไปแก้ — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด', 'Cancel to go back and fix — details are on the red badges in each card')) : null
+          badTl.length || badTime.length || prevUp.length ? h('div', { className: 'mut', style: 'margin-top:8px' }, L('กดยกเลิกเพื่อกลับไปแก้ — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด', 'Cancel to go back and fix — details are on the red badges in each card')) : null
         ),
       });
       if (!go) return;
@@ -2077,6 +2156,13 @@
         qaCheck(bar, host);
       }),
       qaBtn('clip', L('ใส่ .txt', 'Load .txt'), L('เลือกไฟล์ tracklist .txt แล้วสร้างคำอธิบายใหม่', 'Pick a tracklist .txt and rebuild the description'), () => txtIn.click()),
+      qaBtn('note', L('แก้ Chapters', 'Fix chapters'), L('timestamp แรกให้เป็น 0:00 และเรียงบรรทัดตามเวลา', 'Make the first timestamp 0:00 and sort the timestamp lines'), () => {
+        const box = getDescBox(host);
+        const fx = fixChapters(box?.innerText || '');
+        if (!fx.changes.length) return qaSay(bar, L('ไม่มีอะไรที่แก้ให้อัตโนมัติได้', 'Nothing that can be fixed automatically'), 'warn');
+        setEditable(box, fx.text);
+        qaCheck(bar, host);
+      }),
       qaBtn('check', L('ตรวจ Chapters', 'Check chapters'), L('ตรวจ timestamp ในคำอธิบายตามกฎ Chapters ของ YouTube', 'Check the description\'s timestamps against YouTube\'s chapter rules'), () => qaCheck(bar, host)),
       qaBtn('layers', L('แท็กจากพรีเซ็ต', 'Preset tags'), L('เพิ่มแท็กของพรีเซ็ต', 'Add the preset\'s tags'), async () => {
         const ok = await setTags(host, renderTags(qaPreset(), qaVars(host)));
@@ -3307,6 +3393,17 @@
         ? L(`${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · ทุก ${sch.every} ${unit}`, `${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · every ${sch.every} ${unit}`)
         : L(`เริ่ม ${fmtWhen(effectiveStart())} · ทุก ${sch.every} ${unit}`, `Starts ${fmtWhen(effectiveStart())} · every ${sch.every} ${unit}`);
     }
+    if (on) {
+      refreshChanSched();
+      const { skipped } = queueSlots();
+      const ext = takenSlots().length;
+      if (ext) {
+        const nextExt = takenSlots()[0];
+        schedSummary.textContent += L(` · ในช่องมีคลิปรอปล่อย ${ext} คลิป (ถัดไป ${fmtWhen(nextExt.at)})`, ` · ${ext} already scheduled on the channel (next ${fmtWhen(nextExt.at)})`)
+          + (skipped ? L(` — ข้ามให้ ${skipped} ช่วง`, ` — skipped ${skipped} slot(s)`) : '');
+        schedSummary.title = takenSlots().map((x) => `${fmtWhen(x.at)} · ${x.title}`).join('\n');
+      } else schedSummary.title = '';
+    }
     const late = on && startIsPast();
     schedPanel.classList.toggle('late', late);
     pastNote.hidden = !late;
@@ -3563,6 +3660,16 @@
     if (it.txt) {
       const tc = itemTracklist(it);
       const probs = [...tc.errors, ...tc.warnings];
+      const fx = tc.errors.length && editable ? fixChapters(it.txt) : null;
+      if (fx && fx.changes.length) {
+        kids.push(h('button', { className: 'chip add', title: fx.changes.join('\n'), onclick: () => {
+          it.txt = fx.text;
+          it.titleEdited = false;
+          assignNumbers();
+          updateItemUI(it);
+          toast(L('แก้ tracklist แล้ว: ', 'Tracklist fixed: ') + fx.changes.join(' · '));
+        } }, icon('note', 13), L('แก้ tracklist ให้', 'Fix tracklist')));
+      }
       if (tc.errors.length) {
         kids.push(h('span', { className: 'chip bad', title: L('YouTube จะไม่สร้าง Chapters จนกว่าจะแก้:\n', 'YouTube won\'t create chapters until fixed:\n') + tc.errors.map((x) => '• ' + x).join('\n') + (tc.warnings.length ? '\n\n' + tc.warnings.map((x) => '• ' + x).join('\n') : '') },
           icon('alert', 13), h('span', {}, L(`tracklist: ${tc.errors.length} ปัญหา`, `Tracklist: ${tc.errors.length} problem(s)`))));
@@ -3587,6 +3694,12 @@
       kids.push(h('span', { className: 'chip' + (big ? ' bad' : ''), title: it.thumb.name }, icon('image', 13),
         h('span', {}, big ? L('ภาพปกเกิน 2MB', 'Thumbnail over 2MB') : L(`ภาพปก · ${fmtSize(it.thumb.size)}`, `Thumbnail · ${fmtSize(it.thumb.size)}`)),
         rm(() => { it.thumb = null; updateItemUI(it); })));
+    }
+    if (it.prev && editable) {
+      const when = new Intl.DateTimeFormat(LOCALE === 'th-TH' ? 'th-TH-u-ca-gregory' : LOCALE, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(it.prev.date));
+      kids.push(h('button', { className: 'chip bad', title: L(`ไฟล์นี้เคยอัปขึ้นช่องนี้แล้ว: ${it.prev.title || ''}\nคลิกเพื่อเปิดคลิปนั้น · ถ้าตั้งใจอัปซ้ำ ปล่อยไว้ได้`, `This file was already uploaded to this channel: ${it.prev.title || ''}\nClick to open that video · leave it if the re-upload is intended`),
+        onclick: () => it.prev.videoId && window.open(`https://studio.youtube.com/video/${it.prev.videoId}/edit`, '_blank') },
+        icon('alert', 13), h('span', {}, L(`เคยอัปแล้ว ${when}`, `Already uploaded ${when}`))));
     }
     const hits = it.txt && Claims ? Claims.claimedSongsIn(it.txt) : [];
     if (hits.length) {
@@ -4311,6 +4424,34 @@
         await sleep(300);
       } while (tok && pages < 400);
       return vids;
+    }
+
+    // คลิปที่ตั้งเวลาเผยแพร่ไว้แล้วในช่องนี้ (อ่านอย่างเดียว) -> [{ videoId, title, at }] เรียงตามเวลา
+    // ตรวจกับ Studio จริง (ต.ค. 2026): scheduledPublishingDetails.scheduledPublishings[] = { scheduledTimeSeconds, action, status }
+    // ดู 200 คลิปล่าสุดพอ: คลิปที่รอปล่อยเป็นของที่เพิ่งอัปทั้งนั้น
+    async function listScheduled() {
+      if (!ycfg('INNERTUBE_CONTEXT')) return null;
+      const CH = currentChannel();
+      const out = [];
+      let tok, pages = 0;
+      do {
+        const body = {
+          filter: { and: { operands: [{ channelIdIs: { value: CH } }, { videoOriginIs: { value: 'VIDEO_ORIGIN_UPLOAD' } }] } },
+          order: 'VIDEO_ORDER_DISPLAY_TIME_DESC', pageSize: 50,
+          mask: { videoId: true, title: true, scheduledPublishingDetails: { all: true } },
+        };
+        if (tok) body.pageToken = tok;
+        const j = await yti('creator/list_creator_videos', body);
+        for (const v of j.videos || []) {
+          for (const sp of (v.scheduledPublishingDetails || {}).scheduledPublishings || []) {
+            const at = (+sp.scheduledTimeSeconds || 0) * 1000;
+            if (/SCHEDULED$/.test(sp.status || '') && at > Date.now()) out.push({ videoId: v.videoId, title: v.title || '', at });
+          }
+        }
+        tok = j.nextPageToken;
+        pages++;
+      } while (tok && pages < 4);
+      return out.sort((a, b) => a.at - b.at);
     }
 
     async function scanClaims({ show = true } = {}) {
@@ -5883,7 +6024,7 @@
       renderStatus();
     }
 
-    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus };
+    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus, listScheduled };
   })();
   panes.claims = Claims.buildPane();
   let tickFailed = false;
