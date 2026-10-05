@@ -72,8 +72,8 @@ function run(want, ticks = 12) {
   const clock = fakeClock();
   const store = { pendingChannelSwitch: { at: 0, handle: want.handle, name: want.name, next: 'https://studio.youtube.com/x' } };
   Date.now = () => 1;
-  const api = makeSwitcher(page.doc, clock.win, store);
-  try { api.watchChannelSwitcher(); clock.tick(ticks); } finally { clock.restore(); }
+  makeSwitcher(page.doc, clock.win, store);
+  try { clock.tick(ticks); } finally { clock.restore(); }  // makeSwitcher already armed it
   return { ...page.state, store };
 }
 
@@ -116,4 +116,71 @@ test('an unknown channel is never clicked', () => {
   const r = run({ handle: '@notmychannel' });
   assert.equal(r.clicked, null);
   assert.equal(r.confirmed, false);
+});
+
+/* ---------- recovering from the post-switch Oops ----------
+   Observed live: YouTube lands on <channel url>?sttick=0 and that exact URL keeps
+   reporting no permission, while the same channel without the query string loads
+   fine. So a reload is useless — the retry has to drop the stale query. */
+
+function oopsPage(href, text = "Oops, you don't have permission to view this page") {
+  const doc = makeDocument();
+  doc.body.textContent = text;
+  const u = new URL(href);
+  const nav = [];
+  const win = {
+    location: {
+      hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash,
+      origin: u.origin, href,
+      set [Symbol.for('unused')](v) {},
+    },
+    setInterval: null, clearInterval: null,
+  };
+  // capture assignments to location.href
+  Object.defineProperty(win.location, 'href', {
+    get: () => href, set: (v) => nav.push(v), configurable: true,
+  });
+  return { doc, win, nav };
+}
+
+function runRecovery(href, stored, ticks = 3) {
+  const page = oopsPage(href);
+  const clock = fakeClock();
+  page.win.setInterval = clock.win.setInterval;
+  page.win.clearInterval = clock.win.clearInterval;
+  page.win.location.hostname = 'studio.youtube.com';
+  const store = { channelSwitchedAt: stored };
+  Date.now = () => 1000;
+  makeSwitcher(page.doc, page.win, store);
+  try { clock.tick(ticks); } finally { clock.restore(); }  // makeSwitcher already armed it
+  return { nav: page.nav, store };
+}
+
+test('THE BUG: the retry drops the stale ?sttick query instead of reloading', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc?sttick=0', { at: 1000, tries: 0, next: '' });
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCabc'],
+    'reloading the same URL Oopses forever; the clean one works');
+});
+
+test('the stored next URL is preferred when there is one', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc?sttick=0',
+    { at: 1000, tries: 0, next: 'https://studio.youtube.com/channel/UCabc/videos/upload' });
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCabc/videos/upload']);
+});
+
+test('it gives up rather than looping once the tries run out', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc?sttick=0', { at: 1000, tries: 2, next: '' });
+  assert.deepEqual(r.nav, []);
+  assert.equal(r.store.channelSwitchedAt, null);
+});
+
+test('it gives up when there is no different URL left to try', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc', { at: 1000, tries: 0, next: '' });
+  assert.deepEqual(r.nav, [], 'navigating to the same URL would hang the recovery');
+  assert.equal(r.store.channelSwitchedAt, null);
+});
+
+test('a stale switch marker is ignored', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc?sttick=0', { at: -200000, tries: 0, next: '' });
+  assert.deepEqual(r.nav, []);
 });

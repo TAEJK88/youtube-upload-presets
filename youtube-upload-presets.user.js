@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.26.2
+// @version      4.26.3
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -299,7 +299,7 @@
       clearSwitch();
       // YouTube เด้งไป next ทันทีโดยที่ session ใหม่ยังไม่ทันมีผล หน้าแรกที่โหลดจึงขึ้น Oops
       // ได้ ทั้งที่สลับช่องสำเร็จแล้ว — จดไว้ว่าเพิ่งสลับ เพื่อให้โหลดซ้ำให้เองถ้าเจอหน้านั้น
-      GM_setValue(SWITCHED_KEY, { at: Date.now(), tries: 0 });
+      GM_setValue(SWITCHED_KEY, { at: Date.now(), tries: 0, next: want.next || '' });
       say(`switching to ${want.handle || want.name}`);
       (row.querySelector(SEL.switcherItemClick) || row).click();
     }, 500);
@@ -322,10 +322,18 @@
         return;
       }
       clearInterval(timer);
-      if ((s.tries || 0) >= 2) { GM_setValue(SWITCHED_KEY, null); say('still no permission after reloading — giving up'); return; }
-      GM_setValue(SWITCHED_KEY, { at: s.at, tries: (s.tries || 0) + 1 });
-      say('switched but the page says no permission — reloading once');
-      location.reload();
+      // location.reload() ไม่พอ — YouTube เด้งมาพร้อม ?sttick=0 ติดมาด้วย โหลดซ้ำทั้ง URL เดิม
+      // ก็ขึ้น Oops ทุกครั้ง แต่เข้า URL สะอาด ๆ ของช่องเดียวกันกลับเข้าได้ปกติ
+      const here = location.href;
+      const clean = [s.next, location.origin + location.pathname].find((u) => u && u !== here);
+      if (!clean || (s.tries || 0) >= 2) {
+        GM_setValue(SWITCHED_KEY, null);
+        say(clean ? 'still no permission after retrying — giving up' : 'no clean URL left to retry — giving up');
+        return;
+      }
+      GM_setValue(SWITCHED_KEY, { at: s.at, tries: (s.tries || 0) + 1, next: s.next || '' });
+      say('switched but the page says no permission — retrying on a clean URL');
+      location.href = clean;
     }, 500);
   }
   recoverAfterSwitch();
