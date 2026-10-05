@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.21.1
+// @version      4.22.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -534,6 +534,7 @@
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
       autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
       quickActions: true, // ปุ่มลัดใต้ช่องชื่อ/คำอธิบายของ Studio
+      glass: 72, // ความทึบของแผงกระจก (%) — น้อย = เห็นพื้นหลังมากขึ้น
       notify: true, // แจ้งเตือนบนเดสก์ท็อป + เสียง เมื่อคิวเสร็จ/หยุด
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
       schedule: { on: false, start: '', every: 1, unit: 'day' },
@@ -2777,6 +2778,30 @@
     #ytp-root .tbx-card .ti .sti{display:grid;place-items:center;color:var(--fg2)}
     #ytp-root .tbx-card.ok .sti{color:var(--ok)} #ytp-root .tbx-card.busy .sti{color:var(--info)}
     #ytp-root .tbx-card.wait .sti{color:var(--warn)} #ytp-root .tbx-card.err .sti{color:var(--err)}
+    /* ===== กระจกดำ: เห็นหน้า Studio ข้างหลังแบบเบลอ (ความทึบปรับได้ที่ --ga ในหน้าตั้งค่า) ===== */
+    #ytp-root,#ytp-root.dark{
+      --ga:.72;
+      --surface:rgba(255,255,255,.05);--surface2:rgba(255,255,255,.09);
+      --line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.16);
+      --glass:rgba(12,12,14,var(--ga));
+      --glass-blur:blur(26px) saturate(150%)}
+    #ytp-root .drawer{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow:0 30px 80px -20px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.07)}
+    #ytp-root .ft{background:transparent;border-top-color:var(--line)}
+    #ytp-root .fab{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+      border-color:rgba(255,255,255,.12);box-shadow:0 12px 32px -10px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+    #ytp-root .toast{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border-color:rgba(255,255,255,.12)}
+    #ytp-root .ask,#ytp-root #tbx-modal{background:rgba(0,0,0,.28);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+    #ytp-root .ask .box,#ytp-root #tbx-modal .box{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+      border-color:rgba(255,255,255,.12);box-shadow:0 30px 80px -20px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.07)}
+    #ytp-root .tbx-table th{background:rgba(20,20,23,.92)}
+    #ytp-root .drawer.dropping::after{background:rgba(12,12,14,.6)}
+    #ytp-root .chan .av::after{border-color:#141416}
+    /* ช่องกรอก/เมนูเลือก: ชั้นขาวบาง ๆ บนกระจก · ตัวเลือกใน select ต้องทึบ ไม่งั้นอ่านไม่ออก */
+    #ytp-root select option{background:#151517;color:var(--fg)}
+    #ytp-root .rng{width:100%;accent-color:#f4f4f5;cursor:pointer}
+    #ytp-root .card .th{background:rgba(255,255,255,.06)}
   `);
 
   const root = h('div', { id: 'ytp-root' });
@@ -3912,6 +3937,14 @@
     } }, icon('refresh', 14), L('คืนค่าเริ่มต้น', 'Reset to defaults'))
   );
 
+  // ความทึบของแผงกระจก: 100 = ดำทึบ, ค่าน้อย = เห็นหน้า Studio ข้างหลังมากขึ้น (ตัวหนังสือยังอ่านได้เพราะเบลอพื้นหลัง)
+  const glassVal = h('small');
+  function applyGlass() {
+    const v = Math.min(100, Math.max(40, Number(settings.glass) || 72));
+    root.style.setProperty('--ga', String(v / 100));
+    glassVal.textContent = L(`${v}% · น้อย = เห็นพื้นหลังมากขึ้น`, `${v}% · lower = more see-through`);
+  }
+
   // ----- แท็บตั้งค่า -----
   function sw(key, title, desc, onChange) {
     return h('label', { className: 'sw' },
@@ -4046,6 +4079,12 @@
           if (running) { e.target.value = LANG; return toast(L('หยุดคิวก่อนแล้วค่อยเปลี่ยนภาษา', 'Stop the queue before changing language')); }
           settings.lang = e.target.value; saveSettings(); location.reload();
         } }, [['en', 'English'], ['th', 'ไทย']].map(([v, l]) => h('option', { value: v, selected: LANG === v }, l)))
+      ),
+      h('div', { className: 'kv' },
+        h('div', {}, h('b', {}, L('ความทึบของแผง', 'Panel opacity')), glassVal),
+        h('input', { type: 'range', min: 40, max: 100, step: 2, value: settings.glass, className: 'rng',
+          oninput: (e) => { settings.glass = +e.target.value; applyGlass(); },
+          onchange: () => saveSettings() })
       ),
       h('div', { className: 'kv' },
         h('div', {}, h('b', {}, L('ชื่อโปรดิวเซอร์ {producer}', 'Producer name {producer}')), h('small', {}, L('ใช้ในชื่อคลิป/คำอธิบาย/แท็ก เช่น "Prod. by {producer}" · เว้นว่าง = ใช้ชื่อช่องปัจจุบัน', 'Used in video title/description/tags, e.g. "Prod. by {producer}" · blank = current channel name'))),
@@ -5895,6 +5934,7 @@
   });
 
   root.classList.toggle('dark', document.documentElement.hasAttribute('dark'));
+  applyGlass();
   root.append(fab, drawer, toastEl);
   document.body.append(root);
   showTab('queue');
