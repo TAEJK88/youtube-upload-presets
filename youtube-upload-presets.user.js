@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.16.0
+// @version      4.17.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -1514,6 +1514,46 @@
   }
 
   // รับไฟล์ปนกันได้: คลิป + .txt + ภาพปก จับคู่ด้วยชื่อไฟล์ (ไม่รวมนามสกุล)
+  // ไฟล์เก็บข้ามการรีโหลดไม่ได้ แต่ค่าที่พิมพ์แก้ไว้เก็บได้: ชื่อคลิป, ศิลปิน, เวลาปล่อยที่ตั้งเอง, พรีเซ็ต
+  const memoKey = (it) => it.file.name + '|' + it.file.size;
+  let memoTimer;
+  function saveMemo() {
+    clearTimeout(memoTimer);
+    memoTimer = setTimeout(() => {
+      const memo = load('queueMemo', {});
+      for (const it of queue) {
+        const k = memoKey(it);
+        if (it.status === 'done') { delete memo[k]; continue; }
+        if (!(it.status === 'pending' || it.status === 'error')) continue;
+        const m = {};
+        if (it.titleEdited) m.title = it.title;
+        if (it.artistsEdited) m.artists = it.artists;
+        if (it.publishEdited && it.publishAt) m.publishAt = it.publishAt;
+        if (it.presetId !== activeId) m.presetId = it.presetId;
+        if (Object.keys(m).length) memo[k] = { ...m, t: Date.now() };
+        else delete memo[k];
+      }
+      // เก็บแค่ 200 รายการล่าสุด
+      const keys = Object.keys(memo).sort((a, b) => memo[b].t - memo[a].t);
+      for (const k of keys.slice(200)) delete memo[k];
+      save('queueMemo', memo);
+    }, 600);
+  }
+  function restoreMemo(items) {
+    const memo = load('queueMemo', {});
+    let n = 0;
+    for (const it of items) {
+      const m = memo[memoKey(it)];
+      if (!m) continue;
+      if (m.presetId && presets.some((p) => p.id === m.presetId)) it.presetId = m.presetId;
+      if (typeof m.title === 'string') { it.title = m.title; it.titleEdited = true; }
+      if (typeof m.artists === 'string') { it.artists = m.artists; it.artistsEdited = true; }
+      if (m.publishAt && m.publishAt > Date.now() + SCHEDULE_MIN_LEAD) { it.publishAt = m.publishAt; it.publishEdited = true; }
+      n++;
+    }
+    return n;
+  }
+
   async function addFiles(fileList) {
     const files = [...fileList];
     // เรียงตามชื่อแบบตัวเลข (Mix 2 ก่อน Mix 10) — ลำดับในคิว = เลข EP และเวลาปล่อย
@@ -1522,9 +1562,11 @@
     const allVids = files.filter(isVideo).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     const vids = allVids.filter((f) => !inQueue.has(f.name + '|' + f.size));
     const dupN = allVids.length - vids.length;
+    const added = [];
     for (const file of vids) {
       const it = { id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0 };
       queue.push(it);
+      added.push(it);
       videoDuration(file).then((d) => { it.duration = d; if (it.ui) updateItemUI(it); }); // ใช้เช็ก timestamp เกินความยาวคลิป
     }
     const byKey = new Map();
@@ -1547,6 +1589,8 @@
     if (txtN) parts.push(L(`คำอธิบาย .txt ${txtN} ไฟล์`, `${txtN} .txt description file(s)`));
     if (imgN) parts.push(L(`ภาพปก ${imgN} ไฟล์`, `${imgN} thumbnail file(s)`));
     if (unmatched) parts.push(L(`ไม่มีคลิปชื่อตรงกัน ${unmatched} ไฟล์`, `${unmatched} file(s) with no matching video name`));
+    const restored = restoreMemo(added); // หลังแนบ .txt (การแนบรีเซ็ตชื่อเป็นค่าจากพรีเซ็ต)
+    if (restored) parts.push(L(`ใช้ค่าที่แก้ไว้เดิม ${restored} คลิป`, `Restored your edits for ${restored} video(s)`));
     if (dupN) parts.push(L(`มีในคิวแล้ว ${dupN} คลิป`, `${dupN} already in the queue`));
     if (skipped) parts.push(L(`ข้าม ${skipped} ไฟล์`, `Skipped ${skipped} file(s)`));
     if (parts.length) toast(parts.join(' · '));
@@ -1576,18 +1620,22 @@
     if (it.publishFinal) return it.publishFinal;
     if (!scheduleOn()) return null;
     if (it.publishEdited && it.publishAt) return it.publishAt;
-    const start = new Date(settings.schedule.start).getTime();
+    const start = effectiveStart();
     if (!start) return null;
     const k = queue.filter((x) => ['pending', 'uploading', 'review'].includes(x.status) && !(x.publishEdited && x.publishAt)).indexOf(it);
     if (k < 0) return null;
-    // คิวยาวจนช่องเวลาของคลิปนี้เลยไปแล้ว (เน็ตช้า / คลิปใหญ่) -> เลื่อนไปช่องถัดไปที่ยังตั้งเวลาได้
-    // แทนที่จะ error ทิ้งคลิปนั้นไป · เวลาที่เลื่อนแล้วจะโชว์บนการ์ดและในสรุปตามจริง
-    const step = stepMs();
-    let at = start + k * step;
-    const floor = Date.now() + SCHEDULE_MIN_LEAD;
-    if (at < floor) at += Math.ceil((floor - at) / step) * step;
-    return at;
+    return start + k * stepMs();
   }
+  // เวลาเริ่มที่ใช้จริง: ถ้าเวลาที่ตั้งไว้ผ่านไปแล้ว (หรือเหลือไม่ถึง 15 นาที) เลื่อน "ทั้งชุด" ไปช่องแรกที่ยังตั้งได้
+  // เลื่อนทีละคลิปไม่ได้ — คลิปที่ถูกเลื่อนจะไปชนช่องของคลิปถัดไป (เช่น 2 คลิปได้ 08:00 วันเดียวกัน)
+  function effectiveStart() {
+    const start = new Date(settings.schedule.start).getTime();
+    if (!start) return 0;
+    const step = stepMs();
+    const floor = Date.now() + SCHEDULE_MIN_LEAD;
+    return start < floor ? start + Math.ceil((floor - start) / step) * step : start;
+  }
+  const startIsPast = () => scheduleOn() && new Date(settings.schedule.start).getTime() < Date.now() + SCHEDULE_MIN_LEAD;
   const scheduleProblem = (at) => (at && at < Date.now() + SCHEDULE_MIN_LEAD ? L('เวลาปล่อยต้องอยู่ในอนาคตอย่างน้อย 15 นาที', 'Release time must be at least 15 minutes in the future') : '');
   const fmtWhen = (ms) =>
     new Intl.DateTimeFormat(LOCALE === 'th-TH' ? 'th-TH-u-ca-gregory' : LOCALE, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms);
@@ -2018,7 +2066,7 @@
     #ytp-root .mono{font-family:"JetBrains Mono","SF Mono",Consolas,monospace;font-size:11px}
 
     /* ---------- FAB ---------- */
-    #ytp-root .fab{position:fixed;left:18px;bottom:18px;z-index:100001;display:flex;align-items:center;gap:10px;
+    #ytp-root .fab{position:fixed;right:18px;bottom:18px;touch-action:none;z-index:100001;display:flex;align-items:center;gap:10px;
       background:#0e0e12;color:#fff;border:1px solid #2a2a33;border-radius:16px;padding:8px 14px 8px 8px;cursor:pointer;
       box-shadow:0 10px 30px -6px rgba(0,0,0,.45);transition:transform .15s,box-shadow .15s;text-align:left}
     #ytp-root .fab:hover{transform:translateY(-2px);box-shadow:0 16px 36px -8px rgba(0,0,0,.55)}
@@ -2385,6 +2433,31 @@
       border:2px dashed var(--brand);background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(2px)}
     #ytp-root .fab.dropping{transform:scale(1.06);box-shadow:0 0 0 3px var(--brand),0 16px 36px -8px rgba(0,0,0,.55)}
     #ytp-root .drop .folder{background:none;border:0;padding:0;color:var(--brand);font-weight:600;font-size:12px;cursor:pointer;text-decoration:underline}
+    #ytp-root .sched.late{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}
+    #ytp-root .sched.late .sh small{color:var(--warn)}
+    #ytp-root .sched .past{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;font-size:12px;line-height:1.45;color:var(--warn);
+      background:color-mix(in srgb,var(--warn) 10%,var(--bg));border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line))}
+    #ytp-root .sched .past span{flex:1;min-width:0}
+    #ytp-root .sched .past .btn{flex:0 0 auto}
+    #ytp-root.dopen .fab{opacity:0;pointer-events:none;transform:scale(.9)}
+    #ytp-root .fab.moving{cursor:grabbing;transition:none;transform:none}
+    /* รายการพรีเซ็ตแบบกะทัดรัด: แถวเตี้ย โชว์แม่แบบชื่อเฉพาะอันที่เลือก และเลื่อนในกล่องเมื่อยาว -> ช่องแก้ไขขึ้นมาใกล้ขึ้น */
+    #ytp-root .plist{gap:4px;max-height:236px;overflow:auto;scrollbar-width:thin;padding:2px}
+    #ytp-root .pitem{padding:6px 10px}
+    #ytp-root .pitem .pl span{display:none}
+    #ytp-root .pitem.on .pl span{display:block}
+    #ytp-root .sched .sh{cursor:default}
+    #ytp-root .sched.on .sh{cursor:pointer}
+    #ytp-root .sched .schev .ic{color:var(--fg3);transition:transform .18s;transform:rotate(180deg)}
+    #ytp-root .sched.closed .schev .ic{transform:none}
+    #ytp-root .drop.mini{padding:8px 12px;gap:10px}
+    #ytp-root .drop.mini .di{width:30px;height:30px;border-radius:9px}
+    #ytp-root .drop.mini .di .ic{width:16px;height:16px}
+    #ytp-root .drop.mini b{font-size:12.5px}
+    #ytp-root .drop.mini .kbd{display:none}
+    #ytp-root .stats{display:flex;flex-wrap:wrap;gap:6px}
+    #ytp-root .stat{display:flex;align-items:baseline;gap:6px;padding:4px 10px;border-radius:999px}
+    #ytp-root .stat b{display:inline;font-size:14px}
     @keyframes ytp-fade{from{opacity:0}to{opacity:1}}
     @keyframes ytp-ind{0%{margin-left:-35%}100%{margin-left:100%}}
     @keyframes ytp-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
@@ -2490,7 +2563,8 @@
   const fabChan = h('span', { className: 'fch' });
   const fabBadge = h('span', { className: 'badge', hidden: true });
   // เปิดแล้ว = ปิด · ยังไม่เปิด = เปิดที่แท็บของงานที่กำลังทำ (ว่าง = แท็บล่าสุด)
-  const fab = h('button', { className: 'fab', onclick: () => {
+  const fab = h('button', { className: 'fab', title: L('คลิกเพื่อเปิดแผง · ลากเพื่อย้ายตำแหน่ง', 'Click to open · drag to move'), onclick: () => {
+    if (fabDragged) return;
     if (drawer.classList.contains('open')) return closeDrawer();
     const a = activity();
     openDrawer(a ? a.tab : undefined);
@@ -2646,7 +2720,45 @@
     if (key === 'presets') renderPresetEditor();
     if (key === 'claims' && Claims) Claims.renderStatus();
   }
+  // ลากปุ่มลอยไปวางตรงไหนก็ได้ แล้วจำตำแหน่งไว้ (เก็บระยะจากขอบขวา/ล่าง ย่อ/ขยายหน้าต่างแล้วยังอยู่มุมเดิม)
+  let fabDragged = false;
+  function placeFab(pos) {
+    if (!pos) { fab.style.right = fab.style.bottom = ''; return; }
+    const w = fab.offsetWidth || 180, hgt = fab.offsetHeight || 52;
+    fab.style.right = Math.min(Math.max(4, pos.r), Math.max(4, innerWidth - w - 4)) + 'px';
+    fab.style.bottom = Math.min(Math.max(4, pos.b), Math.max(4, innerHeight - hgt - 4)) + 'px';
+  }
+  fab.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const r0 = fab.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    let moved = false;
+    fabDragged = false;
+    const move = (ev) => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (!moved && Math.hypot(dx, dy) < 6) return;
+      moved = true;
+      fab.classList.add('moving');
+      placeFab({ r: innerWidth - r0.right - dx, b: innerHeight - r0.bottom - dy });
+    };
+    const up = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      fab.classList.remove('moving');
+      if (!moved) return;
+      fabDragged = true; // กันไม่ให้การปล่อยเมาส์หลังลากกลายเป็นคลิกเปิดแผง
+      setTimeout(() => { fabDragged = false; }, 0);
+      save('fabPos', { r: parseFloat(fab.style.right), b: parseFloat(fab.style.bottom) });
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  });
+  fab.addEventListener('dblclick', (e) => { e.preventDefault(); }); // ดับเบิลคลิกไม่ให้เปิด-ปิดรัว ๆ
+  addEventListener('resize', () => placeFab(load('fabPos', null)));
+  setTimeout(() => placeFab(load('fabPos', null)), 0);
+
   function openDrawer(tab) {
+    root.classList.add('dopen');
     root.classList.toggle('dark', document.documentElement.hasAttribute('dark'));
     if (tab) showTab(tab);
     updateChannelUI();
@@ -2654,6 +2766,7 @@
   }
   function closeDrawer() {
     drawer.classList.remove('open');
+    root.classList.remove('dopen');
   }
 
   // ----- แท็บคิว -----
@@ -2776,6 +2889,15 @@
     if (d.getTime() < Date.now() + SCHEDULE_MIN_LEAD) d.setDate(d.getDate() + 1);
     return toLocalInput(d.getTime());
   };
+  // เวลาเริ่มที่ตั้งไว้ผ่านไปแล้ว: บอกว่าคิวจะเริ่มจริงเมื่อไร และกดครั้งเดียวเพื่อบันทึกเวลานั้นแทน
+  const pastTxt = h('span');
+  const pastNote = h('div', { className: 'past', hidden: true },
+    icon('alert', 14), pastTxt,
+    h('button', { className: 'btn sm', onclick: () => {
+      schedStart.value = sch.start = toLocalInput(effectiveStart());
+      saveSettings();
+      onScheduleChange();
+    } }, L('ใช้เวลานี้', 'Use this time')));
   const schedBody = h('div', { className: 'sb' },
     h('div', { className: 'g3' },
       h('div', {}, h('div', { className: 'mini' }, L('คลิปแรกปล่อย', 'First video releases')), schedStart),
@@ -2800,14 +2922,21 @@
       onScheduleChange();
     },
   });
-  const schedPanel = h('div', { className: 'sched' },
-    h('div', { className: 'sh' },
-      h('span', { className: 'si' }, icon('clock', 16)),
-      h('div', { className: 'stx' }, h('b', {}, L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')), schedSummary),
-      h('label', { className: 'sw' }, schedToggle, h('span', { className: 't' }))
-    ),
-    schedBody
+  // ย่อ/ขยายกล่องตั้งเวลาด้วยการคลิกหัวกล่อง — มีคลิปในคิวแล้วจะย่อเอง ให้การ์ดมีที่มากขึ้น (จอเตี้ย)
+  let schedOpen = true;
+  const schedChev = h('span', { className: 'schev' }, icon('chev', 14));
+  const schedHead = h('div', { className: 'sh' },
+    h('span', { className: 'si' }, icon('clock', 16)),
+    h('div', { className: 'stx' }, h('b', {}, L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')), schedSummary),
+    schedChev,
+    h('label', { className: 'sw' }, schedToggle, h('span', { className: 't' }))
   );
+  schedHead.addEventListener('click', (e) => {
+    if (!sch.on || e.target.closest('label.sw')) return;
+    schedOpen = !schedOpen;
+    onScheduleChange();
+  });
+  const schedPanel = h('div', { className: 'sched' }, schedHead, h('div', { style: 'padding:0 12px' }, pastNote), schedBody);
 
   // เรียกหลังอัปคลิปที่ตั้งเวลาเสร็จ (เวลาเริ่มถูกเลื่อนไปช่องถัดไป)
   function syncScheduleInput() {
@@ -2818,7 +2947,10 @@
   function onScheduleChange() {
     const on = scheduleOn();
     schedPanel.classList.toggle('on', !!sch.on);
-    schedBody.hidden = !sch.on;
+    schedBody.hidden = !sch.on || !schedOpen;
+    schedPanel.classList.toggle('closed', !schedOpen);
+    schedChev.hidden = !sch.on;
+    schedHead.title = sch.on ? (schedOpen ? L('คลิกเพื่อย่อ', 'Click to collapse') : L('คลิกเพื่อแก้เวลา', 'Click to edit times')) : '';
     const items = queue.filter((i) => i.status !== 'done');
     if (!sch.on) schedSummary.textContent = L('ปิดอยู่ · คลิปจะเผยแพร่ตามการเปิดเผยของพรีเซ็ต', 'Off · videos are published using the preset\'s visibility');
     else if (!on) schedSummary.textContent = L('เลือกเวลาปล่อยคลิปแรก', 'Pick the first video\'s release time');
@@ -2827,11 +2959,20 @@
       const times = items.map(itemPublishAt).filter(Boolean).sort((a, b) => a - b);
       schedSummary.textContent = times.length > 1
         ? L(`${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · ทุก ${sch.every} ${unit}`, `${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · every ${sch.every} ${unit}`)
-        : L(`เริ่ม ${fmtWhen(new Date(sch.start).getTime())} · ทุก ${sch.every} ${unit}`, `Starts ${fmtWhen(new Date(sch.start).getTime())} · every ${sch.every} ${unit}`);
+        : L(`เริ่ม ${fmtWhen(effectiveStart())} · ทุก ${sch.every} ${unit}`, `Starts ${fmtWhen(effectiveStart())} · every ${sch.every} ${unit}`);
     }
+    const late = on && startIsPast();
+    schedPanel.classList.toggle('late', late);
+    pastNote.hidden = !late;
+    pastNote.style.marginBottom = late ? '12px' : '';
+    if (late) pastTxt.textContent = L(
+      `เวลาที่ตั้ง (${fmtWhen(new Date(sch.start).getTime())}) ผ่านไปแล้ว — คิวจะเริ่ม ${fmtWhen(effectiveStart())} แทน`,
+      `The set time (${fmtWhen(new Date(sch.start).getTime())}) has passed — the queue will start ${fmtWhen(effectiveStart())} instead`);
     queue.forEach(updateItemUI);
     updateRunUI();
   }
+
+  setInterval(() => { if (sch.on && drawer.classList.contains('open')) onScheduleChange(); }, 60e3);
 
   panes.queue = h('div', {},
     fileInput, folderInput, dropZone,
@@ -2905,6 +3046,8 @@
       it.draftId = '';
       setItem(it, 'pending'); assignNumbers(); renderQueue();
     } }, icon('refresh', 13), L('ลองใหม่', 'Retry'));
+    const draftBtn = h('button', { className: 'btn sm', title: L('เปิดฉบับร่างที่ค้างใน Studio (แท็บใหม่) เพื่อลบก่อนลองใหม่', 'Open the leftover draft in Studio (new tab) to delete it before retrying'),
+      onclick: () => window.open(`https://studio.youtube.com/video/${it.draftId}/edit`, '_blank') }, icon('ext', 13), L('เปิดฉบับร่าง', 'Open draft'));
     const removeBtn = iconBtn('x', L('เอาออกจากคิว', 'Remove from queue'), () => { queue.splice(queue.indexOf(it), 1); renderQueue(); }, 'sm danger');
     // เลื่อนลำดับในคิว (ลำดับ = เลข {n}/EP และเวลาปล่อย) สลับได้เฉพาะกับคลิปที่ยังไม่ได้อัป
     const canMove = (x) => x && (x.status === 'pending' || x.status === 'error');
@@ -2942,7 +3085,7 @@
       h('div', { className: 'info', style: 'gap:3px' },
         h('div', { className: 'fnrow' }, h('span', { className: 'fn', title: it.file.name }, it.file.name), expBtn, removeBtn),
         titleTxt,
-        h('div', { className: 'row', style: 'flex-wrap:wrap;gap:6px' }, pill, whenTxt, retryBtn)
+        h('div', { className: 'row', style: 'flex-wrap:wrap;gap:6px' }, pill, whenTxt, retryBtn, draftBtn)
       ),
       ord
     );
@@ -2967,13 +3110,14 @@
       e.stopPropagation();
       attachToItem(it, files);
     });
-    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset, fields, titleTxt, whenTxt, upBtn, downBtn, ord, expBtn, canMove };
+    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, draftBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset, fields, titleTxt, whenTxt, upBtn, downBtn, ord, expBtn, canMove };
     return el;
   }
 
   const MSG_ICON = { pending: 'alert', uploading: 'upload', review: 'alert', done: 'check', error: 'alert' };
 
   function updateItemUI(it) {
+    saveMemo();
     const u = it.ui;
     if (!u) return;
     const [label] = STATUS[it.status];
@@ -3017,6 +3161,7 @@
       u.whenTxt.title = bad || (it.publishEdited ? L('เวลาที่ตั้งเอง', 'Manually set time') : L('เวลาตามคิว', 'Queue time'));
     }
     u.retryBtn.hidden = it.status !== 'error';
+    u.draftBtn.hidden = it.status !== 'error' || !it.draftId;
     u.removeBtn.hidden = it.status === 'uploading' || it.status === 'review';
     u.cnt.textContent = `${it.title.length}/${TITLE_MAX}`;
     u.cnt.className = 'cnt' + (it.title.length > TITLE_MAX ? ' over' : '');
@@ -3096,8 +3241,14 @@
     u.att.hidden = !kids.length;
   }
 
+  let hadQueue = false;
   function renderQueue() {
     assignNumbers();
+    const has = queue.length > 0;
+    dropZone.classList.toggle('mini', has);
+    if (has && !hadQueue) schedOpen = false;
+    if (!has) schedOpen = true;
+    hadQueue = has;
     if (!queue.length) {
       listEl.replaceChildren(h('div', { className: 'empty' },
         h('div', { className: 'ei' }, icon('film', 24)),
@@ -3310,6 +3461,12 @@
         p.id === activeId && h('span', { className: 'main' }, icon('star', 10), L('หลัก', 'Default'))
       ))
     );
+    // รายการเลื่อนในกล่อง: ให้อันที่เลือกอยู่ในมุมมองเสมอ (เลื่อนเฉพาะในกล่อง ไม่เลื่อนทั้งแผง)
+    const on = presetList.querySelector('.pitem.on');
+    if (on) {
+      const top = on.offsetTop - presetList.offsetTop;
+      if (top < presetList.scrollTop || top + on.offsetHeight > presetList.scrollTop + presetList.clientHeight) presetList.scrollTop = top - 4;
+    }
   }
 
   function renderPresetEditor() {
