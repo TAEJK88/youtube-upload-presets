@@ -9,12 +9,15 @@ export function mountFileBridge(doc: Document, timeoutMs = 30_000) {
   frame.src = browser.runtime.getURL('/file-bridge.html');
   frame.style.display = 'none';
   const { port1, port2 } = new MessageChannel();
-  const ready = new Promise<void>((resolve) => {
+  const ready = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('bridge not ready')), timeoutMs);
     frame.addEventListener('load', () => {
+      clearTimeout(timer);
       frame.contentWindow!.postMessage({ ch: CONNECT }, new URL(frame.src).origin, [port2]);
       resolve();
     }, { once: true });
   });
+  ready.catch(() => {}); // avoid an unhandled rejection before getFile is ever called
   doc.documentElement.append(frame);
   const call = rpcClient<FileOps>(portEndpoint(port1), FILE_CH, timeoutMs);
   return {
