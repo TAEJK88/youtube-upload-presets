@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.18.0
+// @version      4.19.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -716,8 +716,42 @@
       v.src = url;
     });
   }
+  // อ่านความยาวจากหัวไฟล์ MP4/MOV โดยตรง (กล่อง moov > mvhd) — ไม่พึ่งตัวเล่นวิดีโอ
+  // เจอบน Studio จริง: <video> กับ blob ค้างที่ networkState=LOADING ตลอด ไม่เคยได้ metadata
+  // อ่านแค่หัวกล่องทีละ 16 ไบต์ + ตัว moov (moov อยู่ท้ายไฟล์ก็เจอ) ไฟล์ 1.5GB ก็เร็ว
+  async function mp4Duration(file) {
+    const read = async (o, n) => new DataView(await file.slice(o, o + n).arrayBuffer());
+    const type = (dv, p) => String.fromCharCode(dv.getUint8(p + 4), dv.getUint8(p + 5), dv.getUint8(p + 6), dv.getUint8(p + 7));
+    let off = 0;
+    for (let guard = 0; off + 8 <= file.size && guard < 2000; guard++) {
+      const hd = await read(off, 16);
+      if (hd.byteLength < 8) break;
+      let len = hd.getUint32(0);
+      let hdr = 8;
+      if (len === 1 && hd.byteLength >= 16) { len = Number(hd.getBigUint64(8)); hdr = 16; } else if (len === 0) len = file.size - off;
+      if (len < hdr) break;
+      if (type(hd, 0) === 'moov') {
+        const mv = await read(off + hdr, Math.min(len - hdr, 64 << 20));
+        for (let p = 0; p + 8 <= mv.byteLength;) {
+          const l = mv.getUint32(p);
+          if (type(mv, p) === 'mvhd') {
+            const v1 = mv.getUint8(p + 8) === 1;
+            const ts = mv.getUint32(p + (v1 ? 28 : 20));
+            const du = v1 ? Number(mv.getBigUint64(p + 32)) : mv.getUint32(p + 24);
+            return ts ? du / ts : 0;
+          }
+          if (l < 8) break;
+          p += l;
+        }
+        return 0;
+      }
+      off += len;
+    }
+    return 0;
+  }
   async function videoDuration(file) {
-    return (await videoDurationOnce(file, 12000)) || (await videoDurationOnce(file, 20000));
+    try { const d = await mp4Duration(file); if (d > 0) return d; } catch (e) { /* ไม่ใช่ MP4/MOV หรืออ่านไม่ได้ */ }
+    return videoDurationOnce(file, 12000);
   }
 
   // ===== งานที่กำลังทำ (progress) =====
@@ -2470,6 +2504,101 @@
     @keyframes ytp-ind{0%{margin-left:-35%}100%{margin-left:100%}}
     @keyframes ytp-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
     @keyframes ytp-spin{to{transform:rotate(360deg)}}
+
+    /* ===== ธีมดำมินิมอล: สีเดียวทั้งแผง ใช้สีเฉพาะสถานะ ===== */
+    #ytp-root,#ytp-root.dark{
+      --bg:#0b0b0c;--surface:#131315;--surface2:#1b1b1e;--line:#1f1f23;--line2:#2c2c31;
+      --fg:#f2f2f3;--fg2:#a0a0a8;--fg3:#66666e;
+      --brand:#f2f2f3;--brand2:#f2f2f3;--focus:#8a8a93;
+      --ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#93c5fd;--muted:#66666e;
+      --shadow:0 30px 80px -20px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.04);
+      --radius:12px;color-scheme:dark}
+    #ytp-root input{color-scheme:dark}
+    /* โลโก้ / ปุ่มหลัก / สวิตช์ / แถบความคืบหน้า: ขาวล้วน ไม่มีไล่เฉด */
+    #ytp-root .logo{background:var(--fg);color:var(--bg);box-shadow:none}
+    #ytp-root .btn.go{background:var(--fg);color:#0b0b0c;box-shadow:none}
+    #ytp-root .btn.go .gi{background:rgba(0,0,0,.08)}
+    #ytp-root .btn.go:disabled{background:var(--surface2);color:var(--fg3);filter:none}
+    #ytp-root .sw input:checked+.t{background:var(--fg)}
+    #ytp-root .sw input:checked+.t::after{background:#0b0b0c}
+    #ytp-root .sw .t{background:var(--line2)}
+    #ytp-root .progress i,#ytp-root .tbx-bar i{background:var(--fg)}
+    #ytp-root .fab .badge,#ytp-root .toast .ti{background:var(--fg);color:#0b0b0c}
+    #ytp-root .tabs .n{background:var(--fg);color:#0b0b0c}
+    /* ปุ่มลอย */
+    #ytp-root .fab{background:#0b0b0c;border-color:#26262b;box-shadow:0 10px 30px -8px rgba(0,0,0,.6)}
+    #ytp-root .fab .logo{width:30px;height:30px;border-radius:9px}
+    /* แผง */
+    #ytp-root .drawer{border-color:#1c1c20;border-radius:16px}
+    /* แถบช่อง: ไม่มีกล่อง แค่เส้นคั่น */
+    #ytp-root .chan{background:none;border:0;border-bottom:1px solid var(--line);border-radius:0;margin:0;padding:14px 16px}
+    #ytp-root .drawer>.chan{margin-top:0}
+    #ytp-root .chan .av::after{border-color:var(--bg)}
+    #ytp-root .chan .lk{background:none;border-color:var(--line2)}
+    #ytp-root .chan.locked .lk{background:none;color:var(--fg);border-color:var(--fg3)}
+    #ytp-root .chan.bad{background:color-mix(in srgb,var(--err) 8%,var(--bg))}
+    /* แท็บ: ตัวหนังสือ + เส้นใต้ แทนปุ่มเม็ด */
+    #ytp-root .tabs{background:none;border:0;border-bottom:1px solid var(--line);border-radius:0;margin:0;padding:0 10px;gap:0}
+    #ytp-root .tabs button{border-radius:0;padding:12px 6px;color:var(--fg3);border-bottom:2px solid transparent;margin-bottom:-1px}
+    #ytp-root .tabs button.on{background:none;box-shadow:none;color:var(--fg);border-bottom-color:var(--fg)}
+    #ytp-root .tabs button .ic{display:none}
+    /* กล่องส่วนต่าง ๆ: ไม่มีกรอบ ใช้ระยะห่างแทน */
+    #ytp-root .sec{border:0;padding:0;margin-top:22px;background:none}
+    #ytp-root .sec>h4{color:var(--fg3);font-weight:600;letter-spacing:.06em}
+    #ytp-root .sec>h4 .ic{display:none}
+    #ytp-root .sec+.sec{border-top:1px solid var(--line);padding-top:18px}
+    /* ช่องกรอก */
+    #ytp-root input[type=text],#ytp-root input[type=number],#ytp-root input[type=datetime-local],#ytp-root select,#ytp-root textarea{
+      background:var(--surface);border-color:var(--line);border-radius:9px}
+    #ytp-root input:focus,#ytp-root select:focus,#ytp-root textarea:focus{border-color:var(--fg3);box-shadow:none}
+    /* ปุ่มรอง */
+    #ytp-root .btn{background:none;border-color:var(--line2);border-radius:9px}
+    #ytp-root .btn:hover{background:var(--surface2)}
+    #ytp-root .ib.outline{border-color:var(--line2)}
+    /* กล่องลากไฟล์ */
+    #ytp-root .drop{background:none;border:1px dashed var(--line2);border-radius:12px}
+    #ytp-root .drop .di{background:var(--surface2);color:var(--fg)}
+    #ytp-root .drop:hover,#ytp-root .drop.hover{border-color:var(--fg3);background:var(--surface)}
+    #ytp-root .drop .folder{color:var(--fg)}
+    #ytp-root .drop .kbd{background:none}
+    #ytp-root .drawer.dropping::after{color:var(--fg);border-color:var(--fg2);background:rgba(11,11,12,.88)}
+    /* ตั้งเวลา */
+    #ytp-root .sched{background:none;border-color:var(--line)}
+    #ytp-root .sched.on{border-color:var(--line2)}
+    #ytp-root .sched .sh .si{background:var(--surface2);color:var(--fg2)}
+    #ytp-root .sched.late{border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+    #ytp-root .chip{background:none;border-color:var(--line2);color:var(--fg2)}
+    #ytp-root .chip:hover{color:var(--fg);border-color:var(--fg3)}
+    /* สถิติ: ตัวเลขล้วน */
+    #ytp-root .stat{border:0;background:none;padding:2px 10px 2px 0}
+    #ytp-root .stat b{font-size:13px}
+    /* การ์ด */
+    #ytp-root .card{background:none;border-color:var(--line);border-radius:12px}
+    #ytp-root .card:hover{border-color:var(--line2)}
+    #ytp-root .card.uploading,#ytp-root .card.review{box-shadow:none}
+    #ytp-root .card .th{background:var(--surface2);border-color:var(--line)}
+    #ytp-root .card .msg{background:var(--surface)}
+    #ytp-root .pill{background:none;padding-left:0}
+    #ytp-root .card.pending{--sc:var(--fg3)}
+    /* รายการพรีเซ็ต */
+    #ytp-root .pitem{background:none;border-color:transparent}
+    #ytp-root .pitem:hover{background:var(--surface)}
+    #ytp-root .pitem.on{border-color:var(--line2);background:var(--surface);box-shadow:none}
+    #ytp-root .pitem .main{color:var(--fg2);background:var(--surface2)}
+    #ytp-root .seg{background:var(--surface);border-color:var(--line)}
+    #ytp-root .seg button.on{background:var(--surface2);box-shadow:none}
+    #ytp-root .yt{background:var(--surface);border-color:var(--line)}
+    /* ลิขสิทธิ์ */
+    #ytp-root .tbx-card{background:var(--surface);border-color:var(--line)}
+    #ytp-root .tbx-sec{color:var(--fg2)}
+    /* หน้าต่าง/โมดัล */
+    #ytp-root .ask .box,#ytp-root #tbx-modal .box{background:var(--bg);border-color:var(--line2)}
+    #ytp-root .ask h3 .ai{background:var(--surface2);color:var(--fg)}
+    #ytp-root .ask .who{background:var(--surface)}
+    #ytp-root .ask .afoot .btn.go.danger{background:var(--err);color:#0b0b0c}
+    #ytp-root .toast{background:#0b0b0c;border-color:#26262b}
+    #ytp-root .act{margin:12px 16px 0;background:none;border-color:var(--line)}
+    #ytp-root .drawer>.sec{margin:12px 16px 0}
   `);
 
   const root = h('div', { id: 'ytp-root' });
@@ -5356,11 +5485,11 @@
       UI.lang = h('div', { className: 'tbx-note tbx-err', hidden: true },
         L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language'));
       UI.scanBtn = h('button', { className: 'btn go', onclick: () => scanClaims() }, icon('refresh', 14), L('สแกน claim', 'Scan claims'));
-      UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on') }, L('💰 โฆษณาปิดอยู่', '💰 Ads off'));
+      UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on') }, L('โฆษณาปิดอยู่', 'Ads off'));
       UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun(L('คุณกดหยุด', 'You stopped it'), true); stopAdsRun(L('คุณกดหยุด', 'You stopped it')); stopCollabRun(L('คุณกดหยุด', 'You stopped it')); renderStatus(); } }, icon('stop', 14), L('หยุด', 'Stop'));
-      UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, L('📋 รายการ claim', '📋 Claim list'));
-      UI.collabBtn = h('button', { className: 'btn', onclick: () => (chGet('collabScan', null) ? showCollab() : scanCollab()), title: L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators') }, '🤝 Collab');
-      UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels') }, L('🎵 เพลงที่เคยโดน', '🎵 Claimed songs'));
+      UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, L('รายการ claim', 'Claim list'));
+      UI.collabBtn = h('button', { className: 'btn', onclick: () => (chGet('collabScan', null) ? showCollab() : scanCollab()), title: L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators') }, 'Collab');
+      UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels') }, L('เพลงที่เคยโดน', 'Claimed songs'));
       UI.apTog = h('input', { type: 'checkbox', onclick: (e) => { e.preventDefault(); toggleAutopilot(); } });
       UI.apSub = h('small');
       UI.logBtn = h('button', { className: 'btn ghost sm', onclick: () => {
@@ -5374,11 +5503,11 @@
         UI.lang,
         h('div', { className: 'sec' }, h('h4', {}, icon('shield', 13), L('สถานะ', 'Status')), UI.card, UI.row1, UI.row2),
         h('div', { className: 'sec' },
-          h('label', { className: 'sw' }, UI.apTog, h('span', { className: 't' }), h('span', {}, h('b', {}, '🤖 Auto-pilot'), UI.apSub)),
+          h('label', { className: 'sw' }, UI.apTog, h('span', { className: 't' }), h('span', {}, h('b', {}, 'Auto-pilot'), UI.apSub)),
           h('div', { className: 'row', style: 'margin-top:6px;flex-wrap:wrap' },
             h('button', { className: 'btn sm', onclick: openSettings }, icon('sliders', 13), L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')),
-            h('button', { className: 'btn sm', onclick: () => showTracklistFix('') }, L('📝 แก้ tracklist', '📝 Fix tracklist')),
-            h('button', { className: 'btn sm', onclick: uploadsCSV, title: L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script') }, L('⬇ ประวัติการอัป', '⬇ Upload history')))),
+            h('button', { className: 'btn sm', onclick: () => showTracklistFix('') }, L('แก้ tracklist', 'Fix tracklist')),
+            h('button', { className: 'btn sm', onclick: uploadsCSV, title: L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script') }, L('ประวัติการอัป', 'Upload history')))),
         h('div', { className: 'sec' }, h('div', { className: 'row' }, h('b', { style: 'flex:1' }, L('กิจกรรม', 'Activity')), UI.logBtn), logBox));
     }
 
@@ -5409,9 +5538,9 @@
         if (s.stepDetail) kids.push(h('div', { className: 'tbx-sd' }, s.stepDetail));
       }
       UI.card.replaceChildren(...kids);
-      UI.listBtn.textContent = n.hasScan ? L(`📋 รายการ claim (${n.claims})`, `📋 Claim list (${n.claims})`) : L('📋 รายการ claim', '📋 Claim list');
-      UI.songBtn.textContent = L(`🎵 เพลงที่เคยโดน (${n.songs})`, `🎵 Claimed songs (${n.songs})`);
-      UI.adsBtn.textContent = n.hasAdsScan ? L(`💰 โฆษณาปิดอยู่ (${n.adsTodo})`, `💰 Ads off (${n.adsTodo})`) : L('💰 โฆษณาปิดอยู่', '💰 Ads off');
+      UI.listBtn.textContent = n.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list');
+      UI.songBtn.textContent = L(`เพลงที่เคยโดน (${n.songs})`, `Claimed songs (${n.songs})`);
+      UI.adsBtn.textContent = n.hasAdsScan ? L(`โฆษณาปิดอยู่ (${n.adsTodo})`, `Ads off (${n.adsTodo})`) : L('โฆษณาปิดอยู่', 'Ads off');
       UI.scanBtn.hidden = UI.adsBtn.hidden = busyRun || busyScan;
       UI.stopBtn.hidden = !busyRun && !waiting; // มีคิวตัดต่อรออยู่ก็กดหยุดได้
       UI.row2.hidden = busyRun || busyScan;
@@ -5442,7 +5571,7 @@
     function openSettings() {
       const c = cfg();
       const fields = {};
-      const kids = [h('h3', {}, L('⚙ ตั้งค่าลิขสิทธิ์', '⚙ Copyright settings'))];
+      const kids = [h('h3', {}, L('ตั้งค่าลิขสิทธิ์', 'Copyright settings'))];
       for (const sc of SETTINGS) {
         kids.push(h('div', { className: 'tbx-sec' }, sc.title));
         for (const [k, label, hint] of sc.items) {
