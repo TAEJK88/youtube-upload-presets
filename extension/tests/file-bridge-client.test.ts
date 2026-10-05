@@ -40,7 +40,8 @@ describe('mountFileBridge', () => {
       getFile: async (id) => new File(['abc'], id + '.mp4'),
     });
     const file = await bridge.getFile('clip');
-    expect(file.name).toBe('clip.mp4');
+    // Node 22 clones File as Blob over MessagePort, so check content instead of .name
+    expect(await file.text()).toBe('abc');
     stop();
     port2.close();
   });
