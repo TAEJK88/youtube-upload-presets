@@ -123,9 +123,9 @@ export function makeInviter(doc, { pace = 0.01 } = {}) {
 const WATCH = block('let inviteWatching = false;', '// Studio เปลี่ยนหน้าแบบ SPA');
 const INVITE_HELPERS = block('// ลิงก์คำเชิญ /channel/', 'let inviteWatching = false;');
 
-export function makeWatcher(doc, win) {
+export function makeWatcher(doc, win, store = {}) {
   const run = new Function(
-    'L', 'document', 'location', 'getComputedStyle', 'setInterval', 'clearInterval', 'setTimeout', 'console', 'GM_getValue',
+    'L', 'document', 'location', 'getComputedStyle', 'setInterval', 'clearInterval', 'setTimeout', 'console', 'GM_getValue', 'GM_setValue',
     `'use strict';
     ${TXT_BLOCK}
     ${SEL_BLOCK}
@@ -136,7 +136,9 @@ export function makeWatcher(doc, win) {
   );
   // the toast's auto-remove timer is irrelevant here and would keep node alive
   return run(L, doc, win.location, win.getComputedStyle, win.setInterval, win.clearInterval,
-    () => 0, win.console, () => ({}));
+    () => 0, win.console,
+    (k, d) => (k === 'settings' ? {} : (k in store ? store[k] : d)),
+    (k, v) => { store[k] = v; });
 }
 
 // ----- which surface the details fields live on -----

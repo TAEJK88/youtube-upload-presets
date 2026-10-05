@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.26.3
+// @version      4.27.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -254,6 +254,7 @@
   // หน้านั้นจะลิสต์ทุกช่อง พอกดช่องไหน YouTube จะสลับให้แล้วเด้งไปที่ next เอง
   const SWITCH_KEY = 'pendingChannelSwitch';
   const SWITCHED_KEY = 'channelSwitchedAt';
+  const ACCEPT_ROUND_KEY = 'inviteAcceptRound'; // นับรอบการเปิดลิงก์คำเชิญซ้ำเพื่อรับคลิปถัดไป
   const SWITCH_TTL = 180000;
   const pendingSwitch = () => {
     const p = GM_getValue(SWITCH_KEY, null);
@@ -371,6 +372,7 @@
     const rowTitle = (r) => normText(r.querySelector(SEL.inviteRowTitle)?.textContent).slice(0, 60);
 
     const MAX = 25; // กันวนไม่รู้จบถ้าแถวไม่หายไปหลังกดยอมรับ
+    const ACCEPT_ROUNDS = 15; // เปิดลิงก์คำเชิญซ้ำได้สูงสุดกี่รอบ (กันวนไม่รู้จบ)
     const IDLE_BEFORE_DONE = 8; // รอบที่ว่างติดกันก่อนจะสรุปว่าหมดแล้ว
     let tries = 0;
     let done = 0;      // จำนวนคำเชิญที่กดยอมรับไปแล้ว
@@ -381,11 +383,30 @@
     const stop = () => { clearInterval(timer); inviteWatching = false; };
     const finish = () => {
       stop();
+      say(`finished — accepted ${done}`);
+      // YouTube เสนอคำเชิญให้ทีละคลิปต่อการเปิดหน้าหนึ่งครั้ง พอยอมรับไปแล้วกล่องรายการ
+      // จะค้างที่ "Oops, something went wrong" และโหลดหน้าเดิมซ้ำก็ไม่มีคำเชิญถัดไปขึ้นมา
+      // ต้องกลับไปที่ลิงก์คำเชิญเดิมเท่านั้น — ประกอบขึ้นใหม่ได้จาก id ช่องเราใน path
+      // กับ inviterChannelId ใน query ของหน้าที่ YouTube เด้งมา
+      if (done && nextInviteRound()) return;
       if (done) inviteNote(done > 1
         ? L(`ยอมรับคำเชิญให้แล้ว ${done} คลิป`, `Accepted ${done} collaboration requests`)
         : L('ยอมรับคำเชิญเรียบร้อย', 'Invitation accepted'));
-      say(`finished — accepted ${done}`);
+      GM_setValue(ACCEPT_ROUND_KEY, null);
     };
+    // คืน true ถ้าสั่งไปรอบถัดไปแล้ว
+    function nextInviteRound() {
+      const me = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1];
+      const inviter = new URLSearchParams(location.search).get('inviterChannelId');
+      if (!me || !inviter) return false;
+      const prev = GM_getValue(ACCEPT_ROUND_KEY, null);
+      const n = (prev && Date.now() - prev.at < 300000 ? prev.n : 0) + 1;
+      if (n > ACCEPT_ROUNDS) { GM_setValue(ACCEPT_ROUND_KEY, null); say('reached the round limit — stopping'); return false; }
+      GM_setValue(ACCEPT_ROUND_KEY, { n, at: Date.now() });
+      say(`accepted ${done}; reopening the invite link for the next request (round ${n})`);
+      location.href = `${location.origin}/channel/${me}/collaboration/${inviter}`;
+      return true;
+    }
     const timer = setInterval(() => {
       if (++tries > 180) {
         stop();

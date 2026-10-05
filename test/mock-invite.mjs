@@ -92,9 +92,9 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
 
   if (skipList) openModal(remaining[0]); else renderList();
 
-  const u = new URL(url || 'https://studio.youtube.com/channel/UC1/videos/upload?d=acd&inviterChannelId=UC2');
+  const u = new URL(url || 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/videos/upload?d=acd&inviterChannelId=UCSd21ggmlMhbvaMT5IGxajA');
   const win = {
-    location: { hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, href: u.href },
+    location: { hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, href: u.href, origin: u.origin },
     getComputedStyle: () => ({ visibility: 'visible', display: 'block' }),
     console: { info() {} },
   };
