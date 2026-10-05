@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.19.0
+// @version      4.19.1
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -2507,8 +2507,8 @@
 
     /* ===== ธีมดำมินิมอล: สีเดียวทั้งแผง ใช้สีเฉพาะสถานะ ===== */
     #ytp-root,#ytp-root.dark{
-      --bg:#0b0b0c;--surface:#131315;--surface2:#1b1b1e;--line:#1f1f23;--line2:#2c2c31;
-      --fg:#f2f2f3;--fg2:#a0a0a8;--fg3:#66666e;
+      --bg:#0b0b0c;--surface:#131315;--surface2:#1c1c20;--line:#222227;--line2:#34343b;
+      --fg:#f4f4f5;--fg2:#bcbcc4;--fg3:#8a8a94;
       --brand:#f2f2f3;--brand2:#f2f2f3;--focus:#8a8a93;
       --ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#93c5fd;--muted:#66666e;
       --shadow:0 30px 80px -20px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.04);
@@ -2599,6 +2599,23 @@
     #ytp-root .toast{background:#0b0b0c;border-color:#26262b}
     #ytp-root .act{margin:12px 16px 0;background:none;border-color:var(--line)}
     #ytp-root .drawer>.sec{margin:12px 16px 0}
+    /* hover/โฟกัส: ปุ่มหลักต้องคงพื้นขาวตัวดำเสมอ (กฎ .btn:hover ด้านบนเคยทับจนตัวหนังสือหาย) */
+    #ytp-root .btn.go:hover,#ytp-root .btn.go:focus-visible{background:#ffffff;color:#0b0b0c;filter:none}
+    #ytp-root .btn.go:active{background:#d8d8dc}
+    #ytp-root .btn.go:disabled,#ytp-root .btn.go:disabled:hover{background:var(--surface2);color:var(--fg3)}
+    #ytp-root .ask .afoot .btn.go.danger:hover{background:#fca5a5;color:#0b0b0c}
+    #ytp-root .btn:hover{color:var(--fg)}
+    #ytp-root .btn.danger:hover{color:var(--err)}
+    #ytp-root .btn:not(.go):disabled:hover{background:none}
+    #ytp-root .tabs button{color:var(--fg2)}
+    #ytp-root .tabs button:hover{color:var(--fg)}
+    #ytp-root .ib{color:var(--fg2)}
+    #ytp-root .ib:hover{background:var(--surface2);color:var(--fg)}
+    #ytp-root .chip.var:hover{color:var(--fg);border-color:var(--fg2)}
+    #ytp-root .act:hover{background:var(--surface)}
+    #ytp-root button:focus-visible,#ytp-root .pitem:focus-visible{outline:2px solid var(--fg2);outline-offset:2px}
+    #ytp-root ::placeholder{color:var(--fg3);opacity:1}
+    #ytp-root .lbl{color:var(--fg2)}
   `);
 
   const root = h('div', { id: 'ytp-root' });
