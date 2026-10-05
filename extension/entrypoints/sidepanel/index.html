@@ -6,7 +6,14 @@
   </head>
   <body style="font: 13px system-ui; background: #111; color: #eee; margin: 12px">
     <h1 style="font-size: 15px">Upload Presets — spike</h1>
-    <p><button id="cfg">Read ytcfg</button></p>
+    <div id="drop" style="border: 2px dashed #555; border-radius: 10px; padding: 28px; text-align: center">
+      Drop video / image / .txt files here
+    </div>
+    <p>
+      <button id="cfg">Read ytcfg</button>
+      <button id="regrant">Re-grant access</button>
+    </p>
+    <ul id="files"></ul>
     <pre id="log" style="white-space: pre-wrap; font: 12px ui-monospace, monospace"></pre>
     <script type="module" src="./main.ts"></script>
   </body>

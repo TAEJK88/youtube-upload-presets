@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { onMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
 
 export default defineBackground(() => {
@@ -13,4 +14,8 @@ export default defineBackground(() => {
     if (info.url || info.status === 'complete') scope(tabId, tab.url);
   });
   browser.tabs.query({}).then((tabs) => tabs.forEach((t) => t.id !== undefined && scope(t.id, t.url)));
+
+  onMessage('openPanel', async ({ sender }) => {
+    if (sender.tab?.id !== undefined) await browser.sidePanel.open({ tabId: sender.tab.id });
+  });
 });
