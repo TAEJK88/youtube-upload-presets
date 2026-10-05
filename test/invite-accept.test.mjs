@@ -147,3 +147,19 @@ test('a URL without inviterChannelId cannot be rebuilt, so it stops', () => {
   assert.deepEqual(r.truth.accepted, ['Video A']);
   assert.deepEqual(r.nav, [], 'no inviterChannelId to rebuild from');
 });
+
+/* ---------- the errored request list that covers the invite ----------
+   Seen live every run: "Collaboration requests" sticks on "Oops, something went
+   wrong" with no rows and floats over the invite card, leaving Accept dimmed. */
+
+test('an empty errored request list is dismissed, then the invite is accepted', () => {
+  const r = run({ titles: ['Video A'], skipList: true, deadList: true });
+  assert.equal(r.truth.closedDeadList, true, 'the useless box must be closed');
+  assert.deepEqual(r.truth.accepted, ['Video A'], 'and the card underneath accepted');
+});
+
+test('a request list with rows is never dismissed', () => {
+  const r = run({ titles: ['Video A', 'Video B'] });
+  assert.notEqual(r.truth.closedDeadList, true);
+  assert.deepEqual(r.truth.accepted, ['Video A', 'Video B']);
+});

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.27.0
+// @version      4.27.1
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -370,6 +370,14 @@
       return [...host.querySelectorAll(SEL.inviteRequestRow)].find(visible) || null;
     };
     const rowTitle = (r) => normText(r.querySelector(SEL.inviteRowTitle)?.textContent).slice(0, 60);
+    // กล่อง "Collaboration requests" ชอบค้างที่ "Oops, something went wrong" โดยไม่มีแถวเลย
+    // แล้วลอยทับบัตรคำเชิญที่อยู่ข้างหลัง ทำให้ปุ่ม Accept กดไม่ได้ — กล่องแบบนี้ไม่มีประโยชน์
+    // ปิดทิ้งก่อนแล้วค่อยทำงานกับบัตรที่อยู่ข้างใต้
+    const deadList = () => {
+      const host = document.querySelector(SEL.inviteListDialog);
+      if (!host || !visible(host.querySelector(SEL.paperDialog))) return null;
+      return [...host.querySelectorAll(SEL.inviteRequestRow)].some(visible) ? null : host;
+    };
 
     const MAX = 25; // กันวนไม่รู้จบถ้าแถวไม่หายไปหลังกดยอมรับ
     const ACCEPT_ROUNDS = 15; // เปิดลิงก์คำเชิญซ้ำได้สูงสุดกี่รอบ (กันวนไม่รู้จบ)
@@ -417,6 +425,18 @@
         return;
       }
       if (Date.now() - lastAction < 2500) return; // ให้หน้าต่างเปิด/ปิดให้เสร็จก่อนค่อยทำต่อ
+
+      // 0) ปิดกล่องรายการที่ค้าง/ว่างเปล่าก่อน ไม่งั้นมันจะบังบัตรคำเชิญที่อยู่ข้างหลัง
+      const dead = deadList();
+      if (dead) {
+        const x = dead.querySelector(SEL.dialogClose);
+        if (x) {
+          lastAction = Date.now();
+          say('closing the empty "Collaboration requests" box covering the invite');
+          (x.querySelector('button') || x).click();
+          return;
+        }
+      }
 
       // 1) หน้าต่างยอมรับเปิดอยู่ → กด Accept
       const b = acceptBtn();
