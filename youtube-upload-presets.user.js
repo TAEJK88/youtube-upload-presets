@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.25.0
+// @version      4.25.1
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -840,15 +840,18 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, T(ms)));
   const isVisible = (el) => !!el && el.isConnected && el.getClientRects().length > 0;
 
+  // แท็บ Studio อยู่เบื้องหลัง (ปล่อยคิวแล้วไปทำอย่างอื่น) Chrome หน่วง setTimeout ได้ถึงนาทีละครั้ง
+  // เจอจริง: sleep 100ms กลายเป็นหลายสิบวินาที -> เดิมหมดเวลาโดยเช็กไปแค่ครั้งเดียว ทั้งที่ของขึ้นแล้ว
+  // จึงเช็กอย่างน้อย 3 ครั้ง และเช็กซ้ำอีกครั้งหลังหมดเวลาก่อนยอมแพ้
   async function waitFor(fn, timeout = 10000, step = 200) {
     const t0 = Date.now();
     const limit = T(timeout);
-    while (Date.now() - t0 < limit) {
+    for (let tries = 0; Date.now() - t0 < limit || tries < 3; tries++) {
       const v = fn();
       if (v) return v;
       await sleep(step);
     }
-    return null;
+    return fn() || null;
   }
 
   const getDialog = () => document.querySelector(SEL.dialog);
@@ -1290,11 +1293,17 @@
       return isVisible(t) && t;
     }, 5000);
     if (!trigger) return L('ไม่พบช่องวันที่', 'Date field not found');
-    trigger.click();
-    const dateInput = await waitFor(() => {
-      const i = document.querySelector(SEL.datePickerInput);
-      return isVisible(i) && i;
-    }, 5000);
+    // ปฏิทินของ Studio: กดช่องวันที่ = เปิด/ปิดสลับกัน และ Escape ปิดไม่ได้ (ตรวจกับ Studio จริง ต.ค. 2026)
+    // ถ้าเปิดอยู่แล้วห้ามกดซ้ำ (จะกลายเป็นปิด) · ยังไม่เปิดค่อยกด แล้วลองใหม่ได้ 3 ครั้ง
+    const pickerInput = () => {
+      const i = [...document.querySelectorAll(SEL.datePickerInput)].find(isVisible);
+      return i || null;
+    };
+    let dateInput = pickerInput();
+    for (let k = 0; !dateInput && k < 3; k++) {
+      trigger.click();
+      dateInput = await waitFor(pickerInput, 4000);
+    }
     if (!dateInput) return L('เปิดปฏิทินไม่ได้', 'Could not open the calendar');
     const dateText = formatStudioDate(date, dateInput.value);
     await typeInto(dateInput, dateText);
