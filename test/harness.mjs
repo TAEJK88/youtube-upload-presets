@@ -94,7 +94,7 @@ export const C = new Function(
   ${TXT_BLOCK}
   ${COLLAB}
   ${constLine('INVITE_URL')}
-  return { normText, collabRowMatches, acceptLabelMatches, inviteOutcome, parseHandles, TXT, INVITE_URL };`
+  return { normText, collabRowMatches, acceptLabelMatches, switcherRowMatches, inviteOutcome, parseHandles, TXT, INVITE_URL };`
 )(L);
 
 // ----- the collab dialog flow, driven against a fake DOM -----

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.15.0
+// @version      4.16.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -131,6 +131,8 @@
     inviteRequestRow: 'ytcp-video-row', // แถวคำเชิญ 1 คลิป — ใช้ได้เฉพาะเมื่อค้นภายใน inviteListDialog เท่านั้น
     inviteRowOpen: '#thumbnail-anchor', // กดรูปย่อของแถวเพื่อเปิดหน้าต่างยอมรับ
     inviteRowTitle: '#video-title',
+    // --- หน้าสลับช่องของ YouTube (www.youtube.com/channel_switcher → /account) ---
+    switcherItem: 'ytd-account-item-renderer', // หนึ่งแถว = หนึ่งช่อง (ไม่มี UC id ในแถว มีแต่ชื่อกับ @handle)
     // --- Monetisation / Ad suitability ---
     monetBox: 'ytcp-video-monetization',
     monetDialog: 'ytcp-video-monetization-edit-dialog',
@@ -148,6 +150,7 @@
     timeOption: 'tp-yt-paper-item, [role="option"], ytcp-text-menu tp-yt-paper-item',
     // --- แถบด้านข้าง (ชื่อช่อง) ---
     channelName: 'ytcp-navigation-drawer #entity-name, #entity-name',
+    channelHandleBox: 'ytcp-navigation-drawer #entity-subtitle, ytcp-navigation-drawer #sub-title, ytcp-navigation-drawer', // ดึง @handle ด้วย regex จากกล่องนี้
     channelAvatar: 'ytcp-navigation-drawer #avatar img, ytcp-navigation-drawer img.image-thumbnail, ytcp-navigation-drawer img, #avatar-btn img',
     // --- ปุ่ม / ตัวเลือกทั่วไปของ Studio ---
     radio: 'tp-yt-paper-radio-button, [role="radio"]',
@@ -191,6 +194,17 @@
   // ปุ่มที่มี aria-label ยาว ๆ เลยไม่เคยตรง) และยุบช่องว่าง/ขึ้นบรรทัดใหม่จากเทมเพลตก่อนเทียบ
   const acceptLabelMatches = (...labels) => labels.some((l) => normText(l) && TXT.acceptInvite.test(normText(l)));
 
+  // แถวในหน้าสลับช่องมีแต่ชื่อช่องกับ @handle (ไม่มี UC id) จึงต้องเทียบด้วย handle
+  // ต้องจบขอบคำด้วย ไม่งั้น @thaibeats จะไปตรงกับแถวของ @thaibeatsofficial
+  const switcherRowMatches = (rowText, handle, name) => {
+    const t = normText(rowText);
+    if (!t) return false;
+    const h = String(handle || '').replace(/^@/, '').toLowerCase();
+    if (h) return new RegExp('@' + h.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + '(?![a-z0-9._-])', 'i').test(t);
+    const n = normText(name).toLowerCase();
+    return !!n && t.toLowerCase().startsWith(n);
+  };
+
   // สรุปผลของคลิปหนึ่ง — "สำเร็จ" ต้องแปลว่า YouTube บันทึกให้จริงเท่านั้น
   // res.saved: true = กด Save แล้วหน้าต่างปิดจริง, false = กดไม่สำเร็จ, null = ไม่มีอะไรต้องบันทึก
   function inviteOutcome(res) {
@@ -227,6 +241,47 @@
     root.querySelectorAll('*').forEach((e) => { if (e.shadowRoot) deepFind(e.shadowRoot, sel, out); });
     return out;
   }
+
+  // ===== สลับช่องให้อัตโนมัติ =====
+  // เข้า studio.youtube.com/channel/<id> ตรง ๆ ไม่ได้ถ้าช่องนั้นไม่ใช่ช่องที่ session
+  // กำลังใช้อยู่ — YouTube จะขึ้น "Oops, you don't have permission to view this page"
+  // ทางที่ YouTube ใช้เอง (ปุ่ม Switch account บนหน้า Oops) คือ
+  //   www.youtube.com/channel_switcher?next=<ปลายทาง>
+  // หน้านั้นจะลิสต์ทุกช่อง พอกดช่องไหน YouTube จะสลับให้แล้วเด้งไปที่ next เอง
+  const SWITCH_KEY = 'pendingChannelSwitch';
+  const SWITCH_TTL = 180000;
+  const pendingSwitch = () => {
+    const p = GM_getValue(SWITCH_KEY, null);
+    return p && Date.now() - (p.at || 0) < SWITCH_TTL ? p : null;
+  };
+  const clearSwitch = () => GM_setValue(SWITCH_KEY, null);
+  // target: { handle?, name? } · next: URL เต็มที่จะไปต่อหลังสลับช่องเสร็จ
+  function switchToChannel(target, next) {
+    GM_setValue(SWITCH_KEY, Object.assign({ at: Date.now(), next }, target));
+    location.href = 'https://www.youtube.com/channel_switcher?next=' + encodeURIComponent(next);
+  }
+
+  // อยู่ในหน้าสลับช่อง: กดช่องที่ค้างไว้ให้เอง แล้ว YouTube จะพาไปที่ next ต่อ
+  function watchChannelSwitcher() {
+    if (location.hostname !== 'www.youtube.com') return;
+    if (!/^\/(account|channel_switcher)/.test(location.pathname)) return;
+    const want = pendingSwitch();
+    if (!want) return;
+    const say = (m) => console.info('[YT Upload Presets] switch: ' + m);
+    say(`looking for ${want.handle || want.name} on the channel switcher`);
+    let tries = 0;
+    const timer = setInterval(() => {
+      if (++tries > 60 || !pendingSwitch()) { clearInterval(timer); return; }
+      const row = [...document.querySelectorAll(SEL.switcherItem)]
+        .find((r) => r.getClientRects().length > 0 && switcherRowMatches(r.textContent, want.handle, want.name));
+      if (!row) return;
+      clearInterval(timer);
+      clearSwitch();
+      say(`switching to ${want.handle || want.name}`);
+      row.click();
+    }, 500);
+  }
+  watchChannelSwitcher();
 
   let inviteWatching = false;
   function watchInvite() {
@@ -1443,7 +1498,10 @@
     const imgEl = document.querySelector(
       SEL.channelAvatar
     );
-    return { id, name: nameEl ? nameEl.textContent.trim() : '', avatar: imgEl && imgEl.src ? imgEl.src : '' };
+    // @handle: หน้าสลับช่องไม่มี UC id ในแถว ต้องใช้ handle เทียบ (ไม่เจอก็ถอยไปเทียบด้วยชื่อ)
+    const hBox = document.querySelector(SEL.channelHandleBox);
+    const handle = ((hBox && hBox.textContent) || '').match(/@[a-z0-9._-]+/i);
+    return { id, name: nameEl ? nameEl.textContent.trim() : '', avatar: imgEl && imgEl.src ? imgEl.src : '', handle: handle ? handle[0] : '' };
   }
   const chanLabel = (c) => c.name || c.id || L('ไม่ทราบช่อง', 'Unknown channel');
   // คืนค่า '' ถ้าอัปได้ หรือข้อความเตือนถ้าไม่ตรงกับช่องที่ล็อกไว้
@@ -1461,6 +1519,8 @@
   let qid = 0;
   let running = false;
   let stopReq = false;
+  // ห้ามเปลี่ยนหน้า/สลับช่องระหว่างที่คิวอัปโหลดยังมีไฟล์ (ไฟล์อยู่ในหน่วยความจำของหน้า จะหายถ้าเปลี่ยนหน้า)
+  const uploadBusy = () => running || queue.some((i) => ['pending', 'uploading', 'review', 'error'].includes(i.status));
 
   const STATUS = {
     pending: [L('รอคิว', 'Queued'), 'muted'],
@@ -2355,8 +2415,8 @@
     if (!c.id || !c.name) return;
     channels = load('channels', []);
     const old = channels.find((x) => x.id === c.id);
-    if (old && old.name === c.name && old.avatar === c.avatar) return;
-    channels = [{ id: c.id, name: c.name, avatar: c.avatar }, ...channels.filter((x) => x.id !== c.id)];
+    if (old && old.name === c.name && old.avatar === c.avatar && old.handle === (c.handle || old.handle)) return;
+    channels = [{ id: c.id, name: c.name, avatar: c.avatar, handle: c.handle || (old && old.handle) || '' }, ...channels.filter((x) => x.id !== c.id)];
     saveChannels();
     if (!chanList.hidden) renderChanList();
   }
@@ -2382,7 +2442,14 @@
       c.avatar ? h('img', { src: c.avatar, alt: '', style: 'width:22px;height:22px;border-radius:50%' }) : icon('tv', 16),
       h('div', { style: 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: c.id },
         h('b', {}, c.name || c.id), c.id === cur ? h('small', { style: 'color:var(--fg3)' }, L(' · ช่องนี้', ' · this tab')) : null),
-      h('button', { className: 'btn sm', title: L('เปิดช่องนี้ในแท็บใหม่', 'Open this channel in a new tab'), onclick: () => window.open(channelUrl(c.id), '_blank') }, icon('ext', 13), L('แท็บใหม่', 'New tab')),
+      // ช่องปัจจุบันเปิดแท็บใหม่ได้เลย · ช่องอื่นต้องผ่านหน้าสลับช่องก่อน ไม่งั้นเจอหน้า Oops
+      // (การสลับช่องมีผลกับทุกแท็บ จึงทำในแท็บนี้ ไม่ใช่แท็บใหม่)
+      c.id === cur
+        ? h('button', { className: 'btn sm', title: L('เปิดช่องนี้ในแท็บใหม่', 'Open this channel in a new tab'), onclick: () => window.open(channelUrl(c.id), '_blank') }, icon('ext', 13), L('แท็บใหม่', 'New tab'))
+        : h('button', { className: 'btn sm', title: L('สลับไปช่องนี้ (มีผลกับทุกแท็บ Studio)', 'Switch to this channel (affects every Studio tab)'), onclick: () => {
+          if (uploadBusy()) return toast(L('คิวอัปโหลดยังทำงานอยู่ — สลับช่องตอนนี้คิวจะหยุด', 'Upload queue is still running — switching channels now would stop it'));
+          switchToChannel({ name: c.name, handle: c.handle }, channelUrl(c.id));
+        } }, icon('swap', 13), L('สลับไปช่องนี้', 'Switch')),
       iconBtn('x', L('เอาออกจากรายการ', 'Remove from list'), () => { channels = load('channels', []).filter((x) => x.id !== c.id); saveChannels(); renderChanList(); })
     ));
     chanList.replaceChildren(
@@ -3351,8 +3418,6 @@
     // ข้อความปุ่มต่าง ๆ ด้านล่างเป็นภาษาอังกฤษ → ต้องตั้งภาษา Studio เป็น English
     const studioIsEnglish = () => /^en/i.test(document.documentElement.lang || 'en');
 
-    // ห้ามเปลี่ยนหน้าระหว่างที่คิวอัปโหลดยังมีไฟล์ (ไฟล์อยู่ในหน่วยความจำของหน้า จะหายถ้าเปลี่ยนหน้า)
-    const uploadBusy = () => running || queue.some((i) => ['pending', 'uploading', 'review', 'error'].includes(i.status));
 
     /* ---------- Studio internal API ---------- */
     const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
@@ -4276,6 +4341,28 @@
       const summary = [L(`สำเร็จ ${done}`, `Done ${done}`), failed ? L(`ไม่สำเร็จ ${failed}`, `Failed ${failed}`) : '', left ? L(`ยังไม่ได้ทำ ${left}`, `Not done ${left}`) : ''].filter(Boolean).join(' · ');
       log(`${reason}: ${summary}`, 'ok');
       flash(reason, summary + L(' · อย่าลืมส่งลิงก์คำเชิญให้อีกฝ่าย (ปุ่ม 🤝 Collab)', ' · Remember to send the invite link (🤝 Collab button)'), failed ? 'err' : 'ok', 15000);
+      if (done) chainAcceptInvites();
+    }
+
+    // เชิญเสร็จแล้วงานยังไม่จบ — ลิงก์คำเชิญต้องมีคนเปิดและกดยอมรับ ถ้าช่องที่ถูกเชิญ
+    // เป็นช่องของเราเองก็สลับไปช่องนั้นแล้วให้ watchInvite กดยอมรับให้ต่อได้เลย
+    // (การสลับช่องมีผลกับทุกแท็บ Studio จึงไม่ทำระหว่างที่คิวอัปโหลดยังวิ่งอยู่)
+    function chainAcceptInvites() {
+      if ((GM_getValue('settings') || {}).autoAcceptInvite === false) return;
+      const links = Object.entries(collabLinks());
+      if (!links.length) return;
+      const mine = load('channels', []);
+      // เลือกเฉพาะช่องที่อยู่ในรายการช่องของเราเอง — ช่องคนอื่นเราสลับไปไม่ได้อยู่แล้ว
+      const target = links
+        .map(([handle, link]) => ({ handle, link, chan: mine.find((c) => c.handle && c.handle.toLowerCase() === handle.toLowerCase()) }))
+        .find((x) => x.chan && x.chan.id !== currentChannel());
+      if (!target) return;
+      if (uploadBusy()) {
+        log(L('คิวอัปโหลดยังวิ่งอยู่ — ยังไม่สลับช่องไปกดยอมรับคำเชิญ', 'Upload queue is running — not switching channels to accept the invite yet'), 'warn');
+        return;
+      }
+      log(L(`สลับไปช่อง ${target.handle} เพื่อกดยอมรับคำเชิญ…`, `Switching to ${target.handle} to accept the invite…`), 'ok');
+      switchToChannel({ handle: target.handle, name: target.chan.name }, target.link);
     }
     function setCollabResult(item, state, msg) {
       const res = chGet('collabResults', {});

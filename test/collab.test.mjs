@@ -144,3 +144,44 @@ test('ordinary Studio pages do not arm the watcher', () => {
     assert.equal(C.INVITE_URL.test(p), false, p);
   }
 });
+
+/* ---------- the channel switcher ----------
+   Rows on www.youtube.com/account carry only a name and an @handle — no UC id —
+   so switching has to match on the handle. Picking the wrong row switches the
+   whole session to the wrong channel, so the boundary matters. */
+
+const ROW = (name, handle, subs = '1,000 subscribers') => `${name} ${handle} ${subs}`;
+
+test('a channel is matched by its handle', () => {
+  assert.ok(C.switcherRowMatches(ROW('THAIBEATS', '@thaibeats'), '@thaibeats'));
+});
+
+test('the handle matches with or without the leading @', () => {
+  assert.ok(C.switcherRowMatches(ROW('THAIBEATS', '@thaibeats'), 'thaibeats'));
+});
+
+test('a handle that is a prefix of another channel does not match it', () => {
+  assert.equal(C.switcherRowMatches(ROW('Thai Beats Official', '@thaibeatsofficial'), '@thaibeats'), false);
+});
+
+test('a manager row still matches', () => {
+  assert.ok(C.switcherRowMatches('Nessy J. @NessyJ.official You\'re a manager • 1,060 subscribers', '@NessyJ.official'));
+});
+
+test('handle matching ignores case', () => {
+  assert.ok(C.switcherRowMatches(ROW('BLXD', '@BLXDofficial'), '@blxdofficial'));
+});
+
+test('a different channel does not match', () => {
+  assert.equal(C.switcherRowMatches(ROW('BLXD', '@BLXDofficial'), '@thaibeats'), false);
+});
+
+test('with no handle it falls back to the channel name', () => {
+  assert.ok(C.switcherRowMatches(ROW('Coffeetables Mix', '@coffeetablesmix'), '', 'Coffeetables Mix'));
+  assert.equal(C.switcherRowMatches(ROW('Coffeetables Mix', '@coffeetablesmix'), '', 'soulvybe'), false);
+});
+
+test('with neither handle nor name nothing matches', () => {
+  assert.equal(C.switcherRowMatches(ROW('THAIBEATS', '@thaibeats'), '', ''), false);
+  assert.equal(C.switcherRowMatches('', '@thaibeats'), false);
+});
