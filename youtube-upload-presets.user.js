@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.15.0
+// @version      4.16.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -10,6 +10,7 @@
 // @grant        GM_setValue
 // @grant        GM_addStyle
 // @grant        GM_setClipboard
+// @grant        GM_notification
 // @grant        unsafeWindow
 // @grant        GM_info
 // @run-at       document-idle
@@ -532,6 +533,7 @@
       producer: '', // ชื่อโปรดิวเซอร์ใน {producer} เว้นว่าง = ใช้ชื่อช่องปัจจุบัน
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
       autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
+      notify: true, // แจ้งเตือนบนเดสก์ท็อป + เสียง เมื่อคิวเสร็จ/หยุด
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
       schedule: { on: false, start: '', every: 1, unit: 'day' },
     },
@@ -1514,7 +1516,12 @@
   // รับไฟล์ปนกันได้: คลิป + .txt + ภาพปก จับคู่ด้วยชื่อไฟล์ (ไม่รวมนามสกุล)
   async function addFiles(fileList) {
     const files = [...fileList];
-    const vids = files.filter(isVideo);
+    // เรียงตามชื่อแบบตัวเลข (Mix 2 ก่อน Mix 10) — ลำดับในคิว = เลข EP และเวลาปล่อย
+    // ข้ามคลิปที่อยู่ในคิวแล้ว (ชื่อ+ขนาดเดียวกัน) กันลากซ้ำแล้วอัปเบิ้ล
+    const inQueue = new Set(queue.filter((i) => i.status !== 'done').map((i) => i.file.name + '|' + i.file.size));
+    const allVids = files.filter(isVideo).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    const vids = allVids.filter((f) => !inQueue.has(f.name + '|' + f.size));
+    const dupN = allVids.length - vids.length;
     for (const file of vids) {
       const it = { id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0 };
       queue.push(it);
@@ -1540,6 +1547,7 @@
     if (txtN) parts.push(L(`คำอธิบาย .txt ${txtN} ไฟล์`, `${txtN} .txt description file(s)`));
     if (imgN) parts.push(L(`ภาพปก ${imgN} ไฟล์`, `${imgN} thumbnail file(s)`));
     if (unmatched) parts.push(L(`ไม่มีคลิปชื่อตรงกัน ${unmatched} ไฟล์`, `${unmatched} file(s) with no matching video name`));
+    if (dupN) parts.push(L(`มีในคิวแล้ว ${dupN} คลิป`, `${dupN} already in the queue`));
     if (skipped) parts.push(L(`ข้าม ${skipped} ไฟล์`, `Skipped ${skipped} file(s)`));
     if (parts.length) toast(parts.join(' · '));
     renderQueue();
@@ -1758,12 +1766,44 @@
     }
     // tracklist ที่ YouTube จะไม่สร้าง Chapters ให้ — ถามก่อนเริ่ม (อัปไปแล้วต้องตามแก้คำอธิบายทีละคลิป)
     assignNumbers();
-    const badTl = queue.filter((i) => i.status === 'pending' && i.txt).map((i) => [i, itemTracklist(i)]).filter(([, tc]) => tc.errors.length);
-    if (badTl.length && !confirm(L(
-      `${badTl.length} คลิปมีปัญหา tracklist (YouTube จะไม่สร้าง Chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… และอีก ${badTl.length - 5} คลิป` : ''}\n\nอัปต่อเลยไหม? (กด Cancel เพื่อกลับไปแก้ไฟล์ .txt — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด)`,
-      `${badTl.length} video(s) have tracklist problems (YouTube won't create chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… and ${badTl.length - 5} more` : ''}\n\nUpload anyway? (Cancel to go back and fix the .txt files — details are on the red badge in each card)`))) return;
-    const ch = getChannel();
-    if (settings.confirmStart && !confirm(L(`อัปโหลด ${pendingN} คลิป ไปที่ช่อง:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nถูกช่องใช่ไหม?`, `Upload ${pendingN} video(s) to channel:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nIs this the right channel?`))) return;
+    const pendingItems = queue.filter((i) => i.status === 'pending');
+    const badTl = pendingItems.filter((i) => i.txt).map((i) => [i, itemTracklist(i)]).filter(([, tc]) => tc.errors.length);
+    const badTime = pendingItems.filter((i) => scheduleProblem(itemPublishAt(i)));
+    // ยืนยันครั้งเดียวในแผง: ช่องปลายทาง + สรุปคิว + ปัญหาที่ควรรู้ก่อนเริ่ม
+    if (settings.confirmStart || badTl.length || badTime.length) {
+      const ch = getChannel();
+      const times = pendingItems.map(itemPublishAt).filter(Boolean).sort((a, b) => a - b);
+      const vis = [...new Set(pendingItems.map((i) => presetById(i.presetId).visibility || 'PRIVATE'))].join(', ');
+      const noTxt = pendingItems.filter((i) => !i.txt).length;
+      const noThumb = settings.thumb ? pendingItems.filter((i) => !i.thumb).length : 0;
+      const warnList = (head, items) => h('div', { className: 'warnbox', style: 'margin-top:8px' },
+        h('b', {}, icon('alert', 13), head),
+        h('ul', {}, items.slice(0, 5).map((x) => h('li', {}, x)), items.length > 5 ? h('li', {}, L(`… และอีก ${items.length - 5} คลิป`, `… and ${items.length - 5} more`)) : null));
+      const go = await ask({
+        title: L(`อัปโหลด ${pendingN} คลิป`, `Upload ${pendingN} video(s)`),
+        ic: 'upload',
+        ok: L(`เริ่มอัปโหลด ${pendingN} คลิป`, `Upload ${pendingN} video(s)`),
+        body: h('div', {},
+          h('div', { className: 'who' },
+            ch.avatar ? h('img', { src: ch.avatar, alt: '' }) : h('div', { className: 'ph' }, icon('tv', 18)),
+            h('div', { style: 'min-width:0' }, h('small', {}, L('ไปที่ช่อง', 'To channel')), h('b', {}, chanLabel(ch)), h('small', { className: 'mono' }, ch.id || ''))),
+          h('div', { className: 'facts' },
+            h('span', {}, L('คลิป', 'Videos')), h('span', {}, String(pendingN)),
+            h('span', {}, L('เผยแพร่', 'Release')), h('span', {}, times.length
+              ? (times.length > 1 ? `${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])}` : fmtWhen(times[0]))
+              : L(`ทันทีตามพรีเซ็ต (${vis})`, `Per preset (${vis})`)),
+            noTxt ? h('span', {}, L('ไม่มี .txt', 'No .txt')) : null, noTxt ? h('span', {}, L(`${noTxt} คลิป`, `${noTxt} video(s)`)) : null,
+            noThumb ? h('span', {}, L('ไม่มีภาพปก', 'No thumbnail')) : null, noThumb ? h('span', {}, L(`${noThumb} คลิป`, `${noThumb} video(s)`)) : null),
+          badTime.length ? warnList(L(`เวลาปล่อยผ่านไปแล้ว/เร็วไป ${badTime.length} คลิป`, `${badTime.length} release time(s) in the past / too soon`),
+            badTime.map((i) => `${i.file.name}: ${fmtWhen(itemPublishAt(i))}`)) : null,
+          badTl.length ? warnList(L(`tracklist มีปัญหา ${badTl.length} คลิป — YouTube จะไม่สร้าง Chapters`, `${badTl.length} tracklist problem(s) — YouTube won't create chapters`),
+            badTl.map(([i, tc]) => `${i.file.name}: ${tc.errors[0]}`)) : null,
+          badTl.length || badTime.length ? h('div', { className: 'mut', style: 'margin-top:8px' }, L('กดยกเลิกเพื่อกลับไปแก้ — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด', 'Cancel to go back and fix — details are on the red badges in each card')) : null
+        ),
+      });
+      if (!go) return;
+      if (running) return;
+    }
     running = true;
     stopReq = false;
     updateRunUI();
@@ -1794,7 +1834,14 @@
       running = false;
       assignNumbers();
       renderQueue();
-      toast(stopReq ? L(`หยุดคิวแล้ว (สำเร็จ ${ok} คลิป)`, `Queue stopped (${ok} video(s) done)`) : L(`คิวเสร็จแล้ว สำเร็จ ${ok} คลิป ✅`, `Queue finished: ${ok} video(s) done ✅`));
+      const errN = queue.filter((i) => i.status === 'error').length;
+      const left = queue.filter((i) => i.status === 'pending').length;
+      const msg = stopReq ? L(`หยุดคิวแล้ว (สำเร็จ ${ok} คลิป)`, `Queue stopped (${ok} video(s) done)`) : L(`คิวเสร็จแล้ว สำเร็จ ${ok} คลิป ✅`, `Queue finished: ${ok} video(s) done ✅`);
+      toast(msg);
+      const clean = !errN && !left;
+      notifyDone(clean ? L('อัปโหลดเสร็จแล้ว ✅', 'Upload finished ✅') : L('คิวหยุด — มีคลิปต้องดู ⚠️', 'Queue stopped — needs attention ⚠️'),
+        `${chanLabel(getChannel())} · ` + L(`สำเร็จ ${ok}`, `${ok} done`) + (errN ? L(` · ผิดพลาด ${errN}`, ` · ${errN} error(s)`) : '') + (left ? L(` · ค้าง ${left}`, ` · ${left} left`) : ''), clean);
+      setTitleMark(document.hasFocus() ? '' : clean ? '✅' : '⚠️');
     }
   }
 
@@ -1920,6 +1967,11 @@
     ext: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
     clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3.5 2',
     shield: 'M12 3l8 3v6c0 4.8-3.4 8.3-8 9-4.6-.7-8-4.2-8-9V6z',
+    chev: 'M6 9l6 6 6-6',
+    up: 'M6 15l6-6 6 6',
+    down: 'M6 9l6 6 6-6',
+    folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+    bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0',
   };
   const FILLED = new Set(['play', 'stop', 'star']);
   function icon(name, size = 16) {
@@ -2287,6 +2339,53 @@
     #ytp-root .tbx-table a{color:var(--info);text-decoration:none;font-weight:600}
     #ytp-root .tbx-table input[type=checkbox]{accent-color:var(--brand)}
     #ytp-root .chip.bad{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,transparent);background:color-mix(in srgb,var(--err) 8%,var(--bg))}
+    /* ---------- หน้าต่างยืนยันในแผง (แทน confirm() ของเบราว์เซอร์) ---------- */
+    #ytp-root .ask{position:fixed;inset:0;z-index:100004;background:rgba(5,5,10,.55);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;
+      animation:ytp-fade .15s ease-out}
+    #ytp-root .ask .box{background:var(--bg);color:var(--fg);width:min(460px,94vw);max-height:88vh;overflow:auto;border-radius:18px;padding:20px;
+      border:1px solid var(--line);box-shadow:var(--shadow)}
+    #ytp-root .ask h3{display:flex;align-items:center;gap:10px;margin:0 0 10px;font-size:16px;font-weight:700;letter-spacing:-.01em}
+    #ytp-root .ask h3 .ai{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;flex:0 0 auto;color:var(--brand);
+      background:color-mix(in srgb,var(--brand) 12%,var(--bg))}
+    #ytp-root .ask.danger h3 .ai{color:var(--err);background:color-mix(in srgb,var(--err) 12%,var(--bg))}
+    #ytp-root .ask .ab{font-size:13px;line-height:1.6;color:var(--fg2);white-space:pre-line;word-break:break-word}
+    #ytp-root .ask .ab b{color:var(--fg)}
+    #ytp-root .ask .afoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+    #ytp-root .ask .afoot .btn.go{flex:0 0 auto;justify-content:center}
+    #ytp-root .ask .afoot .btn.go.danger{background:var(--err);box-shadow:none}
+    #ytp-root .ask .who{display:flex;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);margin:4px 0 10px}
+    #ytp-root .ask .who img,#ytp-root .ask .who .ph{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 auto;display:grid;place-items:center;background:var(--surface2);color:var(--fg3)}
+    #ytp-root .ask .who b{display:block;font-size:14px;color:var(--fg)}
+    #ytp-root .ask .who small{display:block;color:var(--fg3);font-size:11.5px}
+    #ytp-root .ask .facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px;margin:0 0 10px}
+    #ytp-root .ask .facts span:nth-child(odd){color:var(--fg3)}
+    #ytp-root .ask .facts span:nth-child(even){color:var(--fg);font-weight:600}
+    #ytp-root .ask .warnbox{border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.55;color:var(--warn);
+      background:color-mix(in srgb,var(--warn) 10%,var(--bg));border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line))}
+    #ytp-root .ask .warnbox b{display:flex;align-items:center;gap:6px;color:var(--warn);margin-bottom:4px}
+    #ytp-root .ask .warnbox ul{margin:0;padding-left:18px;color:var(--fg2)}
+
+    /* ---------- การ์ดคิวแบบย่อ ---------- */
+    #ytp-root .card .hdr{cursor:pointer}
+    #ytp-root .card .tl{font-size:12.5px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #ytp-root .card .tl.over{color:var(--err)}
+    #ytp-root .card .wt{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--brand);white-space:nowrap}
+    #ytp-root .card .wt.bad{color:var(--err)}
+    #ytp-root .card .ib.sm{width:26px;height:26px;border-radius:7px}
+    #ytp-root .card .exp .ic{transition:transform .18s}
+    #ytp-root .card.open .exp .ic{transform:rotate(180deg)}
+    #ytp-root .card .ord{display:flex;flex-direction:column;gap:0}
+    #ytp-root .card .ord .ib{width:22px;height:16px;border-radius:5px}
+    #ytp-root .card .att{margin-top:8px}
+    #ytp-root .toolbar .btn.ghost{padding:6px 8px}
+
+    /* ---------- วางไฟล์ตรงไหนของแผงก็ได้ ---------- */
+    #ytp-root .drawer.dropping::after{content:attr(data-drop);position:absolute;inset:8px;border-radius:16px;z-index:5;pointer-events:none;
+      display:grid;place-items:center;font-size:15px;font-weight:700;color:var(--brand);
+      border:2px dashed var(--brand);background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(2px)}
+    #ytp-root .fab.dropping{transform:scale(1.06);box-shadow:0 0 0 3px var(--brand),0 16px 36px -8px rgba(0,0,0,.55)}
+    #ytp-root .drop .folder{background:none;border:0;padding:0;color:var(--brand);font-weight:600;font-size:12px;cursor:pointer;text-decoration:underline}
+    @keyframes ytp-fade{from{opacity:0}to{opacity:1}}
     @keyframes ytp-ind{0%{margin-left:-35%}100%{margin-left:100%}}
     @keyframes ytp-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
     @keyframes ytp-spin{to{transform:rotate(360deg)}}
@@ -2303,6 +2402,88 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3800);
   }
+
+  // หน้าต่างยืนยันในแผง แทน confirm() ของเบราว์เซอร์ (ซึ่งโชว์แค่ข้อความล้วน และหยุดทั้งหน้า)
+  // คืนค่า true = ปุ่มหลัก, false = ปุ่มรอง, null = ปิดทิ้ง (Esc / คลิกนอกกล่อง)
+  // ถ้า no เป็น null จะมีแค่ปุ่มหลักกับปุ่มยกเลิก และการยกเลิกคืนค่า false
+  let askClose = null;
+  function ask({ title, body = '', ok = L('ตกลง', 'OK'), no = null, cancel = L('ยกเลิก', 'Cancel'), danger = false, ic = 'alert' }) {
+    askClose?.(null);
+    return new Promise((resolve) => {
+      const prevFocus = document.activeElement;
+      const done = (v) => {
+        askClose = null;
+        modal.remove();
+        document.removeEventListener('keydown', onKey, true);
+        prevFocus?.focus?.();
+        resolve(v);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(no ? null : false); }
+        else if (e.key === 'Enter' && !/^(TEXTAREA|BUTTON)$/.test(e.target.tagName)) { e.preventDefault(); e.stopPropagation(); done(true); }
+      };
+      const okBtn = h('button', { className: 'btn go' + (danger ? ' danger' : ''), onclick: () => done(true) }, ok);
+      const btns = no
+        ? [h('button', { className: 'btn ghost', onclick: () => done(null) }, cancel), h('button', { className: 'btn', onclick: () => done(false) }, no), okBtn]
+        : [h('button', { className: 'btn', onclick: () => done(false) }, cancel), okBtn];
+      const modal = h('div', { className: 'ask' + (danger ? ' danger' : ''), onclick: (e) => { if (e.target === modal) done(no ? null : false); } },
+        h('div', { className: 'box', role: 'dialog', 'aria-modal': 'true' },
+          h('h3', {}, h('span', { className: 'ai' }, icon(ic, 17)), title),
+          h('div', { className: 'ab' }, body),
+          h('div', { className: 'afoot' }, ...btns)));
+      askClose = done;
+      document.addEventListener('keydown', onKey, true);
+      root.append(modal);
+      okBtn.focus();
+    });
+  }
+
+  // ----- แจ้งเตือนเมื่อคิวเสร็จ: เดสก์ท็อป + เสียง + ชื่อแท็บ -----
+  function beep(ok = true) {
+    try {
+      const ctx = new AudioContext();
+      const notes = ok ? [660, 880] : [440, 330];
+      notes.forEach((f, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.frequency.value = f;
+        o.connect(g); g.connect(ctx.destination);
+        const t = ctx.currentTime + i * 0.18;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        o.start(t); o.stop(t + 0.17);
+      });
+      setTimeout(() => ctx.close(), 800);
+    } catch { /* เบราว์เซอร์ไม่ให้เล่นเสียง */ }
+  }
+  function notifyDone(title, text, ok = true) {
+    if (!settings.notify) return;
+    beep(ok);
+    if (document.hasFocus() && drawer.classList.contains('open')) return; // ดูอยู่แล้ว ไม่ต้องเด้ง
+    try {
+      if (typeof GM_notification === 'function') {
+        GM_notification({ title, text, silent: true, onclick: () => { window.focus(); openDrawer('queue'); } });
+      } else if ('Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification(title, { body: text, silent: true });
+        n.onclick = () => { window.focus(); openDrawer('queue'); n.close(); };
+      }
+    } catch { /* ไม่มีสิทธิ์แจ้งเตือน */ }
+  }
+  // ความคืบหน้าบนชื่อแท็บ เช่น "(3/10) ⬆ Channel content" — เห็นได้แม้อยู่แท็บอื่น
+  const TITLE_TAG = /^(\(\d+\/\d+\) ⬆|✅|⚠️)(\s+|$)/;
+  let titleMark = '';
+  function setTitleMark(mark) {
+    titleMark = mark;
+    const base = document.title.replace(TITLE_TAG, '');
+    const next = mark ? `${mark} ${base}` : base;
+    if (document.title !== next) document.title = next;
+  }
+  // Studio เปลี่ยนชื่อแท็บเองตอนเปลี่ยนหน้า -> ใส่เครื่องหมายกลับเข้าไป
+  setInterval(() => { if (titleMark && !document.title.startsWith(titleMark)) setTitleMark(titleMark); }, 1500);
+  // ✅/⚠️ หลังคิวจบ แสดงไว้จนกว่าจะกลับมาดูแท็บนี้
+  const clearDoneMark = () => { if (titleMark && !titleMark.startsWith('(') && document.visibilityState === 'visible' && document.hasFocus()) setTitleMark(''); };
+  window.addEventListener('focus', () => setTimeout(clearDoneMark, 1500));
 
   // ----- โครงหลัก -----
   const fabLabel = h('span', { className: 'fpr' });
@@ -2477,22 +2658,65 @@
 
   // ----- แท็บคิว -----
   const fileInput = h('input', { type: 'file', multiple: true, accept: 'video/*,.txt,image/*', hidden: true, onchange: (e) => { addFiles(e.target.files); e.target.value = ''; } });
+  // เลือกทั้งโฟลเดอร์ (คลิป + .txt + ภาพปก ในโฟลเดอร์เดียว) ในคลิกเดียว
+  const folderInput = h('input', { type: 'file', webkitdirectory: true, multiple: true, hidden: true, onchange: (e) => { addFiles(e.target.files); e.target.value = ''; } });
   const dropZone = h('div', { className: 'drop', onclick: () => fileInput.click() },
     h('div', { className: 'di' }, icon('upload', 22)),
     h('div', {},
-      h('b', {}, L('ลากไฟล์มาวาง หรือคลิกเพื่อเลือก', 'Drop files here or click to select')),
-      h('span', {}, L('เลือกได้หลายไฟล์ จับคู่ด้วยชื่อไฟล์อัตโนมัติ', 'Multiple files allowed, auto-matched by file name')),
+      h('b', {}, L('ลากไฟล์หรือโฟลเดอร์มาวางตรงไหนของแผงก็ได้', 'Drop files or a folder anywhere on this panel')),
+      h('span', {}, L('หรือคลิกเพื่อเลือกไฟล์ · ', 'or click to select files · '),
+        h('button', { className: 'folder', onclick: (e) => { e.stopPropagation(); folderInput.click(); } }, L('เลือกทั้งโฟลเดอร์', 'pick a whole folder'))),
       h('div', {}, h('span', { className: 'kbd' }, L('.mp4 คลิป', '.mp4 video')), h('span', { className: 'kbd' }, L('.txt คำอธิบาย', '.txt description')), h('span', { className: 'kbd' }, L('.jpg ภาพปก', '.jpg thumbnail')))
     )
   );
-  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('hover'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('hover'));
-  dropZone.addEventListener('drop', (e) => {
+
+  // อ่านไฟล์จากการลากวาง รวมไฟล์ในโฟลเดอร์ (ลึกสุด 2 ชั้น) — ต้องดึง entry ก่อน await แรก ไม่งั้น DataTransfer จะว่าง
+  async function filesFromDrop(dt) {
+    const entries = [...(dt?.items || [])].map((i) => i.kind === 'file' && i.webkitGetAsEntry?.()).filter(Boolean);
+    if (!entries.some((en) => en.isDirectory)) return [...(dt?.files || [])];
+    const out = [];
+    const readDir = (dir) => new Promise((res) => {
+      const reader = dir.createReader();
+      const all = [];
+      const next = () => reader.readEntries((batch) => { if (!batch.length) return res(all); all.push(...batch); next(); }, () => res(all));
+      next();
+    });
+    async function walk(en, depth) {
+      if (en.isFile) {
+        const f = await new Promise((res) => en.file(res, () => res(null)));
+        if (f && !f.name.startsWith('.')) out.push(f);
+      } else if (en.isDirectory && depth < 2) {
+        for (const c of await readDir(en)) await walk(c, depth + 1);
+      }
+    }
+    for (const en of entries) await walk(en, 0);
+    return out;
+  }
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  // กรอบ "วางเพื่อเพิ่มเข้าคิว" — ซ่อนเองเมื่อ dragover หยุด (ไม่ต้องนับ dragenter/dragleave ที่กระพริบ)
+  let dropHintTimer;
+  function dropHint(el) {
+    el.classList.add('dropping');
+    clearTimeout(dropHintTimer);
+    dropHintTimer = setTimeout(() => { drawer.classList.remove('dropping'); fab.classList.remove('dropping'); }, 150);
+  }
+  async function onPanelDrop(e) {
+    if (!hasFiles(e)) return;
     e.preventDefault();
     e.stopPropagation();
-    dropZone.classList.remove('hover');
-    addFiles(e.dataTransfer.files);
-  });
+    drawer.classList.remove('dropping');
+    fab.classList.remove('dropping');
+    const files = await filesFromDrop(e.dataTransfer);
+    if (currentTab !== 'queue') showTab('queue');
+    if (!drawer.classList.contains('open')) openDrawer('queue');
+    addFiles(files);
+  }
+  drawer.dataset.drop = L('วางเพื่อเพิ่มเข้าคิว', 'Drop to add to the queue');
+  drawer.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dropHint(drawer); });
+  drawer.addEventListener('drop', onPanelDrop);
+  // ลากไฟล์มาวางบนปุ่มลอยได้เลย ไม่ต้องเปิดแผงก่อน
+  fab.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dropHint(fab); });
+  fab.addEventListener('drop', onPanelDrop);
 
   const defaultPresetSel = h('select', {
     title: L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos'),
@@ -2505,6 +2729,15 @@
       renderQueue();
     },
   }, icon('layers', 14), L('ใช้กับทุกคลิป', 'Apply to all'));
+  // การ์ดเริ่มแบบย่อ (แถวเดียว) คลิกการ์ดเพื่อแก้ชื่อ/เวลา/ศิลปิน — ปุ่มนี้ขยาย/ย่อทั้งหมดทีเดียว
+  const expandAllBtn = h('button', {
+    className: 'btn sm ghost',
+    onclick: () => {
+      const open = !queue.some((i) => i.open);
+      queue.forEach((i) => { i.open = open; updateItemUI(i); });
+      updateRunUI();
+    },
+  });
   const listEl = h('div');
   const progress = h('i', { style: 'width:0' });
   const progressPct = h('span', { className: 'cnt' });
@@ -2601,8 +2834,8 @@
   }
 
   panes.queue = h('div', {},
-    fileInput, dropZone,
-    h('div', { className: 'toolbar' }, defaultPresetSel, applyAllBtn),
+    fileInput, folderInput, dropZone,
+    h('div', { className: 'toolbar' }, defaultPresetSel, applyAllBtn, expandAllBtn),
     schedPanel,
     statsWrap,
     progressWrap,
@@ -2663,49 +2896,78 @@
     const presetSel = h('select', {
       onchange: (e) => { it.presetId = e.target.value; it.titleEdited = false; renderQueue(); },
     }, presetOptions(it.presetId));
-    const retryBtn = h('button', { className: 'btn sm', onclick: () => {
-      if (it.draftId && !confirm(L(`คลิปนี้อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId})\nถ้าลองใหม่จะได้คลิปซ้ำ — ลบฉบับร่างใน Content แล้วหรือยัง?\n\nกด OK เพื่ออัปใหม่`, `This video was already uploaded as a draft (${it.draftId})\nRetrying will create a duplicate — have you deleted the draft in Content?\n\nClick OK to upload again`))) return;
+    const retryBtn = h('button', { className: 'btn sm', onclick: async () => {
+      if (it.draftId && !(await ask({
+        title: L('คลิปนี้อยู่ใน Studio แล้ว', 'This video is already in Studio'),
+        body: L(`อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ถ้าลองใหม่จะได้คลิปซ้ำ\nลบฉบับร่างในหน้า Content ก่อน แล้วค่อยอัปใหม่`, `It was already uploaded as a draft (${it.draftId}). Retrying will create a duplicate.\nDelete the draft in Content first, then upload again.`),
+        ok: L('ลบแล้ว อัปใหม่', 'Deleted it, upload again'), ic: 'refresh',
+      }))) return;
       it.draftId = '';
       setItem(it, 'pending'); assignNumbers(); renderQueue();
     } }, icon('refresh', 13), L('ลองใหม่', 'Retry'));
-    const removeBtn = iconBtn('x', L('เอาออกจากคิว', 'Remove from queue'), () => { queue.splice(queue.indexOf(it), 1); renderQueue(); }, 'danger');
+    const removeBtn = iconBtn('x', L('เอาออกจากคิว', 'Remove from queue'), () => { queue.splice(queue.indexOf(it), 1); renderQueue(); }, 'sm danger');
+    // เลื่อนลำดับในคิว (ลำดับ = เลข {n}/EP และเวลาปล่อย) สลับได้เฉพาะกับคลิปที่ยังไม่ได้อัป
+    const canMove = (x) => x && (x.status === 'pending' || x.status === 'error');
+    const move = (d) => {
+      const i = queue.indexOf(it);
+      if (!canMove(it) || !canMove(queue[i + d])) return;
+      [queue[i], queue[i + d]] = [queue[i + d], queue[i]];
+      listEl.replaceChildren(...queue.map((x) => x.ui.el));
+      assignNumbers();
+      onScheduleChange();
+    };
+    const upBtn = iconBtn('up', L('เลื่อนขึ้น', 'Move up'), () => move(-1), 'sm');
+    const downBtn = iconBtn('down', L('เลื่อนลง', 'Move down'), () => move(1), 'sm');
+    const ord = h('div', { className: 'ord' }, upBtn, downBtn);
+    const expBtn = iconBtn('chev', L('แก้ไขรายละเอียด', 'Edit details'), () => {}, 'sm exp');
+    const titleTxt = h('div', { className: 'tl' });
+    const whenTxt = h('span', { className: 'wt' });
     const att = h('div', { className: 'att' });
     const attachInput = h('input', {
       type: 'file', multiple: true, accept: '.txt,image/*', hidden: true,
       onchange: async (e) => { await attachToItem(it, e.target.files); e.target.value = ''; },
     });
-    const el = h('div', { className: 'card' },
-      h('div', { className: 'top' },
-        thumbBox,
-        h('div', { className: 'info' },
-          h('div', { className: 'fnrow' }, h('span', { className: 'fn', title: it.file.name }, it.file.name), removeBtn),
-          h('div', { className: 'row' }, pill, retryBtn),
-          presetSel
-        )
+    const fields = h('div', { className: 'fields' },
+      h('div', {}, h('div', { className: 'mini' }, L('พรีเซ็ต', 'Preset')), presetSel),
+      h('div', {},
+        h('div', { className: 'mini' }, L('ชื่อคลิป', 'Video title')),
+        h('div', { className: 'row' }, h('div', { className: 'field', style: 'flex:1' }, titleIn, cnt), resetBtn)
       ),
-      h('div', { className: 'fields' },
-        h('div', {},
-          h('div', { className: 'mini' }, L('ชื่อคลิป', 'Video title')),
-          h('div', { className: 'row' }, h('div', { className: 'field', style: 'flex:1' }, titleIn, cnt), resetBtn)
-        ),
-        whenBox,
-        artistsBox,
-        att
-      ),
-      upBar,
-      msg,
-      attachInput
+      whenBox,
+      artistsBox
     );
-    // ลาก .txt / ภาพ มาวางบนการ์ดเพื่อแนบกับคลิปนี้โดยตรง
-    el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('drag'); });
+    // แถวบนเป็นแถวเดียว: ภาพ · ชื่อไฟล์ · ชื่อคลิป · สถานะ/เวลาปล่อย — คลิกเพื่อขยายช่องแก้ไข
+    const hdr = h('div', { className: 'top hdr' },
+      thumbBox,
+      h('div', { className: 'info', style: 'gap:3px' },
+        h('div', { className: 'fnrow' }, h('span', { className: 'fn', title: it.file.name }, it.file.name), expBtn, removeBtn),
+        titleTxt,
+        h('div', { className: 'row', style: 'flex-wrap:wrap;gap:6px' }, pill, whenTxt, retryBtn)
+      ),
+      ord
+    );
+    hdr.addEventListener('click', (e) => {
+      if (e.target.closest('button:not(.exp),input,select,a')) return;
+      it.open = !it.open;
+      updateItemUI(it);
+      updateRunUI();
+      if (it.open && (it.status === 'pending' || it.status === 'error')) setTimeout(() => titleIn.focus({ preventScroll: true }), 0);
+    });
+    const el = h('div', { className: 'card' }, hdr, fields, att, upBar, msg, attachInput);
+    // ลาก .txt / ภาพ มาวางบนการ์ดเพื่อแนบกับคลิปนี้โดยตรง (ถ้ามีคลิปปนมา ส่งต่อให้แผงเพิ่มเข้าคิวตามปกติ)
+    const attachable = (e) => hasFiles(e) && canMove(it);
+    el.addEventListener('dragover', (e) => { if (!attachable(e)) return; e.preventDefault(); e.stopPropagation(); el.classList.add('drag'); });
     el.addEventListener('dragleave', () => el.classList.remove('drag'));
     el.addEventListener('drop', (e) => {
+      el.classList.remove('drag');
+      if (!attachable(e)) return;
+      const files = [...e.dataTransfer.files];
+      if (!files.length || files.some(isVideo) || e.dataTransfer.items?.[0]?.webkitGetAsEntry?.()?.isDirectory) return; // ปล่อยให้แผงจัดการ
       e.preventDefault();
       e.stopPropagation();
-      el.classList.remove('drag');
-      attachToItem(it, e.dataTransfer.files);
+      attachToItem(it, files);
     });
-    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset };
+    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset, fields, titleTxt, whenTxt, upBtn, downBtn, ord, expBtn, canMove };
     return el;
   }
 
@@ -2716,9 +2978,19 @@
     if (!u) return;
     const [label] = STATUS[it.status];
     const editable = it.status === 'pending' || it.status === 'error';
-    u.el.className = 'card ' + it.status;
+    u.el.className = 'card ' + it.status + (it.open ? ' open' : '');
     u.pill.className = 'pill';
     u.pill.textContent = label;
+    u.fields.hidden = !it.open;
+    u.titleTxt.hidden = !!it.open;
+    u.titleTxt.textContent = it.title || '—';
+    u.titleTxt.title = it.title;
+    u.titleTxt.classList.toggle('over', it.title.length > TITLE_MAX);
+    u.expBtn.title = it.open ? L('ย่อ', 'Collapse') : editable ? L('แก้ไขรายละเอียด', 'Edit details') : L('ดูรายละเอียด', 'Show details');
+    const qi = queue.indexOf(it);
+    u.ord.hidden = !editable;
+    u.upBtn.disabled = !u.canMove(queue[qi - 1]);
+    u.downBtn.disabled = !u.canMove(queue[qi + 1]);
     if (document.activeElement !== u.titleIn) u.titleIn.value = it.title;
     u.titleIn.disabled = u.presetSel.disabled = u.artistsIn.disabled = !editable;
     const p = presetById(it.presetId);
@@ -2736,6 +3008,13 @@
       u.whenLbl.replaceChildren(icon(bad ? 'alert' : 'clock', 12), bad ? L('อดีต/เร็วไป', 'Past/too soon') : it.publishEdited ? L('ตั้งเอง', 'Manual') : L('ตามคิว', 'Queue'));
       u.whenLbl.title = bad || '';
       u.whenReset.hidden = !editable || !it.publishEdited;
+    }
+    u.whenTxt.hidden = !at;
+    if (at) {
+      const bad = editable && scheduleProblem(at);
+      u.whenTxt.className = 'wt' + (bad ? ' bad' : '');
+      u.whenTxt.replaceChildren(icon(bad ? 'alert' : 'clock', 11), fmtWhen(at));
+      u.whenTxt.title = bad || (it.publishEdited ? L('เวลาที่ตั้งเอง', 'Manually set time') : L('เวลาตามคิว', 'Queue time'));
     }
     u.retryBtn.hidden = it.status !== 'error';
     u.removeBtn.hidden = it.status === 'uploading' || it.status === 'review';
@@ -2858,6 +3137,10 @@
     progressPct.textContent = pct + '%';
     // ป้าย FAB เป็นของ renderActivity() ทั้งตอนมีงานและตอนว่าง
     tabCount.queue.textContent = total ? String(total) : '';
+    const anyOpen = queue.some((i) => i.open);
+    expandAllBtn.hidden = !total;
+    expandAllBtn.replaceChildren(icon(anyOpen ? 'up' : 'down', 14), anyOpen ? L('ย่อทั้งหมด', 'Collapse all') : L('ขยายทั้งหมด', 'Expand all'));
+    if (running) setTitleMark(`(${Math.min(done + errors + 1, total)}/${total}) ⬆`);
     renderActivity(); // ทางเดียว: renderActivity ไม่เรียก updateRunUI กลับ
   }
 
@@ -2959,7 +3242,7 @@
   [fTitle, fDesc, fTags].forEach((f) => f.addEventListener('focus', () => (lastField = f)));
 
   // ลากไฟล์ .txt มาวางในช่องคำอธิบาย = แทรกเนื้อหาไฟล์ตรงตำแหน่งเคอร์เซอร์
-  fDesc.addEventListener('dragover', (e) => e.preventDefault());
+  fDesc.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
   fDesc.addEventListener('drop', async (e) => {
     const f = [...(e.dataTransfer?.files || [])].find(isTxt);
     if (!f) return;
@@ -2994,7 +3277,7 @@
   bind('artistPriority', fArtists, (v) => v.split(',').map((s) => s.trim()).filter(Boolean));
   bind('artistMax', fArtistMax, (v) => Math.max(1, parseInt(v, 10) || 4));
   sampleIn.addEventListener('input', renderPresetPreview);
-  sampleIn.addEventListener('dragover', (e) => e.preventDefault());
+  sampleIn.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
   sampleIn.addEventListener('drop', async (e) => {
     const files = [...(e.dataTransfer?.files || [])];
     const txt = files.find(isTxt);
@@ -3083,9 +3366,9 @@
         } }, icon('copy', 13), L('ทำสำเนา', 'Duplicate')),
         h('button', { className: 'btn sm', onclick: () => { activeId = editId; save('activeId', activeId); refreshLabels(); renderPresetList(); toast(L(`ตั้ง "${editing().label}" เป็นพรีเซ็ตหลักแล้ว`, `Set "${editing().label}" as the default preset`)); } }, icon('star', 13), L('ตั้งเป็นหลัก', 'Set as default')),
         h('span', { style: 'flex:1' }),
-        h('button', { className: 'btn sm ghost danger', onclick: () => {
+        h('button', { className: 'btn sm ghost danger', onclick: async () => {
           if (presets.length < 2) return toast(L('ต้องมีพรีเซ็ตอย่างน้อย 1 อัน', 'You must keep at least 1 preset'));
-          if (!confirm(L(`ลบพรีเซ็ต "${editing().label}"?`, `Delete preset "${editing().label}"?`))) return;
+          if (!(await ask({ title: L(`ลบพรีเซ็ต "${editing().label}"?`, `Delete preset "${editing().label}"?`), body: L('คลิปในคิวที่ใช้พรีเซ็ตนี้จะเปลี่ยนไปใช้พรีเซ็ตหลัก', 'Queued videos using this preset will switch to the default preset'), ok: L('ลบ', 'Delete'), danger: true, ic: 'clear' }))) return;
           presets = presets.filter((p) => p.id !== editId);
           save('presets', presets);
           if (!presets.some((p) => p.id === activeId)) { activeId = presets[0].id; save('activeId', activeId); }
@@ -3127,8 +3410,8 @@
   );
   footers.presets = h('div', { className: 'ft' },
     h('button', { className: 'btn', style: 'flex:1', onclick: applyToOpenDialog, title: L('ใส่พรีเซ็ตหลักลงหน้าต่างอัปโหลดที่เปิดอยู่', 'Apply the default preset to the open upload dialog') }, icon('send', 14), L('ใส่ลงหน้าต่างที่เปิดอยู่', 'Apply to open window')),
-    h('button', { className: 'btn ghost danger', onclick: () => {
-      if (!confirm(L('คืนค่าพรีเซ็ตทั้งหมดเป็นค่าเริ่มต้น? พรีเซ็ตที่แก้ไว้จะหายไป', 'Reset all presets to defaults? Your edited presets will be lost.'))) return;
+    h('button', { className: 'btn ghost danger', onclick: async () => {
+      if (!(await ask({ title: L('คืนค่าพรีเซ็ตทั้งหมด?', 'Reset all presets?'), body: L('พรีเซ็ตที่แก้ไว้จะหายไป และกลับเป็นค่าเริ่มต้น (ส่งออกไฟล์สำรองในแท็บตั้งค่าก่อนได้)', 'Your edited presets will be lost and replaced by the defaults (you can export a backup in Settings first)'), ok: L('คืนค่าเริ่มต้น', 'Reset to defaults'), danger: true, ic: 'refresh' }))) return;
       presets = structuredClone(DEFAULT_PRESETS); save('presets', presets);
       activeId = editId = presets[0].id; save('activeId', activeId);
       queue.forEach((it) => { if (!presets.some((p) => p.id === it.presetId)) it.presetId = activeId; });
@@ -3198,10 +3481,18 @@
       `ไฟล์สำรองนี้มาจากสคริปต์เวอร์ชันใหม่กว่า (format ${fmt}) — อัปเดตสคริปต์ก่อนแล้วนำเข้าอีกครั้ง`,
       `This backup is from a newer version of the script (format ${fmt}) — update the script first, then import again`));
     const names = newPresets.map((p) => p.label).join(', ');
-    if (!confirm(L(`นำเข้าพรีเซ็ต ${newPresets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน) แล้วหน้าจะรีโหลด`, `Import ${newPresets.length} presets (${names}) and settings?\n\nExisting presets and settings on this device will be replaced (locked channel and language stay unchanged) and the page will reload.`))) return;
-    const own = confirm(L(
-      'เป็นไฟล์สำรองของช่องคุณเองไหม?\n\nOK = ใช่ นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nCancel = ไฟล์ของคนอื่น นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน',
-      'Is this a backup of your own channel?\n\nOK = yes, also import personal values (producer name, schedule, your own artist names, EP numbers)\nCancel = someone else\'s file: import only presets and general settings, your personal values stay unchanged'));
+    const own = await ask({
+      title: L(`นำเข้าพรีเซ็ต ${newPresets.length} รายการ`, `Import ${newPresets.length} presets`),
+      ic: 'download',
+      body: h('div', {},
+        h('div', {}, h('b', {}, names)),
+        h('div', { style: 'margin-top:8px' }, L('พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน) แล้วหน้าจะรีโหลด', 'Existing presets and settings on this device will be replaced (locked channel and language stay unchanged) and the page will reload.')),
+        h('div', { style: 'margin-top:10px' }, h('b', {}, L('เป็นไฟล์สำรองของช่องคุณเองไหม?', 'Is this a backup of your own channel?'))),
+        h('div', { className: 'mut' }, L('ของฉัน = นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nของคนอื่น = นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน', 'Mine = also import personal values (producer name, schedule, your own artist names, EP numbers)\nSomeone else\'s = only presets and general settings; your personal values stay unchanged'))),
+      ok: L('ไฟล์ของฉัน', 'My file'),
+      no: L('ไฟล์ของคนอื่น', 'Someone else\'s'),
+    });
+    if (own === null) return;
     save('presets', fixLegacyTrapsoulTitles(newPresets));
     save('activeId', newPresets.some((p) => p.id === data.activeId) ? data.activeId : newPresets[0].id);
     if (isObj(data.settings)) {
@@ -3232,6 +3523,7 @@
     sec(L('อัปโหลดแบบคิว', 'Queue upload'), 'queue',
       sw('autoSave', L('กด Save ให้อัตโนมัติ', 'Auto-press Save'), L('ตั้งการเปิดเผยตามพรีเซ็ตแล้วกด Save ต่อไฟล์ถัดไปเลย ถ้าปิดไว้จะรอให้คุณตรวจแล้วกด Save เองทีละคลิป', 'Sets visibility from the preset, presses Save and moves on to the next file. When off, waits for you to review and press Save on each video yourself.')),
       sw('thumb', L('อัปภาพปกให้อัตโนมัติ', 'Auto-upload thumbnail'), L('ใช้ไฟล์ .jpg/.png ชื่อเดียวกับคลิป (ไม่เกิน 2MB และช่องต้องยืนยันตัวตนแล้ว)', 'Uses a .jpg/.png with the same name as the video (max 2MB; channel must be verified)')),
+      sw('notify', L('แจ้งเตือนเมื่อคิวเสร็จ', 'Notify when the queue finishes'), L('เด้งแจ้งเตือนบนเดสก์ท็อปพร้อมเสียง และโชว์ความคืบหน้าบนชื่อแท็บ เช่น (3/10) — ไปทำอย่างอื่นได้ไม่ต้องเฝ้า', 'Desktop notification with a sound, plus progress in the tab title like (3/10) — no need to keep watching')),
       sw('intercept', L('รับหลายไฟล์จากหน้าต่างของ YouTube', 'Take multiple files from YouTube\'s dialog'), L('เลือกหรือลากหลายไฟล์ในหน้าต่างอัปโหลดปกติของ Studio จะส่งมาเข้าคิวนี้แทน', 'Selecting or dropping multiple files in Studio\'s normal upload dialog sends them to this queue instead'))
     ),
     sec(L('ความปลอดภัย', 'Safety'), 'lock',
