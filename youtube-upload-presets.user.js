@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.23.0
+// @version      4.23.1
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -2097,17 +2097,36 @@
     const leaf = [...info.querySelectorAll('ytcp-video-info *')].find((e) => !e.children.length && /\.[a-z0-9]{2,4}$/i.test(e.textContent.trim()));
     return (leaf && leaf.textContent.trim()) || (session && session.originalName) || normText(getTitleBox(host)?.textContent);
   }
+  // เคยเป็นบั๊ก: ไม่ได้ใส่ .txt -> {txt} ว่าง -> กด "คำอธิบายจากพรีเซ็ต" ในคลิปที่อัปแล้ว tracklist เดิมหายทั้งก้อน
+  // ตอนนี้ใช้ tracklist ที่มีอยู่แทน: .txt ที่ใส่ไว้ → ประวัติการอัปของคลิปนี้ → บรรทัดที่มี timestamp ในคำอธิบายปัจจุบัน
+  function qaTracklist(host) {
+    if (qa.txt) return { txt: qa.txt, from: 'txt' };
+    const vid = (location.pathname.match(/\/video\/([\w-]{11})/) || [])[1];
+    const up = vid && uploadOf(vid);
+    if (up && up.txt) return { txt: up.txt, from: 'history' };
+    const lines = (getDescBox(host)?.innerText || '').split('\n')
+      .filter((l) => /^\s*[[(]?(?:\d{1,2}:)?\d{1,3}:\d{1,2}\b/.test(l));
+    return { txt: lines.join('\n'), from: lines.length ? 'desc' : '' };
+  }
   function qaVars(host) {
     const p = qaPreset();
     const n = (session && session.n) || (counters[p.id] || 0) + 1; // ปุ่มลัดไม่เลื่อนเลข EP เอง
-    return buildVars(qaFileName(host), n, qa.txt, { preset: p });
+    return buildVars(qaFileName(host), n, qaTracklist(host).txt, { preset: p });
   }
-  function qaSay(bar, text, kind = '') {
+  function qaSay(bar, text, kind = '', undo = null) {
     const st = bar.querySelector('.st');
     st.className = 'st ' + kind;
-    st.textContent = text;
+    st.replaceChildren(text, ...(undo ? [' ', h('button', { type: 'button', className: 'undo', onclick: () => { undo(); st.replaceChildren(L('ย้อนกลับแล้ว', 'Reverted')); } }, L('ย้อนกลับ', 'Undo'))] : []));
     clearTimeout(bar._t);
-    if (kind !== 'err' && kind !== 'warn') bar._t = setTimeout(() => { st.textContent = ''; }, 5000);
+    // มีปุ่มย้อนกลับ: ค้างไว้นานขึ้นให้ทันกด
+    if (kind !== 'err' && kind !== 'warn') bar._t = setTimeout(() => { st.textContent = ''; }, undo ? 20000 : 5000);
+  }
+  // เขียนลงช่องของ Studio แล้วคืนฟังก์ชันย้อนกลับ (ใส่ข้อความเดิมคืน)
+  function qaWrite(box, text) {
+    if (!box) return null;
+    const before = box.innerText;
+    setEditable(box, text);
+    return () => setEditable(box, before);
   }
   function qaCheck(bar, host) {
     const text = getDescBox(host)?.innerText || '';
@@ -2125,8 +2144,8 @@
       sel,
       qaBtn('refresh', L('ชื่อจากพรีเซ็ต', 'Preset title'), L('แทนชื่อคลิปด้วยชื่อที่สร้างจากพรีเซ็ต', 'Replace the title with one built from the preset'), () => {
         const t = makeTitle(qaPreset(), qaVars(host));
-        setEditable(getTitleBox(host), t);
-        qaSay(bar, L(`ใส่ชื่อแล้ว (${t.length}/100)`, `Title set (${t.length}/100)`), t.length > TITLE_MAX ? 'err' : 'ok');
+        const undo = qaWrite(getTitleBox(host), t);
+        qaSay(bar, L(`ใส่ชื่อแล้ว (${t.length}/100)`, `Title set (${t.length}/100)`), t.length > TITLE_MAX ? 'err' : 'ok', undo);
       }),
       qaBtn('copy', L('คัดลอก', 'Copy'), L('คัดลอกชื่อคลิป', 'Copy the title'), () => {
         GM_setClipboard(normText(getTitleBox(host)?.textContent));
@@ -2152,16 +2171,21 @@
     } });
     const bar = h('div', { className: 'ytp-qa' },
       qaBtn('file', L('คำอธิบายจากพรีเซ็ต', 'Preset description'), L('แทนคำอธิบายด้วยของพรีเซ็ต (ใช้ tracklist จาก .txt ที่ใส่ไว้)', 'Replace the description with the preset\'s (uses the loaded .txt tracklist)'), () => {
-        setEditable(getDescBox(host), renderDesc(qaPreset(), qaVars(host)));
+        const tl = qaTracklist(host);
+        const undo = qaWrite(getDescBox(host), renderDesc(qaPreset(), qaVars(host)));
         qaCheck(bar, host);
+        const src = { txt: L('จาก .txt', 'from .txt'), history: L('จากประวัติการอัป', 'from upload history'), desc: L('จากคำอธิบายเดิม', 'kept from the old description') }[tl.from];
+        qaSay(bar, (src ? L(`ใส่คำอธิบายแล้ว · tracklist ${src}`, `Description set · tracklist ${src}`) : L('ใส่คำอธิบายแล้ว · ไม่มี tracklist', 'Description set · no tracklist')), src ? 'ok' : 'warn', undo);
       }),
       qaBtn('clip', L('ใส่ .txt', 'Load .txt'), L('เลือกไฟล์ tracklist .txt แล้วสร้างคำอธิบายใหม่', 'Pick a tracklist .txt and rebuild the description'), () => txtIn.click()),
       qaBtn('note', L('แก้ Chapters', 'Fix chapters'), L('timestamp แรกให้เป็น 0:00 และเรียงบรรทัดตามเวลา', 'Make the first timestamp 0:00 and sort the timestamp lines'), () => {
         const box = getDescBox(host);
         const fx = fixChapters(box?.innerText || '');
         if (!fx.changes.length) return qaSay(bar, L('ไม่มีอะไรที่แก้ให้อัตโนมัติได้', 'Nothing that can be fixed automatically'), 'warn');
-        setEditable(box, fx.text);
+        const undo = qaWrite(box, fx.text);
         qaCheck(bar, host);
+        const st = bar.querySelector('.st');
+        qaSay(bar, st.textContent, st.className.replace('st', '').trim(), undo);
       }),
       qaBtn('check', L('ตรวจ Chapters', 'Check chapters'), L('ตรวจ timestamp ในคำอธิบายตามกฎ Chapters ของ YouTube', 'Check the description\'s timestamps against YouTube\'s chapter rules'), () => qaCheck(bar, host)),
       qaBtn('layers', L('แท็กจากพรีเซ็ต', 'Preset tags'), L('เพิ่มแท็กของพรีเซ็ต', 'Add the preset\'s tags'), async () => {
@@ -2171,9 +2195,14 @@
       qaBtn('send', L('ใส่ทั้งหมด', 'Apply all'), L('ชื่อ + คำอธิบาย + แท็ก + ตัวเลือกจากการตั้งค่า', 'Title + description + tags + options from Settings'), async () => {
         const p = qaPreset();
         const vars = qaVars(host);
+        const tBox = getTitleBox(host), dBox = getDescBox(host);
+        const before = { t: tBox?.innerText || '', d: dBox?.innerText || '' };
         const ok = await fillDetails({ title: makeTitle(p, vars), description: renderDesc(p, vars), tags: renderTags(p, vars) });
         qaCheck(bar, host);
-        if (!ok) qaSay(bar, L('ใส่แล้ว แต่หาช่องแท็กไม่เจอ', 'Applied, but the tags field was not found'), 'warn');
+        const undo = () => { if (tBox) setEditable(tBox, before.t); if (dBox) setEditable(dBox, before.d); };
+        const st = bar.querySelector('.st');
+        if (!ok) qaSay(bar, L('ใส่แล้ว แต่หาช่องแท็กไม่เจอ', 'Applied, but the tags field was not found'), 'warn', undo);
+        else qaSay(bar, st.textContent, st.className.replace('st', '').trim(), undo);
       }),
       qaBtn('copy', L('คัดลอก', 'Copy'), L('คัดลอกคำอธิบาย', 'Copy the description'), () => {
         GM_setClipboard(getDescBox(host)?.innerText || '');
@@ -2193,6 +2222,8 @@
     .ytp-qa .qb svg{flex:0 0 auto}
     .ytp-qa select{height:28px;max-width:180px;border-radius:999px;border:1px solid #d3d3d3;background:#fff;color:#0f0f0f;padding:0 8px;font:inherit;cursor:pointer}
     .ytp-qa .st{font-weight:400;color:#606060;min-width:0}
+    .ytp-qa .st .undo{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:#065fd4;cursor:pointer;text-decoration:underline}
+    html[dark] .ytp-qa .st .undo{color:#3ea6ff}
     .ytp-qa .st.ok{color:#1b873f} .ytp-qa .st.warn{color:#b26a00} .ytp-qa .st.err{color:#cc0000}
     html[dark] .ytp-qa .qb,html[dark] .ytp-qa select{background:#1f1f1f;border-color:#3f3f3f;color:#f1f1f1}
     html[dark] .ytp-qa .qb:hover{background:#2a2a2a;border-color:#5a5a5a}
