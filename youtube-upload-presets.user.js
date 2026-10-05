@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.16.0
+// @version      4.26.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -10,6 +10,7 @@
 // @grant        GM_setValue
 // @grant        GM_addStyle
 // @grant        GM_setClipboard
+// @grant        GM_notification
 // @grant        unsafeWindow
 // @grant        GM_info
 // @run-at       document-idle
@@ -587,12 +588,21 @@
       producer: '', // ชื่อโปรดิวเซอร์ใน {producer} เว้นว่าง = ใช้ชื่อช่องปัจจุบัน
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
       autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
+      quickActions: true, // ปุ่มลัดใต้ช่องชื่อ/คำอธิบายของ Studio
+      glass: 82, // ความทึบของแผงกระจก (%) — น้อย = เห็นพื้นหลังมากขึ้น
+      notify: true, // แจ้งเตือนบนเดสก์ท็อป + เสียง เมื่อคิวเสร็จ/หยุด
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
       schedule: { on: false, start: '', every: 1, unit: 'day' },
     },
     load('settings', {})
   );
   const saveSettings = () => save('settings', settings);
+  // ดีไซน์ B: พื้นกระจกทึบ 72% บนหน้า Studio สีขาวออกมาเป็นเทาซีด -> ค่าเริ่มต้นใหม่ 82% (ย้ายให้ครั้งเดียว ถ้ายังเป็นค่าเริ่มต้นเดิม)
+  if (!settings.glassV2) {
+    if (settings.glass === 72) settings.glass = 82;
+    settings.glassV2 = true;
+    saveSettings();
+  }
   if (settings.lang === undefined) {
     settings.lang = LANG;
     saveSettings();
@@ -751,20 +761,85 @@
     }
     return { errors, warnings, count: stamps.length };
   }
+  // แก้ปัญหา Chapters ที่แก้ให้ได้โดยไม่ต้องเดา: timestamp แรกไม่ใช่ 0:00 และบรรทัด timestamp เรียงผิดลำดับ
+  // (เปลี่ยนเฉพาะตัวเลขเวลา / สลับเฉพาะบรรทัดที่มีเวลา ข้อความอื่นอยู่ที่เดิม) — ช่วงสั้นกว่า 10 วิ หรือเกินความยาวคลิปแก้ให้ไม่ได้
+  // คืน { text, changes } · changes ว่าง = ไม่มีอะไรที่แก้ให้ได้
+  function fixChapters(text) {
+    const RE = /^(\s*[[(]?)((?:\d{1,2}:)?\d{1,3}:\d{1,2})(\b.*)$/;
+    const lines = String(text).split('\n');
+    const idx = [];
+    lines.forEach((l, i) => { if (RE.test(l)) idx.push(i); });
+    if (!idx.length) return { text, changes: [] };
+    const secs = (l) => l.match(RE)[2].split(':').map(Number).reduce((a, x) => a * 60 + x, 0);
+    const changes = [];
+    const ts = idx.map((i) => lines[i]);
+    const sorted = [...ts].sort((a, b) => secs(a) - secs(b));
+    if (sorted.some((l, k) => l !== ts[k])) {
+      sorted.forEach((l, k) => { lines[idx[k]] = l; });
+      changes.push(L('เรียงบรรทัด timestamp ตามเวลา', 'Sorted the timestamp lines by time'));
+    }
+    const first = lines[idx[0]];
+    if (secs(first) !== 0) {
+      const m = first.match(RE);
+      lines[idx[0]] = m[1] + (m[2].split(':').length === 3 ? '0:00:00' : '0:00') + m[3];
+      changes.push(L(`timestamp แรก ${m[2]} → 0:00`, `First timestamp ${m[2]} → 0:00`));
+    }
+    return { text: lines.join('\n'), changes };
+  }
   // ความยาวคลิปจาก metadata ของไฟล์ (อ่านแค่ส่วนหัว ไม่โหลดทั้งไฟล์) · อ่านไม่ได้ = 0 (ข้ามการเช็กความยาว)
-  function videoDuration(file) {
+  // เคยเจอบน Studio จริง: video ที่ไม่ได้อยู่ในหน้าบางครั้งไม่โหลด metadata เลย (ได้ 0) -> แปะลงหน้าแบบซ่อน และลองซ้ำอีกรอบ
+  function videoDurationOnce(file, wait) {
     return new Promise((resolve) => {
       const v = document.createElement('video');
       const url = URL.createObjectURL(file);
       let settled = false;
-      const done = (d) => { if (settled) return; settled = true; URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(Number.isFinite(d) ? d : 0); };
+      const done = (d) => { if (settled) return; settled = true; URL.revokeObjectURL(url); v.removeAttribute('src'); v.remove(); resolve(Number.isFinite(d) && d > 0 ? d : 0); };
       v.preload = 'metadata';
       v.muted = true;
+      v.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:-10px';
       v.onloadedmetadata = () => done(v.duration);
       v.onerror = () => done(0);
-      setTimeout(() => done(0), 15000);
+      setTimeout(() => done(0), wait);
+      document.body.append(v);
       v.src = url;
     });
+  }
+  // อ่านความยาวจากหัวไฟล์ MP4/MOV โดยตรง (กล่อง moov > mvhd) — ไม่พึ่งตัวเล่นวิดีโอ
+  // เจอบน Studio จริง: <video> กับ blob ค้างที่ networkState=LOADING ตลอด ไม่เคยได้ metadata
+  // อ่านแค่หัวกล่องทีละ 16 ไบต์ + ตัว moov (moov อยู่ท้ายไฟล์ก็เจอ) ไฟล์ 1.5GB ก็เร็ว
+  async function mp4Duration(file) {
+    const read = async (o, n) => new DataView(await file.slice(o, o + n).arrayBuffer());
+    const type = (dv, p) => String.fromCharCode(dv.getUint8(p + 4), dv.getUint8(p + 5), dv.getUint8(p + 6), dv.getUint8(p + 7));
+    let off = 0;
+    for (let guard = 0; off + 8 <= file.size && guard < 2000; guard++) {
+      const hd = await read(off, 16);
+      if (hd.byteLength < 8) break;
+      let len = hd.getUint32(0);
+      let hdr = 8;
+      if (len === 1 && hd.byteLength >= 16) { len = Number(hd.getBigUint64(8)); hdr = 16; } else if (len === 0) len = file.size - off;
+      if (len < hdr) break;
+      if (type(hd, 0) === 'moov') {
+        const mv = await read(off + hdr, Math.min(len - hdr, 64 << 20));
+        for (let p = 0; p + 8 <= mv.byteLength;) {
+          const l = mv.getUint32(p);
+          if (type(mv, p) === 'mvhd') {
+            const v1 = mv.getUint8(p + 8) === 1;
+            const ts = mv.getUint32(p + (v1 ? 28 : 20));
+            const du = v1 ? Number(mv.getBigUint64(p + 32)) : mv.getUint32(p + 24);
+            return ts ? du / ts : 0;
+          }
+          if (l < 8) break;
+          p += l;
+        }
+        return 0;
+      }
+      off += len;
+    }
+    return 0;
+  }
+  async function videoDuration(file) {
+    try { const d = await mp4Duration(file); if (d > 0) return d; } catch (e) { /* ไม่ใช่ MP4/MOV หรืออ่านไม่ได้ */ }
+    return videoDurationOnce(file, 12000);
   }
 
   // ===== งานที่กำลังทำ (progress) =====
@@ -820,15 +895,18 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, T(ms)));
   const isVisible = (el) => !!el && el.isConnected && el.getClientRects().length > 0;
 
+  // แท็บ Studio อยู่เบื้องหลัง (ปล่อยคิวแล้วไปทำอย่างอื่น) Chrome หน่วง setTimeout ได้ถึงนาทีละครั้ง
+  // เจอจริง: sleep 100ms กลายเป็นหลายสิบวินาที -> เดิมหมดเวลาโดยเช็กไปแค่ครั้งเดียว ทั้งที่ของขึ้นแล้ว
+  // จึงเช็กอย่างน้อย 3 ครั้ง และเช็กซ้ำอีกครั้งหลังหมดเวลาก่อนยอมแพ้
   async function waitFor(fn, timeout = 10000, step = 200) {
     const t0 = Date.now();
     const limit = T(timeout);
-    while (Date.now() - t0 < limit) {
+    for (let tries = 0; Date.now() - t0 < limit || tries < 3; tries++) {
       const v = fn();
       if (v) return v;
       await sleep(step);
     }
-    return null;
+    return fn() || null;
   }
 
   const getDialog = () => document.querySelector(SEL.dialog);
@@ -1234,8 +1312,26 @@
     // ปีให้ตรงกับระบบที่ Studio ใช้ (พ.ศ. / ค.ศ.)
     return out.replace(/\d{4}/, String(date.getFullYear() + (buddhist ? 543 : 0)));
   }
-  const formatStudioTime = (date) =>
-    new Intl.DateTimeFormat(`${studioLang()}-u-ca-gregory`, { hour: 'numeric', minute: '2-digit' }).format(date);
+  // จัดรูปแบบเวลาให้ตรงกับช่องเวลาของ Studio (ดูจากค่าเดิม เช่น "08:00" / "8:00" / "8:00 AM")
+  const formatStudioTime = (date, sample = '') => {
+    const s = String(sample).trim();
+    if (/^\d{1,2}:\d{2}$/.test(s)) {
+      const h = date.getHours();
+      return `${/^\d\d:/.test(s) ? pad(h) : h}:${pad(date.getMinutes())}`;
+    }
+    return new Intl.DateTimeFormat(`${studioLang()}-u-ca-gregory`, { hour: 'numeric', minute: '2-digit' }).format(date);
+  };
+  // แปลงข้อความเวลาเป็นนาทีนับจากเที่ยงคืน ("08:00" = "8:00" = "8:00 AM" = 480) คืน null ถ้าอ่านไม่ได้
+  function parseClock(text) {
+    const s = String(text || '').toLowerCase();
+    const m = s.match(/(\d{1,2})[:.](\d{2})/);
+    if (!m) return null;
+    let h = Number(m[1]);
+    const min = Number(m[2]);
+    if (/\b(pm|p\.m\.)|หลังเที่ยง/.test(s) && h < 12) h += 12;
+    else if (/\b(am|a\.m\.)|ก่อนเที่ยง/.test(s) && h === 12) h = 0;
+    return h * 60 + min;
+  }
 
   // ตั้งเวลาปล่อยในหน้า Visibility คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
   async function setSchedule(date) {
@@ -1252,11 +1348,17 @@
       return isVisible(t) && t;
     }, 5000);
     if (!trigger) return L('ไม่พบช่องวันที่', 'Date field not found');
-    trigger.click();
-    const dateInput = await waitFor(() => {
-      const i = document.querySelector(SEL.datePickerInput);
-      return isVisible(i) && i;
-    }, 5000);
+    // ปฏิทินของ Studio: กดช่องวันที่ = เปิด/ปิดสลับกัน และ Escape ปิดไม่ได้ (ตรวจกับ Studio จริง ต.ค. 2026)
+    // ถ้าเปิดอยู่แล้วห้ามกดซ้ำ (จะกลายเป็นปิด) · ยังไม่เปิดค่อยกด แล้วลองใหม่ได้ 3 ครั้ง
+    const pickerInput = () => {
+      const i = [...document.querySelectorAll(SEL.datePickerInput)].find(isVisible);
+      return i || null;
+    };
+    let dateInput = pickerInput();
+    for (let k = 0; !dateInput && k < 3; k++) {
+      trigger.click();
+      dateInput = await waitFor(pickerInput, 4000);
+    }
     if (!dateInput) return L('เปิดปฏิทินไม่ได้', 'Could not open the calendar');
     const dateText = formatStudioDate(date, dateInput.value);
     await typeInto(dateInput, dateText);
@@ -1270,7 +1372,8 @@
       return isVisible(i) && i;
     }, 4000);
     if (!timeInput) return L('ไม่พบช่องเวลา', 'Time field not found');
-    const timeText = formatStudioTime(date);
+    const timeText = formatStudioTime(date, timeInput.value);
+    const wantMin = date.getHours() * 60 + date.getMinutes();
     const norm = (x) => String(x).toLowerCase().replace(/[\s,.]/g, '');
     // ช่องเวลาของ Studio เป็นช่องเลือกจากรายการ (00:00, 00:15, …) พิมพ์อย่างเดียวค่าไม่ถูกบันทึก (รูป 6: ค้าง 00:00)
     // วิธีที่ 1: คลิกช่องแล้วเลือกเวลาจากรายการ  วิธีที่ 2 (เวลาที่ไม่อยู่ในรายการ เช่น 19:07): พิมพ์ + Enter + Tab
@@ -1278,7 +1381,7 @@
       timeInput.focus();
       timeInput.click();
       const item = await waitFor(() => [...document.querySelectorAll(SEL.timeOption)]
-        .find((e) => e.getClientRects().length && norm(e.textContent) === norm(timeText)), 2500);
+        .find((e) => e.getClientRects().length && parseClock(e.textContent) === wantMin), 2500);
       if (item) {
         item.scrollIntoView({ block: 'center' });
         item.click();
@@ -1299,7 +1402,9 @@
     // ถ้าไม่ตรงจะถือว่าไม่สำเร็จ (ไม่กด Save) ดีกว่าเสี่ยงปล่อยผิดวัน/ผิดเวลา
     const shownDate = (dlg.querySelector(SEL.datePickerTrigger)?.textContent || trigger.textContent || '').trim();
     const shownTime = (dlg.querySelector(SEL.timeInput)?.value || '').trim();
-    if (norm(shownDate) !== norm(dateText) || norm(shownTime) !== norm(timeText)) {
+    // วันที่: ตัดเลข 0 นำหน้าออกก่อนเทียบ ("05 Oct" = "5 Oct")  เวลา: เทียบเป็นนาที ("08:00" = "8:00")
+    const normDate = (x) => norm(x).replace(/(^|D)0+(d)/g, '$1$2');
+    if (normDate(shownDate) !== normDate(dateText) || parseClock(shownTime) !== wantMin) {
       return L(`Studio ไม่รับวันเวลา (ตั้ง "${dateText} ${timeText}" แต่แสดง "${shownDate} ${shownTime}")`, `Studio rejected the date/time (set "${dateText} ${timeText}" but shows "${shownDate} ${shownTime}")`);
     }
     return '';
@@ -1551,13 +1656,67 @@
   }
 
   // รับไฟล์ปนกันได้: คลิป + .txt + ภาพปก จับคู่ด้วยชื่อไฟล์ (ไม่รวมนามสกุล)
+  // ไฟล์เก็บข้ามการรีโหลดไม่ได้ แต่ค่าที่พิมพ์แก้ไว้เก็บได้: ชื่อคลิป, ศิลปิน, เวลาปล่อยที่ตั้งเอง, พรีเซ็ต
+  const memoKey = (it) => it.file.name + '|' + it.file.size;
+  let memoTimer;
+  function saveMemo() {
+    clearTimeout(memoTimer);
+    memoTimer = setTimeout(() => {
+      const memo = load('queueMemo', {});
+      for (const it of queue) {
+        const k = memoKey(it);
+        if (it.status === 'done') { delete memo[k]; continue; }
+        if (!(it.status === 'pending' || it.status === 'error')) continue;
+        const m = {};
+        if (it.titleEdited) m.title = it.title;
+        if (it.artistsEdited) m.artists = it.artists;
+        if (it.publishEdited && it.publishAt) m.publishAt = it.publishAt;
+        if (it.presetId !== activeId) m.presetId = it.presetId;
+        if (Object.keys(m).length) memo[k] = { ...m, t: Date.now() };
+        else delete memo[k];
+      }
+      // เก็บแค่ 200 รายการล่าสุด
+      const keys = Object.keys(memo).sort((a, b) => memo[b].t - memo[a].t);
+      for (const k of keys.slice(200)) delete memo[k];
+      save('queueMemo', memo);
+    }, 600);
+  }
+  function restoreMemo(items) {
+    const memo = load('queueMemo', {});
+    let n = 0;
+    for (const it of items) {
+      const m = memo[memoKey(it)];
+      if (!m) continue;
+      if (m.presetId && presets.some((p) => p.id === m.presetId)) it.presetId = m.presetId;
+      if (typeof m.title === 'string') { it.title = m.title; it.titleEdited = true; }
+      if (typeof m.artists === 'string') { it.artists = m.artists; it.artistsEdited = true; }
+      if (m.publishAt && m.publishAt > Date.now() + SCHEDULE_MIN_LEAD) { it.publishAt = m.publishAt; it.publishEdited = true; }
+      n++;
+    }
+    return n;
+  }
+
   async function addFiles(fileList) {
     const files = [...fileList];
-    const vids = files.filter(isVideo);
+    // เรียงตามชื่อแบบตัวเลข (Mix 2 ก่อน Mix 10) — ลำดับในคิว = เลข EP และเวลาปล่อย
+    // ข้ามคลิปที่อยู่ในคิวแล้ว (ชื่อ+ขนาดเดียวกัน) กันลากซ้ำแล้วอัปเบิ้ล
+    const inQueue = new Set(queue.filter((i) => i.status !== 'done').map((i) => i.file.name + '|' + i.file.size));
+    const allVids = files.filter(isVideo).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    const vids = allVids.filter((f) => !inQueue.has(f.name + '|' + f.size));
+    const dupN = allVids.length - vids.length;
+    const added = [];
+    const chId = getChannel().id;
+    const history = getUploads();
+    let prevN = 0;
     for (const file of vids) {
       const it = { id: ++qid, file, presetId: activeId, n: 0, title: '', titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0 };
+      // เคยอัปไฟล์นี้ (ชื่อ+ขนาดเดียวกัน) ขึ้นช่องนี้แล้ว -> ใส่คิวแต่ติดป้ายแดง และเตือนอีกครั้งก่อนเริ่ม (อัปซ้ำโดยตั้งใจยังทำได้)
+      it.prev = history.find((u) => u.file === file.name && u.size === file.size && (!chId || u.channel === chId)) || null;
+      if (it.prev) prevN++;
       queue.push(it);
-      videoDuration(file).then((d) => { it.duration = d; if (it.ui) updateItemUI(it); }); // ใช้เช็ก timestamp เกินความยาวคลิป
+      added.push(it);
+      it.durState = 'loading';
+      videoDuration(file).then((d) => { it.duration = d; it.durState = d ? 'ok' : 'fail'; if (it.ui) updateItemUI(it); }); // ใช้เช็ก timestamp เกินความยาวคลิป
     }
     const byKey = new Map();
     for (const it of queue) if (it.status !== 'done') byKey.set(baseKey(it.file.name), it);
@@ -1579,6 +1738,10 @@
     if (txtN) parts.push(L(`คำอธิบาย .txt ${txtN} ไฟล์`, `${txtN} .txt description file(s)`));
     if (imgN) parts.push(L(`ภาพปก ${imgN} ไฟล์`, `${imgN} thumbnail file(s)`));
     if (unmatched) parts.push(L(`ไม่มีคลิปชื่อตรงกัน ${unmatched} ไฟล์`, `${unmatched} file(s) with no matching video name`));
+    const restored = restoreMemo(added); // หลังแนบ .txt (การแนบรีเซ็ตชื่อเป็นค่าจากพรีเซ็ต)
+    if (restored) parts.push(L(`ใช้ค่าที่แก้ไว้เดิม ${restored} คลิป`, `Restored your edits for ${restored} video(s)`));
+    if (prevN) parts.push(L(`เคยอัปขึ้นช่องนี้แล้ว ${prevN} คลิป (ป้ายแดง)`, `${prevN} already uploaded to this channel (red badge)`));
+    if (dupN) parts.push(L(`มีในคิวแล้ว ${dupN} คลิป`, `${dupN} already in the queue`));
     if (skipped) parts.push(L(`ข้าม ${skipped} ไฟล์`, `Skipped ${skipped} file(s)`));
     if (parts.length) toast(parts.join(' · '));
     renderQueue();
@@ -1607,18 +1770,65 @@
     if (it.publishFinal) return it.publishFinal;
     if (!scheduleOn()) return null;
     if (it.publishEdited && it.publishAt) return it.publishAt;
-    const start = new Date(settings.schedule.start).getTime();
-    if (!start) return null;
-    const k = queue.filter((x) => ['pending', 'uploading', 'review'].includes(x.status) && !(x.publishEdited && x.publishAt)).indexOf(it);
-    if (k < 0) return null;
-    // คิวยาวจนช่องเวลาของคลิปนี้เลยไปแล้ว (เน็ตช้า / คลิปใหญ่) -> เลื่อนไปช่องถัดไปที่ยังตั้งเวลาได้
-    // แทนที่จะ error ทิ้งคลิปนั้นไป · เวลาที่เลื่อนแล้วจะโชว์บนการ์ดและในสรุปตามจริง
-    const step = stepMs();
-    let at = start + k * step;
-    const floor = Date.now() + SCHEDULE_MIN_LEAD;
-    if (at < floor) at += Math.ceil((floor - at) / step) * step;
-    return at;
+    return queueSlots().map.get(it) ?? null;
   }
+  // ช่องเวลาของคลิปในคิวตามลำดับ: เริ่มที่ effectiveStart แล้วทีละ step
+  // ข้ามช่วงที่ (ก) มีคลิปตั้งเวลาไว้ในช่องแล้ว หรือ (ข) มีคลิปในคิวที่ตั้งเวลาเอง — ถือว่าชนเมื่อห่างกันไม่ถึงครึ่ง step
+  // (ปล่อยวันละคลิป: คลิปที่ตั้งไว้ 19:00 วันเดียวกันกับช่อง 08:00 ถือว่าชน -> เลื่อนไปวันถัดไป)
+  function queueSlots() {
+    const map = new Map();
+    const start = effectiveStart();
+    if (!start) return { map, skipped: 0 };
+    const step = stepMs();
+    const live = (x) => ['pending', 'uploading', 'review'].includes(x.status);
+    const taken = [
+      ...takenSlots().map((x) => x.at),
+      ...queue.filter((x) => live(x) && x.publishEdited && x.publishAt).map((x) => x.publishAt),
+    ];
+    const busy = (t) => taken.some((a) => Math.abs(a - t) < step / 2);
+    let t = start;
+    let skipped = 0;
+    for (const x of queue.filter((q) => live(q) && !(q.publishEdited && q.publishAt))) {
+      for (let g = 0; busy(t) && g < 1000; g++) { t += step; skipped++; }
+      map.set(x, t);
+      t += step;
+    }
+    return { map, skipped };
+  }
+  // คลิปที่ตั้งเวลาไว้ในช่องปัจจุบัน (แคชต่อช่อง 5 นาที) — ไม่นับคลิปที่คิวนี้เพิ่งอัปเอง
+  const chanSched = { ch: '', at: 0, list: [], loading: null };
+  const takenSlots = () => (chanSched.ch && chanSched.ch === getChannel().id
+    ? chanSched.list.filter((x) => !queue.some((i) => i.videoId && i.videoId === x.videoId)) : []);
+  function refreshChanSched(force = false) {
+    const ch = getChannel().id;
+    if (!ch || !Claims || !Claims.listScheduled) return Promise.resolve();
+    if (!force && chanSched.ch === ch && Date.now() - chanSched.at < 300e3) return Promise.resolve();
+    if (chanSched.loading) return chanSched.loading;
+    chanSched.loading = (async () => {
+      try {
+        const list = await Claims.listScheduled();
+        if (list) { chanSched.list = list; chanSched.ch = ch; }
+      } catch (e) {
+        console.warn('[YT Presets] scheduled list', e);
+      } finally {
+        chanSched.at = Date.now(); // ล้มเหลวก็พัก 5 นาที ไม่ยิงซ้ำรัว ๆ
+        if (chanSched.ch !== ch) { chanSched.ch = ch; chanSched.list = []; }
+        chanSched.loading = null;
+        if (typeof onScheduleChange === 'function') onScheduleChange();
+      }
+    })();
+    return chanSched.loading;
+  }
+  // เวลาเริ่มที่ใช้จริง: ถ้าเวลาที่ตั้งไว้ผ่านไปแล้ว (หรือเหลือไม่ถึง 15 นาที) เลื่อน "ทั้งชุด" ไปช่องแรกที่ยังตั้งได้
+  // เลื่อนทีละคลิปไม่ได้ — คลิปที่ถูกเลื่อนจะไปชนช่องของคลิปถัดไป (เช่น 2 คลิปได้ 08:00 วันเดียวกัน)
+  function effectiveStart() {
+    const start = new Date(settings.schedule.start).getTime();
+    if (!start) return 0;
+    const step = stepMs();
+    const floor = Date.now() + SCHEDULE_MIN_LEAD;
+    return start < floor ? start + Math.ceil((floor - start) / step) * step : start;
+  }
+  const startIsPast = () => scheduleOn() && new Date(settings.schedule.start).getTime() < Date.now() + SCHEDULE_MIN_LEAD;
   const scheduleProblem = (at) => (at && at < Date.now() + SCHEDULE_MIN_LEAD ? L('เวลาปล่อยต้องอยู่ในอนาคตอย่างน้อย 15 นาที', 'Release time must be at least 15 minutes in the future') : '');
   const fmtWhen = (ms) =>
     new Intl.DateTimeFormat(LOCALE === 'th-TH' ? 'th-TH-u-ca-gregory' : LOCALE, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ms);
@@ -1797,12 +2007,48 @@
     }
     // tracklist ที่ YouTube จะไม่สร้าง Chapters ให้ — ถามก่อนเริ่ม (อัปไปแล้วต้องตามแก้คำอธิบายทีละคลิป)
     assignNumbers();
-    const badTl = queue.filter((i) => i.status === 'pending' && i.txt).map((i) => [i, itemTracklist(i)]).filter(([, tc]) => tc.errors.length);
-    if (badTl.length && !confirm(L(
-      `${badTl.length} คลิปมีปัญหา tracklist (YouTube จะไม่สร้าง Chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… และอีก ${badTl.length - 5} คลิป` : ''}\n\nอัปต่อเลยไหม? (กด Cancel เพื่อกลับไปแก้ไฟล์ .txt — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด)`,
-      `${badTl.length} video(s) have tracklist problems (YouTube won't create chapters):\n\n${badTl.slice(0, 5).map(([i, tc]) => `• ${i.file.name}: ${tc.errors[0]}`).join('\n')}${badTl.length > 5 ? `\n… and ${badTl.length - 5} more` : ''}\n\nUpload anyway? (Cancel to go back and fix the .txt files — details are on the red badge in each card)`))) return;
-    const ch = getChannel();
-    if (settings.confirmStart && !confirm(L(`อัปโหลด ${pendingN} คลิป ไปที่ช่อง:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nถูกช่องใช่ไหม?`, `Upload ${pendingN} video(s) to channel:\n\n📺 ${chanLabel(ch)}${ch.id ? `\n(${ch.id})` : ''}\n\nIs this the right channel?`))) return;
+    const pendingItems = queue.filter((i) => i.status === 'pending');
+    const badTl = pendingItems.filter((i) => i.txt).map((i) => [i, itemTracklist(i)]).filter(([, tc]) => tc.errors.length);
+    const badTime = pendingItems.filter((i) => scheduleProblem(itemPublishAt(i)));
+    const prevUp = pendingItems.filter((i) => i.prev);
+    await refreshChanSched(true); // เช็กคลิปที่ตั้งเวลาไว้ในช่องล่าสุด ก่อนแสดงเวลาที่จะใช้จริง
+    // ยืนยันครั้งเดียวในแผง: ช่องปลายทาง + สรุปคิว + ปัญหาที่ควรรู้ก่อนเริ่ม
+    if (settings.confirmStart || badTl.length || badTime.length || prevUp.length) {
+      const ch = getChannel();
+      const times = pendingItems.map(itemPublishAt).filter(Boolean).sort((a, b) => a - b);
+      const vis = [...new Set(pendingItems.map((i) => presetById(i.presetId).visibility || 'PRIVATE'))].join(', ');
+      const noTxt = pendingItems.filter((i) => !i.txt).length;
+      const noThumb = settings.thumb ? pendingItems.filter((i) => !i.thumb).length : 0;
+      const warnList = (head, items) => h('div', { className: 'warnbox', style: 'margin-top:8px' },
+        h('b', {}, icon('alert', 13), head),
+        h('ul', {}, items.slice(0, 5).map((x) => h('li', {}, x)), items.length > 5 ? h('li', {}, L(`… และอีก ${items.length - 5} คลิป`, `… and ${items.length - 5} more`)) : null));
+      const go = await ask({
+        title: L(`อัปโหลด ${pendingN} คลิป`, `Upload ${pendingN} video(s)`),
+        ic: 'upload',
+        ok: L(`เริ่มอัปโหลด ${pendingN} คลิป`, `Upload ${pendingN} video(s)`),
+        body: h('div', {},
+          h('div', { className: 'who' },
+            ch.avatar ? h('img', { src: ch.avatar, alt: '' }) : h('div', { className: 'ph' }, icon('tv', 18)),
+            h('div', { style: 'min-width:0' }, h('small', {}, L('ไปที่ช่อง', 'To channel')), h('b', {}, chanLabel(ch)), h('small', { className: 'mono' }, ch.id || ''))),
+          h('div', { className: 'facts' },
+            h('span', {}, L('คลิป', 'Videos')), h('span', {}, String(pendingN)),
+            h('span', {}, L('เผยแพร่', 'Release')), h('span', {}, times.length
+              ? (times.length > 1 ? `${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])}` : fmtWhen(times[0]))
+              : L(`ทันทีตามพรีเซ็ต (${vis})`, `Per preset (${vis})`)),
+            noTxt ? h('span', {}, L('ไม่มี .txt', 'No .txt')) : null, noTxt ? h('span', {}, L(`${noTxt} คลิป`, `${noTxt} video(s)`)) : null,
+            noThumb ? h('span', {}, L('ไม่มีภาพปก', 'No thumbnail')) : null, noThumb ? h('span', {}, L(`${noThumb} คลิป`, `${noThumb} video(s)`)) : null),
+          badTime.length ? warnList(L(`เวลาปล่อยผ่านไปแล้ว/เร็วไป ${badTime.length} คลิป`, `${badTime.length} release time(s) in the past / too soon`),
+            badTime.map((i) => `${i.file.name}: ${fmtWhen(itemPublishAt(i))}`)) : null,
+          prevUp.length ? warnList(L(`เคยอัปขึ้นช่องนี้แล้ว ${prevUp.length} คลิป — จะได้คลิปซ้ำ`, `${prevUp.length} already uploaded to this channel — they will be duplicated`),
+            prevUp.map((i) => `${i.file.name}: ${i.prev.title || i.prev.videoId || ''}`)) : null,
+          badTl.length ? warnList(L(`tracklist มีปัญหา ${badTl.length} คลิป — YouTube จะไม่สร้าง Chapters`, `${badTl.length} tracklist problem(s) — YouTube won't create chapters`),
+            badTl.map(([i, tc]) => `${i.file.name}: ${tc.errors[0]}`)) : null,
+          badTl.length || badTime.length || prevUp.length ? h('div', { className: 'mut', style: 'margin-top:8px' }, L('กดยกเลิกเพื่อกลับไปแก้ — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด', 'Cancel to go back and fix — details are on the red badges in each card')) : null
+        ),
+      });
+      if (!go) return;
+      if (running) return;
+    }
     running = true;
     stopReq = false;
     updateRunUI();
@@ -1833,7 +2079,14 @@
       running = false;
       assignNumbers();
       renderQueue();
-      toast(stopReq ? L(`หยุดคิวแล้ว (สำเร็จ ${ok} คลิป)`, `Queue stopped (${ok} video(s) done)`) : L(`คิวเสร็จแล้ว สำเร็จ ${ok} คลิป ✅`, `Queue finished: ${ok} video(s) done ✅`));
+      const errN = queue.filter((i) => i.status === 'error').length;
+      const left = queue.filter((i) => i.status === 'pending').length;
+      const msg = stopReq ? L(`หยุดคิวแล้ว (สำเร็จ ${ok} คลิป)`, `Queue stopped (${ok} video(s) done)`) : L(`คิวเสร็จแล้ว สำเร็จ ${ok} คลิป ✅`, `Queue finished: ${ok} video(s) done ✅`);
+      toast(msg);
+      const clean = !errN && !left;
+      notifyDone(clean ? L('อัปโหลดเสร็จแล้ว ✅', 'Upload finished ✅') : L('คิวหยุด — มีคลิปต้องดู ⚠️', 'Queue stopped — needs attention ⚠️'),
+        `${chanLabel(getChannel())} · ` + L(`สำเร็จ ${ok}`, `${ok} done`) + (errN ? L(` · ผิดพลาด ${errN}`, ` · ${errN} error(s)`) : '') + (left ? L(` · ค้าง ${left}`, ` · ${left} left`) : ''), clean);
+      setTitleMark(document.hasFocus() ? '' : clean ? '✅' : '⚠️');
     }
   }
 
@@ -1907,6 +2160,168 @@
     }
   }, 1000);
 
+  // ===== ปุ่มลัดใต้ช่องชื่อ/คำอธิบายของ Studio (หน้าต่างอัปโหลด และหน้าแก้ไขคลิป /video/<id>/edit) =====
+  // วางแถบเล็ก ๆ ต่อจาก ytcp-video-title / ytcp-video-description · Studio วาดหน้าใหม่เมื่อไรก็ใส่กลับเอง
+  // ไม่กด Save ของ YouTube ให้ — แก้แล้วผู้ใช้ตรวจแล้วกดเอง (Ctrl+Z ย้อนได้เหมือนพิมพ์เอง)
+  const qa = { presetId: '', txt: '', txtName: '', key: '' };
+  const qaPreset = () => presetById(qa.presetId || activeId);
+  // ชื่อไฟล์คลิป (ใช้กับ {name}/{filename}): ส่วน "Filename" ทางขวา → ชื่อตอนเปิดหน้าต่างอัปโหลด → ชื่อคลิปปัจจุบัน
+  function qaFileName(host) {
+    // หน้าแก้ไขคลิป: ytcp-video-info อยู่คอลัมน์ขวา นอก ytcp-video-details-section -> หาทั้งหน้า
+    const info = host && host === getDialog() ? host : document;
+    const leaf = [...info.querySelectorAll('ytcp-video-info *')].find((e) => !e.children.length && /\.[a-z0-9]{2,4}$/i.test(e.textContent.trim()));
+    return (leaf && leaf.textContent.trim()) || (session && session.originalName) || normText(getTitleBox(host)?.textContent);
+  }
+  // เคยเป็นบั๊ก: ไม่ได้ใส่ .txt -> {txt} ว่าง -> กด "คำอธิบายจากพรีเซ็ต" ในคลิปที่อัปแล้ว tracklist เดิมหายทั้งก้อน
+  // ตอนนี้ใช้ tracklist ที่มีอยู่แทน: .txt ที่ใส่ไว้ → ประวัติการอัปของคลิปนี้ → บรรทัดที่มี timestamp ในคำอธิบายปัจจุบัน
+  function qaTracklist(host) {
+    if (qa.txt) return { txt: qa.txt, from: 'txt' };
+    const vid = (location.pathname.match(/\/video\/([\w-]{11})/) || [])[1];
+    const up = vid && uploadOf(vid);
+    if (up && up.txt) return { txt: up.txt, from: 'history' };
+    const lines = (getDescBox(host)?.innerText || '').split('\n')
+      .filter((l) => /^\s*[[(]?(?:\d{1,2}:)?\d{1,3}:\d{1,2}\b/.test(l));
+    return { txt: lines.join('\n'), from: lines.length ? 'desc' : '' };
+  }
+  function qaVars(host) {
+    const p = qaPreset();
+    const n = (session && session.n) || (counters[p.id] || 0) + 1; // ปุ่มลัดไม่เลื่อนเลข EP เอง
+    return buildVars(qaFileName(host), n, qaTracklist(host).txt, { preset: p });
+  }
+  function qaSay(bar, text, kind = '', undo = null) {
+    const st = bar.querySelector('.st');
+    st.className = 'st ' + kind;
+    st.replaceChildren(text, ...(undo ? [' ', h('button', { type: 'button', className: 'undo', onclick: () => { undo(); st.replaceChildren(L('ย้อนกลับแล้ว', 'Reverted')); } }, L('ย้อนกลับ', 'Undo'))] : []));
+    clearTimeout(bar._t);
+    // มีปุ่มย้อนกลับ: ค้างไว้นานขึ้นให้ทันกด
+    if (kind !== 'err' && kind !== 'warn') bar._t = setTimeout(() => { st.textContent = ''; }, undo ? 20000 : 5000);
+  }
+  // เขียนลงช่องของ Studio แล้วคืนฟังก์ชันย้อนกลับ (ใส่ข้อความเดิมคืน)
+  function qaWrite(box, text) {
+    if (!box) return null;
+    const before = box.innerText;
+    setEditable(box, text);
+    return () => setEditable(box, before);
+  }
+  function qaCheck(bar, host) {
+    const text = getDescBox(host)?.innerText || '';
+    const tc = checkTracklist(text.slice(0, DESC_MAX), text.length, 0);
+    if (tc.errors.length) qaSay(bar, L(`Chapters: ${tc.errors.length} ปัญหา — ${tc.errors[0]}`, `Chapters: ${tc.errors.length} problem(s) — ${tc.errors[0]}`), 'err');
+    else if (!tc.count) qaSay(bar, L('ไม่มี timestamp — YouTube จะไม่สร้าง Chapters', 'No timestamps — YouTube won\'t create chapters'), 'warn');
+    else qaSay(bar, L(`Chapters ${tc.count} ช่วง ผ่านกฎของ YouTube`, `${tc.count} chapters pass YouTube's rules`) + (tc.warnings.length ? ' · ' + tc.warnings[0] : ''), tc.warnings.length ? 'warn' : 'ok');
+  }
+  const qaBtn = (ic, label, title, onclick) => h('button', { type: 'button', className: 'qb', title, onclick }, icon(ic, 15), label);
+
+  function qaTitleBar(host) {
+    const sel = h('select', { title: L('พรีเซ็ตที่ใช้กับปุ่มลัด', 'Preset used by the quick actions'), onchange: (e) => { qa.presetId = e.target.value; } },
+      presets.map((p, i) => h('option', { value: p.id, selected: p.id === qaPreset().id }, `${i + 1}. ${p.label}`)));
+    const bar = h('div', { className: 'ytp-qa' },
+      sel,
+      qaBtn('refresh', L('ชื่อจากพรีเซ็ต', 'Preset title'), L('แทนชื่อคลิปด้วยชื่อที่สร้างจากพรีเซ็ต', 'Replace the title with one built from the preset'), () => {
+        const t = makeTitle(qaPreset(), qaVars(host));
+        const undo = qaWrite(getTitleBox(host), t);
+        qaSay(bar, L(`ใส่ชื่อแล้ว (${t.length}/100)`, `Title set (${t.length}/100)`), t.length > TITLE_MAX ? 'err' : 'ok', undo);
+      }),
+      qaBtn('copy', L('คัดลอก', 'Copy'), L('คัดลอกชื่อคลิป', 'Copy the title'), () => {
+        GM_setClipboard(normText(getTitleBox(host)?.textContent));
+        qaSay(bar, L('คัดลอกชื่อแล้ว', 'Title copied'), 'ok');
+      }),
+      h('span', { className: 'st' }));
+    return bar;
+  }
+
+  function qaDescBar(host) {
+    const txtIn = h('input', { type: 'file', accept: '.txt,text/plain', hidden: true, onchange: async (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      qa.txt = await readText(f);
+      qa.txtName = f.name;
+      const p = qaPreset();
+      const vars = qaVars(host);
+      setEditable(getDescBox(host), renderDesc(p, vars));
+      // ชื่อที่ใช้ตัวแปรจาก tracklist ({artists} ฯลฯ) ต้องสร้างใหม่ด้วย ไม่งั้นชื่อกับคำอธิบายไม่ตรงกัน
+      if (/\{(artists|track1|trackcount)\}/.test(p.title)) setEditable(getTitleBox(host), makeTitle(p, vars));
+      qaCheck(bar, host);
+    } });
+    const bar = h('div', { className: 'ytp-qa' },
+      qaBtn('file', L('คำอธิบายจากพรีเซ็ต', 'Preset description'), L('แทนคำอธิบายด้วยของพรีเซ็ต (ใช้ tracklist จาก .txt ที่ใส่ไว้)', 'Replace the description with the preset\'s (uses the loaded .txt tracklist)'), () => {
+        const tl = qaTracklist(host);
+        const undo = qaWrite(getDescBox(host), renderDesc(qaPreset(), qaVars(host)));
+        qaCheck(bar, host);
+        const src = { txt: L('จาก .txt', 'from .txt'), history: L('จากประวัติการอัป', 'from upload history'), desc: L('จากคำอธิบายเดิม', 'kept from the old description') }[tl.from];
+        qaSay(bar, (src ? L(`ใส่คำอธิบายแล้ว · tracklist ${src}`, `Description set · tracklist ${src}`) : L('ใส่คำอธิบายแล้ว · ไม่มี tracklist', 'Description set · no tracklist')), src ? 'ok' : 'warn', undo);
+      }),
+      qaBtn('clip', L('ใส่ .txt', 'Load .txt'), L('เลือกไฟล์ tracklist .txt แล้วสร้างคำอธิบายใหม่', 'Pick a tracklist .txt and rebuild the description'), () => txtIn.click()),
+      qaBtn('note', L('แก้ Chapters', 'Fix chapters'), L('timestamp แรกให้เป็น 0:00 และเรียงบรรทัดตามเวลา', 'Make the first timestamp 0:00 and sort the timestamp lines'), () => {
+        const box = getDescBox(host);
+        const fx = fixChapters(box?.innerText || '');
+        if (!fx.changes.length) return qaSay(bar, L('ไม่มีอะไรที่แก้ให้อัตโนมัติได้', 'Nothing that can be fixed automatically'), 'warn');
+        const undo = qaWrite(box, fx.text);
+        qaCheck(bar, host);
+        const st = bar.querySelector('.st');
+        qaSay(bar, st.textContent, st.className.replace('st', '').trim(), undo);
+      }),
+      qaBtn('check', L('ตรวจ Chapters', 'Check chapters'), L('ตรวจ timestamp ในคำอธิบายตามกฎ Chapters ของ YouTube', 'Check the description\'s timestamps against YouTube\'s chapter rules'), () => qaCheck(bar, host)),
+      qaBtn('layers', L('แท็กจากพรีเซ็ต', 'Preset tags'), L('เพิ่มแท็กของพรีเซ็ต', 'Add the preset\'s tags'), async () => {
+        const ok = await setTags(host, renderTags(qaPreset(), qaVars(host)));
+        qaSay(bar, ok ? L('เพิ่มแท็กแล้ว', 'Tags added') : L('หาช่องแท็กไม่เจอ', 'Tags field not found'), ok ? 'ok' : 'err');
+      }),
+      qaBtn('send', L('ใส่ทั้งหมด', 'Apply all'), L('ชื่อ + คำอธิบาย + แท็ก + ตัวเลือกจากการตั้งค่า', 'Title + description + tags + options from Settings'), async () => {
+        const p = qaPreset();
+        const vars = qaVars(host);
+        const tBox = getTitleBox(host), dBox = getDescBox(host);
+        const before = { t: tBox?.innerText || '', d: dBox?.innerText || '' };
+        const ok = await fillDetails({ title: makeTitle(p, vars), description: renderDesc(p, vars), tags: renderTags(p, vars) });
+        qaCheck(bar, host);
+        const undo = () => { if (tBox) setEditable(tBox, before.t); if (dBox) setEditable(dBox, before.d); };
+        const st = bar.querySelector('.st');
+        if (!ok) qaSay(bar, L('ใส่แล้ว แต่หาช่องแท็กไม่เจอ', 'Applied, but the tags field was not found'), 'warn', undo);
+        else qaSay(bar, st.textContent, st.className.replace('st', '').trim(), undo);
+      }),
+      qaBtn('copy', L('คัดลอก', 'Copy'), L('คัดลอกคำอธิบาย', 'Copy the description'), () => {
+        GM_setClipboard(getDescBox(host)?.innerText || '');
+        qaSay(bar, L('คัดลอกคำอธิบายแล้ว', 'Description copied'), 'ok');
+      }),
+      h('span', { className: 'st' }),
+      txtIn);
+    return bar;
+  }
+
+  GM_addStyle(`
+    .ytp-qa{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 4px;font:500 12px/1.4 Roboto,"Noto Sans Thai",Arial,sans-serif}
+    .ytp-qa .qb{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:999px;cursor:pointer;
+      border:1px solid #d3d3d3;background:#fff;color:#0f0f0f;font:inherit;transition:background .15s,border-color .15s}
+    .ytp-qa .qb:hover{background:#f2f2f2;border-color:#bdbdbd}
+    .ytp-qa .qb:focus-visible{outline:2px solid #065fd4;outline-offset:1px}
+    .ytp-qa .qb svg{flex:0 0 auto}
+    .ytp-qa select{height:28px;max-width:180px;border-radius:999px;border:1px solid #d3d3d3;background:#fff;color:#0f0f0f;padding:0 8px;font:inherit;cursor:pointer}
+    .ytp-qa .st{font-weight:400;color:#606060;min-width:0}
+    .ytp-qa .st .undo{border:0;background:none;padding:0 2px;font:inherit;font-weight:600;color:#065fd4;cursor:pointer;text-decoration:underline}
+    html[dark] .ytp-qa .st .undo{color:#3ea6ff}
+    .ytp-qa .st.ok{color:#1b873f} .ytp-qa .st.warn{color:#b26a00} .ytp-qa .st.err{color:#cc0000}
+    html[dark] .ytp-qa .qb,html[dark] .ytp-qa select{background:#1f1f1f;border-color:#3f3f3f;color:#f1f1f1}
+    html[dark] .ytp-qa .qb:hover{background:#2a2a2a;border-color:#5a5a5a}
+    html[dark] .ytp-qa .st{color:#aaa}
+    html[dark] .ytp-qa .st.ok{color:#4ade80} html[dark] .ytp-qa .st.warn{color:#fbbf24} html[dark] .ytp-qa .st.err{color:#f87171}
+  `);
+
+  setInterval(() => {
+    const on = settings.quickActions && !running;
+    const host = on && getDetailsHost();
+    const tEl = host && host.querySelector('ytcp-video-title');
+    const dEl = host && host.querySelector('ytcp-video-description');
+    if (!tEl || !isVisible(getTitleBox(host))) {
+      if (!on) document.querySelectorAll('.ytp-qa').forEach((b) => b.remove());
+      return;
+    }
+    // คลิปใหม่ / หน้าใหม่: ล้าง .txt ที่ใส่ไว้กับคลิปก่อน
+    const key = onEditPage() ? location.pathname : 'dlg:' + (session ? session.originalName : '');
+    if (key !== qa.key) { qa.key = key; qa.txt = ''; qa.txtName = ''; }
+    if (!tEl.nextElementSibling?.classList.contains('ytp-qa')) tEl.after(qaTitleBar(host));
+    if (dEl && !dEl.nextElementSibling?.classList.contains('ytp-qa')) dEl.after(qaDescBar(host));
+  }, 1000);
+
   let reloadingOnPurpose = false; // นำเข้าไฟล์ / เปลี่ยนภาษา: ข้อมูลใหม่บันทึกแล้ว ต้องรีโหลดให้ได้ ไม่งั้นค่าเก่าในหน้าจะเขียนทับ
   window.addEventListener('beforeunload', (e) => {
     if (!reloadingOnPurpose && (running || queue.some((i) => i.status === 'pending' || i.status === 'error'))) {
@@ -1930,56 +2345,90 @@
     return el;
   }
 
-  // ไอคอนเส้น (SVG) ชุดเดียวกันทั้งแผง
+  // ไอคอน Material Symbols (Google, Apache 2.0) แบบ Rounded น้ำหนัก 400 — ฝัง path ไว้ในสคริปต์
+  // ไม่โหลดฟอนต์ไอคอนจากภายนอก: แสดงได้ทันที ไม่ต้องรอโหลด และไม่พึ่งเครือข่าย
   const ICONS = {
-    play: 'M7 4.5v15l12.5-7.5z',
-    upload: 'M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4',
-    download: 'M12 3v12M7 10l5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4',
-    queue: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
-    layers: 'M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
-    sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
-    lock: 'M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 8 0v4',
-    unlock: 'M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 7.6-1.7',
-    x: 'M18 6 6 18M6 6l12 12',
-    stop: 'M7 7h10v10H7z',
-    clear: 'M3 6h18M8 6V4h8v2M6 6l1 14a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-14',
-    refresh: 'M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.2L3 16M3 21v-5h5',
-    clip: 'M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6L15 7',
-    file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h6',
-    image: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM3 16l5-5 4 4 3-3 6 6M15.5 9.5h.01',
-    film: 'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4',
-    plus: 'M12 5v14M5 12h14',
-    copy: 'M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1zM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1',
-    star: 'M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3l-5.5 2.9 1-6.2L3 9.6l6.2-.9z',
-    check: 'M5 12.5l4.5 4.5L19 7.5',
-    alert: 'M12 9v4M12 17h.01M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
-    send: 'M5 12h14M13 6l6 6-6 6',
-    tv: 'M3 6h18a0 0 0 0 1 0 0v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM8 21h8M12 18v3',
-    swap: 'M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7',
-    ext: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
-    clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3.5 2',
-    shield: 'M12 3l8 3v6c0 4.8-3.4 8.3-8 9-4.6-.7-8-4.2-8-9V6z',
+    play: 'M320-258v-450q0-14 9-22t21-8q4 0 8 1t8 3l354 226q7 5 10.5 11t3.5 14q0 8-3.5 14T720-458L366-232q-4 2-8 3t-8 1q-12 0-21-8t-9-22Z',
+    upload: 'M220-160q-24 0-42-18t-18-42v-113q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v113h520v-113q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v113q0 24-18 42t-42 18H220Zm230-524-99 99q-8.8 9-20.9 8.5-12.1-.5-21.49-9.5-8.61-9-8.61-21.5t9-21.5l150-150q5-5 10.13-7 5.14-2 11-2 5.87 0 10.87 2 5 2 10 7l151 151q9 9 9 21t-8.61 21q-9.39 9-21.89 9t-21.5-9l-99-98v341q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63-8.5-8.62-8.5-21.37v-341Z',
+    download: 'M469-327q-5-2-10-7L308-485q-9-9.27-8.5-21.64.5-12.36 9.11-21.36 9.39-9 21.89-9t21.5 9l98 99v-341q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v341l99-99q8.8-9 20.9-8.5 12.1.5 21.49 9.5 8.61 9 8.61 21.5t-9 21.5L501-334q-5 5-10.13 7-5.14 2-11 2-5.87 0-10.87-2ZM220-160q-24 0-42-18t-18-42v-113q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v113h520v-113q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v113q0 24-18 42t-42 18H220Z',
+    queue: 'M320-620q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h490q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H320Zm0 170q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h490q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H320Zm0 170q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h490q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H320ZM150-620q-12 0-21-9t-9-21.5q0-12.5 9-21t21.5-8.5q12.5 0 21 8.62 8.5 8.63 8.5 21.38 0 12-8.62 21-8.63 9-21.38 9Zm0 170q-12 0-21-9t-9-21.5q0-12.5 9-21t21.5-8.5q12.5 0 21 8.62 8.5 8.63 8.5 21.38 0 12-8.62 21-8.63 9-21.38 9Zm0 170q-12 0-21-9t-9-21.5q0-12.5 9-21t21.5-8.5q12.5 0 21 8.62 8.5 8.63 8.5 21.38 0 12-8.62 21-8.63 9-21.38 9Z',
+    layers: 'M151-386q-12-8.94-11.5-23.47T152.08-433q8.3-6 18.11-6 9.81 0 17.81 6l292 227 292-227q8.32-6 18.16-6t18.09 5.97q12 8.95 12.38 23.49Q821-395 809-386L517-159q-16.5 13-36.75 13T443-159L151-386Zm292 75L181-515q-23-17.88-23-46.94T181-609l262-204q16.5-13 36.75-13T517-813l262 204q23 17.88 23 46.94T779-515L517-311q-16.5 13-36.75 13T443-311Zm37-47 262-204-262-204-262 204 262 204Zm0-204Z',
+    sliders: 'M435.5-128.63Q427-137.25 427-150v-165q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v53h323q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H487v52q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63ZM150-202q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h187q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H150Zm165.5-174.63Q307-385.25 307-398v-52H150q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h157v-54q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v166q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63ZM457-450q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h353q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H457Zm144.5-173.63Q593-632.25 593-645v-165q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v52h157q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H653v53q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63ZM150-698q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h353q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H150Z',
+    lock: 'M220-80q-24.75 0-42.37-17.63Q160-115.25 160-140v-434q0-24.75 17.63-42.38Q195.25-634 220-634h70v-96q0-78.85 55.61-134.42Q401.21-920 480.11-920q78.89 0 134.39 55.58Q670-808.85 670-730v96h70q24.75 0 42.38 17.62Q800-598.75 800-574v434q0 24.75-17.62 42.37Q764.75-80 740-80H220Zm0-60h520v-434H220v434Zm314.5-162.03Q557-324.06 557-355q0-30-22.67-54.5t-54.5-24.5q-31.83 0-54.33 24.5t-22.5 55q0 30.5 22.67 52.5t54.5 22q31.83 0 54.33-22.03ZM350-634h260v-96q0-54.17-37.88-92.08-37.88-37.92-92-37.92T388-822.08q-38 37.91-38 92.08v96ZM220-140v-434 434Z',
+    unlock: 'M220-80q-24.75 0-42.37-17.63Q160-115.25 160-140v-434q0-24.75 17.63-42.38Q195.25-634 220-634h390v-96q0-54.17-37.92-92.08Q534.17-860 480-860q-47.6 0-83.3 30-35.7 30-44.7 75-2 11-11 18t-20.72 7Q307-730 299-740q-8-10-6-23 11-67 63.5-112T480-920q78.85 0 134.42 55.58Q670-808.85 670-730v96h70q24.75 0 42.38 17.62Q800-598.75 800-574v434q0 24.75-17.62 42.37Q764.75-80 740-80H220Zm0-60h520v-434H220v434Zm314.5-162.03Q557-324.06 557-355q0-30-22.67-54.5t-54.5-24.5q-31.83 0-54.33 24.5t-22.5 55q0 30.5 22.67 52.5t54.5 22q31.83 0 54.33-22.03ZM220-140v-434 434Z',
+    x: 'M480-438 270-228q-9 9-21 9t-21-9q-9-9-9-21t9-21l210-210-210-210q-9-9-9-21t9-21q9-9 21-9t21 9l210 210 210-210q9-9 21-9t21 9q9 9 9 21t-9 21L522-480l210 210q9 9 9 21t-9 21q-9 9-21 9t-21-9L480-438Z',
+    stop: 'M240-300v-360q0-24.75 17.63-42.38Q275.25-720 300-720h360q24.75 0 42.38 17.62Q720-684.75 720-660v360q0 24.75-17.62 42.37Q684.75-240 660-240H300q-24.75 0-42.37-17.63Q240-275.25 240-300Z',
+    clear: 'M261-120q-24.75 0-42.37-17.63Q201-155.25 201-180v-570h-11q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h158q0-13 8.63-21.5 8.62-8.5 21.37-8.5h204q12.75 0 21.38 8.62Q612-822.75 612-810h158q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5h-11v570q0 24.75-17.62 42.37Q723.75-120 699-120H261Zm438-630H261v570h438v-570ZM418.5-274.63q8.5-8.62 8.5-21.37v-339q0-12.75-8.68-21.38-8.67-8.62-21.5-8.62-12.82 0-21.32 8.62-8.5 8.63-8.5 21.38v339q0 12.75 8.68 21.37 8.67 8.63 21.5 8.63 12.82 0 21.32-8.63Zm166 0q8.5-8.62 8.5-21.37v-339q0-12.75-8.68-21.38-8.67-8.62-21.5-8.62-12.82 0-21.32 8.62-8.5 8.63-8.5 21.38v339q0 12.75 8.68 21.37 8.67 8.63 21.5 8.63 12.82 0 21.32-8.63ZM261-750v570-570Z',
+    refresh: 'M480-160q-133 0-226.5-93.5T160-480q0-133 93.5-226.5T480-800q85 0 149 34.5T740-671v-99q0-13 8.5-21.5T770-800q13 0 21.5 8.5T800-770v194q0 13-8.5 21.5T770-546H576q-13 0-21.5-8.5T546-576q0-13 8.5-21.5T576-606h138q-38-60-97-97t-137-37q-109 0-184.5 75.5T220-480q0 109 75.5 184.5T480-220q75 0 140-39.5T717-366q5-11 16.5-16.5t22.5-.5q12 5 16 16.5t-1 23.5q-39 84-117.5 133.5T480-160Z',
+    clip: 'M728-326q0 103-72.18 174.5-72.17 71.5-175 71.5Q378-80 305.5-151.5T233-326v-380q0-72.5 51.5-123.25T408-880q72 0 123.5 50.75T583-706v360q0 42-30 72t-72.5 30q-42.5 0-72.5-29.67-30-29.68-30-72.33v-340q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v340q0 17 12.5 29.5t30.64 12.5q18.14 0 30-12.5T523-346v-360q0-48-33.5-81t-81.71-33q-48.21 0-81.5 33.06T293-706v380q0 78 54.97 132T481-140q77.92 0 132.46-54Q668-248 668-326v-360q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v360Z',
+    file: 'M349-250h262q12.75 0 21.38-8.68 8.62-8.67 8.62-21.5 0-12.82-8.62-21.32-8.63-8.5-21.38-8.5H349q-12.75 0-21.37 8.68-8.63 8.67-8.63 21.5 0 12.82 8.63 21.32 8.62 8.5 21.37 8.5Zm0-170h262q12.75 0 21.38-8.68 8.62-8.67 8.62-21.5 0-12.82-8.62-21.32-8.63-8.5-21.38-8.5H349q-12.75 0-21.37 8.68-8.63 8.67-8.63 21.5 0 12.82 8.63 21.32 8.62 8.5 21.37 8.5ZM220-80q-24 0-42-18t-18-42v-680q0-24 18-42t42-18h336q12.44 0 23.72 5T599-862l183 183q8 8 13 19.28 5 11.28 5 23.72v496q0 24-18 42t-42 18H220Zm331-584v-156H220v680h520v-494H581q-12.75 0-21.37-8.63Q551-651.25 551-664ZM220-820v186-186 680-680Z',
+    image: 'M180-120q-24 0-42-18t-18-42v-600q0-24 18-42t42-18h600q24 0 42 18t18 42v600q0 24-18 42t-42 18H180Zm0-60h600v-600H180v600Zm0 0v-600 600Zm86-97h429q8.5 0 12.75-8t-.75-16L590-457q-5-6-12-6t-12 6L446-302l-81-111q-5-6-12-6t-12 6l-86 112q-6 8-1.75 16t12.75 8Z',
+    film: 'm140-800 58 119q7.73 15.4 22.08 24.2Q234.44-648 251-648q32.5 0 49.25-27.46T303-732l-33-68h89l58 119q7.73 15.4 22.08 24.2Q453.44-648 470-648q32.5 0 49.25-27.46T522-732l-33-68h89l58 119q7.73 15.4 22.08 24.2Q672.44-648 689-648q32.5 0 49.25-27.46T741-732l-33-68h112q24 0 42 18t18 42v520q0 24-18 42t-42 18H140q-24 0-42-18t-18-42v-520q0-24 18-42t42-18Zm0 212v368h680v-368H140Zm0 0v368-368Z',
+    plus: 'M450-450H230q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h220v-220q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v220h220q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H510v220q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63-8.5-8.62-8.5-21.37v-220Z',
+    copy: 'M300-200q-24 0-42-18t-18-42v-560q0-24 18-42t42-18h440q24 0 42 18t18 42v560q0 24-18 42t-42 18H300Zm0-60h440v-560H300v560ZM180-80q-24 0-42-18t-18-42v-590q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v590h470q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32Q662.75-80 650-80H180Zm120-180v-560 560Z',
+    star: 'M480-269 294-157q-8 5-17 4.5t-16-5.5q-7-5-10.5-13t-1.5-18l49-212-164-143q-8-7-9.5-15.5t.5-16.5q2-8 9-13.5t17-6.5l217-19 84-200q4-9 12-13.5t16-4.5q8 0 16 4.5t12 13.5l84 200 217 19q10 1 17 6.5t9 13.5q2 8 .5 16.5T826-544L662-401l49 212q2 10-1.5 18T699-158q-7 5-16 5.5t-17-4.5L480-269Z',
+    check: 'm378-332 363-363q9-9 21.5-9t21.5 9q9 9 9 21.5t-9 21.5L399-267q-9 9-21 9t-21-9L175-449q-9-9-8.5-21.5T176-492q9-9 21.5-9t21.5 9l159 160Z',
+    alert: 'M92-120q-9 0-15.5-4T66-135q-4-7-4.5-14.5T66-165l388-670q5-8 11.5-11.5T480-850q8 0 14.5 3.5T506-835l388 670q5 8 4.5 15.5T894-135q-4 7-10.5 11t-15.5 4H92Zm52-60h672L480-760 144-180Zm361.5-65.5Q514-254 514-267t-8.5-21.5Q497-297 484-297t-21.5 8.5Q454-280 454-267t8.5 21.5Q471-237 484-237t21.5-8.5Zm0-111Q514-365 514-378v-164q0-13-8.5-21.5T484-572q-13 0-21.5 8.5T454-542v164q0 13 8.5 21.5T484-348q13 0 21.5-8.5ZM480-470Z',
+    send: 'M686-450H190q-13 0-21.5-8.5T160-480q0-13 8.5-21.5T190-510h496L459-737q-9-9-9-21t9-21q9-9 21-9t21 9l278 278q5 5 7 10t2 11q0 6-2 11t-7 10L501-181q-9 9-21 9t-21-9q-9-9-9-21t9-21l227-227Z',
+    tv: 'm415-328 218-141q7-4.5 7-12.75T633-495L415-636q-8-5-15.5-.5T392-623v282q0 9 7.5 13.5t15.5-.5ZM140-160q-24 0-42-18t-18-42v-520q0-24 18-42t42-18h680q24 0 42 18t18 42v520q0 24-18 42t-42 18H140Zm0-60h680v-520H140v520Zm0 0v-520 520Z',
+    swap: 'm194-323 100 100q9 9 9 21t-9 21q-9 9-21 9t-21-9L101-332q-5-5-7-10t-2-11q0-6 2-11t7-10l151-151q9-9 21-9t21 9q9 9 9 21t-9 21L194-383h286q13 0 21.5 8.5T510-353q0 13-8.5 21.5T480-323H194Zm572-254H480q-13 0-21.5-8.5T450-607q0-13 8.5-21.5T480-637h286L666-737q-9-9-9-21t9-21q9-9 21-9t21 9l151 151q5 5 7 10t2 11q0 6-2 11t-7 10L708-435q-9 9-21 9t-21-9q-9-9-9-21t9-21l100-100Z',
+    ext: 'M180-120q-24 0-42-18t-18-42v-600q0-24 18-42t42-18h249q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H180v600h600v-249q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v249q0 24-18 42t-42 18H180Zm600-617L403-360q-9 9-21 8.5t-21-9.5q-9-9-9-21t9-21l377-377H549q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h261q12.75 0 21.38 8.62Q840-822.75 840-810v261q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63-8.5-8.62-8.5-21.37v-188Z',
+    clock: 'M513-492v-171q0-13-8.5-21.5T483-693q-13 0-21.5 8.5T453-663v183q0 6 2 11t6 10l144 149q9 10 22.5 9.5T650-310q9-9 9-22t-9-22L513-492ZM480-80q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-82 31.5-155t86-127.5Q252-817 325-848.5T480-880q82 0 155 31.5t127.5 86Q817-708 848.5-635T880-480q0 82-31.5 155t-86 127.5Q708-143 635-111.5T480-80Zm0-400Zm0 340q140 0 240-100t100-240q0-140-100-240T480-820q-140 0-240 100T140-480q0 140 100 240t240 100Z',
+    shield: 'M470.12-85q-4.56-1-9.12-3-139-47-220-168.5t-81-266.61V-719q0-19.26 10.88-34.66Q181.75-769.07 199-776l260-97q11-4 21-4t21 4l260 97q17.25 6.93 28.13 22.34Q800-738.26 800-719v195.89Q800-378 719-256.5T499-88q-4.56 2-9.12 3T480-84q-5.32 0-9.88-1Zm9.88-58q115-38 187.5-143.5T740-523v-196l-260-98-260 98v196q0 131 72.5 236.5T480-143Zm0-337Z',
+    chev: 'M469-358q-5-2-10-7L261-563q-9-9-8.5-21.5T262-606q9-9 21.5-9t21.5 9l175 176 176-176q9-9 21-8.5t21 9.5q9 9 9 21.5t-9 21.5L501-365q-5 5-10 7t-11 2q-6 0-11-2Z',
+    up: 'M480-554 304-378q-9 9-21 8.5t-21-9.5q-9-9-9-21.5t9-21.5l197-197q9-9 21-9t21 9l198 198q9 9 9 21t-9 21q-9 9-21.5 9t-21.5-9L480-554Z',
+    down: 'M469-358q-5-2-10-7L261-563q-9-9-8.5-21.5T262-606q9-9 21.5-9t21.5 9l175 176 176-176q9-9 21-8.5t21 9.5q9 9 9 21.5t-9 21.5L501-365q-5 5-10 7t-11 2q-6 0-11-2Z',
+    folder: 'M140-160q-23 0-41.5-18.5T80-220v-520q0-23 18.5-41.5T140-800h256q12.44 0 23.72 5t19.37 13.09L481-740h369q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H455l-60-60H140v520l90-355q5-20 21.83-32.5Q268.65-620 289-620h574q29 0 47.5 23t10.5 52l-88 339q-6 24-22 35t-41 11H140Zm63-60h572l84-340H287l-84 340Zm-63-353v-167 167Zm63 353 84-340-84 340Z',
+    bell: 'M190-200q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h50v-304q0-84 49.5-150.5T420-798v-22q0-25 17.5-42.5T480-880q25 0 42.5 17.5T540-820v22q81 17 130.5 83.5T720-564v304h50q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H190Zm290-302Zm0 422q-33 0-56.5-23.5T400-160h160q0 33-23.5 56.5T480-80ZM300-260h360v-304q0-75-52.5-127.5T480-744q-75 0-127.5 52.5T300-564v304Z',
+    ok: 'm421-389-98-98q-9-9-22-9t-23 10q-9 9-9 22t9 22l122 123q9 9 21 9t21-9l239-239q10-10 10-23t-10-23q-10-9-23.5-8.5T635-603L421-389Zm59 309q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-83 31.5-156t86-127Q252-817 325-848.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 82-31.5 155T763-197.5q-54 54.5-127 86T480-80Zm0-60q142 0 241-99.5T820-480q0-142-99-241t-241-99q-141 0-240.5 99T140-480q0 141 99.5 240.5T480-140Zm0-340Z',
+    robot: 'M147-376q-45 0-76-31.21T40-483q0-44.58 31.21-75.79Q102.42-590 147-590v-123q0-24 18-42t42-18h166q0-45 31-76t76-31q45 0 76 31.21T587-773h166q24 0 42 18t18 42v123q45 0 76 31.21T920-483q0 44.58-31.21 75.79Q857.58-376 813-376v196q0 24-18 42t-42 18H207q-24 0-42-18t-18-42v-196Zm224.5-111.74q11.5-11.73 11.5-28.5 0-16.76-11.74-28.26-11.73-11.5-28.5-11.5-16.76 0-28.26 11.74-11.5 11.73-11.5 28.5 0 16.76 11.74 28.26 11.73 11.5 28.5 11.5 16.76 0 28.26-11.74Zm274 0q11.5-11.73 11.5-28.5 0-16.76-11.74-28.26-11.73-11.5-28.5-11.5-16.76 0-28.26 11.74-11.5 11.73-11.5 28.5 0 16.76 11.74 28.26 11.73 11.5 28.5 11.5 16.76 0 28.26-11.74ZM342-285h276q12.75 0 21.38-8.68 8.62-8.67 8.62-21.5 0-12.82-8.62-21.32-8.63-8.5-21.38-8.5H342q-12.75 0-21.37 8.68-8.63 8.67-8.63 21.5 0 12.82 8.63 21.32 8.62 8.5 21.37 8.5ZM207-180h546v-533H207v533Zm273-267Z',
+    collab: 'M474-486q26-32 38.5-66t12.5-79q0-45-12.5-79T474-776q76-17 133.5 23T665-631q0 82-57.5 122T474-486Zm202 326q5-15 9.5-29.5T690-220v-34q0-51-26-95t-90-74q173 22 236.5 64T874-254v34q0 24.75-17.62 42.37Q838.75-160 814-160H676Zm124-389h-70q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h70v-70q0-12.75 8.68-21.38 8.67-8.62 21.5-8.62 12.82 0 21.32 8.62 8.5 8.63 8.5 21.38v70h70q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5h-70v70q0 12.75-8.68 21.37-8.67 8.63-21.5 8.63-12.82 0-21.32-8.63-8.5-8.62-8.5-21.37v-70Zm-593 26q-42-42-42-108t42-108q42-42 108-42t108 42q42 42 42 108t-42 108q-42 42-108 42t-108-42ZM0-220v-34q0-35 18.5-63.5T68-360q72-32 128.5-46T315-420q62 0 118 14t128 46q31 14 50 42.5t19 63.5v34q0 24.75-17.62 42.37Q594.75-160 570-160H60q-24.75 0-42.37-17.63Q0-195.25 0-220Zm315-321q39 0 64.5-25.5T405-631q0-39-25.5-64.5T315-721q-39 0-64.5 25.5T225-631q0 39 25.5 64.5T315-541ZM60-220h510v-34q0-16-8-30t-25-22q-69-32-117-43t-105-11q-57 0-104.5 11T92-306q-15 7-23.5 21.5T60-254v34Zm255-411Zm0 411Z',
+    paid: 'M480-80q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-83 31.5-156t86-127Q252-817 325-848.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 82-31.5 155T763-197.5q-54 54.5-127 86T480-80Zm0-60q142 0 241-99.5T820-480q0-142-99-241t-241-99q-141 0-240.5 99T140-480q0 141 99.5 240.5T480-140Zm0-340Zm18 278.5q8-8.5 8-19.5v-24q60-7 94.5-40.5T635-371q0-52-28.5-83T508-508q-63-21-86.5-41.5T398-603q0-31 22.5-48.5T482-669q24 0 43 9t33 27q7 8 17 11t19-2q11-5 14.5-16t-3.5-20q-17-24-41.5-38T508-715v-24q0-11-8-19t-19-8q-11 0-19.5 8t-8.5 19v24q-51 7-80.5 37T343-603q0 49 25.5 78t94.5 55q71 27 94 47t23 52q0 33-27 55.5T487-293q-33 0-60.5-16T384-354q-5-8-13.5-12.5T353-368q-13 5-17.5 15.5T338-331q20 33 47.5 53.5T451-247v27q0 11 8.5 19t19.5 8q11 0 19-8.5Z',
+    pause: 'M421.5-328.63q8.5-8.62 8.5-21.37v-260q0-12.75-8.68-21.38-8.67-8.62-21.5-8.62-12.82 0-21.32 8.62-8.5 8.63-8.5 21.38v260q0 12.75 8.68 21.37 8.67 8.63 21.5 8.63 12.82 0 21.32-8.63Zm160 0q8.5-8.62 8.5-21.37v-260q0-12.75-8.68-21.38-8.67-8.62-21.5-8.62-12.82 0-21.32 8.62-8.5 8.63-8.5 21.38v260q0 12.75 8.68 21.37 8.67 8.63 21.5 8.63 12.82 0 21.32-8.63ZM480.27-80q-82.74 0-155.5-31.5Q252-143 197.5-197.5t-86-127.34Q80-397.68 80-480.5t31.5-155.66Q143-709 197.5-763t127.34-85.5Q397.68-880 480.5-880t155.66 31.5Q709-817 763-763t85.5 127Q880-563 880-480.27q0 82.74-31.5 155.5Q817-252 763-197.68q-54 54.31-127 86Q563-80 480.27-80Zm.23-60Q622-140 721-239.5t99-241Q820-622 721.19-721T480-820q-141 0-240.5 98.81T140-480q0 141 99.5 240.5t241 99.5Zm-.5-340Z',
+    wait: 'M308-140h344v-127q0-72-50-121.5T480-438q-72 0-122 49.5T308-267v127ZM190-80q-13 0-21.5-8.5T160-110q0-13 8.5-21.5T190-140h58v-127q0-71 40-129t106-84q-66-27-106-85t-40-129v-126h-58q-13 0-21.5-8.5T160-850q0-13 8.5-21.5T190-880h580q13 0 21.5 8.5T800-850q0 13-8.5 21.5T770-820h-58v126q0 71-40 129t-106 85q66 26 106 84t40 129v127h58q13 0 21.5 8.5T800-110q0 13-8.5 21.5T770-80H190Z',
+    cancel: 'm480-438 129 129q9 9 21 9t21-9q9-9 9-21t-9-21L522-480l129-129q9-9 9-21t-9-21q-9-9-21-9t-21 9L480-522 351-651q-9-9-21-9t-21 9q-9 9-9 21t9 21l129 129-129 129q-9 9-9 21t9 21q9 9 21 9t21-9l129-129Zm0 358q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-83 31.5-156t86-127Q252-817 325-848.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 82-31.5 155T763-197.5q-54 54.5-127 86T480-80Zm0-60q142 0 241-99.5T820-480q0-142-99-241t-241-99q-141 0-240.5 99T140-480q0 141 99.5 240.5T480-140Zm0-340Z',
+    alarm: 'M512-450v-160q0-13-8.5-21.5T482-640q-13 0-21.5 8.5T452-610v172q0 6 2 11t7 10l118 118q9 9 21 9t21-9q9-9 9-21t-9-21L512-450ZM339.5-110q-65.5-28-114-76.5t-77-114Q120-366 120-441q0-74 28.5-139.5t77-114.5q48.5-49 114-77T479-800q74 0 139.5 28T733-695q49 49 77 114.5T838-441q0 75-28 140.5t-77 114Q684-138 618.5-110T479-82q-74 0-139.5-28ZM479-439ZM71-688q-9-9-8.5-21t9.5-21l121-117q9-8 21.5-7.5T235-846q9 9 8.5 21t-9.5 21L113-687q-9 8-21.5 7.5T71-688Zm816 0q-8 8-20.5 8.5T845-687L724-804q-9-8-9.5-20.5T723-846q8-8 20.5-8.5T765-847l121 117q9 8 9.5 20.5T887-688ZM479-142q125 0 212-87t87-212q0-125-87-212t-212-87q-125 0-212 87t-87 212q0 125 87 212t212 87Z',
+    note: 'M190-410q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h240q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H190Zm0-165q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h410q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H190Zm0-165q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h410q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H190Zm330 550v-81q0-5.57 2-10.78 2-5.22 7-10.22l211.61-210.77q9.11-9.12 20.25-13.18Q772-520 783-520q12 0 23 4.5t20 13.5l37 37q9 9 13 20t4 22q0 11-4.5 22.5t-13.58 20.62L652-169q-5 5-10.22 7-5.21 2-10.78 2h-81q-12.75 0-21.37-8.63Q520-177.25 520-190Zm300-233-37-37 37 37ZM580-220h38l121-122-18-19-19-18-122 121v38Zm141-141-19-18 37 37-18-19Z',
+    cut: 'M481-415 364-298q11 17 13.5 33t2.5 35q0 64-43 107T230-80q-64 0-107-43T80-230q0-64 43-107t107-43q18 0 35.5 5t36.5 15l116-116-118-118q-17 8-34.5 11t-35.5 3q-64 0-107-43T80-730q0-64 43-107t107-43q64 0 107 43t43 107q0 19-2.5 36T367-662l468 468q23 23 10.5 51.5T801-114q-9 0-17.5-3.5T768-128L481-415Zm118-112-66-66 235-235q7-7 15.5-10.5T801-842q32 0 43.5 29T834-762L599-527ZM294-666q26-26 26-64t-26-64q-26-26-64-26t-64 26q-26 26-26 64t26 64q26 26 64 26t64-26Zm202.5 203.5Q502-468 502-476t-5.5-13.5Q491-495 483-495t-13.5 5.5Q464-484 464-476t5.5 13.5Q475-457 483-457t13.5-5.5ZM294-166q26-26 26-64t-26-64q-26-26-64-26t-64 26q-26 26-26 64t26 64q26 26 64 26t64-26Z',
+    party: 'm181-181 314-112-203-204-111 316Zm744-505q-7 7-17 7t-17-7l-2-2q-19-19-44-19.5T800-688L574-462q-7 7-17 7t-17-7q-7-7-7-17t7-17l223-223q32-32 81-32.5t81 31.5q7 7 7 17t-7 17ZM383-811q7-7 17-7t17 7l9 9q35 35 34.5 87.5T425-627l-10 10q-7 7-17 7t-17-7q-7-7-7-17t7-17l13-13q23-23 21.5-52.5T394-766l-11-11q-7-7-7-17t7-17Zm169-73q7-7 17-7t17 7l46 46q31 32 32 80.5T633-677L496-540q-7 7-17 7t-17-7q-7-7-7-17t7-17l135-135q19-19 18.5-48.5T596-806l-44-44q-7-7-7-17t7-17Zm300 505q-7 7-17 7t-17-7l-35-35q-23-23-48-23t-48 23l-33 33q-7 7-17 7t-17-7q-7-7-7-17t7-17l30-30q35-35 84-36t84 34l34 34q7 7 7 17t-7 17ZM181-181Zm-80 41 149-416q4-10 11.5-15t16.5-5q5 0 10.5 2t10.5 7l270 266q5 5 7 10.5t2 11.5q0 9-5 16.5T558-251L140-101q-9 3-17.5 1t-14.5-8q-6-6-8-14.5t1-17.5Z',
+    music: 'M286.5-163.5Q243-207 243-270t43.5-106.5Q330-420 393-420q28 0 50.5 8t39.5 22v-420q0-13 8.5-21.5T513-840h174q13 0 21.5 8.5T717-810v75q0 13-8.5 21.5T687-705H543v435q0 63-43.5 106.5T393-120q-63 0-106.5-43.5Z',
+    block: 'M324-111.5Q251-143 197-197t-85.5-127Q80-397 80-480t31.5-156Q143-709 197-763t127-85.5Q397-880 480-880t156 31.5Q709-817 763-763t85.5 127Q880-563 880-480t-31.5 156Q817-251 763-197t-127 85.5Q563-80 480-80t-156-31.5ZM480-140q61.01 0 117.51-20.5Q654-181 699-220L220-699q-38 46-59 102.17T140-480q0 142.37 98.81 241.19Q337.63-140 480-140Zm259-121q37-45 59-101.49 22-56.5 22-117.51 0-142.38-98.81-241.19T480-820q-60.66 0-116.83 21T261-739l478 478ZM480-480Z',
+    search: 'M378-329q-108.16 0-183.08-75Q120-479 120-585t75-181q75-75 181.5-75t181 75Q632-691 632-584.85 632-542 618-502q-14 40-42 75l242 240q9 8.56 9 21.78T818-143q-9 9-22.22 9-13.22 0-21.78-9L533-384q-30 26-69.96 40.5Q423.08-329 378-329Zm-1-60q81.25 0 138.13-57.5Q572-504 572-585t-56.87-138.5Q458.25-781 377-781q-82.08 0-139.54 57.5Q180-666 180-585t57.46 138.5Q294.92-389 377-389Z',
+    sync: 'M220-477q0 63 23.5 109.5T307-287l30 21v-94q0-13 8.5-21.5T367-390q13 0 21.5 8.5T397-360v170q0 13-8.5 21.5T367-160H197q-13 0-21.5-8.5T167-190q0-13 8.5-21.5T197-220h100l-15-12q-64-51-93-111t-29-134q0-94 49.5-171.5T342-766q11-5 21 0t14 16q5 11 0 22.5T361-710q-64 34-102.5 96.5T220-477Zm520-6q0-48-23.5-97.5T655-668l-29-26v94q0 13-8.5 21.5T596-570q-13 0-21.5-8.5T566-600v-170q0-13 8.5-21.5T596-800h170q13 0 21.5 8.5T796-770q0 13-8.5 21.5T766-740H665l15 14q60 56 90 120t30 123q0 93-48 169.5T623-195q-11 6-22.5 1.5T584-210q-5-11 0-22.5t16-17.5q65-33 102.5-96T740-483Z',
+    next: 'M680-270v-420q0-13 8.5-21.5T710-720q13 0 21.5 8.5T740-690v420q0 13-8.5 21.5T710-240q-13 0-21.5-8.5T680-270Zm-460-27v-366q0-14 9-22t21-8q5 0 9 1.5t8 4.5l263 182q7 5 10 11.5t3 13.5q0 7-3 13.5T530-455L267-273q-4 3-8 4.5t-9 1.5q-12 0-21-8t-9-22Zm60-183Zm0 125 181-125-181-125v250Z',
+    gear: 'M421-80q-14 0-25-9t-13-23l-15-94q-19-7-40-19t-37-25l-86 40q-14 6-28 1.5T155-226L97-330q-8-13-4.5-27t15.5-23l80-59q-2-9-2.5-20.5T185-480q0-9 .5-20.5T188-521l-80-59q-12-9-15.5-23t4.5-27l58-104q8-13 22-17.5t28 1.5l86 40q16-13 37-25t40-18l15-95q2-14 13-23t25-9h118q14 0 25 9t13 23l15 94q19 7 40.5 18.5T669-710l86-40q14-6 27.5-1.5T804-734l59 104q8 13 4.5 27.5T852-580l-80 57q2 10 2.5 21.5t.5 21.5q0 10-.5 21t-2.5 21l80 58q12 8 15.5 22.5T863-330l-58 104q-8 13-22 17.5t-28-1.5l-86-40q-16 13-36.5 25.5T592-206l-15 94q-2 14-13 23t-25 9H421Zm15-60h88l14-112q33-8 62.5-25t53.5-41l106 46 40-72-94-69q4-17 6.5-33.5T715-480q0-17-2-33.5t-7-33.5l94-69-40-72-106 46q-23-26-52-43.5T538-708l-14-112h-88l-14 112q-34 7-63.5 24T306-642l-106-46-40 72 94 69q-4 17-6.5 33.5T245-480q0 17 2.5 33.5T254-413l-94 69 40 72 106-46q24 24 53.5 41t62.5 25l14 112Zm44-210q54 0 92-38t38-92q0-54-38-92t-92-38q-54 0-92 38t-38 92q0 54 38 92t92 38Zm0-130Z',
+    bolt: 'm393-165 279-335H492l36-286-253 366h154l-36 255Zm-33-195H217q-18 0-26.5-16t2.5-31l338-488q8-11 20-15t24 1q12 5 19 16t5 24l-39 309h176q19 0 27 17t-4 32L388-66q-8 10-20.5 13T344-55q-11-5-17.5-16T322-95l38-265Zm113-115Z',
+    eye: 'M600.5-379.62q49.5-49.62 49.5-120.5T600.38-620.5Q550.76-670 479.88-670T359.5-620.38Q310-570.76 310-499.88t49.62 120.38q49.62 49.5 120.5 49.5t120.38-49.62Zm-200-41.12q-32.5-32.73-32.5-79.5 0-46.76 32.74-79.26 32.73-32.5 79.5-32.5 46.76 0 79.26 32.74 32.5 32.73 32.5 79.5 0 46.76-32.74 79.26-32.73 32.5-79.5 32.5-46.76 0-79.26-32.74ZM234.5-276Q124-352 57-470q-4-7.13-6-14.65-2-7.52-2-15.43 0-7.92 2-15.38 2-7.47 6-14.54 67-118 177.5-194T480-800q135 0 245.5 76T903-530q4 7.12 6 14.65 2 7.52 2 15.43 0 7.92-2 15.38-2 7.47-6 14.54-67 118-177.5 194T480-200q-135 0-245.5-76ZM480-500Zm222.5 174.5Q804-391 857-500q-53-109-154.33-174.5Q601.34-740 480.17-740T257.5-674.5Q156-609 102-500q54 109 155.33 174.5Q358.66-260 479.83-260t222.67-65.5Z',
+    info: 'M504.5-288.63q8.5-8.62 8.5-21.37v-180q0-12.75-8.68-21.38-8.67-8.62-21.5-8.62-12.82 0-21.32 8.62-8.5 8.63-8.5 21.38v180q0 12.75 8.68 21.37 8.67 8.63 21.5 8.63 12.82 0 21.32-8.63Zm-1-314.57q9.5-9.2 9.5-22.8 0-14.45-9.48-24.22-9.48-9.78-23.5-9.78t-23.52 9.78Q447-640.45 447-626q0 13.6 9.48 22.8 9.48 9.2 23.5 9.2t23.52-9.2ZM480.27-80q-82.74 0-155.5-31.5Q252-143 197.5-197.5t-86-127.34Q80-397.68 80-480.5t31.5-155.66Q143-709 197.5-763t127.34-85.5Q397.68-880 480.5-880t155.66 31.5Q709-817 763-763t85.5 127Q880-563 880-480.27q0 82.74-31.5 155.5Q817-252 763-197.68q-54 54.31-127 86Q563-80 480.27-80Zm.23-60Q622-140 721-239.5t99-241Q820-622 721.19-721T480-820q-141 0-240.5 98.81T140-480q0 141 99.5 240.5t241 99.5Zm-.5-340Z',
+    scan: 'M110-200q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32Q97.25-260 110-260h340q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H110Zm0-210q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32Q97.25-470 110-470h140q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H110Zm0-210q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32Q97.25-680 110-680h140q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H110Zm450 300q-83 0-141.5-58.5T360-520q0-83 58.5-141.5T560-720q83 0 141.5 58.5T760-520q0 32-10 62t-30 56l139 139q9 9 9 21t-9 21q-9 9-21 9t-21-9L678-360q-26 20-56 30t-62 10Zm-.24-60Q618-380 659-420.76q41-40.77 41-99Q700-578 659.24-619q-40.77-41-99-41Q502-660 461-619.24q-41 40.77-41 99Q420-462 460.76-421q40.77 41 99 41Z',
+    history: 'M477-120q-142 0-243.5-95.5T121-451q-1-12 7.5-21t21.5-9q12 0 20.5 8.5T181-451q11 115 95 193t201 78q127 0 215-89t88-216q0-124-89-209.5T477-780q-68 0-127.5 31T246-667h75q13 0 21.5 8.5T351-637q0 13-8.5 21.5T321-607H172q-13 0-21.5-8.5T142-637v-148q0-13 8.5-21.5T172-815q13 0 21.5 8.5T202-785v76q52-61 123.5-96T477-840q75 0 141 28t115.5 76.5Q783-687 811.5-622T840-482q0 75-28.5 141t-78 115Q684-177 618-148.5T477-120Zm34-374 115 113q9 9 9 21.5t-9 21.5q-9 9-21 9t-21-9L460-460q-5-5-7-10.5t-2-11.5v-171q0-13 8.5-21.5T481-683q13 0 21.5 8.5T511-653v159Z',
+    cloud: 'm450-478-62 62q-9 9-21.1 9-12.1 0-20.9-9-9-9-9-21.5t9-21.5l113-114q9-9 21-9t21 9l114 114q9 9 9 21t-9 21q-9 9-21.5 9t-21.5-9l-62-61v258h241q45 0 77-32t32-77q0-45-32-77t-77-32h-63v-84q0-89-60.5-153T478-739q-89 0-150 64t-61 153h-19q-62 0-105 43.5T100-371q0 62 43.93 106.5T250-220h110q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H250q-86 0-148-62T40-370q0-78 49.5-137.5T217-579q20-97 94-158.5T482-799q113 0 189.5 81.5T748-522v24q72-2 122 46.5T920-329q0 69-50 119t-119 50H510q-24 0-42-18t-18-42v-258Zm30 28Z',
   };
-  const FILLED = new Set(['play', 'stop', 'star']);
+  // อีโมจิที่ใช้เป็นไอคอนสถานะ (การ์ดสถานะลิขสิทธิ์, แถบงาน, ป้ายปุ่มลอย) -> ไอคอนชุดเดียวกัน
+  const EMOJI_ICON = {
+    '✅': 'ok', '✓': 'check', '✔': 'check', '⚠': 'alert', '🤖': 'robot', '🤝': 'collab', '💰': 'paid', '⏸': 'pause', '⏳': 'wait',
+    '❌': 'cancel', '⏰': 'alarm', '📝': 'note', '⬆': 'upload', '✂': 'cut', '🎉': 'party', '🎵': 'music', '⛔': 'block',
+    '🔍': 'search', '🔄': 'sync', '▶': 'play', '⏭': 'next', '⚙': 'gear', '⚡': 'bolt', '👀': 'eye', 'ℹ': 'info', '🔒': 'lock',
+    '⬇': 'download', '📋': 'queue',
+  };
   function icon(name, size = 16) {
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('viewBox', '0 -960 960 960');
     svg.setAttribute('width', size);
     svg.setAttribute('height', size);
     svg.setAttribute('class', 'ic');
+    svg.setAttribute('aria-hidden', 'true');
     const path = document.createElementNS(NS, 'path');
-    path.setAttribute('d', ICONS[name]);
-    if (FILLED.has(name)) path.setAttribute('fill', 'currentColor');
-    else {
-      path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', 'currentColor');
-      path.setAttribute('stroke-width', '1.8');
-      path.setAttribute('stroke-linecap', 'round');
-      path.setAttribute('stroke-linejoin', 'round');
-    }
+    path.setAttribute('d', ICONS[name] || ICONS.info);
+    path.setAttribute('fill', 'currentColor');
     svg.append(path);
     return svg;
+  }
+  // ข้อความที่ขึ้นต้นด้วยอีโมจิสถานะ -> ไอคอน (ถ้าไม่รู้จัก คืนข้อความเดิม)
+  function emojiIcon(e, size = 15) {
+    const k = String(e || '').split(String.fromCharCode(0xfe0f)).join('').trim();
+    return EMOJI_ICON[k] ? icon(EMOJI_ICON[k], size) : document.createTextNode(e || '');
   }
   const iconBtn = (name, title, onclick, cls = '') => h('button', { className: 'ib ' + cls, title, onclick }, icon(name));
 
@@ -1991,7 +2440,7 @@
       --ok:#16a34a;--warn:#d97706;--err:#dc2626;--info:#2563eb;--muted:#9a9aa6;
       --shadow:0 24px 60px -12px rgba(15,15,25,.28),0 2px 6px rgba(15,15,25,.06);
       --radius:14px;
-      font:13px/1.5 "Inter","IBM Plex Sans Thai","Noto Sans Thai",Roboto,system-ui,sans-serif;color:var(--fg);
+      font:13.5px/1.5 "IBM Plex Sans Thai","Leelawadee UI","Segoe UI",system-ui,sans-serif;color:var(--fg);
       -webkit-font-smoothing:antialiased;letter-spacing:.005em}
     #ytp-root.dark{
       --bg:#0e0e12;--surface:#16161c;--surface2:#1d1d25;--line:#26262f;--line2:#33333e;
@@ -2005,7 +2454,7 @@
     #ytp-root .mono{font-family:"JetBrains Mono","SF Mono",Consolas,monospace;font-size:11px}
 
     /* ---------- FAB ---------- */
-    #ytp-root .fab{position:fixed;left:18px;bottom:18px;z-index:100001;display:flex;align-items:center;gap:10px;
+    #ytp-root .fab{position:fixed;right:18px;bottom:18px;touch-action:none;z-index:100001;display:flex;align-items:center;gap:10px;
       background:#0e0e12;color:#fff;border:1px solid #2a2a33;border-radius:16px;padding:8px 14px 8px 8px;cursor:pointer;
       box-shadow:0 10px 30px -6px rgba(0,0,0,.45);transition:transform .15s,box-shadow .15s;text-align:left}
     #ytp-root .fab:hover{transform:translateY(-2px);box-shadow:0 16px 36px -8px rgba(0,0,0,.55)}
@@ -2029,11 +2478,6 @@
       display:flex;flex-direction:column;overflow:hidden;
       transform:translateX(calc(100% + 24px));transition:transform .28s cubic-bezier(.2,.8,.2,1)}
     #ytp-root .drawer.open{transform:none}
-    #ytp-root .hd{display:flex;align-items:center;gap:12px;padding:16px 16px 12px}
-    #ytp-root .hd .logo{width:38px;height:38px;border-radius:11px}
-    #ytp-root .hd .tt{flex:1;min-width:0}
-    #ytp-root .hd .tt b{display:block;font-size:15px;font-weight:700;letter-spacing:-.01em}
-    #ytp-root .hd .tt span{font-size:12px;color:var(--fg3)}
     #ytp-root .ib{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;border:1px solid transparent;
       background:none;color:var(--fg2);cursor:pointer;transition:.15s;flex:0 0 auto}
     #ytp-root .ib:hover{background:var(--surface2);color:var(--fg)}
@@ -2326,11 +2770,330 @@
     #ytp-root .tbx-table a{color:var(--info);text-decoration:none;font-weight:600}
     #ytp-root .tbx-table input[type=checkbox]{accent-color:var(--brand)}
     #ytp-root .chip.bad{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,transparent);background:color-mix(in srgb,var(--err) 8%,var(--bg))}
+    /* ---------- หน้าต่างยืนยันในแผง (แทน confirm() ของเบราว์เซอร์) ---------- */
+    #ytp-root .ask{position:fixed;inset:0;z-index:100004;background:rgba(5,5,10,.55);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;
+      animation:ytp-fade .15s ease-out}
+    #ytp-root .ask .box{background:var(--bg);color:var(--fg);width:min(460px,94vw);max-height:88vh;overflow:auto;border-radius:18px;padding:20px;
+      border:1px solid var(--line);box-shadow:var(--shadow)}
+    #ytp-root .ask h3{display:flex;align-items:center;gap:10px;margin:0 0 10px;font-size:16px;font-weight:700;letter-spacing:-.01em}
+    #ytp-root .ask h3 .ai{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;flex:0 0 auto;color:var(--brand);
+      background:color-mix(in srgb,var(--brand) 12%,var(--bg))}
+    #ytp-root .ask.danger h3 .ai{color:var(--err);background:color-mix(in srgb,var(--err) 12%,var(--bg))}
+    #ytp-root .ask .ab{font-size:13px;line-height:1.6;color:var(--fg2);white-space:pre-line;word-break:break-word}
+    #ytp-root .ask .ab b{color:var(--fg)}
+    #ytp-root .ask .afoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
+    #ytp-root .ask .afoot .btn.go{flex:0 0 auto;justify-content:center}
+    #ytp-root .ask .afoot .btn.go.danger{background:var(--err);box-shadow:none}
+    #ytp-root .ask .who{display:flex;gap:12px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);margin:4px 0 10px}
+    #ytp-root .ask .who img,#ytp-root .ask .who .ph{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 auto;display:grid;place-items:center;background:var(--surface2);color:var(--fg3)}
+    #ytp-root .ask .who b{display:block;font-size:14px;color:var(--fg)}
+    #ytp-root .ask .who small{display:block;color:var(--fg3);font-size:11.5px}
+    #ytp-root .ask .facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px;margin:0 0 10px}
+    #ytp-root .ask .facts span:nth-child(odd){color:var(--fg3)}
+    #ytp-root .ask .facts span:nth-child(even){color:var(--fg);font-weight:600}
+    #ytp-root .ask .warnbox{border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.55;color:var(--warn);
+      background:color-mix(in srgb,var(--warn) 10%,var(--bg));border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line))}
+    #ytp-root .ask .warnbox b{display:flex;align-items:center;gap:6px;color:var(--warn);margin-bottom:4px}
+    #ytp-root .ask .warnbox ul{margin:0;padding-left:18px;color:var(--fg2)}
+
+    /* ---------- การ์ดคิวแบบย่อ ---------- */
+    #ytp-root .card .hdr{cursor:pointer}
+    #ytp-root .card .tl{font-size:12.5px;color:var(--fg2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #ytp-root .card .tl.over{color:var(--err)}
+    #ytp-root .card .wt{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--fg2);white-space:nowrap}
+    #ytp-root .card .wt.bad{color:var(--err)}
+    #ytp-root .card .ib.sm{width:26px;height:26px;border-radius:7px}
+    #ytp-root .card .exp .ic{transition:transform .18s}
+    #ytp-root .card.open .exp .ic{transform:rotate(180deg)}
+    #ytp-root .card .ord{display:flex;flex-direction:column;gap:0}
+    #ytp-root .card .ord .ib{width:22px;height:16px;border-radius:5px}
+    #ytp-root .card .att{margin-top:8px}
+    #ytp-root .toolbar .btn.ghost{padding:6px 8px}
+
+    /* ---------- วางไฟล์ตรงไหนของแผงก็ได้ ---------- */
+    #ytp-root .drawer.dropping::after{content:attr(data-drop);position:absolute;inset:8px;border-radius:16px;z-index:5;pointer-events:none;
+      display:grid;place-items:center;font-size:15px;font-weight:700;color:var(--brand);
+      border:2px dashed var(--brand);background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(2px)}
+    #ytp-root .fab.dropping{transform:scale(1.06);box-shadow:0 0 0 3px var(--brand),0 16px 36px -8px rgba(0,0,0,.55)}
+    #ytp-root .drop .folder{background:none;border:0;padding:0;color:var(--brand);font-weight:600;font-size:12px;cursor:pointer;text-decoration:underline}
+    #ytp-root .sched.late{border-color:color-mix(in srgb,var(--warn) 55%,var(--line))}
+    #ytp-root .sched.late .sh small{color:var(--warn)}
+    #ytp-root .sched .past{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;font-size:12px;line-height:1.45;color:var(--warn);
+      background:color-mix(in srgb,var(--warn) 10%,var(--bg));border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line))}
+    #ytp-root .sched .past span{flex:1;min-width:0}
+    #ytp-root .sched .past .btn{flex:0 0 auto}
+    #ytp-root.dopen .fab{opacity:0;pointer-events:none;transform:scale(.9)}
+    #ytp-root .fab.moving{cursor:grabbing;transition:none;transform:none}
+    /* รายการพรีเซ็ตแบบกะทัดรัด: แถวเตี้ย โชว์แม่แบบชื่อเฉพาะอันที่เลือก และเลื่อนในกล่องเมื่อยาว -> ช่องแก้ไขขึ้นมาใกล้ขึ้น */
+    #ytp-root .plist{gap:4px;max-height:236px;overflow:auto;scrollbar-width:thin;padding:2px}
+    #ytp-root .pitem{padding:6px 10px}
+    #ytp-root .pitem .pl span{display:none}
+    #ytp-root .pitem.on .pl span{display:block}
+    #ytp-root .sched .sh{cursor:default}
+    #ytp-root .sched.on .sh{cursor:pointer}
+    #ytp-root .sched .schev .ic{color:var(--fg3);transition:transform .18s;transform:rotate(180deg)}
+    #ytp-root .sched.closed .schev .ic{transform:none}
+    #ytp-root .drop.mini{padding:8px 12px;gap:10px}
+    #ytp-root .drop.mini .di{width:30px;height:30px;border-radius:9px}
+    #ytp-root .drop.mini .di .ic{width:16px;height:16px}
+    #ytp-root .drop.mini b{font-size:12.5px}
+    #ytp-root .drop.mini .kbd{display:none}
+    #ytp-root .stats{display:flex;flex-wrap:wrap;gap:6px}
+    #ytp-root .stat{display:flex;align-items:baseline;gap:6px;padding:4px 10px;border-radius:999px}
+    #ytp-root .stat b{display:inline;font-size:14px}
+    #ytp-root .drawer>.chan{margin-top:12px}
+    #ytp-root .chan .cap{font-size:10.5px}
+    #ytp-root .sched .g3 .mini,#ytp-root .when .mini,#ytp-root .card .fields .mini{font-size:12px}
+    #ytp-root .pill{font-size:11.5px}
+    #ytp-root .chip.warnc{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+    #ytp-root .card .ord .ib:not(:disabled){color:var(--fg)}
+    @keyframes ytp-fade{from{opacity:0}to{opacity:1}}
     @keyframes ytp-ind{0%{margin-left:-35%}100%{margin-left:100%}}
     @keyframes ytp-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
     @keyframes ytp-spin{to{transform:rotate(360deg)}}
+
+    /* ===== ธีมดำมินิมอล: สีเดียวทั้งแผง ใช้สีเฉพาะสถานะ ===== */
+    #ytp-root,#ytp-root.dark{
+      --bg:#0b0b0c;--surface:#131315;--surface2:#1c1c20;--line:#222227;--line2:#34343b;
+      --fg:#f4f4f5;--fg2:#bcbcc4;--fg3:#8a8a94;
+      --brand:#f2f2f3;--brand2:#f2f2f3;--focus:#8a8a93;
+      --ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#93c5fd;--muted:#66666e;
+      --shadow:0 30px 80px -20px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.04);
+      --radius:12px;color-scheme:dark}
+    #ytp-root input{color-scheme:dark}
+    /* โลโก้ / ปุ่มหลัก / สวิตช์ / แถบความคืบหน้า: ขาวล้วน ไม่มีไล่เฉด */
+    #ytp-root .logo{background:var(--fg);color:var(--bg);box-shadow:none}
+    #ytp-root .btn.go{background:var(--fg);color:#0b0b0c;box-shadow:none}
+    #ytp-root .btn.go .gi{background:rgba(0,0,0,.08)}
+    #ytp-root .btn.go:disabled{background:var(--surface2);color:var(--fg3);filter:none}
+    #ytp-root .sw input:checked+.t{background:var(--fg)}
+    #ytp-root .sw input:checked+.t::after{background:#0b0b0c}
+    #ytp-root .sw .t{background:var(--line2)}
+    #ytp-root .progress i,#ytp-root .tbx-bar i{background:var(--fg)}
+    #ytp-root .fab .badge,#ytp-root .toast .ti{background:var(--fg);color:#0b0b0c}
+    #ytp-root .tabs .n{background:var(--fg);color:#0b0b0c}
+    /* ปุ่มลอย */
+    #ytp-root .fab{background:#0b0b0c;border-color:#26262b;box-shadow:0 10px 30px -8px rgba(0,0,0,.6)}
+    #ytp-root .fab .logo{width:30px;height:30px;border-radius:9px}
+    /* แผง */
+    #ytp-root .drawer{border-color:#1c1c20;border-radius:16px}
+    /* แถบช่อง: ไม่มีกล่อง แค่เส้นคั่น */
+    #ytp-root .chan{background:none;border:0;border-bottom:1px solid var(--line);border-radius:0;margin:0;padding:14px 16px}
+    #ytp-root .drawer>.chan{margin-top:0}
+    #ytp-root .chan .av::after{border-color:var(--bg)}
+    #ytp-root .chan .lk{background:none;border-color:var(--line2)}
+    #ytp-root .chan.locked .lk{background:none;color:var(--fg);border-color:var(--fg3)}
+    #ytp-root .chan.bad{background:color-mix(in srgb,var(--err) 8%,var(--bg))}
+    /* แท็บ: ตัวหนังสือ + เส้นใต้ แทนปุ่มเม็ด */
+    #ytp-root .tabs{background:none;border:0;border-bottom:1px solid var(--line);border-radius:0;margin:0;padding:0 10px;gap:0}
+    #ytp-root .tabs button{border-radius:0;padding:12px 6px;color:var(--fg3);border-bottom:2px solid transparent;margin-bottom:-1px}
+    #ytp-root .tabs button.on{background:none;box-shadow:none;color:var(--fg);border-bottom-color:var(--fg)}
+    #ytp-root .tabs button .ic{display:none}
+    /* กล่องส่วนต่าง ๆ: ไม่มีกรอบ ใช้ระยะห่างแทน */
+    #ytp-root .sec{border:0;padding:0;margin-top:22px;background:none}
+    #ytp-root .sec>h4{color:var(--fg3);font-weight:600;letter-spacing:.06em}
+    #ytp-root .sec>h4 .ic{display:none}
+    #ytp-root .sec+.sec{border-top:1px solid var(--line);padding-top:18px}
+    /* ช่องกรอก */
+    #ytp-root input[type=text],#ytp-root input[type=number],#ytp-root input[type=datetime-local],#ytp-root select,#ytp-root textarea{
+      background:var(--surface);border-color:var(--line);border-radius:9px}
+    #ytp-root input:focus,#ytp-root select:focus,#ytp-root textarea:focus{border-color:var(--fg3);box-shadow:none}
+    /* ปุ่มรอง */
+    #ytp-root .btn{background:none;border-color:var(--line2);border-radius:9px}
+    #ytp-root .btn:hover{background:var(--surface2)}
+    #ytp-root .ib.outline{border-color:var(--line2)}
+    /* กล่องลากไฟล์ */
+    #ytp-root .drop{background:none;border:1px dashed var(--line2);border-radius:12px}
+    #ytp-root .drop .di{background:var(--surface2);color:var(--fg)}
+    #ytp-root .drop:hover,#ytp-root .drop.hover{border-color:var(--fg3);background:var(--surface)}
+    #ytp-root .drop .folder{color:var(--fg)}
+    #ytp-root .drop .kbd{background:none}
+    #ytp-root .drawer.dropping::after{color:var(--fg);border-color:var(--fg2);background:rgba(11,11,12,.88)}
+    /* ตั้งเวลา */
+    #ytp-root .sched{background:none;border-color:var(--line)}
+    #ytp-root .sched.on{border-color:var(--line2)}
+    #ytp-root .sched .sh .si{background:var(--surface2);color:var(--fg2)}
+    #ytp-root .sched.late{border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
+    #ytp-root .chip{background:none;border-color:var(--line2);color:var(--fg2)}
+    #ytp-root .chip:hover{color:var(--fg);border-color:var(--fg3)}
+    /* สถิติ: ตัวเลขล้วน */
+    #ytp-root .stat{border:0;background:none;padding:2px 10px 2px 0}
+    #ytp-root .stat b{font-size:13px}
+    /* การ์ด */
+    #ytp-root .card{background:none;border-color:var(--line);border-radius:12px}
+    #ytp-root .card:hover{border-color:var(--line2)}
+    #ytp-root .card.uploading,#ytp-root .card.review{box-shadow:none}
+    #ytp-root .card .th{background:var(--surface2);border-color:var(--line)}
+    #ytp-root .card .msg{background:var(--surface)}
+    #ytp-root .pill{background:none;padding-left:0}
+    #ytp-root .card.pending{--sc:var(--fg3)}
+    /* รายการพรีเซ็ต */
+    #ytp-root .pitem{background:none;border-color:transparent}
+    #ytp-root .pitem:hover{background:var(--surface)}
+    #ytp-root .pitem.on{border-color:var(--line2);background:var(--surface);box-shadow:none}
+    #ytp-root .pitem .main{color:var(--fg2);background:var(--surface2)}
+    #ytp-root .seg{background:var(--surface);border-color:var(--line)}
+    #ytp-root .seg button.on{background:var(--surface2);box-shadow:none}
+    #ytp-root .yt{background:var(--surface);border-color:var(--line)}
+    /* ลิขสิทธิ์ */
+    #ytp-root .tbx-card{background:var(--surface);border-color:var(--line)}
+    #ytp-root .tbx-sec{color:var(--fg2)}
+    /* หน้าต่าง/โมดัล */
+    #ytp-root .ask .box,#ytp-root #tbx-modal .box{background:var(--bg);border-color:var(--line2)}
+    #ytp-root .ask h3 .ai{background:var(--surface2);color:var(--fg)}
+    #ytp-root .ask .who{background:var(--surface)}
+    #ytp-root .ask .afoot .btn.go.danger{background:var(--err);color:#0b0b0c}
+    #ytp-root .toast{background:#0b0b0c;border-color:#26262b}
+    #ytp-root .act{margin:12px 16px 0;background:none;border-color:var(--line)}
+    #ytp-root .drawer>.sec{margin:12px 16px 0}
+    /* hover/โฟกัส: ปุ่มหลักต้องคงพื้นขาวตัวดำเสมอ (กฎ .btn:hover ด้านบนเคยทับจนตัวหนังสือหาย) */
+    #ytp-root .btn.go:hover,#ytp-root .btn.go:focus-visible{background:#ffffff;color:#0b0b0c;filter:none}
+    #ytp-root .btn.go:active{background:#d8d8dc}
+    #ytp-root .btn.go:disabled,#ytp-root .btn.go:disabled:hover{background:var(--surface2);color:var(--fg3)}
+    #ytp-root .ask .afoot .btn.go.danger:hover{background:#fca5a5;color:#0b0b0c}
+    #ytp-root .btn:hover{color:var(--fg)}
+    #ytp-root .btn.danger:hover{color:var(--err)}
+    #ytp-root .btn:not(.go):disabled:hover{background:none}
+    #ytp-root .tabs button{color:var(--fg2)}
+    #ytp-root .tabs button:hover{color:var(--fg)}
+    #ytp-root .ib{color:var(--fg2)}
+    #ytp-root .ib:hover{background:var(--surface2);color:var(--fg)}
+    #ytp-root .chip.var:hover{color:var(--fg);border-color:var(--fg2)}
+    #ytp-root .act:hover{background:var(--surface)}
+    #ytp-root button:focus-visible,#ytp-root .pitem:focus-visible{outline:2px solid var(--fg2);outline-offset:2px}
+    #ytp-root ::placeholder{color:var(--fg3);opacity:1}
+    #ytp-root .lbl{color:var(--fg2)}
+    /* ไอคอน Material Symbols: วางให้ตรงแนวตัวหนังสือ */
+    #ytp-root .ic{flex:0 0 auto}
+    #ytp-root .tabs button .ic{display:block;width:17px;height:17px;opacity:.85}
+    #ytp-root .tabs button.on .ic{opacity:1}
+    #ytp-root .fab .fch .ic{display:inline-block;vertical-align:-1px}
+    #ytp-root .fab .badge{display:inline-flex;align-items:center;gap:3px}
+    #ytp-root .act .ai{display:grid;place-items:center;color:var(--fg2)}
+    #ytp-root .tbx-card .ti .sti{display:grid;place-items:center;color:var(--fg2)}
+    #ytp-root .tbx-card.ok .sti{color:var(--ok)} #ytp-root .tbx-card.busy .sti{color:var(--info)}
+    #ytp-root .tbx-card.wait .sti{color:var(--warn)} #ytp-root .tbx-card.err .sti{color:var(--err)}
+    /* ===== กระจกดำ: เห็นหน้า Studio ข้างหลังแบบเบลอ (ความทึบปรับได้ที่ --ga ในหน้าตั้งค่า) ===== */
+    #ytp-root,#ytp-root.dark{
+      --ga:.72;
+      --surface:rgba(255,255,255,.05);--surface2:rgba(255,255,255,.09);
+      --line:rgba(255,255,255,.09);--line2:rgba(255,255,255,.16);
+      --glass:rgba(12,12,14,var(--ga));
+      --glass-blur:blur(26px) saturate(150%)}
+    #ytp-root .drawer{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow:0 30px 80px -20px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.07)}
+    #ytp-root .ft{background:transparent;border-top-color:var(--line)}
+    #ytp-root .fab{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+      border-color:rgba(255,255,255,.12);box-shadow:0 12px 32px -10px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+    #ytp-root .toast{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border-color:rgba(255,255,255,.12)}
+    #ytp-root .ask,#ytp-root #tbx-modal{background:rgba(0,0,0,.28);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+    #ytp-root .ask .box,#ytp-root #tbx-modal .box{background:var(--glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+      border-color:rgba(255,255,255,.12);box-shadow:0 30px 80px -20px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.07)}
+    #ytp-root .tbx-table th{background:rgba(20,20,23,.92)}
+    #ytp-root .drawer.dropping::after{background:rgba(12,12,14,.6)}
+    #ytp-root .chan .av::after{border-color:#141416}
+    /* ช่องกรอก/เมนูเลือก: ชั้นขาวบาง ๆ บนกระจก · ตัวเลือกใน select ต้องทึบ ไม่งั้นอ่านไม่ออก */
+    #ytp-root select option{background:#151517;color:var(--fg)}
+    #ytp-root .rng{width:100%;accent-color:#f4f4f5;cursor:pointer}
+    /* ===== ดีไซน์ B · Glass (เลือกจากหน้าเปรียบเทียบ 4 แบบ) ===== */
+    #ytp-root .drawer{border-radius:22px;border-color:rgba(255,255,255,.14);
+      -webkit-backdrop-filter:blur(28px) saturate(160%);backdrop-filter:blur(28px) saturate(160%);
+      box-shadow:0 30px 80px -20px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.10)}
+    /* หัวแผง: ไม่มีกล่อง/เส้นคั่น · ปุ่มกระจก */
+    #ytp-root .chan{border:0;padding:16px 18px 12px}
+    #ytp-root .chan .av img,#ytp-root .chan .av .ph{box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+    #ytp-root .chan .av::after{border-color:rgba(12,12,14,.9)}
+    #ytp-root .chan .cap{color:rgba(255,255,255,.6);letter-spacing:.04em;text-transform:none;font-weight:500;font-size:11px}
+    #ytp-root .chan .nm{font-size:15px}
+    #ytp-root .chan .lk{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);border-radius:999px;color:var(--fg);padding:7px 14px}
+    #ytp-root .chan .lk:hover{background:rgba(255,255,255,.16)}
+    #ytp-root .chan>.ib{border-radius:50%;background:rgba(255,255,255,.08)}
+    #ytp-root .chan>.ib:hover{background:rgba(255,255,255,.16)}
+    /* แท็บ: ปุ่มเม็ดในกล่องเดียว แท็บที่เลือกเป็นสีขาว */
+    #ytp-root .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:0 18px;padding:4px;
+      background:rgba(255,255,255,.07);border:0;border-radius:14px}
+    #ytp-root .tabs button{border:0;border-radius:10px;margin:0;padding:8px 0;color:rgba(255,255,255,.75);font-weight:500}
+    #ytp-root .tabs button:hover{color:#fff;background:rgba(255,255,255,.06)}
+    #ytp-root .tabs button.on{background:#f4f4f5;color:#0b0b0c;font-weight:600;box-shadow:none}
+    #ytp-root .tabs button .ic{display:none}
+    #ytp-root .tabs .n{background:rgba(255,255,255,.18);color:#fff}
+    #ytp-root .tabs button.on .n{background:#0b0b0c;color:#fff}
+    #ytp-root .act{margin:12px 18px 0;border-radius:14px;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.10)}
+    #ytp-root .body{padding:16px 18px 18px}
+    /* กล่องลากไฟล์: แถวเดียวเสมอ */
+    #ytp-root .drop{padding:12px 14px;gap:12px;border:1px dashed rgba(255,255,255,.22);border-radius:14px}
+    #ytp-root .drop .di{width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.10)}
+    #ytp-root .drop .di .ic{width:16px;height:16px}
+    #ytp-root .drop b{font-size:13px;font-weight:500}
+    #ytp-root .drop span{font-size:12px;color:rgba(255,255,255,.6)}
+    #ytp-root .drop .kbd{display:none}
+    #ytp-root .drop .folder{color:#fff}
+    /* ตั้งเวลา */
+    #ytp-root .sched,#ytp-root .sched.on{border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}
+    #ytp-root .sched.late{border-color:rgba(251,191,36,.45)}
+    #ytp-root .sched .sh .si{background:none;color:rgba(255,255,255,.75);width:22px}
+    #ytp-root .sched .sh small{color:rgba(255,255,255,.65)}
+    /* สถิติ: แถวข้อความเดียว คั่นด้วยจุด */
+    #ytp-root .stats{gap:0;margin-top:12px}
+    #ytp-root .stat{padding:0;font-size:12px}
+    #ytp-root .stat+.stat::before{content:"·";margin:0 8px;color:rgba(255,255,255,.4)}
+    #ytp-root .stat b{font-size:12px;font-weight:700}
+    #ytp-root .stat span{color:rgba(255,255,255,.7);font-size:12px}
+    /* การ์ด */
+    #ytp-root .card{border-radius:16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);padding:12px}
+    #ytp-root .card::before{display:none}
+    #ytp-root .card:hover{border-color:rgba(255,255,255,.16)}
+    #ytp-root .card.uploading,#ytp-root .card.review{border-color:rgba(147,197,253,.35)}
+    #ytp-root .card.error{border-color:rgba(248,113,113,.35)}
+    #ytp-root .card .th{width:92px;border-radius:10px;border:0}
+    #ytp-root .card .fn{font-size:13px}
+    #ytp-root .card .tl{color:rgba(255,255,255,.6)}
+    #ytp-root .pill{font-size:12px;padding:0}
+    #ytp-root .card .msg{border-radius:12px;background:rgba(255,255,255,.05)}
+    #ytp-root .att .chip{border-radius:999px}
+    #ytp-root .att .chip.bad{color:#fbbf24;background:rgba(251,191,36,.12);border-color:transparent}
+    #ytp-root .att .chip.fixc{background:#f4f4f5;color:#0b0b0c;border-color:transparent;font-weight:600;cursor:pointer}
+    #ytp-root .att .chip.fixc:hover{background:#fff}
+    /* ท้ายแผง: ปุ่มหลักขาว ข้อความชิดซ้าย 2 บรรทัด · ปุ่มหยุด/ล้างเป็นกระจก */
+    #ytp-root .ft{padding:14px 18px;border-top-color:rgba(255,255,255,.08)}
+    #ytp-root .ft .btn.go{border-radius:14px;padding:11px 16px}
+    #ytp-root .ft .btn.go .gi{display:none}
+    #ytp-root .ft .btn.go .gt small{color:#55555c;opacity:1}
+    #ytp-root .ft .btn.go:disabled .gt small{color:var(--fg3)}
+    #ytp-root .ft .ib{width:48px;height:auto;align-self:stretch;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#fff}
+    #ytp-root .ft .ib:disabled{opacity:.35}
+    /* ช่องกรอก/ปุ่มรองในแผง: มุมโค้งเข้าชุด */
+    #ytp-root input[type=text],#ytp-root input[type=number],#ytp-root input[type=datetime-local],#ytp-root select,#ytp-root textarea{border-radius:10px}
+    #ytp-root .btn{border-radius:12px}
+    #ytp-root .btn.sm{border-radius:10px}
+    #ytp-root .sec+.sec{border-top-color:rgba(255,255,255,.08)}
+    #ytp-root .tbx-card{border-radius:14px}
+    #ytp-root .ask .box,#ytp-root #tbx-modal .box{border-radius:22px}
+    /* ไอคอน Material Symbols Rounded: แท็บ, หัวข้อหมวด, ปุ่ม */
+    #ytp-root .tabs button{display:flex;align-items:center;justify-content:center;gap:6px}
+    #ytp-root .tabs button .ic{display:block;width:17px;height:17px;opacity:.8}
+    #ytp-root .tabs button.on .ic{opacity:1}
+    #ytp-root .sec>h4 .ic{display:block;width:15px;height:15px;opacity:.8}
+    #ytp-root .btn .ic{width:16px;height:16px}
+    #ytp-root .btn.sm .ic{width:14px;height:14px}
+    #ytp-root .tbx-grid3 .btn,#ytp-root .tbx-grid2 .btn{gap:6px}
+    /* ตัวหนังสือ: ตัวเล็กสุด 12px (ภาษาอังกฤษตัวเล็กกว่านี้บนกระจกอ่านยาก) · ตัวเลขกว้างเท่ากัน เวลา/เปอร์เซ็นต์ไม่กระตุก */
+    #ytp-root{letter-spacing:0;font-feature-settings:"tnum" 1}
+    #ytp-root button,#ytp-root input,#ytp-root select,#ytp-root textarea{font-family:inherit}
+    #ytp-root .chan .cap,#ytp-root .chan .id,#ytp-root .sched .g3 .mini,#ytp-root .when .mini,#ytp-root .card .fields .mini,
+    #ytp-root .lbl span+span,#ytp-root .stat span,#ytp-root .stat b,#ytp-root .pill,#ytp-root .att .chip,#ytp-root .card .wt,
+    #ytp-root .drop span,#ytp-root .sched .sh small,#ytp-root .chip,#ytp-root .chip.var,#ytp-root .mono,#ytp-root .tabs .n,
+    #ytp-root .sec>h4,#ytp-root .pitem .pl span,#ytp-root .pitem .main,#ytp-root .tbx-steps span,#ytp-root .fab .fch,#ytp-root .fab .badge{font-size:12px}
+    #ytp-root .tabs button{font-size:13.5px}
+    #ytp-root .sec>h4{letter-spacing:.03em}
+    #ytp-root .card .th{background:rgba(255,255,255,.06)}
   `);
 
+  if (!document.getElementById('ytp-font')) {
+    document.head.append(h('link', { id: 'ytp-font', rel: 'stylesheet',
+      href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap' }));
+  }
   const root = h('div', { id: 'ytp-root' });
   let Claims = null; // โมดูลลิขสิทธิ์ (สร้างด้านล่าง)
   const toastMsg = h('span');
@@ -2343,17 +3106,100 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3800);
   }
 
+  // หน้าต่างยืนยันในแผง แทน confirm() ของเบราว์เซอร์ (ซึ่งโชว์แค่ข้อความล้วน และหยุดทั้งหน้า)
+  // คืนค่า true = ปุ่มหลัก, false = ปุ่มรอง, null = ปิดทิ้ง (Esc / คลิกนอกกล่อง)
+  // ถ้า no เป็น null จะมีแค่ปุ่มหลักกับปุ่มยกเลิก และการยกเลิกคืนค่า false
+  let askClose = null;
+  function ask({ title, body = '', ok = L('ตกลง', 'OK'), no = null, cancel = L('ยกเลิก', 'Cancel'), danger = false, ic = 'alert' }) {
+    askClose?.(null);
+    return new Promise((resolve) => {
+      const prevFocus = document.activeElement;
+      const done = (v) => {
+        askClose = null;
+        modal.remove();
+        document.removeEventListener('keydown', onKey, true);
+        prevFocus?.focus?.();
+        resolve(v);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(no ? null : false); }
+        else if (e.key === 'Enter' && !/^(TEXTAREA|BUTTON)$/.test(e.target.tagName)) { e.preventDefault(); e.stopPropagation(); done(true); }
+      };
+      const okBtn = h('button', { className: 'btn go' + (danger ? ' danger' : ''), onclick: () => done(true) }, ok);
+      const btns = no
+        ? [h('button', { className: 'btn ghost', onclick: () => done(null) }, cancel), h('button', { className: 'btn', onclick: () => done(false) }, no), okBtn]
+        : [h('button', { className: 'btn', onclick: () => done(false) }, cancel), okBtn];
+      const modal = h('div', { className: 'ask' + (danger ? ' danger' : ''), onclick: (e) => { if (e.target === modal) done(no ? null : false); } },
+        h('div', { className: 'box', role: 'dialog', 'aria-modal': 'true' },
+          h('h3', {}, h('span', { className: 'ai' }, icon(ic, 17)), title),
+          h('div', { className: 'ab' }, body),
+          h('div', { className: 'afoot' }, ...btns)));
+      askClose = done;
+      document.addEventListener('keydown', onKey, true);
+      root.append(modal);
+      okBtn.focus();
+    });
+  }
+
+  // ----- แจ้งเตือนเมื่อคิวเสร็จ: เดสก์ท็อป + เสียง + ชื่อแท็บ -----
+  function beep(ok = true) {
+    try {
+      const ctx = new AudioContext();
+      const notes = ok ? [660, 880] : [440, 330];
+      notes.forEach((f, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.frequency.value = f;
+        o.connect(g); g.connect(ctx.destination);
+        const t = ctx.currentTime + i * 0.18;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        o.start(t); o.stop(t + 0.17);
+      });
+      setTimeout(() => ctx.close(), 800);
+    } catch { /* เบราว์เซอร์ไม่ให้เล่นเสียง */ }
+  }
+  function notifyDone(title, text, ok = true) {
+    if (!settings.notify) return;
+    beep(ok);
+    if (document.hasFocus() && drawer.classList.contains('open')) return; // ดูอยู่แล้ว ไม่ต้องเด้ง
+    try {
+      if (typeof GM_notification === 'function') {
+        GM_notification({ title, text, silent: true, onclick: () => { window.focus(); openDrawer('queue'); } });
+      } else if ('Notification' in window && Notification.permission === 'granted') {
+        const n = new Notification(title, { body: text, silent: true });
+        n.onclick = () => { window.focus(); openDrawer('queue'); n.close(); };
+      }
+    } catch { /* ไม่มีสิทธิ์แจ้งเตือน */ }
+  }
+  // ความคืบหน้าบนชื่อแท็บ เช่น "(3/10) ⬆ Channel content" — เห็นได้แม้อยู่แท็บอื่น
+  const TITLE_TAG = /^(\(\d+\/\d+\) ⬆|✅|⚠️)(\s+|$)/;
+  let titleMark = '';
+  function setTitleMark(mark) {
+    titleMark = mark;
+    const base = document.title.replace(TITLE_TAG, '');
+    const next = mark ? `${mark} ${base}` : base;
+    if (document.title !== next) document.title = next;
+  }
+  // Studio เปลี่ยนชื่อแท็บเองตอนเปลี่ยนหน้า -> ใส่เครื่องหมายกลับเข้าไป
+  setInterval(() => { if (titleMark && !document.title.startsWith(titleMark)) setTitleMark(titleMark); }, 1500);
+  // ✅/⚠️ หลังคิวจบ แสดงไว้จนกว่าจะกลับมาดูแท็บนี้
+  const clearDoneMark = () => { if (titleMark && !titleMark.startsWith('(') && document.visibilityState === 'visible' && document.hasFocus()) setTitleMark(''); };
+  window.addEventListener('focus', () => setTimeout(clearDoneMark, 1500));
+
   // ----- โครงหลัก -----
   const fabLabel = h('span', { className: 'fpr' });
   const fabChan = h('span', { className: 'fch' });
   const fabBadge = h('span', { className: 'badge', hidden: true });
   // เปิดแล้ว = ปิด · ยังไม่เปิด = เปิดที่แท็บของงานที่กำลังทำ (ว่าง = แท็บล่าสุด)
-  const fab = h('button', { className: 'fab', onclick: () => {
+  const fab = h('button', { className: 'fab', title: L('คลิกเพื่อเปิดแผง · ลากเพื่อย้ายตำแหน่ง', 'Click to open · drag to move'), onclick: () => {
+    if (fabDragged) return;
     if (drawer.classList.contains('open')) return closeDrawer();
     const a = activity();
     openDrawer(a ? a.tab : undefined);
   } },
-    h('span', { className: 'logo' }, icon('play', 15)),
+    h('span', { className: 'logo' }, icon('cloud', 18)),
     h('span', { className: 'fcol' }, fabChan, fabLabel),
     fabBadge
   );
@@ -2468,12 +3314,8 @@
     lockBtn
   );
 
-  const drawer = h('div', { className: 'drawer' },
-    h('div', { className: 'hd' },
-      h('span', { className: 'logo' }, icon('upload', 18)),
-      h('div', { className: 'tt' }, h('b', {}, 'Upload Studio'), h('span', {}, L('อัปโหลดหลายคลิป · พรีเซ็ตชื่อ/คำอธิบาย', 'Bulk video upload · title/description presets'))),
-      iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer())
-    ),
+  chanBar.append(iconBtn('x', L('ปิด (Alt+P)', 'Close (Alt+P)'), () => closeDrawer()));
+  const drawer = h('div', { className: 'drawer', 'aria-label': 'Upload Studio' },
     chanBar, chanList, actBar, nav, body, footWrap
   );
 
@@ -2495,7 +3337,7 @@
     lockIcon.replaceChildren(icon(lock ? 'lock' : 'unlock', 14));
     lockTxt.textContent = lock ? L('ล็อกแล้ว', 'Locked') : L('ล็อกช่อง', 'Lock channel');
     lockBtn.title = lock ? L(`ล็อกไว้ที่ "${lock.name}" · คลิกเพื่อปลดล็อก`, `Locked to "${lock.name}" · click to unlock`) : L('ล็อกให้อัปได้เฉพาะช่องนี้', 'Only allow uploads to this channel');
-    fabChan.textContent = (problem ? '⚠ ' : lock ? '🔒 ' : '') + chanLabel(c);
+    fabChan.replaceChildren(...(problem ? [icon('alert', 11), ' '] : lock ? [icon('lock', 11), ' '] : []), chanLabel(c));
     fab.classList.toggle('bad', !!problem);
     fab.title = problem ? problem : L(`ช่องปัจจุบัน: ${chanLabel(c)}`, `Current channel: ${chanLabel(c)}`);
     updateRunUI();
@@ -2511,7 +3353,45 @@
     if (key === 'presets') renderPresetEditor();
     if (key === 'claims' && Claims) Claims.renderStatus();
   }
+  // ลากปุ่มลอยไปวางตรงไหนก็ได้ แล้วจำตำแหน่งไว้ (เก็บระยะจากขอบขวา/ล่าง ย่อ/ขยายหน้าต่างแล้วยังอยู่มุมเดิม)
+  let fabDragged = false;
+  function placeFab(pos) {
+    if (!pos) { fab.style.right = fab.style.bottom = ''; return; }
+    const w = fab.offsetWidth || 180, hgt = fab.offsetHeight || 52;
+    fab.style.right = Math.min(Math.max(4, pos.r), Math.max(4, innerWidth - w - 4)) + 'px';
+    fab.style.bottom = Math.min(Math.max(4, pos.b), Math.max(4, innerHeight - hgt - 4)) + 'px';
+  }
+  fab.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const r0 = fab.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    let moved = false;
+    fabDragged = false;
+    const move = (ev) => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (!moved && Math.hypot(dx, dy) < 6) return;
+      moved = true;
+      fab.classList.add('moving');
+      placeFab({ r: innerWidth - r0.right - dx, b: innerHeight - r0.bottom - dy });
+    };
+    const up = () => {
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      fab.classList.remove('moving');
+      if (!moved) return;
+      fabDragged = true; // กันไม่ให้การปล่อยเมาส์หลังลากกลายเป็นคลิกเปิดแผง
+      setTimeout(() => { fabDragged = false; }, 0);
+      save('fabPos', { r: parseFloat(fab.style.right), b: parseFloat(fab.style.bottom) });
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  });
+  fab.addEventListener('dblclick', (e) => { e.preventDefault(); }); // ดับเบิลคลิกไม่ให้เปิด-ปิดรัว ๆ
+  addEventListener('resize', () => placeFab(load('fabPos', null)));
+  setTimeout(() => placeFab(load('fabPos', null)), 0);
+
   function openDrawer(tab) {
+    root.classList.add('dopen');
     root.classList.toggle('dark', document.documentElement.hasAttribute('dark'));
     if (tab) showTab(tab);
     updateChannelUI();
@@ -2519,26 +3399,80 @@
   }
   function closeDrawer() {
     drawer.classList.remove('open');
+    root.classList.remove('dopen');
   }
 
   // ----- แท็บคิว -----
   const fileInput = h('input', { type: 'file', multiple: true, accept: 'video/*,.txt,image/*', hidden: true, onchange: (e) => { addFiles(e.target.files); e.target.value = ''; } });
+  // เลือกทั้งโฟลเดอร์ (คลิป + .txt + ภาพปก ในโฟลเดอร์เดียว) ในคลิกเดียว
+  const folderInput = h('input', { type: 'file', webkitdirectory: true, multiple: true, hidden: true, onchange: (e) => { addFiles(e.target.files); e.target.value = ''; } });
   const dropZone = h('div', { className: 'drop', onclick: () => fileInput.click() },
     h('div', { className: 'di' }, icon('upload', 22)),
     h('div', {},
-      h('b', {}, L('ลากไฟล์มาวาง หรือคลิกเพื่อเลือก', 'Drop files here or click to select')),
-      h('span', {}, L('เลือกได้หลายไฟล์ จับคู่ด้วยชื่อไฟล์อัตโนมัติ', 'Multiple files allowed, auto-matched by file name')),
+      h('b', {}, L('ลากไฟล์หรือโฟลเดอร์มาวางตรงไหนของแผงก็ได้', 'Drop files or a folder anywhere on this panel')),
+      h('span', {}, L('หรือคลิกเพื่อเลือกไฟล์ · ', 'or click to select files · '),
+        h('button', { className: 'folder', onclick: (e) => { e.stopPropagation(); folderInput.click(); } }, L('เลือกทั้งโฟลเดอร์', 'pick a whole folder'))),
       h('div', {}, h('span', { className: 'kbd' }, L('.mp4 คลิป', '.mp4 video')), h('span', { className: 'kbd' }, L('.txt คำอธิบาย', '.txt description')), h('span', { className: 'kbd' }, L('.jpg ภาพปก', '.jpg thumbnail')))
     )
   );
-  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('hover'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('hover'));
-  dropZone.addEventListener('drop', (e) => {
+
+  // อ่านไฟล์จากการลากวาง รวมไฟล์ในโฟลเดอร์ (ลึกสุด 2 ชั้น) — ต้องดึง entry ก่อน await แรก ไม่งั้น DataTransfer จะว่าง
+  async function filesFromDrop(dt) {
+    const entries = [...(dt?.items || [])].map((i) => i.kind === 'file' && i.webkitGetAsEntry?.()).filter(Boolean);
+    if (!entries.some((en) => en.isDirectory)) return [...(dt?.files || [])];
+    const out = [];
+    const readDir = (dir) => new Promise((res) => {
+      const reader = dir.createReader();
+      const all = [];
+      const next = () => reader.readEntries((batch) => { if (!batch.length) return res(all); all.push(...batch); next(); }, () => res(all));
+      next();
+    });
+    async function walk(en, depth) {
+      if (en.isFile) {
+        const f = await new Promise((res) => en.file(res, () => res(null)));
+        if (f && !f.name.startsWith('.')) out.push(f);
+      } else if (en.isDirectory && depth < 2) {
+        for (const c of await readDir(en)) await walk(c, depth + 1);
+      }
+    }
+    for (const en of entries) await walk(en, 0);
+    return out;
+  }
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  // กรอบ "วางเพื่อเพิ่มเข้าคิว" — ซ่อนเองเมื่อ dragover หยุด (ไม่ต้องนับ dragenter/dragleave ที่กระพริบ)
+  let dropHintTimer;
+  function dropHint(el) {
+    el.classList.add('dropping');
+    clearTimeout(dropHintTimer);
+    dropHintTimer = setTimeout(() => { drawer.classList.remove('dropping'); fab.classList.remove('dropping'); }, 150);
+  }
+  async function onPanelDrop(e) {
+    if (!hasFiles(e)) return;
     e.preventDefault();
     e.stopPropagation();
-    dropZone.classList.remove('hover');
-    addFiles(e.dataTransfer.files);
-  });
+    drawer.classList.remove('dropping');
+    fab.classList.remove('dropping');
+    const files = await filesFromDrop(e.dataTransfer);
+    if (currentTab !== 'queue') showTab('queue');
+    if (!drawer.classList.contains('open')) openDrawer('queue');
+    addFiles(files);
+  }
+  drawer.dataset.drop = L('วางเพื่อเพิ่มเข้าคิว', 'Drop to add to the queue');
+  // รับการลาก: ต้องบอกเบราว์เซอร์เองว่า "วางได้ (copy)" ทั้งตอน dragenter และ dragover แล้วไม่ส่งต่อให้ Studio
+  // Studio รับการลากไฟล์ทั้งหน้าอยู่แล้ว (เปิดหน้าต่างอัปโหลด) ถ้าปล่อยให้ handler ของ Studio ทำงานต่อ
+  // มันตั้ง dropEffect ทับเป็น none → เคอร์เซอร์ขึ้น 🚫 วางไม่ได้ (เจอตอนลากหลายไฟล์พร้อมกัน)
+  const acceptDrag = (el) => (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { e.dataTransfer.dropEffect = 'copy'; } catch { /* บางเบราว์เซอร์ห้ามตั้งค่า */ }
+    if (e.type === 'dragover') dropHint(el);
+  };
+  for (const t of ['dragenter', 'dragover']) drawer.addEventListener(t, acceptDrag(drawer));
+  drawer.addEventListener('drop', onPanelDrop);
+  // ลากไฟล์มาวางบนปุ่มลอยได้เลย ไม่ต้องเปิดแผงก่อน
+  for (const t of ['dragenter', 'dragover']) fab.addEventListener(t, acceptDrag(fab));
+  fab.addEventListener('drop', onPanelDrop);
 
   const defaultPresetSel = h('select', {
     title: L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos'),
@@ -2551,6 +3485,15 @@
       renderQueue();
     },
   }, icon('layers', 14), L('ใช้กับทุกคลิป', 'Apply to all'));
+  // การ์ดเริ่มแบบย่อ (แถวเดียว) คลิกการ์ดเพื่อแก้ชื่อ/เวลา/ศิลปิน — ปุ่มนี้ขยาย/ย่อทั้งหมดทีเดียว
+  const expandAllBtn = h('button', {
+    className: 'btn sm ghost',
+    onclick: () => {
+      const open = !queue.some((i) => i.open);
+      queue.forEach((i) => { i.open = open; updateItemUI(i); });
+      updateRunUI();
+    },
+  });
   const listEl = h('div');
   const progress = h('i', { style: 'width:0' });
   const progressPct = h('span', { className: 'cnt' });
@@ -2589,6 +3532,15 @@
     if (d.getTime() < Date.now() + SCHEDULE_MIN_LEAD) d.setDate(d.getDate() + 1);
     return toLocalInput(d.getTime());
   };
+  // เวลาเริ่มที่ตั้งไว้ผ่านไปแล้ว: บอกว่าคิวจะเริ่มจริงเมื่อไร และกดครั้งเดียวเพื่อบันทึกเวลานั้นแทน
+  const pastTxt = h('span');
+  const pastNote = h('div', { className: 'past', hidden: true },
+    icon('alert', 14), pastTxt,
+    h('button', { className: 'btn sm', onclick: () => {
+      schedStart.value = sch.start = toLocalInput(effectiveStart());
+      saveSettings();
+      onScheduleChange();
+    } }, L('ใช้เวลานี้', 'Use this time')));
   const schedBody = h('div', { className: 'sb' },
     h('div', { className: 'g3' },
       h('div', {}, h('div', { className: 'mini' }, L('คลิปแรกปล่อย', 'First video releases')), schedStart),
@@ -2613,14 +3565,21 @@
       onScheduleChange();
     },
   });
-  const schedPanel = h('div', { className: 'sched' },
-    h('div', { className: 'sh' },
-      h('span', { className: 'si' }, icon('clock', 16)),
-      h('div', { className: 'stx' }, h('b', {}, L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')), schedSummary),
-      h('label', { className: 'sw' }, schedToggle, h('span', { className: 't' }))
-    ),
-    schedBody
+  // ย่อ/ขยายกล่องตั้งเวลาด้วยการคลิกหัวกล่อง — มีคลิปในคิวแล้วจะย่อเอง ให้การ์ดมีที่มากขึ้น (จอเตี้ย)
+  let schedOpen = true;
+  const schedChev = h('span', { className: 'schev' }, icon('chev', 14));
+  const schedHead = h('div', { className: 'sh' },
+    h('span', { className: 'si' }, icon('clock', 16)),
+    h('div', { className: 'stx' }, h('b', {}, L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')), schedSummary),
+    schedChev,
+    h('label', { className: 'sw' }, schedToggle, h('span', { className: 't' }))
   );
+  schedHead.addEventListener('click', (e) => {
+    if (!sch.on || e.target.closest('label.sw')) return;
+    schedOpen = !schedOpen;
+    onScheduleChange();
+  });
+  const schedPanel = h('div', { className: 'sched' }, schedHead, h('div', { style: 'padding:0 12px' }, pastNote), schedBody);
 
   // เรียกหลังอัปคลิปที่ตั้งเวลาเสร็จ (เวลาเริ่มถูกเลื่อนไปช่องถัดไป)
   function syncScheduleInput() {
@@ -2631,7 +3590,10 @@
   function onScheduleChange() {
     const on = scheduleOn();
     schedPanel.classList.toggle('on', !!sch.on);
-    schedBody.hidden = !sch.on;
+    schedBody.hidden = !sch.on || !schedOpen;
+    schedPanel.classList.toggle('closed', !schedOpen);
+    schedChev.hidden = !sch.on;
+    schedHead.title = sch.on ? (schedOpen ? L('คลิกเพื่อย่อ', 'Click to collapse') : L('คลิกเพื่อแก้เวลา', 'Click to edit times')) : '';
     const items = queue.filter((i) => i.status !== 'done');
     if (!sch.on) schedSummary.textContent = L('ปิดอยู่ · คลิปจะเผยแพร่ตามการเปิดเผยของพรีเซ็ต', 'Off · videos are published using the preset\'s visibility');
     else if (!on) schedSummary.textContent = L('เลือกเวลาปล่อยคลิปแรก', 'Pick the first video\'s release time');
@@ -2640,15 +3602,35 @@
       const times = items.map(itemPublishAt).filter(Boolean).sort((a, b) => a - b);
       schedSummary.textContent = times.length > 1
         ? L(`${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · ทุก ${sch.every} ${unit}`, `${fmtWhen(times[0])} → ${fmtWhen(times[times.length - 1])} · every ${sch.every} ${unit}`)
-        : L(`เริ่ม ${fmtWhen(new Date(sch.start).getTime())} · ทุก ${sch.every} ${unit}`, `Starts ${fmtWhen(new Date(sch.start).getTime())} · every ${sch.every} ${unit}`);
+        : L(`เริ่ม ${fmtWhen(effectiveStart())} · ทุก ${sch.every} ${unit}`, `Starts ${fmtWhen(effectiveStart())} · every ${sch.every} ${unit}`);
     }
+    if (on) {
+      refreshChanSched();
+      const { skipped } = queueSlots();
+      const ext = takenSlots().length;
+      if (ext) {
+        const nextExt = takenSlots()[0];
+        schedSummary.textContent += L(` · ในช่องมีคลิปรอปล่อย ${ext} คลิป (ถัดไป ${fmtWhen(nextExt.at)})`, ` · ${ext} already scheduled on the channel (next ${fmtWhen(nextExt.at)})`)
+          + (skipped ? L(` — ข้ามให้ ${skipped} ช่วง`, ` — skipped ${skipped} slot(s)`) : '');
+        schedSummary.title = takenSlots().map((x) => `${fmtWhen(x.at)} · ${x.title}`).join('\n');
+      } else schedSummary.title = '';
+    }
+    const late = on && startIsPast();
+    schedPanel.classList.toggle('late', late);
+    pastNote.hidden = !late;
+    pastNote.style.marginBottom = late ? '12px' : '';
+    if (late) pastTxt.textContent = L(
+      `เวลาที่ตั้ง (${fmtWhen(new Date(sch.start).getTime())}) ผ่านไปแล้ว — คิวจะเริ่ม ${fmtWhen(effectiveStart())} แทน`,
+      `The set time (${fmtWhen(new Date(sch.start).getTime())}) has passed — the queue will start ${fmtWhen(effectiveStart())} instead`);
     queue.forEach(updateItemUI);
     updateRunUI();
   }
 
+  setInterval(() => { if (sch.on && drawer.classList.contains('open')) onScheduleChange(); }, 60e3);
+
   panes.queue = h('div', {},
-    fileInput, dropZone,
-    h('div', { className: 'toolbar' }, defaultPresetSel, applyAllBtn),
+    fileInput, folderInput, dropZone,
+    h('div', { className: 'toolbar' }, defaultPresetSel, applyAllBtn, expandAllBtn),
     schedPanel,
     statsWrap,
     progressWrap,
@@ -2680,7 +3662,7 @@
     const msg = h('div', { className: 'msg' }, msgIcon, msgTxt);
     const upFill = h('i');
     const upBar = h('div', { className: 'tbx-bar', hidden: true }, upFill);
-    const thumbBox = h('div', { className: 'th' }, icon('film', 22), h('span', { className: 'sz' }, fmtSize(it.file.size)));
+    const thumbBox = h('div', { className: 'th', title: fmtSize(it.file.size) }, icon('film', 22), h('span', { className: 'sz' }, fmtSize(it.file.size)));
     const titleIn = h('input', {
       type: 'text', placeholder: L('ชื่อคลิป', 'Video title'),
       oninput: (e) => { it.title = e.target.value; it.titleEdited = true; updateItemUI(it); },
@@ -2709,62 +3691,115 @@
     const presetSel = h('select', {
       onchange: (e) => { it.presetId = e.target.value; it.titleEdited = false; renderQueue(); },
     }, presetOptions(it.presetId));
-    const retryBtn = h('button', { className: 'btn sm', onclick: () => {
-      if (it.draftId && !confirm(L(`คลิปนี้อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId})\nถ้าลองใหม่จะได้คลิปซ้ำ — ลบฉบับร่างใน Content แล้วหรือยัง?\n\nกด OK เพื่ออัปใหม่`, `This video was already uploaded as a draft (${it.draftId})\nRetrying will create a duplicate — have you deleted the draft in Content?\n\nClick OK to upload again`))) return;
+    const retryBtn = h('button', { className: 'btn sm', onclick: async () => {
+      if (it.draftId && !(await ask({
+        title: L('คลิปนี้อยู่ใน Studio แล้ว', 'This video is already in Studio'),
+        body: L(`อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ถ้าลองใหม่จะได้คลิปซ้ำ\nลบฉบับร่างในหน้า Content ก่อน แล้วค่อยอัปใหม่`, `It was already uploaded as a draft (${it.draftId}). Retrying will create a duplicate.\nDelete the draft in Content first, then upload again.`),
+        ok: L('ลบแล้ว อัปใหม่', 'Deleted it, upload again'), ic: 'refresh',
+      }))) return;
       it.draftId = '';
       setItem(it, 'pending'); assignNumbers(); renderQueue();
     } }, icon('refresh', 13), L('ลองใหม่', 'Retry'));
-    const removeBtn = iconBtn('x', L('เอาออกจากคิว', 'Remove from queue'), () => { queue.splice(queue.indexOf(it), 1); renderQueue(); }, 'danger');
+    const draftBtn = h('button', { className: 'btn sm', title: L('เปิดฉบับร่างที่ค้างใน Studio (แท็บใหม่) เพื่อลบก่อนลองใหม่', 'Open the leftover draft in Studio (new tab) to delete it before retrying'),
+      onclick: () => window.open(`https://studio.youtube.com/video/${it.draftId}/edit`, '_blank') }, icon('ext', 13), L('เปิดฉบับร่าง', 'Open draft'));
+    const removeBtn = iconBtn('x', L('เอาออกจากคิว', 'Remove from queue'), () => { queue.splice(queue.indexOf(it), 1); renderQueue(); }, 'sm danger');
+    // เลื่อนลำดับในคิว (ลำดับ = เลข {n}/EP และเวลาปล่อย) สลับได้เฉพาะกับคลิปที่ยังไม่ได้อัป
+    const canMove = (x) => x && (x.status === 'pending' || x.status === 'error');
+    const move = (d) => {
+      const i = queue.indexOf(it);
+      if (!canMove(it) || !canMove(queue[i + d])) return;
+      [queue[i], queue[i + d]] = [queue[i + d], queue[i]];
+      listEl.replaceChildren(...queue.map((x) => x.ui.el));
+      assignNumbers();
+      onScheduleChange();
+    };
+    const upBtn = iconBtn('up', L('เลื่อนขึ้น', 'Move up'), () => move(-1), 'sm');
+    const downBtn = iconBtn('down', L('เลื่อนลง', 'Move down'), () => move(1), 'sm');
+    const ord = h('div', { className: 'ord' }, upBtn, downBtn);
+    const expBtn = iconBtn('chev', L('แก้ไขรายละเอียด', 'Edit details'), () => {}, 'sm exp');
+    const titleTxt = h('div', { className: 'tl' });
+    const whenTxt = h('span', { className: 'wt' });
     const att = h('div', { className: 'att' });
     const attachInput = h('input', {
       type: 'file', multiple: true, accept: '.txt,image/*', hidden: true,
       onchange: async (e) => { await attachToItem(it, e.target.files); e.target.value = ''; },
     });
-    const el = h('div', { className: 'card' },
-      h('div', { className: 'top' },
-        thumbBox,
-        h('div', { className: 'info' },
-          h('div', { className: 'fnrow' }, h('span', { className: 'fn', title: it.file.name }, it.file.name), removeBtn),
-          h('div', { className: 'row' }, pill, retryBtn),
-          presetSel
-        )
+    const fields = h('div', { className: 'fields' },
+      h('div', {}, h('div', { className: 'mini' }, L('พรีเซ็ต', 'Preset')), presetSel),
+      h('div', {},
+        h('div', { className: 'mini' }, L('ชื่อคลิป', 'Video title')),
+        h('div', { className: 'row' }, h('div', { className: 'field', style: 'flex:1' }, titleIn, cnt), resetBtn)
       ),
-      h('div', { className: 'fields' },
-        h('div', {},
-          h('div', { className: 'mini' }, L('ชื่อคลิป', 'Video title')),
-          h('div', { className: 'row' }, h('div', { className: 'field', style: 'flex:1' }, titleIn, cnt), resetBtn)
-        ),
-        whenBox,
-        artistsBox,
-        att
-      ),
-      upBar,
-      msg,
-      attachInput
+      whenBox,
+      artistsBox
     );
-    // ลาก .txt / ภาพ มาวางบนการ์ดเพื่อแนบกับคลิปนี้โดยตรง
-    el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('drag'); });
-    el.addEventListener('dragleave', () => el.classList.remove('drag'));
-    el.addEventListener('drop', (e) => {
+    // แถวบนเป็นแถวเดียว: ภาพ · ชื่อไฟล์ · ชื่อคลิป · สถานะ/เวลาปล่อย — คลิกเพื่อขยายช่องแก้ไข
+    const hdr = h('div', { className: 'top hdr' },
+      thumbBox,
+      h('div', { className: 'info', style: 'gap:3px' },
+        h('div', { className: 'fnrow' }, h('span', { className: 'fn', title: it.file.name }, it.file.name), expBtn, removeBtn),
+        titleTxt,
+        h('div', { className: 'row', style: 'flex-wrap:wrap;gap:6px' }, pill, whenTxt, retryBtn, draftBtn)
+      ),
+      ord
+    );
+    hdr.addEventListener('click', (e) => {
+      if (e.target.closest('button:not(.exp),input,select,a')) return;
+      it.open = !it.open;
+      updateItemUI(it);
+      updateRunUI();
+      if (it.open && (it.status === 'pending' || it.status === 'error')) setTimeout(() => titleIn.focus({ preventScroll: true }), 0);
+    });
+    const el = h('div', { className: 'card' }, hdr, fields, att, upBar, msg, attachInput);
+    // ลาก .txt / ภาพ มาวางบนการ์ดเพื่อแนบกับคลิปนี้โดยตรง (ถ้ามีคลิปปนมา ส่งต่อให้แผงเพิ่มเข้าคิวตามปกติ)
+    const attachable = (e) => hasFiles(e) && canMove(it);
+    el.addEventListener('dragover', (e) => {
+      if (!attachable(e)) return;
       e.preventDefault();
       e.stopPropagation();
-      el.classList.remove('drag');
-      attachToItem(it, e.dataTransfer.files);
+      try { e.dataTransfer.dropEffect = 'copy'; } catch { /* ignore */ }
+      el.classList.add('drag');
     });
-    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset };
+    el.addEventListener('dragleave', () => el.classList.remove('drag'));
+    el.addEventListener('drop', (e) => {
+      el.classList.remove('drag');
+      if (!attachable(e)) return;
+      const files = [...e.dataTransfer.files];
+      if (!files.length || files.some(isVideo) || e.dataTransfer.items?.[0]?.webkitGetAsEntry?.()?.isDirectory) return; // ปล่อยให้แผงจัดการ
+      e.preventDefault();
+      e.stopPropagation();
+      attachToItem(it, files);
+    });
+    it.ui = { el, pill, cnt, msg, msgTxt, msgIcon, upBar, upFill, thumbBox, titleIn, resetBtn, artistsIn, artistsBox, artistsMode, presetSel, retryBtn, draftBtn, removeBtn, att, attachInput, whenBox, whenIn, whenLbl, whenReset, fields, titleTxt, whenTxt, upBtn, downBtn, ord, expBtn, canMove };
     return el;
   }
 
   const MSG_ICON = { pending: 'alert', uploading: 'upload', review: 'alert', done: 'check', error: 'alert' };
 
+  const fmtDur = (sec) => {
+    const t = Math.round(sec), hh = Math.floor(t / 3600), mm = Math.floor((t % 3600) / 60), ss = t % 60;
+    return (hh ? hh + ':' + pad(mm) : mm) + ':' + pad(ss);
+  };
   function updateItemUI(it) {
+    saveMemo();
     const u = it.ui;
     if (!u) return;
+    u.thumbBox.querySelector('.sz').textContent = it.duration ? fmtDur(it.duration) : fmtSize(it.file.size);
     const [label] = STATUS[it.status];
     const editable = it.status === 'pending' || it.status === 'error';
-    u.el.className = 'card ' + it.status;
+    u.el.className = 'card ' + it.status + (it.open ? ' open' : '');
     u.pill.className = 'pill';
     u.pill.textContent = label;
+    u.fields.hidden = !it.open;
+    u.titleTxt.hidden = !!it.open;
+    u.titleTxt.textContent = it.title || '—';
+    u.titleTxt.title = it.title;
+    u.titleTxt.classList.toggle('over', it.title.length > TITLE_MAX);
+    u.expBtn.title = it.open ? L('ย่อ', 'Collapse') : editable ? L('แก้ไขรายละเอียด', 'Edit details') : L('ดูรายละเอียด', 'Show details');
+    const qi = queue.indexOf(it);
+    u.ord.hidden = !editable;
+    u.upBtn.disabled = !u.canMove(queue[qi - 1]);
+    u.downBtn.disabled = !u.canMove(queue[qi + 1]);
     if (document.activeElement !== u.titleIn) u.titleIn.value = it.title;
     u.titleIn.disabled = u.presetSel.disabled = u.artistsIn.disabled = !editable;
     const p = presetById(it.presetId);
@@ -2783,7 +3818,15 @@
       u.whenLbl.title = bad || '';
       u.whenReset.hidden = !editable || !it.publishEdited;
     }
+    u.whenTxt.hidden = !at;
+    if (at) {
+      const bad = editable && scheduleProblem(at);
+      u.whenTxt.className = 'wt' + (bad ? ' bad' : '');
+      u.whenTxt.replaceChildren(icon(bad ? 'alert' : 'clock', 11), fmtWhen(at));
+      u.whenTxt.title = bad || (it.publishEdited ? L('เวลาที่ตั้งเอง', 'Manually set time') : L('เวลาตามคิว', 'Queue time'));
+    }
     u.retryBtn.hidden = it.status !== 'error';
+    u.draftBtn.hidden = it.status !== 'error' || !it.draftId;
     u.removeBtn.hidden = it.status === 'uploading' || it.status === 'review';
     u.cnt.textContent = `${it.title.length}/${TITLE_MAX}`;
     u.cnt.className = 'cnt' + (it.title.length > TITLE_MAX ? ' over' : '');
@@ -2828,6 +3871,16 @@
     if (it.txt) {
       const tc = itemTracklist(it);
       const probs = [...tc.errors, ...tc.warnings];
+      const fx = tc.errors.length && editable ? fixChapters(it.txt) : null;
+      if (fx && fx.changes.length) {
+        kids.push(h('button', { className: 'chip fixc', title: fx.changes.join('\n'), onclick: () => {
+          it.txt = fx.text;
+          it.titleEdited = false;
+          assignNumbers();
+          updateItemUI(it);
+          toast(L('แก้ tracklist แล้ว: ', 'Tracklist fixed: ') + fx.changes.join(' · '));
+        } }, icon('note', 13), L('แก้ tracklist ให้', 'Fix tracklist')));
+      }
       if (tc.errors.length) {
         kids.push(h('span', { className: 'chip bad', title: L('YouTube จะไม่สร้าง Chapters จนกว่าจะแก้:\n', 'YouTube won\'t create chapters until fixed:\n') + tc.errors.map((x) => '• ' + x).join('\n') + (tc.warnings.length ? '\n\n' + tc.warnings.map((x) => '• ' + x).join('\n') : '') },
           icon('alert', 13), h('span', {}, L(`tracklist: ${tc.errors.length} ปัญหา`, `Tracklist: ${tc.errors.length} problem(s)`))));
@@ -2836,8 +3889,12 @@
           icon('alert', 13), h('span', {}, L(`tracklist: ${tc.warnings.length} คำเตือน`, `Tracklist: ${tc.warnings.length} warning(s)`))));
       }
       if (tc.count && !tc.errors.length) {
-        kids.push(h('span', { className: 'chip', title: L('ผ่านกฎ Chapters ของ YouTube', 'Passes YouTube\'s chapter rules') + (it.duration ? '' : L(' (ยังไม่ได้เช็กกับความยาวคลิป)', ' (not checked against video length)')) },
-          icon('check', 13), h('span', {}, L(`Chapters ${tc.count} ช่วง`, `${tc.count} chapters`))));
+        const durNote = it.duration ? '' : it.durState === 'loading'
+          ? L(' · กำลังอ่านความยาวคลิป…', ' · reading video length…')
+          : L(' · อ่านความยาวคลิปไม่ได้ จึงยังไม่ได้เช็กว่า timestamp เกินความยาวคลิปไหม', ' · could not read the video length, so timestamps were not checked against it');
+        kids.push(h('span', { className: 'chip' + (it.durState === 'fail' ? ' warnc' : ''), title: L('ผ่านกฎ Chapters ของ YouTube', 'Passes YouTube\'s chapter rules') + durNote },
+          icon(it.durState === 'fail' ? 'alert' : 'check', 13),
+          h('span', {}, L(`Chapters ${tc.count} ช่วง`, `${tc.count} chapters`) + (it.durState === 'fail' ? L(' · ไม่ได้เช็กความยาว', ' · length not checked') : ''))));
       } else if (!tc.count) {
         kids.push(h('span', { className: 'chip bad', title: L('ไฟล์ .txt ไม่มีบรรทัดที่ขึ้นต้นด้วยเวลา เช่น 00:00 ชื่อเพลง', 'The .txt has no lines starting with a time, e.g. 00:00 Song name') },
           icon('alert', 13), h('span', {}, L('ไม่มี timestamp — ไม่มี Chapters', 'No timestamps — no chapters'))));
@@ -2848,6 +3905,12 @@
       kids.push(h('span', { className: 'chip' + (big ? ' bad' : ''), title: it.thumb.name }, icon('image', 13),
         h('span', {}, big ? L('ภาพปกเกิน 2MB', 'Thumbnail over 2MB') : L(`ภาพปก · ${fmtSize(it.thumb.size)}`, `Thumbnail · ${fmtSize(it.thumb.size)}`)),
         rm(() => { it.thumb = null; updateItemUI(it); })));
+    }
+    if (it.prev && editable) {
+      const when = new Intl.DateTimeFormat(LOCALE === 'th-TH' ? 'th-TH-u-ca-gregory' : LOCALE, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(it.prev.date));
+      kids.push(h('button', { className: 'chip bad', title: L(`ไฟล์นี้เคยอัปขึ้นช่องนี้แล้ว: ${it.prev.title || ''}\nคลิกเพื่อเปิดคลิปนั้น · ถ้าตั้งใจอัปซ้ำ ปล่อยไว้ได้`, `This file was already uploaded to this channel: ${it.prev.title || ''}\nClick to open that video · leave it if the re-upload is intended`),
+        onclick: () => it.prev.videoId && window.open(`https://studio.youtube.com/video/${it.prev.videoId}/edit`, '_blank') },
+        icon('alert', 13), h('span', {}, L(`เคยอัปแล้ว ${when}`, `Already uploaded ${when}`))));
     }
     const hits = it.txt && Claims ? Claims.claimedSongsIn(it.txt) : [];
     if (hits.length) {
@@ -2863,8 +3926,14 @@
     u.att.hidden = !kids.length;
   }
 
+  let hadQueue = false;
   function renderQueue() {
     assignNumbers();
+    const has = queue.length > 0;
+    dropZone.classList.toggle('mini', has);
+    if (has && !hadQueue) schedOpen = false;
+    if (!has) schedOpen = true;
+    hadQueue = has;
     if (!queue.length) {
       listEl.replaceChildren(h('div', { className: 'empty' },
         h('div', { className: 'ei' }, icon('film', 24)),
@@ -2904,6 +3973,10 @@
     progressPct.textContent = pct + '%';
     // ป้าย FAB เป็นของ renderActivity() ทั้งตอนมีงานและตอนว่าง
     tabCount.queue.textContent = total ? String(total) : '';
+    const anyOpen = queue.some((i) => i.open);
+    expandAllBtn.hidden = !total;
+    expandAllBtn.replaceChildren(icon(anyOpen ? 'up' : 'down', 14), anyOpen ? L('ย่อทั้งหมด', 'Collapse all') : L('ขยายทั้งหมด', 'Expand all'));
+    if (running) setTitleMark(`(${Math.min(done + errors + 1, total)}/${total}) ⬆`);
     renderActivity(); // ทางเดียว: renderActivity ไม่เรียก updateRunUI กลับ
   }
 
@@ -2951,7 +4024,7 @@
     if (a) {
       actBar._tab = a.tab;
       actBar.title = a.detail || '';
-      actIcon.textContent = a.icon;
+      actIcon.replaceChildren(emojiIcon(a.icon, 15));
       actTitle.textContent = a.title;
       actPct.textContent = pct === null ? '' : pct + '%';
       actFill.parentElement.classList.toggle('ind', pct === null);
@@ -2963,7 +4036,7 @@
     fab.classList.toggle('busy', !!a && pct !== null);
     fab.style.setProperty('--p', pct === null ? 0 : pct);
     fabBadge.hidden = !a && !total;
-    if (a) fabBadge.textContent = pct === null ? a.icon : `${a.icon} ${pct}%`;
+    if (a) fabBadge.replaceChildren(emojiIcon(a.icon, 12), ...(pct === null ? [] : [` ${pct}%`]));
     else fabBadge.textContent = String(pending || total);
   }
 
@@ -3005,7 +4078,7 @@
   [fTitle, fDesc, fTags].forEach((f) => f.addEventListener('focus', () => (lastField = f)));
 
   // ลากไฟล์ .txt มาวางในช่องคำอธิบาย = แทรกเนื้อหาไฟล์ตรงตำแหน่งเคอร์เซอร์
-  fDesc.addEventListener('dragover', (e) => e.preventDefault());
+  fDesc.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
   fDesc.addEventListener('drop', async (e) => {
     const f = [...(e.dataTransfer?.files || [])].find(isTxt);
     if (!f) return;
@@ -3040,7 +4113,7 @@
   bind('artistPriority', fArtists, (v) => v.split(',').map((s) => s.trim()).filter(Boolean));
   bind('artistMax', fArtistMax, (v) => Math.max(1, parseInt(v, 10) || 4));
   sampleIn.addEventListener('input', renderPresetPreview);
-  sampleIn.addEventListener('dragover', (e) => e.preventDefault());
+  sampleIn.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
   sampleIn.addEventListener('drop', async (e) => {
     const files = [...(e.dataTransfer?.files || [])];
     const txt = files.find(isTxt);
@@ -3073,6 +4146,12 @@
         p.id === activeId && h('span', { className: 'main' }, icon('star', 10), L('หลัก', 'Default'))
       ))
     );
+    // รายการเลื่อนในกล่อง: ให้อันที่เลือกอยู่ในมุมมองเสมอ (เลื่อนเฉพาะในกล่อง ไม่เลื่อนทั้งแผง)
+    const on = presetList.querySelector('.pitem.on');
+    if (on) {
+      const top = on.offsetTop - presetList.offsetTop;
+      if (top < presetList.scrollTop || top + on.offsetHeight > presetList.scrollTop + presetList.clientHeight) presetList.scrollTop = top - 4;
+    }
   }
 
   function renderPresetEditor() {
@@ -3129,9 +4208,9 @@
         } }, icon('copy', 13), L('ทำสำเนา', 'Duplicate')),
         h('button', { className: 'btn sm', onclick: () => { activeId = editId; save('activeId', activeId); refreshLabels(); renderPresetList(); toast(L(`ตั้ง "${editing().label}" เป็นพรีเซ็ตหลักแล้ว`, `Set "${editing().label}" as the default preset`)); } }, icon('star', 13), L('ตั้งเป็นหลัก', 'Set as default')),
         h('span', { style: 'flex:1' }),
-        h('button', { className: 'btn sm ghost danger', onclick: () => {
+        h('button', { className: 'btn sm ghost danger', onclick: async () => {
           if (presets.length < 2) return toast(L('ต้องมีพรีเซ็ตอย่างน้อย 1 อัน', 'You must keep at least 1 preset'));
-          if (!confirm(L(`ลบพรีเซ็ต "${editing().label}"?`, `Delete preset "${editing().label}"?`))) return;
+          if (!(await ask({ title: L(`ลบพรีเซ็ต "${editing().label}"?`, `Delete preset "${editing().label}"?`), body: L('คลิปในคิวที่ใช้พรีเซ็ตนี้จะเปลี่ยนไปใช้พรีเซ็ตหลัก', 'Queued videos using this preset will switch to the default preset'), ok: L('ลบ', 'Delete'), danger: true, ic: 'clear' }))) return;
           presets = presets.filter((p) => p.id !== editId);
           save('presets', presets);
           if (!presets.some((p) => p.id === activeId)) { activeId = presets[0].id; save('activeId', activeId); }
@@ -3139,6 +4218,15 @@
           editId = activeId; renderPresetEditor(); refreshLabels(); renderQueue();
         } }, icon('clear', 13), L('ลบ', 'Delete'))
       )
+    ),
+    sec(L('ข้อมูลคลิป', 'Video details'), 'film',
+      h('div', { className: 'lbl' }, L('ชื่อพรีเซ็ต', 'Preset name')), fLabel,
+      h('div', { className: 'lbl' }, h('span', {}, L('ชื่อคลิป', 'Video title')), titleCnt), fTitle,
+      h('div', { className: 'lbl' }, h('span', {}, L('คำอธิบาย', 'Description')), h('span', {}, L('ลาก .txt มาวางเพื่อแทรกข้อความ', 'Drop a .txt here to insert its text'))), fDesc,
+      h('div', { className: 'lbl' }, L('แท็ก', 'Tags')), fTags,
+      h('div', { className: 'lbl' }, h('span', {}, L('ตัวแปร', 'Variables')), h('span', {}, L('คลิกเพื่อแทรกในช่องที่กำลังแก้', 'Click to insert into the field being edited'))), varChips,
+      h('div', { className: 'hint', style: 'margin-top:10px' }, icon('alert', 13),
+        h('span', {}, L('ครอบด้วย [[ ... ]] เพื่อให้ส่วนนั้นหายไปเมื่อตัวแปรข้างในว่าง เช่น [[ | {bpm} BPM]]', 'Wrap in [[ ... ]] to hide that part when the variable inside is empty, e.g. [[ | {bpm} BPM]]')))
     ),
     sec(L('ตัวอย่างบน YouTube', 'YouTube preview'), 'tv',
       h('div', { className: 'yt' },
@@ -3150,15 +4238,6 @@
       h('div', { className: 'lbl' }, h('span', {}, L('ทดลองกับไฟล์', 'Test with a file')), sampleTxtLbl),
       sampleIn,
       h('div', { className: 'hint', style: 'margin-top:6px' }, icon('clip', 13), L('ลาก .mp4 หรือ .txt จริงมาวางที่ช่องนี้เพื่อดูผลลัพธ์', 'Drop a real .mp4 or .txt here to preview the result'))
-    ),
-    sec(L('ข้อมูลคลิป', 'Video details'), 'film',
-      h('div', { className: 'lbl' }, L('ชื่อพรีเซ็ต', 'Preset name')), fLabel,
-      h('div', { className: 'lbl' }, h('span', {}, L('ชื่อคลิป', 'Video title')), titleCnt), fTitle,
-      h('div', { className: 'lbl' }, h('span', {}, L('คำอธิบาย', 'Description')), h('span', {}, L('ลาก .txt มาวางเพื่อแทรกข้อความ', 'Drop a .txt here to insert its text'))), fDesc,
-      h('div', { className: 'lbl' }, L('แท็ก', 'Tags')), fTags,
-      h('div', { className: 'lbl' }, h('span', {}, L('ตัวแปร', 'Variables')), h('span', {}, L('คลิกเพื่อแทรกในช่องที่กำลังแก้', 'Click to insert into the field being edited'))), varChips,
-      h('div', { className: 'hint', style: 'margin-top:10px' }, icon('alert', 13),
-        h('span', {}, L('ครอบด้วย [[ ... ]] เพื่อให้ส่วนนั้นหายไปเมื่อตัวแปรข้างในว่าง เช่น [[ | {bpm} BPM]]', 'Wrap in [[ ... ]] to hide that part when the variable inside is empty, e.g. [[ | {bpm} BPM]]')))
     ),
     sec(L('ศิลปิน', 'Artists'), 'queue',
       h('div', { className: 'lbl' }, h('span', {}, L('ให้ขึ้นก่อนใน {artists}', 'Prioritised in {artists}')), h('span', {}, L('เฉพาะคนที่อยู่ใน tracklist', 'Only those in the tracklist'))), fArtists,
@@ -3173,14 +4252,22 @@
   );
   footers.presets = h('div', { className: 'ft' },
     h('button', { className: 'btn', style: 'flex:1', onclick: applyToOpenDialog, title: L('ใส่พรีเซ็ตหลักลงหน้าต่างอัปโหลดที่เปิดอยู่', 'Apply the default preset to the open upload dialog') }, icon('send', 14), L('ใส่ลงหน้าต่างที่เปิดอยู่', 'Apply to open window')),
-    h('button', { className: 'btn ghost danger', onclick: () => {
-      if (!confirm(L('คืนค่าพรีเซ็ตทั้งหมดเป็นค่าเริ่มต้น? พรีเซ็ตที่แก้ไว้จะหายไป', 'Reset all presets to defaults? Your edited presets will be lost.'))) return;
+    h('button', { className: 'btn ghost danger', onclick: async () => {
+      if (!(await ask({ title: L('คืนค่าพรีเซ็ตทั้งหมด?', 'Reset all presets?'), body: L('พรีเซ็ตที่แก้ไว้จะหายไป และกลับเป็นค่าเริ่มต้น (ส่งออกไฟล์สำรองในแท็บตั้งค่าก่อนได้)', 'Your edited presets will be lost and replaced by the defaults (you can export a backup in Settings first)'), ok: L('คืนค่าเริ่มต้น', 'Reset to defaults'), danger: true, ic: 'refresh' }))) return;
       presets = structuredClone(DEFAULT_PRESETS); save('presets', presets);
       activeId = editId = presets[0].id; save('activeId', activeId);
       queue.forEach((it) => { if (!presets.some((p) => p.id === it.presetId)) it.presetId = activeId; });
       renderPresetEditor(); refreshLabels(); renderQueue();
     } }, icon('refresh', 14), L('คืนค่าเริ่มต้น', 'Reset to defaults'))
   );
+
+  // ความทึบของแผงกระจก: 100 = ดำทึบ, ค่าน้อย = เห็นหน้า Studio ข้างหลังมากขึ้น (ตัวหนังสือยังอ่านได้เพราะเบลอพื้นหลัง)
+  const glassVal = h('small');
+  function applyGlass() {
+    const v = Math.min(100, Math.max(40, Number(settings.glass) || 82));
+    root.style.setProperty('--ga', String(v / 100));
+    glassVal.textContent = L(`${v}% · น้อย = เห็นพื้นหลังมากขึ้น`, `${v}% · lower = more see-through`);
+  }
 
   // ----- แท็บตั้งค่า -----
   function sw(key, title, desc, onChange) {
@@ -3244,10 +4331,18 @@
       `ไฟล์สำรองนี้มาจากสคริปต์เวอร์ชันใหม่กว่า (format ${fmt}) — อัปเดตสคริปต์ก่อนแล้วนำเข้าอีกครั้ง`,
       `This backup is from a newer version of the script (format ${fmt}) — update the script first, then import again`));
     const names = newPresets.map((p) => p.label).join(', ');
-    if (!confirm(L(`นำเข้าพรีเซ็ต ${newPresets.length} รายการ (${names}) และการตั้งค่า?\n\nพรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน) แล้วหน้าจะรีโหลด`, `Import ${newPresets.length} presets (${names}) and settings?\n\nExisting presets and settings on this device will be replaced (locked channel and language stay unchanged) and the page will reload.`))) return;
-    const own = confirm(L(
-      'เป็นไฟล์สำรองของช่องคุณเองไหม?\n\nOK = ใช่ นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nCancel = ไฟล์ของคนอื่น นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน',
-      'Is this a backup of your own channel?\n\nOK = yes, also import personal values (producer name, schedule, your own artist names, EP numbers)\nCancel = someone else\'s file: import only presets and general settings, your personal values stay unchanged'));
+    const own = await ask({
+      title: L(`นำเข้าพรีเซ็ต ${newPresets.length} รายการ`, `Import ${newPresets.length} presets`),
+      ic: 'download',
+      body: h('div', {},
+        h('div', {}, h('b', {}, names)),
+        h('div', { style: 'margin-top:8px' }, L('พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน) แล้วหน้าจะรีโหลด', 'Existing presets and settings on this device will be replaced (locked channel and language stay unchanged) and the page will reload.')),
+        h('div', { style: 'margin-top:10px' }, h('b', {}, L('เป็นไฟล์สำรองของช่องคุณเองไหม?', 'Is this a backup of your own channel?'))),
+        h('div', { className: 'mut' }, L('ของฉัน = นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nของคนอื่น = นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน', 'Mine = also import personal values (producer name, schedule, your own artist names, EP numbers)\nSomeone else\'s = only presets and general settings; your personal values stay unchanged'))),
+      ok: L('ไฟล์ของฉัน', 'My file'),
+      no: L('ไฟล์ของคนอื่น', 'Someone else\'s'),
+    });
+    if (own === null) return;
     save('presets', fixLegacyTrapsoulTitles(newPresets));
     save('activeId', newPresets.some((p) => p.id === data.activeId) ? data.activeId : newPresets[0].id);
     if (isObj(data.settings)) {
@@ -3278,6 +4373,7 @@
     sec(L('อัปโหลดแบบคิว', 'Queue upload'), 'queue',
       sw('autoSave', L('กด Save ให้อัตโนมัติ', 'Auto-press Save'), L('ตั้งการเปิดเผยตามพรีเซ็ตแล้วกด Save ต่อไฟล์ถัดไปเลย ถ้าปิดไว้จะรอให้คุณตรวจแล้วกด Save เองทีละคลิป', 'Sets visibility from the preset, presses Save and moves on to the next file. When off, waits for you to review and press Save on each video yourself.')),
       sw('thumb', L('อัปภาพปกให้อัตโนมัติ', 'Auto-upload thumbnail'), L('ใช้ไฟล์ .jpg/.png ชื่อเดียวกับคลิป (ไม่เกิน 2MB และช่องต้องยืนยันตัวตนแล้ว)', 'Uses a .jpg/.png with the same name as the video (max 2MB; channel must be verified)')),
+      sw('notify', L('แจ้งเตือนเมื่อคิวเสร็จ', 'Notify when the queue finishes'), L('เด้งแจ้งเตือนบนเดสก์ท็อปพร้อมเสียง และโชว์ความคืบหน้าบนชื่อแท็บ เช่น (3/10) — ไปทำอย่างอื่นได้ไม่ต้องเฝ้า', 'Desktop notification with a sound, plus progress in the tab title like (3/10) — no need to keep watching')),
       sw('intercept', L('รับหลายไฟล์จากหน้าต่างของ YouTube', 'Take multiple files from YouTube\'s dialog'), L('เลือกหรือลากหลายไฟล์ในหน้าต่างอัปโหลดปกติของ Studio จะส่งมาเข้าคิวนี้แทน', 'Selecting or dropping multiple files in Studio\'s normal upload dialog sends them to this queue instead'))
     ),
     sec(L('ความปลอดภัย', 'Safety'), 'lock',
@@ -3288,6 +4384,7 @@
     ),
     sec(L('อัปโหลดทีละไฟล์ (หน้าต่างปกติของ YouTube)', 'Single-file upload (YouTube\'s normal dialog)'), 'upload',
       sw('autoApply', L('เติมข้อมูลอัตโนมัติ', 'Auto-fill details'), L('ใส่ชื่อ/คำอธิบาย/แท็กจากพรีเซ็ตหลักให้ทันทีเมื่อเลือกไฟล์', 'Fills title/description/tags from the default preset as soon as a file is selected')),
+      sw('quickActions', L('ปุ่มลัดใต้ช่องชื่อและคำอธิบาย', 'Quick actions under title and description'), L('ปุ่มใส่ชื่อ/คำอธิบาย/แท็กจากพรีเซ็ต, ใส่ .txt, ตรวจ Chapters และคัดลอก — ทั้งในหน้าต่างอัปโหลดและหน้าแก้ไขคลิป', 'Buttons to apply preset title/description/tags, load a .txt, check chapters and copy — in the upload dialog and on the video edit page')),
       sw('autoNext', L('กด Next ไปหน้าการเปิดเผย', 'Press Next to the Visibility page'), L('เลือกการเปิดเผยตามพรีเซ็ตให้ แต่ไม่กด Save', 'Selects visibility from the preset but doesn\'t press Save'))
     ),
     sec(L('ตรวจปัญหา', 'Troubleshooting'), 'alert',
@@ -3306,6 +4403,12 @@
           if (running) { e.target.value = LANG; return toast(L('หยุดคิวก่อนแล้วค่อยเปลี่ยนภาษา', 'Stop the queue before changing language')); }
           settings.lang = e.target.value; saveSettings(); location.reload();
         } }, [['en', 'English'], ['th', 'ไทย']].map(([v, l]) => h('option', { value: v, selected: LANG === v }, l)))
+      ),
+      h('div', { className: 'kv' },
+        h('div', {}, h('b', {}, L('ความทึบของแผง', 'Panel opacity')), glassVal),
+        h('input', { type: 'range', min: 40, max: 100, step: 2, value: settings.glass, className: 'rng',
+          oninput: (e) => { settings.glass = +e.target.value; applyGlass(); },
+          onchange: () => saveSettings() })
       ),
       h('div', { className: 'kv' },
         h('div', {}, h('b', {}, L('ชื่อโปรดิวเซอร์ {producer}', 'Producer name {producer}')), h('small', {}, L('ใช้ในชื่อคลิป/คำอธิบาย/แท็ก เช่น "Prod. by {producer}" · เว้นว่าง = ใช้ชื่อช่องปัจจุบัน', 'Used in video title/description/tags, e.g. "Prod. by {producer}" · blank = current channel name'))),
@@ -3530,6 +4633,34 @@
         await sleep(300);
       } while (tok && pages < 400);
       return vids;
+    }
+
+    // คลิปที่ตั้งเวลาเผยแพร่ไว้แล้วในช่องนี้ (อ่านอย่างเดียว) -> [{ videoId, title, at }] เรียงตามเวลา
+    // ตรวจกับ Studio จริง (ต.ค. 2026): scheduledPublishingDetails.scheduledPublishings[] = { scheduledTimeSeconds, action, status }
+    // ดู 200 คลิปล่าสุดพอ: คลิปที่รอปล่อยเป็นของที่เพิ่งอัปทั้งนั้น
+    async function listScheduled() {
+      if (!ycfg('INNERTUBE_CONTEXT')) return null;
+      const CH = currentChannel();
+      const out = [];
+      let tok, pages = 0;
+      do {
+        const body = {
+          filter: { and: { operands: [{ channelIdIs: { value: CH } }, { videoOriginIs: { value: 'VIDEO_ORIGIN_UPLOAD' } }] } },
+          order: 'VIDEO_ORDER_DISPLAY_TIME_DESC', pageSize: 50,
+          mask: { videoId: true, title: true, scheduledPublishingDetails: { all: true } },
+        };
+        if (tok) body.pageToken = tok;
+        const j = await yti('creator/list_creator_videos', body);
+        for (const v of j.videos || []) {
+          for (const sp of (v.scheduledPublishingDetails || {}).scheduledPublishings || []) {
+            const at = (+sp.scheduledTimeSeconds || 0) * 1000;
+            if (/SCHEDULED$/.test(sp.status || '') && at > Date.now()) out.push({ videoId: v.videoId, title: v.title || '', at });
+          }
+        }
+        tok = j.nextPageToken;
+        pages++;
+      } while (tok && pages < 4);
+      return out.sort((a, b) => a.at - b.at);
     }
 
     async function scanClaims({ show = true } = {}) {
@@ -4959,12 +6090,15 @@
       UI.card = h('div', { className: 'tbx-card idle' });
       UI.lang = h('div', { className: 'tbx-note tbx-err', hidden: true },
         L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language'));
-      UI.scanBtn = h('button', { className: 'btn go', onclick: () => scanClaims() }, icon('refresh', 14), L('สแกน claim', 'Scan claims'));
-      UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on') }, L('💰 โฆษณาปิดอยู่', '💰 Ads off'));
+      UI.scanBtn = h('button', { className: 'btn go', onclick: () => scanClaims() }, icon('scan', 16), L('สแกน claim', 'Scan claims'));
+      UI.adsTxt = h('span', {}, L('โฆษณาปิดอยู่', 'Ads off'));
+      UI.listTxt = h('span', {}, L('รายการ claim', 'Claim list'));
+      UI.songTxt = h('span', {}, L('เพลงที่เคยโดน', 'Claimed songs'));
+      UI.adsBtn = h('button', { className: 'btn', onclick: () => (chGet('adsScan', null) ? showAds() : scanAds()), title: L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on') }, icon('paid', 16), UI.adsTxt);
       UI.stopBtn = h('button', { className: 'btn danger', onclick: () => { stopTrimRun(L('คุณกดหยุด', 'You stopped it'), true); stopAdsRun(L('คุณกดหยุด', 'You stopped it')); stopCollabRun(L('คุณกดหยุด', 'You stopped it')); renderStatus(); } }, icon('stop', 14), L('หยุด', 'Stop'));
-      UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, L('📋 รายการ claim', '📋 Claim list'));
-      UI.collabBtn = h('button', { className: 'btn', onclick: () => (chGet('collabScan', null) ? showCollab() : scanCollab()), title: L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators') }, '🤝 Collab');
-      UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels') }, L('🎵 เพลงที่เคยโดน', '🎵 Claimed songs'));
+      UI.listBtn = h('button', { className: 'btn', onclick: showClaims }, icon('queue', 16), UI.listTxt);
+      UI.collabBtn = h('button', { className: 'btn', onclick: () => (chGet('collabScan', null) ? showCollab() : scanCollab()), title: L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators') }, icon('collab', 16), 'Collab');
+      UI.songBtn = h('button', { className: 'btn', onclick: showSongs, title: L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels') }, icon('music', 16), UI.songTxt);
       UI.apTog = h('input', { type: 'checkbox', onclick: (e) => { e.preventDefault(); toggleAutopilot(); } });
       UI.apSub = h('small');
       UI.logBtn = h('button', { className: 'btn ghost sm', onclick: () => {
@@ -4978,11 +6112,11 @@
         UI.lang,
         h('div', { className: 'sec' }, h('h4', {}, icon('shield', 13), L('สถานะ', 'Status')), UI.card, UI.row1, UI.row2),
         h('div', { className: 'sec' },
-          h('label', { className: 'sw' }, UI.apTog, h('span', { className: 't' }), h('span', {}, h('b', {}, '🤖 Auto-pilot'), UI.apSub)),
+          h('label', { className: 'sw' }, UI.apTog, h('span', { className: 't' }), h('span', {}, h('b', { style: 'display:flex;align-items:center;gap:6px' }, icon('robot', 16), 'Auto-pilot'), UI.apSub)),
           h('div', { className: 'row', style: 'margin-top:6px;flex-wrap:wrap' },
             h('button', { className: 'btn sm', onclick: openSettings }, icon('sliders', 13), L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')),
-            h('button', { className: 'btn sm', onclick: () => showTracklistFix('') }, L('📝 แก้ tracklist', '📝 Fix tracklist')),
-            h('button', { className: 'btn sm', onclick: uploadsCSV, title: L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script') }, L('⬇ ประวัติการอัป', '⬇ Upload history')))),
+            h('button', { className: 'btn sm', onclick: () => showTracklistFix('') }, icon('note', 14), L('แก้ tracklist', 'Fix tracklist')),
+            h('button', { className: 'btn sm', onclick: uploadsCSV, title: L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script') }, icon('history', 14), L('ประวัติการอัป', 'Upload history')))),
         h('div', { className: 'sec' }, h('div', { className: 'row' }, h('b', { style: 'flex:1' }, L('กิจกรรม', 'Activity')), UI.logBtn), logBox));
     }
 
@@ -5004,7 +6138,7 @@
       if (sig === lastStatusSig) return;
       lastStatusSig = sig;
       UI.card.className = 'tbx-card ' + (s.kind || 'idle');
-      const kids = [h('div', { className: 'ti' }, h('span', {}, s.icon), h('span', {}, s.title))];
+      const kids = [h('div', { className: 'ti' }, h('span', { className: 'sti' }, emojiIcon(s.icon, 17)), h('span', {}, s.title))];
       if (s.detail) kids.push(h('div', { className: 'de' }, s.detail));
       if (s.progress !== undefined) kids.push(h('div', { className: 'tbx-bar' + (s.progress === null ? ' ind' : '') }, h('i', { style: `width:${Math.round((s.progress || 0) * 100)}%` })));
       if (s.steps) {
@@ -5013,9 +6147,9 @@
         if (s.stepDetail) kids.push(h('div', { className: 'tbx-sd' }, s.stepDetail));
       }
       UI.card.replaceChildren(...kids);
-      UI.listBtn.textContent = n.hasScan ? L(`📋 รายการ claim (${n.claims})`, `📋 Claim list (${n.claims})`) : L('📋 รายการ claim', '📋 Claim list');
-      UI.songBtn.textContent = L(`🎵 เพลงที่เคยโดน (${n.songs})`, `🎵 Claimed songs (${n.songs})`);
-      UI.adsBtn.textContent = n.hasAdsScan ? L(`💰 โฆษณาปิดอยู่ (${n.adsTodo})`, `💰 Ads off (${n.adsTodo})`) : L('💰 โฆษณาปิดอยู่', '💰 Ads off');
+      UI.listTxt.textContent = n.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list');
+      UI.songTxt.textContent = L(`เพลงที่เคยโดน (${n.songs})`, `Claimed songs (${n.songs})`);
+      UI.adsTxt.textContent = n.hasAdsScan ? L(`โฆษณาปิดอยู่ (${n.adsTodo})`, `Ads off (${n.adsTodo})`) : L('โฆษณาปิดอยู่', 'Ads off');
       UI.scanBtn.hidden = UI.adsBtn.hidden = busyRun || busyScan;
       UI.stopBtn.hidden = !busyRun && !waiting; // มีคิวตัดต่อรออยู่ก็กดหยุดได้
       UI.row2.hidden = busyRun || busyScan;
@@ -5046,7 +6180,7 @@
     function openSettings() {
       const c = cfg();
       const fields = {};
-      const kids = [h('h3', {}, L('⚙ ตั้งค่าลิขสิทธิ์', '⚙ Copyright settings'))];
+      const kids = [h('h3', {}, L('ตั้งค่าลิขสิทธิ์', 'Copyright settings'))];
       for (const sc of SETTINGS) {
         kids.push(h('div', { className: 'tbx-sec' }, sc.title));
         for (const [k, label, hint] of sc.items) {
@@ -5124,7 +6258,7 @@
       renderStatus();
     }
 
-    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus };
+    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus, listScheduled };
   })();
   panes.claims = Claims.buildPane();
   let tickFailed = false;
@@ -5175,6 +6309,7 @@
   });
 
   root.classList.toggle('dark', document.documentElement.hasAttribute('dark'));
+  applyGlass();
   root.append(fab, drawer, toastEl);
   document.body.append(root);
   showTab('queue');
