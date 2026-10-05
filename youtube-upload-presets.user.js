@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.26.0
+// @version      4.26.1
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -34,6 +34,7 @@
   const TXT = {
     // --- ใช้ได้ทั้งอังกฤษและไทย ---
     acceptInvite: /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i, // ปุ่มยอมรับคำเชิญสิทธิ์ช่อง
+    noPermission: /don.t have permission to view this page|ไม่มีสิทธิ์เข้าดูหน้านี้/i, // หน้า Oops ของ Studio
     aboutInvite: /invit|collaborat|เชิญ|ผู้ร่วมสร้าง/i, // กล่องข้อความต้องพูดถึงคำเชิญ (กันกดปุ่มผิด)
     saveButton: /^(save|บันทึก)$/i, // ปุ่ม Save ของหน้าต่าง (ใช้ตอนหา id ไม่เจอ)
     cancelButton: /^(cancel|discard|ยกเลิก|ละทิ้ง)$/i, // ปุ่ม Cancel ของหน้าต่าง (ใช้ตอนหา id ไม่เจอ)
@@ -250,6 +251,7 @@
   //   www.youtube.com/channel_switcher?next=<ปลายทาง>
   // หน้านั้นจะลิสต์ทุกช่อง พอกดช่องไหน YouTube จะสลับให้แล้วเด้งไปที่ next เอง
   const SWITCH_KEY = 'pendingChannelSwitch';
+  const SWITCHED_KEY = 'channelSwitchedAt';
   const SWITCH_TTL = 180000;
   const pendingSwitch = () => {
     const p = GM_getValue(SWITCH_KEY, null);
@@ -278,11 +280,38 @@
       if (!row) return;
       clearInterval(timer);
       clearSwitch();
+      // YouTube เด้งไป next ทันทีโดยที่ session ใหม่ยังไม่ทันมีผล หน้าแรกที่โหลดจึงขึ้น Oops
+      // ได้ ทั้งที่สลับช่องสำเร็จแล้ว — จดไว้ว่าเพิ่งสลับ เพื่อให้โหลดซ้ำให้เองถ้าเจอหน้านั้น
+      GM_setValue(SWITCHED_KEY, { at: Date.now(), tries: 0 });
       say(`switching to ${want.handle || want.name}`);
       row.click();
     }, 500);
   }
   watchChannelSwitcher();
+
+  // เพิ่งสลับช่องแล้วเจอหน้า Oops = session ใหม่ยังตามมาไม่ทัน โหลดหน้าเดิมซ้ำก็ผ่าน
+  function recoverAfterSwitch() {
+    if (location.hostname !== 'studio.youtube.com') return;
+    const s = GM_getValue(SWITCHED_KEY, null);
+    if (!s || Date.now() - (s.at || 0) > 90000) return;
+    const say = (m) => console.info('[YT Upload Presets] switch: ' + m);
+    let tries = 0;
+    const timer = setInterval(() => {
+      const oops = TXT.noPermission.test(document.body.innerText || '');
+      if (!oops) {
+        if (++tries < 12) return; // ยังโหลดไม่เสร็จ รออีกหน่อยก่อนจะบอกว่าผ่านแล้ว
+        clearInterval(timer);
+        GM_setValue(SWITCHED_KEY, null);
+        return;
+      }
+      clearInterval(timer);
+      if ((s.tries || 0) >= 2) { GM_setValue(SWITCHED_KEY, null); say('still no permission after reloading — giving up'); return; }
+      GM_setValue(SWITCHED_KEY, { at: s.at, tries: (s.tries || 0) + 1 });
+      say('switched but the page says no permission — reloading once');
+      location.reload();
+    }, 500);
+  }
+  recoverAfterSwitch();
 
   let inviteWatching = false;
   function watchInvite() {

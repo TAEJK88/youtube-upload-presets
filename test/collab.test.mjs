@@ -185,3 +185,21 @@ test('with neither handle nor name nothing matches', () => {
   assert.equal(C.switcherRowMatches(ROW('THAIBEATS', '@thaibeats'), '', ''), false);
   assert.equal(C.switcherRowMatches('', '@thaibeats'), false);
 });
+
+/* ---------- the post-switch Oops page ----------
+   Observed live: channel_switcher redirects to `next` before the new session
+   applies, so the first load can report no permission even though the switch
+   worked. The script reloads once when it sees this. */
+
+const OOPS_PAGE = "Oops, you don't have permission to view this page You need to be signed "
+  + 'into an account that has access. Try switching or signing into an account that has '
+  + 'permission. Switch account Return to Studio';
+
+test('the real Oops page text is recognised', () => {
+  assert.ok(C.TXT.noPermission.test(OOPS_PAGE));
+});
+
+test('an ordinary Studio page is not mistaken for the Oops page', () => {
+  assert.equal(C.TXT.noPermission.test('Channel content Videos Shorts Live Posts Collaborations'), false);
+  assert.equal(C.TXT.noPermission.test('Permissions Invite others to manage this channel'), false);
+});
