@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.23.1
+// @version      4.24.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -534,7 +534,7 @@
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
       autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
       quickActions: true, // ปุ่มลัดใต้ช่องชื่อ/คำอธิบายของ Studio
-      glass: 72, // ความทึบของแผงกระจก (%) — น้อย = เห็นพื้นหลังมากขึ้น
+      glass: 82, // ความทึบของแผงกระจก (%) — น้อย = เห็นพื้นหลังมากขึ้น
       notify: true, // แจ้งเตือนบนเดสก์ท็อป + เสียง เมื่อคิวเสร็จ/หยุด
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
       schedule: { on: false, start: '', every: 1, unit: 'day' },
@@ -542,6 +542,12 @@
     load('settings', {})
   );
   const saveSettings = () => save('settings', settings);
+  // ดีไซน์ B: พื้นกระจกทึบ 72% บนหน้า Studio สีขาวออกมาเป็นเทาซีด -> ค่าเริ่มต้นใหม่ 82% (ย้ายให้ครั้งเดียว ถ้ายังเป็นค่าเริ่มต้นเดิม)
+  if (!settings.glassV2) {
+    if (settings.glass === 72) settings.glass = 82;
+    settings.glassV2 = true;
+    saveSettings();
+  }
   if (settings.lang === undefined) {
     settings.lang = LANG;
     saveSettings();
@@ -2918,6 +2924,80 @@
     /* ช่องกรอก/เมนูเลือก: ชั้นขาวบาง ๆ บนกระจก · ตัวเลือกใน select ต้องทึบ ไม่งั้นอ่านไม่ออก */
     #ytp-root select option{background:#151517;color:var(--fg)}
     #ytp-root .rng{width:100%;accent-color:#f4f4f5;cursor:pointer}
+    /* ===== ดีไซน์ B · Glass (เลือกจากหน้าเปรียบเทียบ 4 แบบ) ===== */
+    #ytp-root .drawer{border-radius:22px;border-color:rgba(255,255,255,.14);
+      -webkit-backdrop-filter:blur(28px) saturate(160%);backdrop-filter:blur(28px) saturate(160%);
+      box-shadow:0 30px 80px -20px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.10)}
+    /* หัวแผง: ไม่มีกล่อง/เส้นคั่น · ปุ่มกระจก */
+    #ytp-root .chan{border:0;padding:16px 18px 12px}
+    #ytp-root .chan .av img,#ytp-root .chan .av .ph{box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+    #ytp-root .chan .av::after{border-color:rgba(12,12,14,.9)}
+    #ytp-root .chan .cap{color:rgba(255,255,255,.6);letter-spacing:.04em;text-transform:none;font-weight:500;font-size:11px}
+    #ytp-root .chan .nm{font-size:15px}
+    #ytp-root .chan .lk{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);border-radius:999px;color:var(--fg);padding:7px 14px}
+    #ytp-root .chan .lk:hover{background:rgba(255,255,255,.16)}
+    #ytp-root .chan>.ib{border-radius:50%;background:rgba(255,255,255,.08)}
+    #ytp-root .chan>.ib:hover{background:rgba(255,255,255,.16)}
+    /* แท็บ: ปุ่มเม็ดในกล่องเดียว แท็บที่เลือกเป็นสีขาว */
+    #ytp-root .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:0 18px;padding:4px;
+      background:rgba(255,255,255,.07);border:0;border-radius:14px}
+    #ytp-root .tabs button{border:0;border-radius:10px;margin:0;padding:8px 0;color:rgba(255,255,255,.75);font-weight:500}
+    #ytp-root .tabs button:hover{color:#fff;background:rgba(255,255,255,.06)}
+    #ytp-root .tabs button.on{background:#f4f4f5;color:#0b0b0c;font-weight:600;box-shadow:none}
+    #ytp-root .tabs button .ic{display:none}
+    #ytp-root .tabs .n{background:rgba(255,255,255,.18);color:#fff}
+    #ytp-root .tabs button.on .n{background:#0b0b0c;color:#fff}
+    #ytp-root .act{margin:12px 18px 0;border-radius:14px;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.10)}
+    #ytp-root .body{padding:16px 18px 18px}
+    /* กล่องลากไฟล์: แถวเดียวเสมอ */
+    #ytp-root .drop{padding:12px 14px;gap:12px;border:1px dashed rgba(255,255,255,.22);border-radius:14px}
+    #ytp-root .drop .di{width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.10)}
+    #ytp-root .drop .di .ic{width:16px;height:16px}
+    #ytp-root .drop b{font-size:13px;font-weight:500}
+    #ytp-root .drop span{font-size:12px;color:rgba(255,255,255,.6)}
+    #ytp-root .drop .kbd{display:none}
+    #ytp-root .drop .folder{color:#fff}
+    /* ตั้งเวลา */
+    #ytp-root .sched,#ytp-root .sched.on{border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}
+    #ytp-root .sched.late{border-color:rgba(251,191,36,.45)}
+    #ytp-root .sched .sh .si{background:none;color:rgba(255,255,255,.75);width:22px}
+    #ytp-root .sched .sh small{color:rgba(255,255,255,.65)}
+    /* สถิติ: แถวข้อความเดียว คั่นด้วยจุด */
+    #ytp-root .stats{gap:0;margin-top:12px}
+    #ytp-root .stat{padding:0;font-size:12px}
+    #ytp-root .stat+.stat::before{content:"·";margin:0 8px;color:rgba(255,255,255,.4)}
+    #ytp-root .stat b{font-size:12px;font-weight:700}
+    #ytp-root .stat span{color:rgba(255,255,255,.7);font-size:12px}
+    /* การ์ด */
+    #ytp-root .card{border-radius:16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);padding:12px}
+    #ytp-root .card::before{display:none}
+    #ytp-root .card:hover{border-color:rgba(255,255,255,.16)}
+    #ytp-root .card.uploading,#ytp-root .card.review{border-color:rgba(147,197,253,.35)}
+    #ytp-root .card.error{border-color:rgba(248,113,113,.35)}
+    #ytp-root .card .th{width:92px;border-radius:10px;border:0}
+    #ytp-root .card .fn{font-size:13px}
+    #ytp-root .card .tl{color:rgba(255,255,255,.6)}
+    #ytp-root .pill{font-size:12px;padding:0}
+    #ytp-root .card .msg{border-radius:12px;background:rgba(255,255,255,.05)}
+    #ytp-root .att .chip{border-radius:999px}
+    #ytp-root .att .chip.bad{color:#fbbf24;background:rgba(251,191,36,.12);border-color:transparent}
+    #ytp-root .att .chip.fixc{background:#f4f4f5;color:#0b0b0c;border-color:transparent;font-weight:600;cursor:pointer}
+    #ytp-root .att .chip.fixc:hover{background:#fff}
+    /* ท้ายแผง: ปุ่มหลักขาว ข้อความชิดซ้าย 2 บรรทัด · ปุ่มหยุด/ล้างเป็นกระจก */
+    #ytp-root .ft{padding:14px 18px;border-top-color:rgba(255,255,255,.08)}
+    #ytp-root .ft .btn.go{border-radius:14px;padding:11px 16px}
+    #ytp-root .ft .btn.go .gi{display:none}
+    #ytp-root .ft .btn.go .gt small{color:#55555c;opacity:1}
+    #ytp-root .ft .btn.go:disabled .gt small{color:var(--fg3)}
+    #ytp-root .ft .ib{width:48px;height:auto;align-self:stretch;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#fff}
+    #ytp-root .ft .ib:disabled{opacity:.35}
+    /* ช่องกรอก/ปุ่มรองในแผง: มุมโค้งเข้าชุด */
+    #ytp-root input[type=text],#ytp-root input[type=number],#ytp-root input[type=datetime-local],#ytp-root select,#ytp-root textarea{border-radius:10px}
+    #ytp-root .btn{border-radius:12px}
+    #ytp-root .btn.sm{border-radius:10px}
+    #ytp-root .sec+.sec{border-top-color:rgba(255,255,255,.08)}
+    #ytp-root .tbx-card{border-radius:14px}
+    #ytp-root .ask .box,#ytp-root #tbx-modal .box{border-radius:22px}
     #ytp-root .card .th{background:rgba(255,255,255,.06)}
   `);
 
@@ -3693,7 +3773,7 @@
       const probs = [...tc.errors, ...tc.warnings];
       const fx = tc.errors.length && editable ? fixChapters(it.txt) : null;
       if (fx && fx.changes.length) {
-        kids.push(h('button', { className: 'chip add', title: fx.changes.join('\n'), onclick: () => {
+        kids.push(h('button', { className: 'chip fixc', title: fx.changes.join('\n'), onclick: () => {
           it.txt = fx.text;
           it.titleEdited = false;
           assignNumbers();
@@ -4084,7 +4164,7 @@
   // ความทึบของแผงกระจก: 100 = ดำทึบ, ค่าน้อย = เห็นหน้า Studio ข้างหลังมากขึ้น (ตัวหนังสือยังอ่านได้เพราะเบลอพื้นหลัง)
   const glassVal = h('small');
   function applyGlass() {
-    const v = Math.min(100, Math.max(40, Number(settings.glass) || 72));
+    const v = Math.min(100, Math.max(40, Number(settings.glass) || 82));
     root.style.setProperty('--ga', String(v / 100));
     glassVal.textContent = L(`${v}% · น้อย = เห็นพื้นหลังมากขึ้น`, `${v}% · lower = more see-through`);
   }
