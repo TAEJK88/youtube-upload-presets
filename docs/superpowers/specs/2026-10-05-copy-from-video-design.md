@@ -87,29 +87,47 @@ to one channel.
 Input: `{ title, description, tags, publishedYear }`. Output: the
 `title` / `description` / `tags` / `artistMax` of a template. Steps, in order:
 
+Every variable that can be empty for a new clip is wrapped in an optional
+`[[ ]]` block together with its separator, so a clip without a `.txt` file or
+a BPM never ends up with a dangling ` | ` (the same rule as the built-in
+presets).
+
 1. **Tracklist.** Find the longest run of 3 or more consecutive description
    lines that start with a timestamp (the same timestamp pattern as
-   `parseTracks`). Replace that run with `{txt}`, keeping any heading such as
-   `Tracklist:` that sits above it. Parse the run with `parseTracks()` to get
-   the source's `artistList` and `trackcount`.
-2. **Artists.** In the title and the rest of the description, find the longest
-   run of names from `artistList` joined by `, ` (also ` x `, ` & `) and
-   replace it with `{artists}`. `artistMax` = the number of names in the
-   title's run (minimum 1, default 4 if the title had none).
-3. **Track count.** A number equal to `trackcount` that sits next to
-   "songs"/"tracks"/"เพลง" becomes `{trackcount}`.
+   `parseTracks`). Replace that run with `{txt}`. A heading line ending in `:`
+   right above it (e.g. `Tracklist:`) goes into the block:
+   `[[Tracklist:\n{txt}]]`. Parse the run with `parseTracks()` to get the
+   source's `artistList` and `trackcount`.
+2. **Artists.** In the title, find the longest run of names from `artistList`
+   joined by `, ` / ` x ` / ` & `. Replace it, in the title and anywhere the
+   same text appears in the description, with `[[<sep>{artists}]]`, where
+   `<sep>` is the separator before it (e.g. ` | `), or the one after it when
+   the run starts the title. `artistMax` = the number of names in the run
+   (default 4 when the title has none). `artistPriority` = those names in
+   title order, so the round trip keeps the same order and the artists that
+   drove the views come first when a new tracklist has them.
+3. **Track count.** A number equal to `trackcount` followed by
+   "songs"/"tracks"/"เพลง" becomes `[[ ({trackcount} Songs)]]` (keeping the
+   source's own wording and brackets).
 4. **Year.** A standalone `20xx` equal to the publish year or the current
    year becomes `{year}`.
-5. **BPM.** `<number> BPM` becomes `{bpm} BPM`.
-6. **Tags.** Tags that equal a name in `artistList` (case-insensitive) are
+5. **BPM.** `BPM: 140` becomes `[[BPM: {bpm}]]`, and `<sep>140 BPM` becomes
+   `[[<sep>{bpm} BPM]]`.
+6. **Beat name.** The first text in double quotes in the title (`"Midnight"`
+   or `“Midnight”`) becomes `"{name}"`, in the title and wherever the same
+   quoted text appears in the description.
+7. **Tags.** Tags that equal a name in `artistList` (case-insensitive) are
    removed and a single `{artists}` tag is added in place of the first one.
    The other tags get step 4 applied.
 
-When there is no tracklist, steps 1 to 3 do nothing. The artists stay as plain
-text and the result carries `warnings: ['no-tracklist']`.
+Warnings in the result:
+- `no-tracklist`: no tracklist, so steps 1 to 3 did nothing and artists stay
+  as plain text.
+- `static-title`: the learned title has no variables, so every upload would
+  get the same title.
 
 Visibility is `PRIVATE` (as with the built-in presets). The schedule settings
-still decide the final publish state. `artistPriority` is `[]`.
+still decide the final publish state.
 
 ### 5. Review dialog
 
@@ -125,16 +143,21 @@ runs `learnTemplate`, and opens a dialog with:
 
 **Use this pattern** stores the template and applies the pick. **Cancel**
 puts the select back to its previous value. Picking the same video later uses
-the stored template without a dialog. A "Re-learn" link in the dialog's
-source line fetches and learns again.
+the stored template without a dialog.
+
+A card that uses a video template shows a chip "Pattern from: <title>".
+Clicking it reopens the dialog with the stored template, and the dialog then
+also has a **Re-learn** button that fetches the video again and learns from
+scratch.
 
 ### 6. Errors
 
 - The list fails to load: the group shows "Couldn't load videos ↻" and the
   presets keep working.
-- `get_creator_videos` fails: log the error, show it in the dialog, and put
-  the select back.
-- Studio isn't ready: the existing "Studio hasn't finished loading" warning.
+- `get_creator_videos` fails: show the error in a dialog and put the select
+  back.
+- Studio isn't ready when the panel opens: the group shows "↻ Load videos",
+  and picking it (or reopening the panel) tries again.
 
 ### 7. UI strings
 
