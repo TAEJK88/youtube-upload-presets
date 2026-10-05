@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.24.0
+// @version      4.24.1
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -2368,7 +2368,7 @@
       --ok:#16a34a;--warn:#d97706;--err:#dc2626;--info:#2563eb;--muted:#9a9aa6;
       --shadow:0 24px 60px -12px rgba(15,15,25,.28),0 2px 6px rgba(15,15,25,.06);
       --radius:14px;
-      font:13px/1.5 "Inter","IBM Plex Sans Thai","Noto Sans Thai",Roboto,system-ui,sans-serif;color:var(--fg);
+      font:13.5px/1.5 "IBM Plex Sans Thai","Leelawadee UI","Segoe UI",system-ui,sans-serif;color:var(--fg);
       -webkit-font-smoothing:antialiased;letter-spacing:.005em}
     #ytp-root.dark{
       --bg:#0e0e12;--surface:#16161c;--surface2:#1d1d25;--line:#26262f;--line2:#33333e;
@@ -2998,9 +2998,22 @@
     #ytp-root .sec+.sec{border-top-color:rgba(255,255,255,.08)}
     #ytp-root .tbx-card{border-radius:14px}
     #ytp-root .ask .box,#ytp-root #tbx-modal .box{border-radius:22px}
+    /* ตัวหนังสือ: ตัวเล็กสุด 12px (ภาษาอังกฤษตัวเล็กกว่านี้บนกระจกอ่านยาก) · ตัวเลขกว้างเท่ากัน เวลา/เปอร์เซ็นต์ไม่กระตุก */
+    #ytp-root{letter-spacing:0;font-feature-settings:"tnum" 1}
+    #ytp-root button,#ytp-root input,#ytp-root select,#ytp-root textarea{font-family:inherit}
+    #ytp-root .chan .cap,#ytp-root .chan .id,#ytp-root .sched .g3 .mini,#ytp-root .when .mini,#ytp-root .card .fields .mini,
+    #ytp-root .lbl span+span,#ytp-root .stat span,#ytp-root .stat b,#ytp-root .pill,#ytp-root .att .chip,#ytp-root .card .wt,
+    #ytp-root .drop span,#ytp-root .sched .sh small,#ytp-root .chip,#ytp-root .chip.var,#ytp-root .mono,#ytp-root .tabs .n,
+    #ytp-root .sec>h4,#ytp-root .pitem .pl span,#ytp-root .pitem .main,#ytp-root .tbx-steps span,#ytp-root .fab .fch,#ytp-root .fab .badge{font-size:12px}
+    #ytp-root .tabs button{font-size:13.5px}
+    #ytp-root .sec>h4{letter-spacing:.03em}
     #ytp-root .card .th{background:rgba(255,255,255,.06)}
   `);
 
+  if (!document.getElementById('ytp-font')) {
+    document.head.append(h('link', { id: 'ytp-font', rel: 'stylesheet',
+      href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap' }));
+  }
   const root = h('div', { id: 'ytp-root' });
   let Claims = null; // โมดูลลิขสิทธิ์ (สร้างด้านล่าง)
   const toastMsg = h('span');
