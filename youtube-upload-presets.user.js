@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.20.0
+// @version      4.21.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -533,6 +533,7 @@
       producer: '', // ชื่อโปรดิวเซอร์ใน {producer} เว้นว่าง = ใช้ชื่อช่องปัจจุบัน
       lockChannel: null, // { id, name } ช่องที่อนุญาตให้อัป (null = ไม่ล็อก)
       autoAcceptInvite: true, // เปิดลิงก์คำเชิญสิทธิ์ช่องแล้วกด Accept ให้
+      quickActions: true, // ปุ่มลัดใต้ช่องชื่อ/คำอธิบายของ Studio
       notify: true, // แจ้งเตือนบนเดสก์ท็อป + เสียง เมื่อคิวเสร็จ/หยุด
       // ตั้งเวลาปล่อย: คลิปแรกปล่อยตอน start แล้วคลิปถัดไปห่างกันทีละ every (unit = 'hour' | 'day')
       schedule: { on: false, start: '', every: 1, unit: 'day' },
@@ -2002,6 +2003,130 @@
       await sleep(800);
       if (session === s) applyToOpenDialog();
     }
+  }, 1000);
+
+  // ===== ปุ่มลัดใต้ช่องชื่อ/คำอธิบายของ Studio (หน้าต่างอัปโหลด และหน้าแก้ไขคลิป /video/<id>/edit) =====
+  // วางแถบเล็ก ๆ ต่อจาก ytcp-video-title / ytcp-video-description · Studio วาดหน้าใหม่เมื่อไรก็ใส่กลับเอง
+  // ไม่กด Save ของ YouTube ให้ — แก้แล้วผู้ใช้ตรวจแล้วกดเอง (Ctrl+Z ย้อนได้เหมือนพิมพ์เอง)
+  const qa = { presetId: '', txt: '', txtName: '', key: '' };
+  const qaPreset = () => presetById(qa.presetId || activeId);
+  // ชื่อไฟล์คลิป (ใช้กับ {name}/{filename}): ส่วน "Filename" ทางขวา → ชื่อตอนเปิดหน้าต่างอัปโหลด → ชื่อคลิปปัจจุบัน
+  function qaFileName(host) {
+    // หน้าแก้ไขคลิป: ytcp-video-info อยู่คอลัมน์ขวา นอก ytcp-video-details-section -> หาทั้งหน้า
+    const info = host && host === getDialog() ? host : document;
+    const leaf = [...info.querySelectorAll('ytcp-video-info *')].find((e) => !e.children.length && /\.[a-z0-9]{2,4}$/i.test(e.textContent.trim()));
+    return (leaf && leaf.textContent.trim()) || (session && session.originalName) || normText(getTitleBox(host)?.textContent);
+  }
+  function qaVars(host) {
+    const p = qaPreset();
+    const n = (session && session.n) || (counters[p.id] || 0) + 1; // ปุ่มลัดไม่เลื่อนเลข EP เอง
+    return buildVars(qaFileName(host), n, qa.txt, { preset: p });
+  }
+  function qaSay(bar, text, kind = '') {
+    const st = bar.querySelector('.st');
+    st.className = 'st ' + kind;
+    st.textContent = text;
+    clearTimeout(bar._t);
+    if (kind !== 'err' && kind !== 'warn') bar._t = setTimeout(() => { st.textContent = ''; }, 5000);
+  }
+  function qaCheck(bar, host) {
+    const text = getDescBox(host)?.innerText || '';
+    const tc = checkTracklist(text.slice(0, DESC_MAX), text.length, 0);
+    if (tc.errors.length) qaSay(bar, L(`Chapters: ${tc.errors.length} ปัญหา — ${tc.errors[0]}`, `Chapters: ${tc.errors.length} problem(s) — ${tc.errors[0]}`), 'err');
+    else if (!tc.count) qaSay(bar, L('ไม่มี timestamp — YouTube จะไม่สร้าง Chapters', 'No timestamps — YouTube won\'t create chapters'), 'warn');
+    else qaSay(bar, L(`Chapters ${tc.count} ช่วง ผ่านกฎของ YouTube`, `${tc.count} chapters pass YouTube's rules`) + (tc.warnings.length ? ' · ' + tc.warnings[0] : ''), tc.warnings.length ? 'warn' : 'ok');
+  }
+  const qaBtn = (ic, label, title, onclick) => h('button', { type: 'button', className: 'qb', title, onclick }, icon(ic, 15), label);
+
+  function qaTitleBar(host) {
+    const sel = h('select', { title: L('พรีเซ็ตที่ใช้กับปุ่มลัด', 'Preset used by the quick actions'), onchange: (e) => { qa.presetId = e.target.value; } },
+      presets.map((p, i) => h('option', { value: p.id, selected: p.id === qaPreset().id }, `${i + 1}. ${p.label}`)));
+    const bar = h('div', { className: 'ytp-qa' },
+      sel,
+      qaBtn('refresh', L('ชื่อจากพรีเซ็ต', 'Preset title'), L('แทนชื่อคลิปด้วยชื่อที่สร้างจากพรีเซ็ต', 'Replace the title with one built from the preset'), () => {
+        const t = makeTitle(qaPreset(), qaVars(host));
+        setEditable(getTitleBox(host), t);
+        qaSay(bar, L(`ใส่ชื่อแล้ว (${t.length}/100)`, `Title set (${t.length}/100)`), t.length > TITLE_MAX ? 'err' : 'ok');
+      }),
+      qaBtn('copy', L('คัดลอก', 'Copy'), L('คัดลอกชื่อคลิป', 'Copy the title'), () => {
+        GM_setClipboard(normText(getTitleBox(host)?.textContent));
+        qaSay(bar, L('คัดลอกชื่อแล้ว', 'Title copied'), 'ok');
+      }),
+      h('span', { className: 'st' }));
+    return bar;
+  }
+
+  function qaDescBar(host) {
+    const txtIn = h('input', { type: 'file', accept: '.txt,text/plain', hidden: true, onchange: async (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      qa.txt = await readText(f);
+      qa.txtName = f.name;
+      const p = qaPreset();
+      const vars = qaVars(host);
+      setEditable(getDescBox(host), renderDesc(p, vars));
+      // ชื่อที่ใช้ตัวแปรจาก tracklist ({artists} ฯลฯ) ต้องสร้างใหม่ด้วย ไม่งั้นชื่อกับคำอธิบายไม่ตรงกัน
+      if (/\{(artists|track1|trackcount)\}/.test(p.title)) setEditable(getTitleBox(host), makeTitle(p, vars));
+      qaCheck(bar, host);
+    } });
+    const bar = h('div', { className: 'ytp-qa' },
+      qaBtn('file', L('คำอธิบายจากพรีเซ็ต', 'Preset description'), L('แทนคำอธิบายด้วยของพรีเซ็ต (ใช้ tracklist จาก .txt ที่ใส่ไว้)', 'Replace the description with the preset\'s (uses the loaded .txt tracklist)'), () => {
+        setEditable(getDescBox(host), renderDesc(qaPreset(), qaVars(host)));
+        qaCheck(bar, host);
+      }),
+      qaBtn('clip', L('ใส่ .txt', 'Load .txt'), L('เลือกไฟล์ tracklist .txt แล้วสร้างคำอธิบายใหม่', 'Pick a tracklist .txt and rebuild the description'), () => txtIn.click()),
+      qaBtn('check', L('ตรวจ Chapters', 'Check chapters'), L('ตรวจ timestamp ในคำอธิบายตามกฎ Chapters ของ YouTube', 'Check the description\'s timestamps against YouTube\'s chapter rules'), () => qaCheck(bar, host)),
+      qaBtn('layers', L('แท็กจากพรีเซ็ต', 'Preset tags'), L('เพิ่มแท็กของพรีเซ็ต', 'Add the preset\'s tags'), async () => {
+        const ok = await setTags(host, renderTags(qaPreset(), qaVars(host)));
+        qaSay(bar, ok ? L('เพิ่มแท็กแล้ว', 'Tags added') : L('หาช่องแท็กไม่เจอ', 'Tags field not found'), ok ? 'ok' : 'err');
+      }),
+      qaBtn('send', L('ใส่ทั้งหมด', 'Apply all'), L('ชื่อ + คำอธิบาย + แท็ก + ตัวเลือกจากการตั้งค่า', 'Title + description + tags + options from Settings'), async () => {
+        const p = qaPreset();
+        const vars = qaVars(host);
+        const ok = await fillDetails({ title: makeTitle(p, vars), description: renderDesc(p, vars), tags: renderTags(p, vars) });
+        qaCheck(bar, host);
+        if (!ok) qaSay(bar, L('ใส่แล้ว แต่หาช่องแท็กไม่เจอ', 'Applied, but the tags field was not found'), 'warn');
+      }),
+      qaBtn('copy', L('คัดลอก', 'Copy'), L('คัดลอกคำอธิบาย', 'Copy the description'), () => {
+        GM_setClipboard(getDescBox(host)?.innerText || '');
+        qaSay(bar, L('คัดลอกคำอธิบายแล้ว', 'Description copied'), 'ok');
+      }),
+      h('span', { className: 'st' }),
+      txtIn);
+    return bar;
+  }
+
+  GM_addStyle(`
+    .ytp-qa{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 4px;font:500 12px/1.4 Roboto,"Noto Sans Thai",Arial,sans-serif}
+    .ytp-qa .qb{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:999px;cursor:pointer;
+      border:1px solid #d3d3d3;background:#fff;color:#0f0f0f;font:inherit;transition:background .15s,border-color .15s}
+    .ytp-qa .qb:hover{background:#f2f2f2;border-color:#bdbdbd}
+    .ytp-qa .qb:focus-visible{outline:2px solid #065fd4;outline-offset:1px}
+    .ytp-qa .qb svg{flex:0 0 auto}
+    .ytp-qa select{height:28px;max-width:180px;border-radius:999px;border:1px solid #d3d3d3;background:#fff;color:#0f0f0f;padding:0 8px;font:inherit;cursor:pointer}
+    .ytp-qa .st{font-weight:400;color:#606060;min-width:0}
+    .ytp-qa .st.ok{color:#1b873f} .ytp-qa .st.warn{color:#b26a00} .ytp-qa .st.err{color:#cc0000}
+    html[dark] .ytp-qa .qb,html[dark] .ytp-qa select{background:#1f1f1f;border-color:#3f3f3f;color:#f1f1f1}
+    html[dark] .ytp-qa .qb:hover{background:#2a2a2a;border-color:#5a5a5a}
+    html[dark] .ytp-qa .st{color:#aaa}
+    html[dark] .ytp-qa .st.ok{color:#4ade80} html[dark] .ytp-qa .st.warn{color:#fbbf24} html[dark] .ytp-qa .st.err{color:#f87171}
+  `);
+
+  setInterval(() => {
+    const on = settings.quickActions && !running;
+    const host = on && getDetailsHost();
+    const tEl = host && host.querySelector('ytcp-video-title');
+    const dEl = host && host.querySelector('ytcp-video-description');
+    if (!tEl || !isVisible(getTitleBox(host))) {
+      if (!on) document.querySelectorAll('.ytp-qa').forEach((b) => b.remove());
+      return;
+    }
+    // คลิปใหม่ / หน้าใหม่: ล้าง .txt ที่ใส่ไว้กับคลิปก่อน
+    const key = onEditPage() ? location.pathname : 'dlg:' + (session ? session.originalName : '');
+    if (key !== qa.key) { qa.key = key; qa.txt = ''; qa.txtName = ''; }
+    if (!tEl.nextElementSibling?.classList.contains('ytp-qa')) tEl.after(qaTitleBar(host));
+    if (dEl && !dEl.nextElementSibling?.classList.contains('ytp-qa')) dEl.after(qaDescBar(host));
   }, 1000);
 
   let reloadingOnPurpose = false; // นำเข้าไฟล์ / เปลี่ยนภาษา: ข้อมูลใหม่บันทึกแล้ว ต้องรีโหลดให้ได้ ไม่งั้นค่าเก่าในหน้าจะเขียนทับ
@@ -3886,6 +4011,7 @@
     ),
     sec(L('อัปโหลดทีละไฟล์ (หน้าต่างปกติของ YouTube)', 'Single-file upload (YouTube\'s normal dialog)'), 'upload',
       sw('autoApply', L('เติมข้อมูลอัตโนมัติ', 'Auto-fill details'), L('ใส่ชื่อ/คำอธิบาย/แท็กจากพรีเซ็ตหลักให้ทันทีเมื่อเลือกไฟล์', 'Fills title/description/tags from the default preset as soon as a file is selected')),
+      sw('quickActions', L('ปุ่มลัดใต้ช่องชื่อและคำอธิบาย', 'Quick actions under title and description'), L('ปุ่มใส่ชื่อ/คำอธิบาย/แท็กจากพรีเซ็ต, ใส่ .txt, ตรวจ Chapters และคัดลอก — ทั้งในหน้าต่างอัปโหลดและหน้าแก้ไขคลิป', 'Buttons to apply preset title/description/tags, load a .txt, check chapters and copy — in the upload dialog and on the video edit page')),
       sw('autoNext', L('กด Next ไปหน้าการเปิดเผย', 'Press Next to the Visibility page'), L('เลือกการเปิดเผยตามพรีเซ็ตให้ แต่ไม่กด Save', 'Selects visibility from the preset but doesn\'t press Save'))
     ),
     sec(L('ตรวจปัญหา', 'Troubleshooting'), 'alert',
