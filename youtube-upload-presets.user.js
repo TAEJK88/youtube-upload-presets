@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.21.0
+// @version      4.21.1
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -3136,10 +3136,20 @@
     addFiles(files);
   }
   drawer.dataset.drop = L('วางเพื่อเพิ่มเข้าคิว', 'Drop to add to the queue');
-  drawer.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dropHint(drawer); });
+  // รับการลาก: ต้องบอกเบราว์เซอร์เองว่า "วางได้ (copy)" ทั้งตอน dragenter และ dragover แล้วไม่ส่งต่อให้ Studio
+  // Studio รับการลากไฟล์ทั้งหน้าอยู่แล้ว (เปิดหน้าต่างอัปโหลด) ถ้าปล่อยให้ handler ของ Studio ทำงานต่อ
+  // มันตั้ง dropEffect ทับเป็น none → เคอร์เซอร์ขึ้น 🚫 วางไม่ได้ (เจอตอนลากหลายไฟล์พร้อมกัน)
+  const acceptDrag = (el) => (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { e.dataTransfer.dropEffect = 'copy'; } catch { /* บางเบราว์เซอร์ห้ามตั้งค่า */ }
+    if (e.type === 'dragover') dropHint(el);
+  };
+  for (const t of ['dragenter', 'dragover']) drawer.addEventListener(t, acceptDrag(drawer));
   drawer.addEventListener('drop', onPanelDrop);
   // ลากไฟล์มาวางบนปุ่มลอยได้เลย ไม่ต้องเปิดแผงก่อน
-  fab.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dropHint(fab); });
+  for (const t of ['dragenter', 'dragover']) fab.addEventListener(t, acceptDrag(fab));
   fab.addEventListener('drop', onPanelDrop);
 
   const defaultPresetSel = h('select', {
@@ -3410,7 +3420,13 @@
     const el = h('div', { className: 'card' }, hdr, fields, att, upBar, msg, attachInput);
     // ลาก .txt / ภาพ มาวางบนการ์ดเพื่อแนบกับคลิปนี้โดยตรง (ถ้ามีคลิปปนมา ส่งต่อให้แผงเพิ่มเข้าคิวตามปกติ)
     const attachable = (e) => hasFiles(e) && canMove(it);
-    el.addEventListener('dragover', (e) => { if (!attachable(e)) return; e.preventDefault(); e.stopPropagation(); el.classList.add('drag'); });
+    el.addEventListener('dragover', (e) => {
+      if (!attachable(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { e.dataTransfer.dropEffect = 'copy'; } catch { /* ignore */ }
+      el.classList.add('drag');
+    });
     el.addEventListener('dragleave', () => el.classList.remove('drag'));
     el.addEventListener('drop', (e) => {
       el.classList.remove('drag');
