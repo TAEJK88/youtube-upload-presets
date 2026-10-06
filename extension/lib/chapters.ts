@@ -88,7 +88,9 @@ export async function mp4Duration(file: Blob): Promise<number> {
       for (let p = 0; p + 8 <= mv.byteLength;) {
         const l = mv.getUint32(p);
         if (type(mv, p) === 'mvhd') {
+          if (p + 9 > mv.byteLength) return 0; // truncated: no version byte
           const v1 = mv.getUint8(p + 8) === 1;
+          if (p + (v1 ? 40 : 28) > mv.byteLength) return 0; // truncated: timescale/duration cut off
           const ts = mv.getUint32(p + (v1 ? 28 : 20));
           const du = v1 ? Number(mv.getBigUint64(p + 32)) : mv.getUint32(p + 24);
           return ts ? du / ts : 0;
