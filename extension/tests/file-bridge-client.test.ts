@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { FILE_CH, type FileOps } from '../lib/file-bridge';
 import { mountFileBridge } from '../lib/file-bridge-client';
 import { portEndpoint, rpcServe } from '../lib/rpc';
