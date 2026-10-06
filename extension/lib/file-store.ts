@@ -17,10 +17,15 @@ function open(): Promise<IDBDatabase> {
 async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await open();
   return new Promise<T>((resolve, reject) => {
-    const t = db.transaction(STORE, mode);
-    const req = fn(t.objectStore(STORE));
-    t.oncomplete = () => { db.close(); resolve(req.result); };
-    t.onerror = t.onabort = () => { db.close(); reject(t.error ?? req.error); };
+    try {
+      const t = db.transaction(STORE, mode);
+      const req = fn(t.objectStore(STORE));
+      t.oncomplete = () => { db.close(); resolve(req.result); };
+      t.onerror = t.onabort = () => { db.close(); reject(t.error ?? req.error); };
+    } catch (e) {
+      db.close(); // fn()/transaction() threw synchronously (e.g. DataCloneError) — don't leak the connection
+      reject(e);
+    }
   });
 }
 

@@ -34,4 +34,10 @@ describe('file-store', () => {
     await putHandle('a', fake('new.mp4'));
     expect((await getHandle('a'))?.name).toBe('new.mp4');
   });
+
+  it('does not leak the connection when the write throws synchronously', async () => {
+    await expect(putHandle('x', (() => {}) as unknown as FileSystemFileHandle)).rejects.toThrow();
+    await putHandle('a', fake('after.mp4'));
+    expect((await getHandle('a'))?.name).toBe('after.mp4');
+  });
 });
