@@ -1,4 +1,4 @@
-// Every Studio selector. Copied verbatim from the userscript (v4.26.1).
+// Every Studio selector. Copied verbatim from the userscript (synced with v4.27.1).
 export const SEL = {
   // --- หน้าต่างอัปโหลด ---
   dialog: 'ytcp-uploads-dialog',
@@ -56,6 +56,8 @@ export const SEL = {
   inviteRowTitle: '#video-title',
   // --- หน้าสลับช่องของ YouTube (www.youtube.com/channel_switcher → /account) ---
   switcherItem: 'ytd-account-item-renderer', // หนึ่งแถว = หนึ่งช่อง (ไม่มี UC id ในแถว มีแต่ชื่อกับ @handle)
+  switcherItemClick: 'tp-yt-paper-icon-item', // ตัวที่กดได้จริงในแถว
+  switcherConfirm: 'ytd-popup-container yt-confirm-dialog-renderer #confirm-button', // ปุ่ม "Got it" ของช่องที่เราเป็นผู้จัดการ
   // --- Monetisation / Ad suitability ---
   monetBox: 'ytcp-video-monetization',
   monetDialog: 'ytcp-video-monetization-edit-dialog',
