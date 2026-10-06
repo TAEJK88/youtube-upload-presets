@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { applyBackup, buildBackup, parseBackup, writeBackup } from '../lib/backup';
-import { runMigrations, SCHEMA_VERSION } from '../lib/migrations';
+import { applyBackup, BACKUP_SCHEMA, buildBackup, parseBackup, writeBackup } from '../lib/backup';
+import { MIGRATIONS, runMigrations, SCHEMA_VERSION } from '../lib/migrations';
 import type { Preset } from '../lib/presets';
 import { defaultSettings } from '../lib/settings';
 
@@ -45,7 +45,7 @@ describe('applyBackup', () => {
     const w = applyBackup(data, presets, false, cur());
     expect(w.presets.map((p) => p.id)).toEqual(['mine']);
     expect(w.activeId).toBe('mine');
-    expect(w.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(w.schemaVersion).toBe(BACKUP_SCHEMA);
     expect(w.settings).toMatchObject({ producer: 'Me', delay: 5, pace: 'slower', lang: 'en', lockChannel: null });
     expect(w.settings?.schedule).toEqual(defaultSettings().schedule);
     expect(w.settings).not.toHaveProperty('bogus');
@@ -68,6 +68,11 @@ describe('applyBackup', () => {
     if (!r.ok) throw new Error('fixture');
     expect(applyBackup(r.data, r.presets, false, cur()).activeId).toBe('mine');
   });
+
+  it('keeps cur.settings.lang and ignores the file\'s lang', () => {
+    const { data, presets } = parsed();
+    expect(applyBackup(data, presets, true, cur()).settings?.lang).toBe('en'); // file says 'th'
+  });
 });
 
 describe('writeBackup', () => {
@@ -75,11 +80,23 @@ describe('writeBackup', () => {
     const r = parseBackup(exported());
     if (!r.ok) throw new Error('fixture');
     await writeBackup(applyBackup(r.data, r.presets, true, cur()));
-    await runMigrations();
     const got = await browser.storage.local.get(['presets', 'activeId', 'schemaVersion']);
     expect((got.presets as Preset[]).map((p) => p.id)).toEqual(['mine']);
     expect(got.activeId).toBe('mine');
     expect(got.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it('runs a migration step added after BACKUP_SCHEMA on the imported data', async () => {
+    const r = parseBackup(exported());
+    if (!r.ok) throw new Error('fixture');
+    let ran = false;
+    MIGRATIONS.push({ async run() { ran = true; } });
+    try {
+      await writeBackup(applyBackup(r.data, r.presets, true, cur()));
+    } finally {
+      MIGRATIONS.pop();
+    }
+    expect(ran).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { VISIBILITIES, type Visibility } from './constants';
-import { fixLegacyTrapsoulTitles, SCHEMA_VERSION } from './migrations';
+import { fixLegacyTrapsoulTitles, runMigrations } from './migrations';
 import type { Preset } from './presets';
 import type { Settings } from './settings';
 
@@ -11,6 +11,7 @@ import type { Settings } from './settings';
 // imported when the user confirms the file is their own.
 export const BACKUP_APP = 'yt-upload-presets';
 export const BACKUP_FORMAT = 1; // bump when older versions can no longer read the file fully
+export const BACKUP_SCHEMA = 4; // the schema a format-1 backup represents (userscript v4.26.1)
 export const PERSONAL_SETTINGS = ['producer', 'schedule'];
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -60,6 +61,8 @@ export interface BackupWrites {
   counters?: Record<string, number>;
 }
 
+// cur.settings must come from loadSettings() (not a raw storage read): lang is always
+// the current one, taken from cur.settings and never from the file (see the `lang` skip below).
 export function applyBackup(
   data: Record<string, unknown>, presets: Preset[], own: boolean,
   cur: { settings: Settings; cfg: Record<string, unknown> },
@@ -67,8 +70,8 @@ export function applyBackup(
   const w: BackupWrites = {
     presets: fixLegacyTrapsoulTitles(presets),
     activeId: presets.some((p) => p.id === data.activeId) ? (data.activeId as string) : presets[0]!.id,
-    // the file comes from an already-migrated install
-    schemaVersion: SCHEMA_VERSION,
+    // a format-1 file represents BACKUP_SCHEMA; writeBackup runs later migrations on top
+    schemaVersion: BACKUP_SCHEMA,
   };
   if (isObj(data.settings)) {
     const base = cur.settings as unknown as Record<string, unknown>;
@@ -97,8 +100,10 @@ export function applyBackup(
   return w;
 }
 
-export const writeBackup = (w: BackupWrites): Promise<void> =>
-  browser.storage.local.set(Object.fromEntries(Object.entries(w).filter(([, v]) => v !== undefined)));
+export async function writeBackup(w: BackupWrites): Promise<void> {
+  await browser.storage.local.set(Object.fromEntries(Object.entries(w).filter(([, v]) => v !== undefined)));
+  await runMigrations(); // steps added after BACKUP_SCHEMA run on the imported data; 1–4 are already baked in
+}
 
 export interface BackupFile {
   app: string; format: number; version: string; exportedAt: string;
