@@ -1,4 +1,4 @@
-import { getLang, type Lang } from './i18n';
+import { resolveLang, type Lang } from './i18n';
 import { load, save } from './storage';
 
 // First clip goes out at `start`, each next one `every` hours/days later.
@@ -73,7 +73,10 @@ export async function loadSettings(): Promise<Settings> {
     dirty = true;
   }
   if (s.lang === undefined) {
-    s.lang = getLang();
+    // Same rule the userscript used: LANG was computed from storage at load, not from
+    // whatever language is currently active in this script instance.
+    const presetsExist = (await load('presets', undefined)) !== undefined;
+    s.lang = resolveLang(stored, presetsExist);
     dirty = true;
   }
   if (dirty) await saveSettings(s);

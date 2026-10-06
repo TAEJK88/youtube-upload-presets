@@ -33,15 +33,28 @@ describe('settings', () => {
     expect(s.delay).toBe(9);
   });
 
-  it('moves the old 72% glass default to 82% once and records the language', async () => {
-    setLang('th');
+  it('moves the old 72% glass default to 82% once', async () => {
     await browser.storage.local.set({ settings: { glass: 72 } });
     const s = await loadSettings();
     expect(s.glass).toBe(82);
     expect(s.glassV2).toBe(true);
+    const { settings } = await browser.storage.local.get('settings');
+    expect(settings).toMatchObject({ glass: 82, glassV2: true });
+  });
+
+  it('fills a missing lang from whether presets exist, not the module language', async () => {
+    setLang('en'); // loadSettings must ignore this and read storage instead
+    await browser.storage.local.set({ settings: { glass: 72 }, presets: [{ id: 'x' }] });
+    const s = await loadSettings();
     expect(s.lang).toBe('th');
     const { settings } = await browser.storage.local.get('settings');
-    expect(settings).toMatchObject({ glass: 82, glassV2: true, lang: 'th' });
+    expect(settings).toMatchObject({ lang: 'th' });
+  });
+
+  it('no stored lang and no presets → lang defaults to en', async () => {
+    setLang('th'); // loadSettings must ignore this and read storage instead
+    await browser.storage.local.set({ settings: {} });
+    expect((await loadSettings()).lang).toBe('en');
   });
 
   it('leaves a user-chosen glass value alone', async () => {
