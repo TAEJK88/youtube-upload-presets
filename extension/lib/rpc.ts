@@ -52,7 +52,13 @@ export function rpcClient<H extends Handlers>(ep: Endpoint, ch: string, timeoutM
         reject(new Error(`${op}: timed out after ${timeoutMs} ms`));
       }, timeoutMs);
       pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
-      ep.post({ ch, id, op, args });
+      try {
+        ep.post({ ch, id, op, args });
+      } catch (e) {
+        clearTimeout(timer);
+        pending.delete(id);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
     });
 }
 

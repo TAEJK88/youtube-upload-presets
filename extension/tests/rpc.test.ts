@@ -64,4 +64,21 @@ describe('rpc', () => {
     fire('from-iframe', {});
     expect(heard).toEqual(['from-self']);
   });
+
+  it('a failed send rejects immediately instead of waiting out the timeout', async () => {
+    const ep: Endpoint = { post: () => { throw new Error('port closed'); }, listen: () => () => {} };
+    const call = rpcClient<Ops>(ep, 'test', 10_000);
+    const start = Date.now();
+    await expect(call('add', 1, 1)).rejects.toThrow('port closed');
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('shared window endpoint: the server never treats responses as requests, nor the client requests as responses', async () => {
+    const win = new EventTarget() as unknown as Window;
+    (win as unknown as { postMessage: (data: unknown, origin: string) => void }).postMessage = (data) =>
+      (win as unknown as EventTarget).dispatchEvent(Object.assign(new Event('message'), { data, source: win }));
+    const ep = windowEndpoint(win, '*');
+    rpcServe(ep, 'test', handlers);
+    expect(await rpcClient<Ops>(ep, 'test')('add', 2, 3)).toBe(5);
+  });
 });
