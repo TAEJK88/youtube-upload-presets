@@ -37,6 +37,12 @@ describe('file-store', () => {
 
   it('does not leak the connection when the write throws synchronously', async () => {
     await expect(putHandle('x', (() => {}) as unknown as FileSystemFileHandle)).rejects.toThrow();
+    await new Promise<void>((resolve, reject) => {
+      const r = indexedDB.deleteDatabase('ytup-files');
+      r.onsuccess = () => resolve();
+      r.onblocked = () => reject(new Error('blocked: a connection is still open'));
+      r.onerror = () => reject(r.error);
+    });
     await putHandle('a', fake('after.mp4'));
     expect((await getHandle('a'))?.name).toBe('after.mp4');
   });

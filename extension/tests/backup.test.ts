@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { applyBackup, BACKUP_SCHEMA, buildBackup, parseBackup, writeBackup } from '../lib/backup';
-import { MIGRATIONS, runMigrations, SCHEMA_VERSION } from '../lib/migrations';
+import { MIGRATIONS, SCHEMA_VERSION } from '../lib/migrations';
 import type { Preset } from '../lib/presets';
 import { defaultSettings } from '../lib/settings';
 

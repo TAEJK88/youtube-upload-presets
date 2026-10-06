@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { portEndpoint, rpcClient, rpcServe, windowEndpoint, type Endpoint } from '../lib/rpc';
 
 type Ops = {
@@ -65,12 +65,13 @@ describe('rpc', () => {
     expect(heard).toEqual(['from-self']);
   });
 
-  it('a failed send rejects immediately instead of waiting out the timeout', async () => {
-    const ep: Endpoint = { post: () => { throw new Error('port closed'); }, listen: () => () => {} };
-    const call = rpcClient<Ops>(ep, 'test', 10_000);
-    const start = Date.now();
-    await expect(call('add', 1, 1)).rejects.toThrow('port closed');
-    expect(Date.now() - start).toBeLessThan(1000);
+  it('a failed send rejects and leaves no timer behind', async () => {
+    vi.useFakeTimers();
+    try {
+      const ep: Endpoint = { post: () => { throw new Error('port closed'); }, listen: () => () => {} };
+      await expect(rpcClient<Ops>(ep, 'test', 10_000)('add', 1, 1)).rejects.toThrow('port closed');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it('shared window endpoint: the server never treats responses as requests, nor the client requests as responses', async () => {
