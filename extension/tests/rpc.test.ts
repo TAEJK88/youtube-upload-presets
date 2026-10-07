@@ -83,3 +83,17 @@ describe('rpc', () => {
     expect(await rpcClient<Ops>(ep, 'test')('add', 2, 3)).toBe(5);
   });
 });
+
+
+describe('rpcClient dispose', () => {
+  it('fails waiting calls at once and refuses new ones', async () => {
+    const [a] = pair(); // nobody serves the other end
+    const call = rpcClient<Ops>(a, 'test', 10_000);
+    const t0 = Date.now();
+    const waiting = call('add', 1, 2);
+    call.dispose('bridge removed');
+    await expect(waiting).rejects.toThrow('bridge removed');
+    await expect(call('add', 1, 2)).rejects.toThrow('bridge removed');
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+});

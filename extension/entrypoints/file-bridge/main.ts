@@ -5,8 +5,13 @@ import { portEndpoint, rpcServe } from '@/lib/rpc';
 // Anything running on Studio's origin in the parent frame can connect here; that's not
 // a secret. What actually protects file access is that queue item ids are unguessable
 // (see file-bridge.ts), so connecting alone doesn't let a page read anyone else's files.
+// A new connect replaces the previous channel instead of serving both.
+let current: { stop: () => void; port: MessagePort } | null = null;
 window.addEventListener('message', (e) => {
   if (!isBridgeConnect(e, window.parent)) return;
+  current?.stop();
+  current?.port.close();
+  const port = e.ports[0]!;
   const handlers: FileOps = { getFile: async (itemId) => readHandle(await getHandle(itemId)) };
-  rpcServe(portEndpoint(e.ports[0]!), FILE_CH, handlers);
+  current = { stop: rpcServe(portEndpoint(port), FILE_CH, handlers), port };
 });

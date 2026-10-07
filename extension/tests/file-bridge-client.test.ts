@@ -1,48 +1,132 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FILE_CH, type FileOps } from '../lib/file-bridge';
-import { mountFileBridge } from '../lib/file-bridge-client';
+import { createFileBridge } from '../lib/file-bridge-client';
 import { portEndpoint, rpcServe } from '../lib/rpc';
 
-// Minimal fake iframe + Document: records the load listener and the
-// MessagePort transferred via contentWindow.postMessage.
-function fakeDoc() {
-  let loadFn: (() => void) | undefined;
-  let posted: { msg: unknown; transfer?: Transferable[] } | undefined;
-  const frame = {
-    style: {} as Record<string, string>,
-    src: '',
-    addEventListener: (ev: string, fn: () => void) => { if (ev === 'load') loadFn = fn; },
-    contentWindow: {
-      postMessage: (msg: unknown, _origin: string, transfer?: Transferable[]) => { posted = { msg, transfer }; },
-    },
-  };
-  const doc = {
-    createElement: () => frame,
-    documentElement: { append: () => {} },
-  } as unknown as Document;
-  return { doc, fireLoad: () => loadFn?.(), port: () => posted?.transfer?.[0] as MessagePort | undefined };
+// A fake Document whose iframes record their load listener, the port handed over on
+// connect, and whether they are still attached.
+interface FakeFrame {
+  src: string;
+  style: Record<string, string>;
+  attached: boolean;
+  readonly isConnected: boolean;
+  load(): void;
+  port(): MessagePort | undefined;
+  remove(): void;
+  addEventListener(ev: string, fn: () => void): void;
+  contentWindow: { postMessage(msg: unknown, origin: string, transfer?: Transferable[]): void };
 }
 
-describe('mountFileBridge', () => {
-  it('rejects getFile with "bridge not ready" when the iframe never loads', async () => {
-    const { doc } = fakeDoc();
-    const bridge = mountFileBridge(doc, 30);
-    await expect(bridge.getFile('x')).rejects.toThrow('bridge not ready');
-  }, 1000);
+function fakeDoc() {
+  const frames: FakeFrame[] = [];
+  const doc = {
+    createElement: () => {
+      let onLoad: (() => void) | undefined;
+      let posted: Transferable[] | undefined;
+      const f: FakeFrame = {
+        src: '',
+        style: {},
+        attached: false,
+        get isConnected() { return this.attached; },
+        load: () => onLoad?.(),
+        port: () => posted?.[0] as MessagePort | undefined,
+        remove() { this.attached = false; },
+        addEventListener: (ev, fn) => { if (ev === 'load') onLoad = fn; },
+        contentWindow: { postMessage: (_m, _o, transfer) => { posted = transfer; } },
+      };
+      frames.push(f);
+      return f;
+    },
+    documentElement: { append: (f: FakeFrame) => { f.attached = true; } },
+  } as unknown as Document;
+  return { doc, frames };
+}
 
-  it('resolves getFile once the iframe loads and serves the request', async () => {
-    const { doc, fireLoad, port } = fakeDoc();
-    const bridge = mountFileBridge(doc, 30_000);
-    fireLoad();
-    const port2 = port();
-    if (!port2) throw new Error('no port transferred');
-    const stop = rpcServe<FileOps>(portEndpoint(port2), FILE_CH, {
-      getFile: async (id) => new File(['abc'], id + '.mp4'),
-    });
-    const file = await bridge.getFile('clip');
+const ports: MessagePort[] = [];
+// Serve getFile on a frame's port the way entrypoints/file-bridge/main.ts does.
+function serve(f: FakeFrame, getFile: FileOps['getFile'] = async (id) => new File(['abc'], id + '.mp4')) {
+  const p = f.port();
+  if (!p) throw new Error('no port transferred');
+  ports.push(p);
+  rpcServe<FileOps>(portEndpoint(p), FILE_CH, { getFile });
+}
+
+beforeEach(() => { vi.spyOn(console, 'info').mockImplementation(() => {}); });
+afterEach(() => { ports.splice(0).forEach((p) => p.close()); vi.restoreAllMocks(); });
+
+describe('createFileBridge', () => {
+  it('mounts nothing until the first file is needed', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    expect(frames).toHaveLength(0);
+    const got = bridge.getFile('clip');
+    expect(frames).toHaveLength(1);
+    frames[0]!.load();
+    serve(frames[0]!);
     // Node 22 clones File as Blob over MessagePort, so check content instead of .name
-    expect(await file.text()).toBe('abc');
-    stop();
-    port2.close();
+    expect(await (await got).text()).toBe('abc');
+    bridge.dispose();
+  });
+
+  it('tries one fresh frame, then rejects with "bridge not ready"', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    await expect(bridge.getFile('x')).rejects.toThrow('bridge not ready');
+    expect(frames).toHaveLength(2);
+    expect(frames[0]!.attached).toBe(false); // the dead one is removed
+    expect(frames[1]!.attached).toBe(true); // the last one stays, in case it loads late
+    bridge.dispose();
+  });
+
+  it('a frame that loads after the timeout still serves the next request', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    await expect(bridge.getFile('x')).rejects.toThrow('bridge not ready');
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await bridge.getFile('late')).text()).toBe('abc');
+    expect(frames).toHaveLength(2); // no third frame
+    bridge.dispose();
+  });
+
+  it('replaces a frame the page removed', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const first = bridge.getFile('a');
+    frames[0]!.load();
+    serve(frames[0]!);
+    await first;
+    frames[0]!.remove();
+    const second = bridge.getFile('b');
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await second).text()).toBe('abc');
+    bridge.dispose();
+  });
+
+  it('does not retry an answer from the bridge', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const got = bridge.getFile('gone');
+    frames[0]!.load();
+    serve(frames[0]!, async () => { throw new Error('missing'); });
+    await expect(got).rejects.toThrow('missing');
+    expect(frames).toHaveLength(1);
+    bridge.dispose();
+  });
+
+  it('logs what happened to each frame', async () => {
+    const { doc } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    await expect(bridge.getFile('x')).rejects.toThrow();
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toEqual(expect.arrayContaining([
+      '[ytup] file bridge: #1 mounted',
+      '[ytup] file bridge: #1 load timeout after 30 ms (in DOM: true)',
+      '[ytup] file bridge: #1 dropped (bridge not ready)',
+      '[ytup] file bridge: #2 mounted',
+    ]));
+    bridge.dispose();
   });
 });

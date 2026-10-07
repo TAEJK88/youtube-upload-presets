@@ -1,4 +1,4 @@
-import { mountFileBridge } from '@/lib/file-bridge-client';
+import { createFileBridge } from '@/lib/file-bridge-client';
 import { MAIN_CH, type MainOps } from '@/lib/main-ops';
 import { onMessage, sendMessage } from '@/lib/messages';
 import { rpcClient, windowEndpoint } from '@/lib/rpc';
@@ -24,7 +24,7 @@ export default defineContentScript({
   matches: ['https://studio.youtube.com/*'],
   main() {
     const main = rpcClient<MainOps>(windowEndpoint(window, window.location.origin), MAIN_CH);
-    const files = mountFileBridge(document);
+    const files = createFileBridge(document);
 
     onMessage('spike:cfg', () =>
       main('getCfg', ['CHANNEL_ID', 'DELEGATED_SESSION_ID', 'SESSION_INDEX', 'INNERTUBE_CONTEXT_CLIENT_VERSION']),

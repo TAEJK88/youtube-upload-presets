@@ -33,7 +33,7 @@ export function rpcServe<H extends Handlers>(ep: Endpoint, ch: string, handlers:
 
 export function rpcClient<H extends Handlers>(ep: Endpoint, ch: string, timeoutMs = 10_000) {
   const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-  ep.listen((d) => {
+  const unlisten = ep.listen((d) => {
     if (!isRes(ch, d)) return;
     const p = pending.get(d.id);
     if (!p) return;
@@ -44,8 +44,10 @@ export function rpcClient<H extends Handlers>(ep: Endpoint, ch: string, timeoutM
   });
   const prefix = Math.random().toString(36).slice(2);
   let seq = 0;
-  return <K extends keyof H & string>(op: K, ...args: Parameters<H[K]>): Promise<Awaited<ReturnType<H[K]>>> =>
+  let closed = '';
+  const call = <K extends keyof H & string>(op: K, ...args: Parameters<H[K]>): Promise<Awaited<ReturnType<H[K]>>> =>
     new Promise((resolve, reject) => {
+      if (closed) return reject(new Error(closed));
       const id = `${prefix}-${++seq}`;
       const timer = setTimeout(() => {
         pending.delete(id);
@@ -60,6 +62,18 @@ export function rpcClient<H extends Handlers>(ep: Endpoint, ch: string, timeoutM
         reject(e instanceof Error ? e : new Error(String(e)));
       }
     });
+  // Stops listening and fails every waiting call with `reason`, so a torn-down channel
+  // never leaves a caller hanging until its timeout.
+  const dispose = (reason = 'closed') => {
+    closed = reason;
+    unlisten();
+    for (const p of pending.values()) {
+      clearTimeout(p.timer);
+      p.reject(new Error(reason));
+    }
+    pending.clear();
+  };
+  return Object.assign(call, { dispose });
 }
 
 export function portEndpoint(port: MessagePort): Endpoint {
