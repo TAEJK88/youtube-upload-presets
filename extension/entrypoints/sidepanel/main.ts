@@ -72,4 +72,15 @@ $('#regrant').addEventListener('click', async () => {
   await render();
 });
 
+$('#switch').addEventListener('click', async () => {
+  const handle = $<HTMLInputElement>('#handle').value.trim();
+  if (!handle) return;
+  try {
+    await sendMessage('dev:switchChannel', { handle, next: 'https://studio.youtube.com/' }, await studioTabId());
+    log(`switching to ${handle}`);
+  } catch (e) {
+    log(`switch: ERROR ${errText(e)}`);
+  }
+});
+
 render();

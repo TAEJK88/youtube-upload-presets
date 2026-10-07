@@ -1,8 +1,14 @@
+import { createChannelSwitch } from '@/lib/channel-switch';
 import { createFileBridge } from '@/lib/file-bridge-client';
+import { initI18n } from '@/lib/i18n';
+import { browserEnv, createInviteWatcher, INVITE_KEYS } from '@/lib/invite';
 import { MAIN_CH, type MainOps } from '@/lib/main-ops';
 import { onMessage, sendMessage } from '@/lib/messages';
 import { rpcClient, windowEndpoint } from '@/lib/rpc';
+import { createSyncStore } from '@/lib/sync-store';
+import { refreshCfg } from '@/lib/studio/channel';
 import { injectIntoUploadDialog } from '@/lib/studio/inject-spike';
+import { initState } from '@/lib/studio/state';
 
 // Spike FAB: tests whether a page click may open the side panel.
 function mountFab() {
@@ -22,12 +28,26 @@ function mountFab() {
 
 export default defineContentScript({
   matches: ['https://studio.youtube.com/*'],
-  main() {
+  async main() {
+    await initI18n();
+
+    // The same watchers as on www.youtube.com: invite links can land on Studio, and the
+    // post-switch "Oops" recovery runs here.
+    const env = browserEnv(await createSyncStore(INVITE_KEYS));
+    const sw = createChannelSwitch(env);
+    sw.watchChannelSwitcher();
+    sw.recoverAfterSwitch();
+    const invite = createInviteWatcher(env);
+    invite.watchInvite();
+    invite.armSpaPoll();
+    onMessage('dev:switchChannel', ({ data }) => sw.switchToChannel({ handle: data.handle }, data.next));
+
     const main = rpcClient<MainOps>(windowEndpoint(window, window.location.origin), MAIN_CH);
+    const readCfg = (keys: string[]) => main('getCfg', keys);
     const files = createFileBridge(document);
 
     onMessage('spike:cfg', () =>
-      main('getCfg', ['CHANNEL_ID', 'DELEGATED_SESSION_ID', 'SESSION_INDEX', 'INNERTUBE_CONTEXT_CLIENT_VERSION']),
+      readCfg(['CHANNEL_ID', 'DELEGATED_SESSION_ID', 'SESSION_INDEX', 'INNERTUBE_CONTEXT_CLIENT_VERSION']),
     );
     onMessage('spike:inject', async ({ data: itemId }) => {
       try {
@@ -41,5 +61,14 @@ export default defineContentScript({
       }
     });
     mountFab();
+
+    try {
+      await initState();
+    } catch (e) {
+      console.error('[ytup] page automation is off:', e);
+      return;
+    }
+    await refreshCfg(readCfg);
+    console.info('[ytup] state ready');
   },
 });
