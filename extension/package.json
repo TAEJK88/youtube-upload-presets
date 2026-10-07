@@ -8,7 +8,7 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "test": "vitest run",
-    "check": "tsc --noEmit && vitest run",
+    "check": "tsc --noEmit && vitest run && node scripts/port-check.mjs",
     "port-check": "node scripts/port-check.mjs",
     "postinstall": "wxt prepare"
   },
