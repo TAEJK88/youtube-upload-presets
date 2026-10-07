@@ -14,4 +14,6 @@ window.addEventListener('message', (e) => {
   const port = e.ports[0]!;
   const handlers: FileOps = { getFile: async (itemId) => readHandle(await getHandle(itemId)) };
   current = { stop: rpcServe(portEndpoint(port), FILE_CH, handlers), port };
+  // Tells the client the connect got through (no id/ok, so it is never taken for an rpc response).
+  port.postMessage({ ch: FILE_CH, ack: true });
 });

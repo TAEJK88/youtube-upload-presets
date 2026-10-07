@@ -18,10 +18,13 @@ const BRIDGE_DOWN = /^(bridge not ready|bridge removed|getFile: timed out)/;
 
 interface Mount {
   n: number;
+  sent: boolean; // connect posted to the frame
   frame: HTMLIFrameElement;
   port: MessagePort;
   call: ReturnType<typeof rpcClient<FileOps>>;
-  loaded: Promise<void>; // never rejects: a frame that loads late still connects
+  loaded: Promise<void>; // resolves on the bridge's ack; never rejects: a frame that loads late still connects
+  gone: Promise<never>; // rejects with 'bridge removed' once this mount is closed
+  failGone: (e: Error) => void;
   stopWatch: () => void;
 }
 
@@ -30,46 +33,69 @@ export interface FileBridge {
   dispose(): void;
 }
 
-export function createFileBridge(doc: Document, timeoutMs = 30_000): FileBridge {
+export interface FileBridgeOptions {
+  MutationObserver?: typeof MutationObserver;
+}
+
+export function createFileBridge(doc: Document, timeoutMs = 30_000, opts: FileBridgeOptions = {}): FileBridge {
   let mount: Mount | null = null;
   let seq = 0;
+  let disposed = false;
+  const MO = opts.MutationObserver ?? globalThis.MutationObserver;
 
   function open(): Mount {
     const n = ++seq;
+    const t0 = performance.now();
+    const since = () => Math.round(performance.now() - t0);
     const frame = doc.createElement('iframe');
     frame.src = browser.runtime.getURL('/file-bridge.html');
     frame.style.display = 'none';
     const { port1, port2 } = new MessageChannel();
     let connected = false;
+    let onAck = () => {};
     const loaded = new Promise<void>((resolve) => {
-      frame.addEventListener('load', () => {
-        if (connected) return;
-        connected = true;
-        frame.contentWindow!.postMessage({ ch: CONNECT }, new URL(frame.src).origin, [port2]);
-        log(`#${n} loaded and connected`);
-        resolve();
+      onAck = resolve;
+    });
+    frame.addEventListener('load', () => {
+      if (connected) return;
+      connected = true;
+      const tConnect = performance.now();
+      port1.addEventListener('message', (e: MessageEvent) => {
+        if (e.data?.ch !== FILE_CH || e.data.ack !== true) return;
+        log(`#${n} connected (ack after ${Math.round(performance.now() - tConnect)} ms)`);
+        onAck();
       });
+      port1.start();
+      frame.contentWindow!.postMessage({ ch: CONNECT }, new URL(frame.src).origin, [port2]);
+      log(`#${n} loaded, connect sent`);
+      m.sent = true;
     });
     doc.documentElement.append(frame);
-    log(`#${n} mounted`);
-    let stopWatch = () => {};
-    if (typeof MutationObserver === 'function') {
-      const mo = new MutationObserver(() => {
+    log(`#${n} mounted (readyState ${doc.readyState}, +${since()} ms)`);
+    let failGone: (e: Error) => void = () => {};
+    const gone = new Promise<never>((_, reject) => {
+      failGone = reject;
+    });
+    gone.catch(() => {});
+    const m: Mount = { sent: false, n, frame, port: port1, call: rpcClient<FileOps>(portEndpoint(port1), FILE_CH, timeoutMs), loaded, gone, failGone, stopWatch: () => {} };
+    if (typeof MO === 'function') {
+      const mo = new MO(() => {
         if (!frame.isConnected) {
-          log(`#${n} removed from the DOM by the page`);
-          mo.disconnect();
+          log(`#${n} removed from the DOM by the page (+${since()} ms after mount, readyState ${doc.readyState})`);
+          close(m, 'removed from the DOM');
         }
       });
       mo.observe(doc.documentElement, { childList: true });
-      stopWatch = () => mo.disconnect();
+      m.stopWatch = () => mo.disconnect();
     }
-    return { n, frame, port: port1, call: rpcClient<FileOps>(portEndpoint(port1), FILE_CH, timeoutMs), loaded, stopWatch };
+    return m;
   }
 
   function close(m: Mount, why: string) {
     log(`#${m.n} dropped (${why})`);
     m.stopWatch();
     m.call.dispose('bridge removed');
+    m.failGone(new Error('bridge removed'));
     m.port.close();
     m.frame.remove();
     if (mount === m) mount = null;
@@ -84,12 +110,14 @@ export function createFileBridge(doc: Document, timeoutMs = 30_000): FileBridge 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        log(`#${m.n} load timeout after ${timeoutMs} ms (in DOM: ${m.frame.isConnected})`);
+        log(m.sent
+          ? `#${m.n} loaded but no ack \u2014 frame blocked?`
+          : `#${m.n} load timeout after ${timeoutMs} ms (in DOM: ${m.frame.isConnected})`);
         reject(new Error('bridge not ready'));
       }, timeoutMs);
     });
     try {
-      await Promise.race([m.loaded, timeout]);
+      await Promise.race([m.loaded, m.gone, timeout]);
     } finally {
       clearTimeout(timer);
     }
@@ -98,6 +126,7 @@ export function createFileBridge(doc: Document, timeoutMs = 30_000): FileBridge 
   return {
     async getFile(itemId) {
       for (let attempt = 0; ; attempt++) {
+        if (disposed) throw new Error('bridge disposed');
         const m = current();
         try {
           await ready(m);
@@ -105,12 +134,14 @@ export function createFileBridge(doc: Document, timeoutMs = 30_000): FileBridge 
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           // The last frame stays mounted: if it loads later, the next request uses it.
+          if (disposed) throw new Error('bridge disposed');
           if (attempt >= 1 || !BRIDGE_DOWN.test(msg)) throw e;
           close(m, msg);
         }
       }
     },
     dispose() {
+      disposed = true;
       if (mount) close(mount, 'disposed');
     },
   };

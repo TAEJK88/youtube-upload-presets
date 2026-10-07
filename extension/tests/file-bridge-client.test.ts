@@ -20,6 +20,7 @@ interface FakeFrame {
 function fakeDoc() {
   const frames: FakeFrame[] = [];
   const doc = {
+    readyState: 'complete',
     createElement: () => {
       let onLoad: (() => void) | undefined;
       let posted: Transferable[] | undefined;
@@ -44,10 +45,11 @@ function fakeDoc() {
 
 const ports: MessagePort[] = [];
 // Serve getFile on a frame's port the way entrypoints/file-bridge/main.ts does.
-function serve(f: FakeFrame, getFile: FileOps['getFile'] = async (id) => new File(['abc'], id + '.mp4')) {
+function serve(f: FakeFrame, getFile: FileOps['getFile'] = async (id) => new File(['abc'], id + '.mp4'), ack = true) {
   const p = f.port();
   if (!p) throw new Error('no port transferred');
   ports.push(p);
+  if (ack) p.postMessage({ ch: FILE_CH, ack: true });
   rpcServe<FileOps>(portEndpoint(p), FILE_CH, { getFile });
 }
 
@@ -122,10 +124,79 @@ describe('createFileBridge', () => {
     await expect(bridge.getFile('x')).rejects.toThrow();
     const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
     expect(lines).toEqual(expect.arrayContaining([
-      '[ytup] file bridge: #1 mounted',
+      expect.stringMatching(/^\[ytup\] file bridge: #1 mounted \(readyState complete, \+\d+ ms\)$/),
       '[ytup] file bridge: #1 load timeout after 30 ms (in DOM: true)',
       '[ytup] file bridge: #1 dropped (bridge not ready)',
-      '[ytup] file bridge: #2 mounted',
+      expect.stringMatching(/^\[ytup\] file bridge: #2 mounted/),
+    ]));
+    bridge.dispose();
+  });
+
+  it('dispose is terminal: an in-flight call rejects and no new frame is mounted', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const got = bridge.getFile('x');
+    const assertion = expect(got).rejects.toThrow('bridge disposed');
+    bridge.dispose();
+    await assertion;
+    expect(frames).toHaveLength(1);
+  });
+
+  it('getFile after dispose rejects without mounting a frame', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    bridge.dispose();
+    await expect(bridge.getFile('x')).rejects.toThrow('bridge disposed');
+    expect(frames).toHaveLength(0);
+  });
+
+  it('logs the connect ack', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const got = bridge.getFile('a');
+    frames[0]!.load();
+    serve(frames[0]!);
+    await got;
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^\[ytup\] file bridge: #1 connected \(ack after \d+ ms\)$/),
+    ]));
+    bridge.dispose();
+  });
+
+  it('a frame that loads but never acks is treated as not ready', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    const got = bridge.getFile('a');
+    frames[0]!.load();
+    serve(frames[0]!, undefined, false);
+    await expect(got).rejects.toThrow('bridge not ready');
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toContain('[ytup] file bridge: #1 loaded but no ack — frame blocked?');
+    bridge.dispose();
+  });
+
+  it('logs and replaces a frame the MutationObserver sees removed, without waiting for the timeout', async () => {
+    const { doc, frames } = fakeDoc();
+    let fire: () => void = () => {};
+    class FakeMO {
+      constructor(cb: () => void) { fire = cb; }
+      observe() {}
+      disconnect() {}
+    }
+    const bridge = createFileBridge(doc, 60_000, { MutationObserver: FakeMO as unknown as typeof MutationObserver });
+    const got = bridge.getFile('a');
+    frames[0]!.load();
+    frames[0]!.remove(); // the page took it out before the bridge answered
+    fire();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await got).text()).toBe('abc');
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^\[ytup\] file bridge: #1 removed from the DOM by the page \(\+\d+ ms after mount, readyState complete\)$/),
     ]));
     bridge.dispose();
   });
