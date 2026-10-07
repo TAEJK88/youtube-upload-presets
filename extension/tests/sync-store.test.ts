@@ -72,12 +72,6 @@ describe('createSyncStore', () => {
     expect(seen).toHaveBeenCalledWith('theirs');
   });
 
-  it('ignores keys it does not mirror', async () => {
-    const kv = await createSyncStore(['a']);
-    await browser.storage.local.set({ b: 1 });
-    expect(() => kv.get('b', 0)).toThrow();
-  });
-
   it('a failed write is reconciled with storage and logged', async () => {
     await local().set({ activeId: 'old' });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -118,8 +112,9 @@ describe('createSyncStore', () => {
     expect(kv.get('settings')).toEqual({ delay: 9 });
   });
 
-  it('throws on a key it does not mirror', async () => {
+  it('throws on a key it does not mirror, and ignores its storage events', async () => {
     const kv = await createSyncStore(['a']);
+    await browser.storage.local.set({ b: 1 });
     expect(() => kv.get('b')).toThrow('SyncStore: unknown key b');
     expect(() => kv.set('b', 1)).toThrow('SyncStore: unknown key b');
   });
@@ -157,19 +152,41 @@ describe('createSyncStore', () => {
     expect(seen).not.toHaveBeenCalled();
   });
 
-  it('ignores a late echo of its own last write once nothing is pending', async () => {
+  it('a genuine external write equal to our earlier write is not dropped as an echo', async () => {
     await local().set({ k: 'old' });
     const kv = await createSyncStore(['k']);
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
-    vi.spyOn(local(), 'set').mockImplementationOnce(() => gate); // our write A never lands
-    kv.set('k', 'A');
-    await local().set({ k: 'X' }); // another context wins; our write is still in flight
+    vi.spyOn(local(), 'set').mockImplementationOnce(() => gate); // our write never lands
+    kv.set('k', 'lofi');
+    await local().set({ k: 'x' }); // another context writes while ours is in flight
     release();
-    await kv.flush();
-    expect(kv.get('k')).toBe('X');
-    external({ k: 'A' }); // late echo of our write
-    expect(kv.get('k')).toBe('X');
+    await kv.flush(); // re-read applies 'x'
+    expect(kv.get('k')).toBe('x');
+    external({ k: 'lofi' }); // genuine external write of the same value
+    expect(kv.get('k')).toBe('lofi');
+  });
+
+  it('an event arriving during a settle re-read is not overwritten by the older read', async () => {
+    await local().set({ k: 'old' });
+    const kv = await createSyncStore(['k']);
+    const get = origGet();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const getSpy = vi.spyOn(local(), 'get').mockImplementationOnce((async (k: never) => {
+      const r = await get(k);
+      await gate;
+      return r;
+    }) as never);
+    vi.spyOn(local(), 'set').mockImplementationOnce(async () => {});
+    kv.set('k', 'A');
+    external({ k: 'X' }); // marks stale
+    const f = kv.flush();
+    await vi.waitFor(() => expect(getSpy).toHaveBeenCalled());
+    external({ k: 'Y' }); // lands while the re-read (which saw 'old') is pending
+    release();
+    await f;
+    expect(kv.get('k')).toBe('Y');
   });
 
   it('ignores events from other storage areas', async () => {
@@ -198,7 +215,10 @@ describe('createSyncStore', () => {
       await gate;
       return r;
     }) as never);
-    vi.spyOn(local(), 'set').mockImplementationOnce(async () => {});
+    // Neither write produces a storage event, so only the in-flight guard protects 'B'.
+    vi.spyOn(local(), 'set')
+      .mockImplementationOnce(async () => {})
+      .mockImplementationOnce(async () => {});
     kv.set('k', 'A');
     external({ k: 'X' }); // marks stale
     const f = kv.flush();
@@ -208,7 +228,6 @@ describe('createSyncStore', () => {
     await f;
     await kv.flush();
     expect(kv.get('k')).toBe('B');
-    expect((await local().get('k')).k).toBe('B');
   });
 });
 
@@ -220,5 +239,11 @@ describe('createMemoryStore', () => {
     kv.set('x', null);
     expect(kv.get('x', 'fallback')).toBe(null);
     expect(kv.get('missing', 'fallback')).toBe('fallback');
+  });
+
+  it('set(key, undefined) deletes, so get returns the fallback', () => {
+    const kv = createMemoryStore({ a: 1 });
+    kv.set('a', undefined);
+    expect(kv.get('a', 'fb')).toBe('fb');
   });
 });

@@ -26,10 +26,12 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
   const listeners = new Map<string, Set<(v: unknown) => void>>();
   const inflight = new Map<string, number>(); // writes of ours not yet confirmed per key
   const stale = new Set<string>(); // keys to re-read: changed elsewhere, or our write failed
-  const written = new Map<string, unknown>(); // last value we wrote, to recognise a late echo
+  const gen = new Map<string, number>(); // bumped whenever the cache for a key changes, to spot races
   const writes = new Set<Promise<void>>();
   let buffer: [string, unknown][] | undefined = []; // events arriving before the first read
   let live = true;
+
+  const bump = (key: string) => gen.set(key, (gen.get(key) ?? 0) + 1);
 
   const apply = (key: string, value: unknown) => {
     if (same(cache.get(key), value)) return;
@@ -49,8 +51,7 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
     // While our own write is in flight this event may be its echo or an older value;
     // re-read once the write lands instead of guessing.
     if (inflight.get(key)) return void stale.add(key);
-    if (written.has(key) && same(written.get(key), newValue)) return; // late echo of our own write
-    written.delete(key);
+    bump(key);
     apply(key, newValue);
   };
 
@@ -80,8 +81,10 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
     if (left) return void inflight.set(key, left);
     inflight.delete(key);
     if (!stale.delete(key)) return;
+    const seen = gen.get(key);
     const got = await browser.storage.local.get(key);
-    if (live && !inflight.get(key)) apply(key, got[key]);
+    // An event or a newer local write that landed during the read is newer than it.
+    if (live && !inflight.get(key) && gen.get(key) === seen) apply(key, got[key]);
   };
 
   const known = (key: string) => {
@@ -98,13 +101,12 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
       if (!live) throw new Error('SyncStore: disposed');
       if (value === undefined) cache.delete(key);
       else cache.set(key, copy(value));
-      written.set(key, value);
+      bump(key);
       inflight.set(key, (inflight.get(key) ?? 0) + 1);
       const w = (value === undefined ? browser.storage.local.remove(key) : save(key, value))
         .catch((e) => {
           console.error(`[ytup] storage write failed for ${key}`, e);
           stale.add(key); // the cache is ahead of storage: settle() re-reads it
-          written.delete(key);
         })
         .then(() => settle(key))
         .catch((e) => console.error(`[ytup] storage re-read failed for ${key}`, e));
@@ -134,7 +136,7 @@ export function createMemoryStore(initial: Record<string, unknown> = {}): SyncSt
   const data = new Map<string, unknown>(Object.entries(structuredClone(initial)));
   return {
     get: <T>(key: string, fallback?: T): T => (data.has(key) ? copy(data.get(key) as T) : (fallback as T)),
-    set: (key, value) => void data.set(key, copy(value)),
+    set: (key, value) => void (value === undefined ? data.delete(key) : data.set(key, copy(value))),
     onChange: () => () => {},
     flush: async () => {},
     dispose: () => {},
