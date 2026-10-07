@@ -3,7 +3,19 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { createMemoryStore, createSyncStore } from '../lib/sync-store';
 
-beforeEach(() => fakeBrowser.reset());
+beforeEach(() => {
+  vi.restoreAllMocks();
+  fakeBrowser.reset();
+});
+
+const local = () => browser.storage.local;
+const origGet = () => local().get.bind(local());
+const tick = () => new Promise((r) => setTimeout(r, 0));
+const external = (changes: Record<string, unknown>, area = 'local') =>
+  fakeBrowser.storage.onChanged.trigger(
+    Object.fromEntries(Object.entries(changes).map(([k, newValue]) => [k, { newValue }])) as never,
+    area as never,
+  );
 
 describe('createSyncStore', () => {
   it('starts from what is stored, for the listed keys only', async () => {
@@ -11,7 +23,7 @@ describe('createSyncStore', () => {
     const kv = await createSyncStore(['counters', 'uploads']);
     expect(kv.get('counters', {})).toEqual({ trapsoul: 3 });
     expect(kv.get('uploads', [])).toEqual([]);
-    expect(kv.get('other', 'fallback')).toBe('fallback');
+    expect(() => kv.get('other', 'fallback')).toThrow('unknown key');
   });
 
   it('set() is visible at once and reaches storage', async () => {
@@ -63,7 +75,140 @@ describe('createSyncStore', () => {
   it('ignores keys it does not mirror', async () => {
     const kv = await createSyncStore(['a']);
     await browser.storage.local.set({ b: 1 });
-    expect(kv.get('b', 0)).toBe(0);
+    expect(() => kv.get('b', 0)).toThrow();
+  });
+
+  it('a failed write is reconciled with storage and logged', async () => {
+    await local().set({ activeId: 'old' });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(local(), 'set').mockRejectedValueOnce(new Error('quota'));
+    const kv = await createSyncStore(['activeId']);
+    kv.set('activeId', 'new');
+    expect(kv.get('activeId')).toBe('new');
+    await kv.flush();
+    expect(kv.get('activeId')).toBe('old');
+    expect(err.mock.calls.some((c) => c[0] === '[ytup] storage write failed for activeId')).toBe(true);
+  });
+
+  it('a failing re-read is logged, never an unhandled rejection; flush still resolves', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const kv = await createSyncStore(['activeId']);
+    vi.spyOn(local(), 'set').mockRejectedValueOnce(new Error('quota'));
+    vi.spyOn(local(), 'get').mockRejectedValueOnce(new Error('gone'));
+    kv.set('activeId', 'new');
+    await expect(kv.flush()).resolves.toBeUndefined();
+    expect(err).toHaveBeenCalledTimes(2);
+  });
+
+  it('a write from another context while the initial read is pending is not lost', async () => {
+    await local().set({ settings: { delay: 1 } });
+    const get = origGet();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(local(), 'get').mockImplementationOnce((async (k: never) => {
+      const r = await get(k);
+      await gate;
+      return r;
+    }) as never);
+    const p = createSyncStore(['settings']);
+    await tick();
+    await local().set({ settings: { delay: 9 } });
+    release();
+    const kv = await p;
+    expect(kv.get('settings')).toEqual({ delay: 9 });
+  });
+
+  it('throws on a key it does not mirror', async () => {
+    const kv = await createSyncStore(['a']);
+    expect(() => kv.get('b')).toThrow('SyncStore: unknown key b');
+    expect(() => kv.set('b', 1)).toThrow('SyncStore: unknown key b');
+  });
+
+  it('dispose() stops listening and makes set() throw', async () => {
+    const kv = await createSyncStore(['a']);
+    kv.dispose();
+    await local().set({ a: 1 });
+    expect(kv.get('a', 0)).toBe(0);
+    expect(() => kv.set('a', 2)).toThrow('SyncStore: disposed');
+  });
+
+  it('a throwing onChange listener does not stop the others', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const kv = await createSyncStore(['a']);
+    const seen = vi.fn();
+    kv.onChange('a', () => {
+      throw new Error('boom');
+    });
+    kv.onChange('a', seen);
+    await local().set({ a: 1 });
+    expect(seen).toHaveBeenCalledWith(1);
+    expect(err).toHaveBeenCalled();
+  });
+
+  it('set(key, undefined) deletes', async () => {
+    await local().set({ a: 1 });
+    const kv = await createSyncStore(['a']);
+    const seen = vi.fn();
+    kv.onChange('a', seen);
+    kv.set('a', undefined);
+    expect(kv.get('a', 'fb')).toBe('fb');
+    await kv.flush();
+    expect(await local().get('a')).toEqual({});
+    expect(seen).not.toHaveBeenCalled();
+  });
+
+  it('ignores a late echo of its own last write once nothing is pending', async () => {
+    await local().set({ k: 'old' });
+    const kv = await createSyncStore(['k']);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(local(), 'set').mockImplementationOnce(() => gate); // our write A never lands
+    kv.set('k', 'A');
+    await local().set({ k: 'X' }); // another context wins; our write is still in flight
+    release();
+    await kv.flush();
+    expect(kv.get('k')).toBe('X');
+    external({ k: 'A' }); // late echo of our write
+    expect(kv.get('k')).toBe('X');
+  });
+
+  it('ignores events from other storage areas', async () => {
+    const kv = await createSyncStore(['a']);
+    external({ a: 1 }, 'sync');
+    expect(kv.get('a', 0)).toBe(0);
+  });
+
+  it('onChange unsubscribe stops notifications', async () => {
+    const kv = await createSyncStore(['a']);
+    const seen = vi.fn();
+    const off = kv.onChange('a', seen);
+    off();
+    await local().set({ a: 1 });
+    expect(seen).not.toHaveBeenCalled();
+  });
+
+  it('a stale re-read racing a newer local write keeps the newer local value', async () => {
+    await local().set({ k: 'old' });
+    const kv = await createSyncStore(['k']);
+    const get = origGet();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const getSpy = vi.spyOn(local(), 'get').mockImplementationOnce((async (k: never) => {
+      const r = await get(k);
+      await gate;
+      return r;
+    }) as never);
+    vi.spyOn(local(), 'set').mockImplementationOnce(async () => {});
+    kv.set('k', 'A');
+    external({ k: 'X' }); // marks stale
+    const f = kv.flush();
+    await vi.waitFor(() => expect(getSpy).toHaveBeenCalled());
+    kv.set('k', 'B');
+    release();
+    await f;
+    await kv.flush();
+    expect(kv.get('k')).toBe('B');
+    expect((await local().get('k')).k).toBe('B');
   });
 });
 
