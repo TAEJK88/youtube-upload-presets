@@ -9,6 +9,7 @@
     "zip": "wxt zip",
     "test": "vitest run",
     "check": "tsc --noEmit && vitest run",
+    "port-check": "node scripts/port-check.mjs",
     "postinstall": "wxt prepare"
   },
   "devDependencies": {
