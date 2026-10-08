@@ -49,7 +49,8 @@ export const save = (key: string, value: unknown): void => {
     },
     (e) => {
       console.error(`[ytup] storage write failed for ${key}`, e);
-      pending.splice(pending.indexOf(entry), 1);
+      const i = pending.indexOf(entry);
+      if (i >= 0) pending.splice(i, 1); // gone already if disposeState() ran meanwhile
       refresh(key);
     },
   );

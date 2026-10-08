@@ -142,6 +142,24 @@ describe('initState', () => {
     expect(state.settings.delay).toBe(3);
   });
 
+  it('a patch from before disposeState that fails later leaves the new pending patches alone', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, settings: { delay: 3 } });
+    let fail!: (e: Error) => void;
+    await state.initState(current, 10_000, () => new Promise<void>((_, rej) => (fail = rej)));
+    state.settings.delay = 5;
+    state.saveSettings();
+    state.disposeState();
+    let done!: () => void;
+    await state.initState(current, 10_000, () => new Promise<void>((r) => (done = r))); // still on its way
+    state.settings.delay = 9;
+    state.saveSettings();
+    fail(new Error('old background gone'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.settings.delay).toBe(9);
+    done();
+    await state.flushState();
+  });
+
   it('applies the stored language and follows a change', async () => {
     await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, settings: { lang: 'th' } });
     await state.initState(current);
