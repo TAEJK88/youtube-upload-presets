@@ -1,7 +1,7 @@
 import { L } from '../i18n';
 import { ui } from './page-ui';
 import { dropFiles } from './queue-files';
-import { assignNumbers, queue, requestStop, running, setItem, type QueueItem } from './queue-runner';
+import { assignNumbers, currentItemId, queue, requestStop, running, setItem, type QueueItem } from './queue-runner';
 
 // What the userscript's queue tab buttons did to the queue (UI section "แท็บคิว",
 // 3739–3800), without the drawer: the side panel sends these as messages.
@@ -16,10 +16,10 @@ export function stopQueue(): void {
 }
 
 // The userscript hid Remove while an item was uploading or waiting for Save (3925): the
-// run is still working on it.
+// run is still working on it. So it is while its file is fetched (still 'pending').
 export function removeItem(id: string): void {
   const i = queue.findIndex((it) => it.id === id);
-  if (i < 0 || queue[i]!.status === 'uploading' || queue[i]!.status === 'review') return;
+  if (i < 0 || id === currentItemId() || queue[i]!.status === 'uploading' || queue[i]!.status === 'review') return;
   const [it] = queue.splice(i, 1);
   dropFiles(refsOf(it!));
   ui.queue();

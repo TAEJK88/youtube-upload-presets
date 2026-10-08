@@ -41,5 +41,7 @@ export default {
     // while another Studio tab runs the queue (cached flag; a listener can't await), Studio keeps its own picks
     ['if (!settings.intercept || !(t instanceof HTMLInputElement)', 'if (!settings.intercept || otherTabRuns || !(t instanceof HTMLInputElement)', 1],
     ['if (injectingFile || !settings.intercept || !e.target', 'if (injectingFile || !settings.intercept || otherTabRuns || !e.target', 1],
+    // uploadCurrent() marks the item being processed (Remove refuses it) around uploadOne()
+    ['await uploadOne(it);', 'await uploadCurrent(it);', 1],
   ],
 };

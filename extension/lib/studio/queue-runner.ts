@@ -514,7 +514,7 @@ async function runQueue() {
         break;
       }
       try {
-        await uploadOne(it);
+        await uploadCurrent(it);
         ok++;
       } catch (e: any) {
         console.error('[YT Presets]', e);
@@ -541,6 +541,19 @@ async function runQueue() {
   }
 }
 // @port-end
+
+// The item the run is working on, from before its file is fetched until it is done or
+// has failed. Remove leaves it alone: while its file comes, its status is still 'pending'.
+let current: string | null = null;
+export const currentItemId = () => current;
+async function uploadCurrent(it: QueueItem): Promise<void> {
+  current = it.id;
+  try {
+    await uploadOne(it);
+  } finally {
+    current = null;
+  }
+}
 
 // Returns a disposer: an orphaned listener (extension reloaded under a live page) would
 // still close Studio's dialog and swallow the user's files.
