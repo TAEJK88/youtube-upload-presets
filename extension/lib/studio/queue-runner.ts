@@ -72,6 +72,12 @@ interface Memo { title?: string; artists?: string; publishAt?: number; presetId?
 // One Studio tab runs the queue at a time (lib/runner-lock.ts, through the background).
 let lock = { acquire: async () => true, release: () => {} };
 export const setRunnerLock = (l: typeof lock) => { lock = l; };
+// Another Studio tab holds that lock; the content script keeps this fresh (runner:elsewhere).
+// This tab's queue is then only a mirror of that tab's: it isn't saved from here, and the
+// intercept (which must decide synchronously) leaves Studio's own dialog alone.
+let otherTabRuns = false;
+export const setOtherTabRuns = (v: boolean) => { otherTabRuns = v; };
+export const otherTabRunning = () => otherTabRuns;
 
 // getChannel() falls back to a copy of ytcfg that refreshCfg() made. Read it again right
 // before the preflight / start channel checks, so a stale copy can't pass channelProblem().
@@ -547,7 +553,7 @@ export function installIntercept(): () => void {
     'change',
     (e: any) => {
       const t = e.target;
-      if (!settings.intercept || !(t instanceof HTMLInputElement) || t.type !== 'file') return;
+      if (!settings.intercept || otherTabRuns || !(t instanceof HTMLInputElement) || t.type !== 'file') return;
       if (!t.closest(SEL.dialog) || t.files!.length < 2) return;
       e.stopImmediatePropagation();
       addQueued(pageFiles(t.files!));
@@ -560,7 +566,7 @@ export function installIntercept(): () => void {
   document.addEventListener(
     'drop',
     (e: any) => {
-      if (injectingFile || !settings.intercept || !e.target.closest?.(SEL.dialog)) return;
+      if (injectingFile || !settings.intercept || otherTabRuns || !e.target.closest?.(SEL.dialog)) return;
       const files = e.dataTransfer?.files;
       if (!files || files.length < 2) return;
       e.preventDefault();

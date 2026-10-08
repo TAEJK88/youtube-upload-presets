@@ -3,12 +3,17 @@ import { setLang } from '../lib/i18n';
 import { getDetailsHost, uploadDialogOpen } from '../lib/studio/automation';
 import { installManualFill } from '../lib/studio/manual-fill';
 import { installQuickActions } from '../lib/studio/quick-actions';
+import { closeStudioUploadDialog } from '../lib/studio/upload-dialog';
 import * as Q from '../lib/studio/queue-runner';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { El, makeDocument } from './fake-dom.mjs';
 
 // What the Studio content script stops when the extension is reloaded under a live page.
 vi.mock('../lib/studio/video-duration', () => ({ videoDuration: async () => 0 }));
+vi.mock('../lib/studio/upload-dialog', async (orig) => ({
+  ...(await orig<typeof import('../lib/studio/upload-dialog')>()),
+  closeStudioUploadDialog: vi.fn(),
+}));
 vi.mock('../lib/studio/automation', async (orig) => ({
   ...(await orig<typeof import('../lib/studio/automation')>()),
   getDetailsHost: vi.fn(() => null),
@@ -59,6 +64,23 @@ describe('intercept', () => {
     doc.value = 'C:\\fakepath\\a.mp4';
     expect(pick(doc)).toBe(false);
     expect(doc.value).toBe('C:\\fakepath\\a.mp4');
+  });
+
+  it("leaves a multi-file pick to Studio while another tab runs the queue", () => {
+    const doc = new FakeInput();
+    vi.stubGlobal('document', doc);
+    vi.mocked(closeStudioUploadDialog).mockClear();
+    const dispose = Q.installIntercept();
+    Q.setOtherTabRuns(true);
+    try {
+      expect(pick(doc)).toBe(false);
+      expect(doc.value).toBe('C:\\fakepath\\a.mp4');
+      expect(closeStudioUploadDialog).not.toHaveBeenCalled();
+      expect(Q.queue).toHaveLength(0);
+    } finally {
+      Q.setOtherTabRuns(false);
+      dispose();
+    }
   });
 });
 

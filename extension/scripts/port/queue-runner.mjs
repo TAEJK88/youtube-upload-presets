@@ -38,5 +38,8 @@ export default {
     // STATUS is built when used, after initI18n() (it was built at import, so always English)
     ['const STATUS = {', 'const STATUS = () => ({', 1],
     ["    error: [L('ผิดพลาด', 'Error'), 'err'],\n  };", "    error: [L('ผิดพลาด', 'Error'), 'err'],\n  });", 1],
+    // while another Studio tab runs the queue (cached flag; a listener can't await), Studio keeps its own picks
+    ['if (!settings.intercept || !(t instanceof HTMLInputElement)', 'if (!settings.intercept || otherTabRuns || !(t instanceof HTMLInputElement)', 1],
+    ['if (injectingFile || !settings.intercept || !e.target', 'if (injectingFile || !settings.intercept || otherTabRuns || !e.target', 1],
   ],
 };

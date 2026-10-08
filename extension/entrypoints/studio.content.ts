@@ -15,7 +15,7 @@ import { setPageUi } from '@/lib/studio/page-ui';
 import { installQuickActions } from '@/lib/studio/quick-actions';
 import { bridgeFiles, setBridge } from '@/lib/studio/queue-files';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
-import { addQueued, installIntercept, requestStop, setCfgReader, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
+import { addQueued, installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
 import { installUnloadGuard, restoreQueue } from '@/lib/studio/queue-store';
 import { disposeState, initState } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
@@ -107,7 +107,12 @@ export default defineContentScript({
       requestStop();
       releaseLock();
     });
-    const elsewhere = () => sendMessage('runner:elsewhere', undefined).catch(() => false);
+    // Each answer is cached for what can't wait for one: queue saves and the intercept.
+    const elsewhere = () =>
+      sendMessage('runner:elsewhere', undefined)
+        .catch(() => false)
+        .then((v) => (setOtherTabRuns(v), v));
+    stop.add(() => setOtherTabRuns(false));
     // A reload in the middle of a run leaves this tab's lock behind.
     await sendMessage('runner:release', undefined).catch(() => {});
     restoreQueue(!(await elsewhere()));
@@ -128,9 +133,14 @@ export default defineContentScript({
     onMessage('queue:start', ({ data: confirmed }) => {
       ui.setConfirmed(confirmed);
       // A run can take hours: answer now, report through queue:state.
-      void startQueue().catch((e) => console.error('[ytup] run', e));
+      void startQueue()
+        .catch((e) => console.error('[ytup] run', e))
+        .finally(elsewhere);
     });
-    onMessage('queue:stop', () => stopQueue());
+    onMessage('queue:stop', () => {
+      stopQueue();
+      void elsewhere();
+    });
     onMessage('queue:retry', async ({ data: id }) => {
       if (await mayEdit()) retryItem(id);
     });
@@ -150,6 +160,7 @@ export default defineContentScript({
     stop.add(() => setTitleMark(''));
     stop.add(installUnloadGuard());
     ctx.setInterval(() => {
+      void elsewhere();
       try {
         ui.tick();
       } catch (e) {

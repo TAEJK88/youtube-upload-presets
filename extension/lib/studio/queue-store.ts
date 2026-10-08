@@ -1,5 +1,5 @@
 import { L } from '../i18n';
-import { queue, running, type QueueItem } from './queue-runner';
+import { otherTabRunning, queue, running, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
 
 // The queue's items live in chrome.storage.local ('queue') so they survive reloads and
@@ -7,9 +7,14 @@ import { load, onStored, save } from './state';
 const KEY = 'queue';
 let timer: ReturnType<typeof setTimeout> | undefined;
 
+// Nothing is written while another Studio tab runs the queue: that tab's copy is the one
+// moving items along, and this tab only mirrors it (restoreQueue's onStored).
 export function persistQueue(): void {
   clearTimeout(timer);
-  timer = setTimeout(() => save(KEY, queue), 300);
+  if (otherTabRunning()) return;
+  timer = setTimeout(() => {
+    if (!otherTabRunning()) save(KEY, queue);
+  }, 300);
 }
 
 // A reload ends a run: an item that was uploading or waiting for Save may have left a

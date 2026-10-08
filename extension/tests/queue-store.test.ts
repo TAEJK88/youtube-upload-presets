@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { SCHEMA_VERSION } from '../lib/migrations';
-import { queue, type QueueItem } from '../lib/studio/queue-runner';
+import { queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
 import { persistQueue, restoreQueue } from '../lib/studio/queue-store';
 import { disposeState, flushState, initState } from '../lib/studio/state';
 
@@ -17,7 +17,10 @@ beforeEach(async () => {
   queue.splice(0);
   await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  setOtherTabRuns(false);
+});
 
 describe('queue store', () => {
   it('restores the stored queue; an interrupted upload comes back as an error', async () => {
@@ -46,6 +49,20 @@ describe('queue store', () => {
     vi.advanceTimersByTime(300);
     await flushState();
     expect((await browser.storage.local.get('queue')).queue).toEqual([item('A.mp4', 'pending')]);
+  });
+
+  it("writes nothing while another tab runs the queue (that tab's copy is the real one)", async () => {
+    vi.useFakeTimers();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'uploading')] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(false);
+    persistQueue(); // a save already waiting when the other tab took the lock
+    setOtherTabRuns(true);
+    queue.push(item('B.mp4', 'pending'));
+    persistQueue();
+    vi.advanceTimersByTime(1000);
+    await flushState();
+    expect((await browser.storage.local.get('queue')).queue).toEqual([item('A.mp4', 'uploading')]);
   });
 
   it('follows changes from elsewhere', async () => {
