@@ -61,9 +61,13 @@ const recorder: PageUi = {
 
 let n = 0;
 const qfile = (name: string) => Object.assign(new File(['x'], name), { qid: `flow-${++n}`, src: 'bridge' as const });
-const deferred = <T,>() => {
+// A test that fails before resolving its deferred would leave a run hanging on it into
+// the next test: afterEach lets every one go.
+const open: (() => void)[] = [];
+const deferred = <T,>(fallback?: T) => {
   let resolve!: (v: T) => void;
   const promise = new Promise<T>((r) => { resolve = r; });
+  open.push(() => resolve(fallback as T));
   return { promise, resolve };
 };
 
@@ -81,7 +85,11 @@ beforeEach(() => {
   Q.setTornDown(false);
   save('uploads', []);
 });
-afterEach(() => {
+afterEach(async () => {
+  open.splice(0).forEach((release) => release());
+  await new Promise((r) => setTimeout(r, 0)); // a released run settles before the next test
+  Q.setOtherTabRuns(false);
+  Q.setTornDown(false);
   setBridge(null);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -91,7 +99,7 @@ describe('the item being processed', () => {
   it('cannot be removed while its file is being fetched, and still finishes', async () => {
     await Q.addFiles([qfile('A.mp4')]);
     const id = Q.queue[0]!.id;
-    const file = deferred<File>();
+    const file = deferred<File>(new File(['x'], 'A.mp4'));
     const asked = deferred<void>();
     setBridge({ getFile: () => (asked.resolve(), file.promise) });
     const run = Q.runQueue();
