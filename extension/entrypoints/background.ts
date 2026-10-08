@@ -36,7 +36,13 @@ export default defineBackground(() => {
 
   // The page has no access to the extension's IndexedDB; it asks here to forget handles.
   onMessage('files:delete', async ({ data: ids }) => {
-    for (const id of ids) await deleteHandle(id);
+    for (const id of ids) {
+      try {
+        await deleteHandle(id);
+      } catch (e) {
+        console.warn('[ytup] files:delete', id, e); // one failure must not keep the rest
+      }
+    }
   });
 
   onMessage('notify', async ({ data, sender }) => {
