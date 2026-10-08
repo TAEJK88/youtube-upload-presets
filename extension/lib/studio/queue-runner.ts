@@ -7,7 +7,7 @@ import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../templ
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
 import { ui } from './page-ui';
-import { bridgeAnswers, dropFiles, getQueueFile, pageFiles } from './queue-files';
+import { bridgeAnswers, dropFiles, getQueueFile, getThumbFile, pageFiles } from './queue-files';
 import { setSchedule } from './schedule';
 import { SEL } from './sel';
 import { activeId, counters, load, presetById, presets, save, saveSettings, settings } from './state';
@@ -341,7 +341,7 @@ async function uploadOne(it: QueueItem): Promise<void> {
   if (scheduleProblem(publishAt)) throw new Error(`${scheduleProblem(publishAt)} (${fmtWhen(publishAt!)})`);
   if (uploadDialogOpen()) throw new Error(L('มีหน้าต่างอัปโหลดค้างอยู่ ปิดก่อนแล้วกดเริ่มใหม่', 'An upload dialog is still open. Close it, then start again'));
   const file = await getQueueFile(it.id, it.src);
-  const thumbFile = settings.thumb && it.thumb ? await getQueueFile(it.thumb.id, it.thumb.src) : null;
+  const thumbFile = settings.thumb && it.thumb ? await getThumbFile(it.thumb) : null;
   setItem(it, 'uploading', L('กำลังเปิดหน้าต่างอัปโหลด…', 'Opening upload dialog…'));
   const { input, err: pickErr } = await openFilePicker();
   if (!input) {
@@ -604,8 +604,8 @@ export function installIntercept(): () => void {
 }
 
 // The drawer's Start button: runQueue() after reading the channel again, and after
-// making sure the file bridge answers when the next item's file comes from it (asking
-// for that file once is the cheapest probe; it is read again when the item uploads).
+// making sure the file bridge answers when a pending item's file comes from it (asking
+// for the first such file once is the cheapest probe; it is read again when it uploads).
 // A wrong channel is left to runQueue(), which says so first.
 // `seen` is what the user confirmed (startSummary's channel and pending items): the run
 // starts only if both are still what they were.
@@ -621,8 +621,8 @@ export async function startQueue(seen: StartBinding): Promise<void> {
   if (running) return runQueue();
   let problem = bindingProblem(seen);
   if (problem) return ui.toast(problem);
-  const next = queue.find((i) => i.status === 'pending');
-  if (!channelProblem() && next?.src === 'bridge' && !(await bridgeAnswers(next.id))) {
+  const next = queue.find((i) => i.status === 'pending' && i.src === 'bridge');
+  if (!channelProblem() && next && !(await bridgeAnswers(next.id))) {
     return ui.toast(L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again"));
   }
   // The probe can take seconds: check again right before the run.

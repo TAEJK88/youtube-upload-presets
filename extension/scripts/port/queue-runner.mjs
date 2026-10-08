@@ -20,8 +20,9 @@ export default {
     ["if (typeof onScheduleChange === 'function') onScheduleChange();", 'ui.schedule();', 1],
     ["if (typeof syncScheduleInput === 'function') syncScheduleInput();", 'ui.schedule();', 1],
     ['LOCALE', 'locale()', 2],
+    // the Files are fetched by id; a thumbnail that can't be read says it was the thumbnail
     ["'An upload dialog is still open. Close it, then start again'));",
-      "'An upload dialog is still open. Close it, then start again'));\n    const file = await getQueueFile(it.id, it.src);\n    const thumbFile = settings.thumb && it.thumb ? await getQueueFile(it.thumb.id, it.thumb.src) : null;", 1],
+      "'An upload dialog is still open. Close it, then start again'));\n    const file = await getQueueFile(it.id, it.src);\n    const thumbFile = settings.thumb && it.thumb ? await getThumbFile(it.thumb) : null;", 1],
     ['injectUploadFile(input, it.file)', 'injectUploadFile(input, file)', 1],
     ['setThumbnail(it.thumb, 3000)', 'setThumbnail(thumbFile, 3000)', 1],
     ['VIS[vis]', 'visLabels()[vis]', 1],

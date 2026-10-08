@@ -55,6 +55,15 @@ export async function getQueueFile(id: string, src: FileSrc): Promise<File> {
   }
 }
 
+// A thumbnail that can't be read fails its item, and the message says it was the thumbnail.
+export async function getThumbFile(ref: FileRef): Promise<File> {
+  try {
+    return await getQueueFile(ref.id, ref.src);
+  } catch (e) {
+    throw new Error(L(`ภาพปก "${ref.name}": `, `Thumbnail "${ref.name}": `) + (e as Error).message);
+  }
+}
+
 // Before a run: does the bridge answer at all? A file it hands over, or a code about the
 // file itself ('missing', 'permission', 'read'), means yes; no bridge, a bridge error, or
 // silence for `ms` means no. Without this every item would fail after the bridge's own

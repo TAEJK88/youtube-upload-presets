@@ -3,7 +3,7 @@ import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as messages from '../lib/messages';
 import * as Q from '../lib/studio/queue-runner';
 import { resetCfg } from '../lib/studio/channel';
-import { setBridge } from '../lib/studio/queue-files';
+import { pageFiles, setBridge } from '../lib/studio/queue-files';
 import { stopQueue } from '../lib/studio/queue-ops';
 import { counters, save, settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
@@ -320,5 +320,34 @@ describe('addQueued lets go of the files no item uses', () => {
     await Q.addQueued([vid, txt, newThumb, stray]);
     expect(send.mock.calls).toEqual([['files:delete', [txt.qid, stray.qid, oldThumb.qid]]]);
     expect(Q.queue.map((i) => [i.id, i.thumb?.id ?? null])).toEqual([[Q.queue[0]!.id, newThumb.qid], [vid.qid, null]]);
+  });
+});
+
+describe('minors', () => {
+  const lockCalls: string[] = [];
+  beforeEach(() => {
+    lockCalls.length = 0;
+    Q.setRunnerLock({ acquire: async () => (lockCalls.push('acquire'), true), release: () => void lockCalls.push('release') });
+    setPageUi({ ...recorder, confirmStart: async () => true });
+    Object.assign(document, { hasFocus: () => true });
+  });
+  afterEach(() => { setBridge(null); Q.setRunnerLock({ acquire: async () => true, release: () => {} }); });
+
+  it('probes the bridge when a later pending item comes from it, not only the first', async () => {
+    await Q.addFiles(pageFiles([new File(['x'], 'A.mp4')]));
+    await Q.addFiles([qfile('B.mp4')]);
+    setBridge(null);
+    calls.length = 0;
+    await Q.startQueue(confirmed());
+    expect(calls).toEqual(["toast:The side panel's file access is not answering — reload the Studio tab, then start again"]);
+    expect(lockCalls).toEqual([]);
+  });
+
+  it('a missing thumbnail fails the item with a message that names the thumbnail', async () => {
+    const thumb = qfile('A.jpg', 'img', 'image/jpeg');
+    await Q.addFiles([qfile('A.mp4'), thumb]);
+    setBridge({ getFile: async (id) => { if (id === thumb.qid) throw new Error('missing'); return new File(['x'], 'A.mp4'); } });
+    await Q.runQueue();
+    expect(Q.queue[0]).toMatchObject({ status: 'error', msg: 'Thumbnail "A.jpg": This file is no longer available — add it again' });
   });
 });
