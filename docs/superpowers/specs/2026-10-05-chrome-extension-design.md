@@ -237,7 +237,7 @@ cutover.
 | 4. Copyright | youtubei via MAIN world, scan, trim, autopilot on alarms, Copyright tab | Scan/trim/autopilot checklist passes |
 | 5. Cutover | Parity checklist against v4.26.1; `wxt zip` → GitHub Release; last userscript version shows a "moved to the extension" notice | Team on the extension |
 
-**Permissions:** `sidePanel`, `storage`, `alarms`, `notifications`. Host permissions:
+**Permissions:** `sidePanel`, `storage`, `unlimitedStorage`, `alarms`, `notifications`. Host permissions:
 `https://studio.youtube.com/*`, `https://www.youtube.com/*`, `https://api.github.com/*`.
 
 ## Risks (retired by the Phase 0 spike)
