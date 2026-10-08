@@ -61,7 +61,7 @@ item. Any failure blocks Phase 3.
 4. **Interrupted run.** Start a 2-clip queue and reload Studio while the first one
    uploads.
    - Expected: that item comes back as `[error] The page reloaded during the upload — …`.
-   - Retry (confirm the draft prompt) puts it back in the queue.
+   - Retry (confirm the draft prompt if asked) puts it back in the queue.
 5. **Browser restart, then re-grant.** Queue 1 clip, restart Chrome, open Studio and the
    panel, then Start.
    - Expected: the item errors with "No permission to read this file — click "Re-grant
@@ -99,9 +99,16 @@ item. Any failure blocks Phase 3.
     - Expected: the console logs `[ytup] extension reloaded — page automation stopped`,
       the quick-action bars and the `UP` button go away, and the tab-title mark clears.
     - Picking 2 files in Studio's own dialog is now left to Studio (not intercepted).
+    - Also try it with a run in flight: once that run ends, the tab title must not get a
+      ✅/⚠️ back (the torn-down page UI ignores title marks; covered by a unit test).
 14. **Bridge not answering.** Queue a clip from the panel. Then, in the Studio tab's
     DevTools, block `file-bridge.html` (Network → right-click → Block request URL),
     reload the tab, and Start.
+    - DevTools request blocking may not apply to a `chrome-extension://` iframe. If the
+      Network tab doesn't show `file-bridge.html` as blocked, use this instead: reload
+      the tab, then before Start paste this in its console (top frame), so every bridge
+      frame is removed as soon as it is made:
+      `setInterval(() => document.querySelector('iframe[src*="file-bridge"]')?.remove(), 20)`.
     - Expected: the toast "The side panel's file access is not answering — reload the
       Studio tab, then start again" appears within about 10 s, and the item stays
       `[pending]`.
