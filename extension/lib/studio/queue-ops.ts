@@ -19,7 +19,10 @@ export function stopQueue(): void {
 // run is still working on it. So it is while its file is fetched (still 'pending').
 export function removeItem(id: string): void {
   const i = queue.findIndex((it) => it.id === id);
-  if (i < 0 || id === currentItemId() || queue[i]!.status === 'uploading' || queue[i]!.status === 'review') return;
+  if (i < 0) return;
+  if (id === currentItemId() || queue[i]!.status === 'uploading' || queue[i]!.status === 'review') {
+    return ui.toast(L("ลบวิดีโอที่กำลังอัปโหลดไม่ได้", "Can't remove the video that is being uploaded"));
+  }
   const [it] = queue.splice(i, 1);
   dropFiles(refsOf(it!));
   ui.queue();

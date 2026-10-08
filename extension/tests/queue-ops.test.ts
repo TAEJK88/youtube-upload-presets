@@ -50,7 +50,7 @@ describe('queue ops', () => {
     removeItem('a');
     expect(Q.queue.map((i) => i.id)).toEqual(['a']);
     expect(send).not.toHaveBeenCalled();
-    expect(calls).toEqual([]);
+    expect(calls).toEqual(["toast:Can't remove the video that is being uploaded"]);
   });
 
   it('retry puts a failed item back in line without its draft id', () => {
