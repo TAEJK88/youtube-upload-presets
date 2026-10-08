@@ -7,10 +7,11 @@ import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere } from '@/lib/runner-lock';
 import { load } from '@/lib/storage';
 import { deleteHandle } from '@/lib/file-store';
+import { ensureLang, patchStore, writeBackupInOrder } from '@/lib/store-writer';
 
 export default defineBackground(() => {
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
-  const ready = initI18n().then(runMigrations).catch((e) => console.error('[ytup] startup', e));
+  const ready = initI18n().then(runMigrations).then(ensureLang).catch((e) => console.error('[ytup] startup', e));
 
   // Toolbar icon opens the panel; the panel is off everywhere except Studio tabs.
   browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
@@ -32,6 +33,16 @@ export default defineBackground(() => {
   onMessage('ensureMigrated', async () => {
     await ready;
     return load('schemaVersion', 0);
+  });
+
+  // The one writer of settings and counters (lib/store-writer.ts).
+  onMessage('store:patch', async ({ data }) => {
+    await ready;
+    await patchStore(data);
+  });
+  onMessage('backup:write', async ({ data }) => {
+    await ready;
+    await writeBackupInOrder(data);
   });
 
   // The page has no access to the extension's IndexedDB; it asks here to forget handles.

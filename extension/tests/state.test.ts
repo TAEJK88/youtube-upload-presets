@@ -5,6 +5,7 @@ import { getLang, setLang } from '../lib/i18n';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { defaultPresets } from '../lib/presets';
 import * as state from '../lib/studio/state';
+import { patchStore } from '../lib/store-writer';
 
 const P = (id: string) => ({ ...defaultPresets()[0]!, id, label: id });
 const current = () => Promise.resolve(SCHEMA_VERSION);
@@ -56,7 +57,7 @@ describe('initState', () => {
 
   it('save() writes through to chrome.storage', async () => {
     await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION });
-    await state.initState(current);
+    await state.initState(current, 10_000, patchStore);
     state.counters.trapsoul = 7;
     state.save('counters', state.counters);
     state.settings.schedule.start = '2026-10-07T08:00';
@@ -80,6 +81,43 @@ describe('initState', () => {
   it('refuses to read storage it does not understand', async () => {
     await browser.storage.local.set({ schemaVersion: 1 });
     await expect(state.initState(async () => 1)).rejects.toThrow(`expects ${SCHEMA_VERSION}`);
+  });
+
+  it('settings and counters go to the background as patches, and a concurrent change survives', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, settings: { producer: 'Me' }, counters: { a: 1 } });
+    const sent: unknown[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    await state.initState(current, 10_000, async (p) => {
+      sent.push(structuredClone(p));
+      await gate; // the background is slow
+      await patchStore(p);
+    });
+    state.settings.schedule.start = '2026-10-10T08:00';
+    state.saveSettings();
+    expect(sent).toEqual([{ key: 'settings', patch: { schedule: { start: '2026-10-10T08:00' } } }]);
+    // the side panel turns notifications off before the background stored the page's patch
+    await patchStore({ key: 'settings', patch: { notify: false } });
+    expect(state.settings.schedule.start).toBe('2026-10-10T08:00'); // the pending patch stays on top
+    expect(state.settings.notify).toBe(false);
+    release();
+    await state.flushState();
+    const got = (await browser.storage.local.get('settings')).settings;
+    expect(got).toMatchObject({ producer: 'Me', notify: false, schedule: { start: '2026-10-10T08:00' } });
+    state.counters.b = 2;
+    state.save('counters', state.counters);
+    await state.flushState();
+    expect(sent.at(-1)).toEqual({ key: 'counters', patch: { b: 2 } });
+    expect((await browser.storage.local.get('counters')).counters).toEqual({ a: 1, b: 2 });
+  });
+
+  it('a failed patch puts back what storage holds', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, settings: { delay: 3 } });
+    await state.initState(current, 10_000, async () => { throw new Error('no background'); });
+    state.settings.delay = 9;
+    state.saveSettings();
+    await state.flushState();
+    expect(state.settings.delay).toBe(3);
   });
 
   it('applies the stored language and follows a change', async () => {

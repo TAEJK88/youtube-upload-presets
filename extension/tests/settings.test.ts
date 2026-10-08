@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { setLang } from '../lib/i18n';
+import { runMigrations } from '../lib/migrations';
 import { defaultSettings, loadSettings } from '../lib/settings';
 
 beforeEach(() => fakeBrowser.reset());
@@ -27,38 +28,34 @@ describe('settings', () => {
   });
 
   it('stored values override defaults', async () => {
-    await browser.storage.local.set({ settings: { producer: 'ThaiBeats', delay: 9, glassV2: true, lang: 'en' } });
+    await browser.storage.local.set({ settings: { producer: 'ThaiBeats', delay: 9, lang: 'en' } });
     const s = await loadSettings();
     expect(s.producer).toBe('ThaiBeats');
     expect(s.delay).toBe(9);
   });
 
-  it('moves the old 72% glass default to 82% once', async () => {
-    await browser.storage.local.set({ settings: { glass: 72 } });
-    const s = await loadSettings();
-    expect(s.glass).toBe(82);
-    expect(s.glassV2).toBe(true);
-    const { settings } = await browser.storage.local.get('settings');
-    expect(settings).toMatchObject({ glass: 82, glassV2: true });
-  });
-
-  it('fills a missing lang from whether presets exist, not the module language', async () => {
+  it('fills a missing lang from whether presets exist, without writing', async () => {
     setLang('en'); // loadSettings must ignore this and read storage instead
-    await browser.storage.local.set({ settings: { glass: 72 }, presets: [{ id: 'x' }] });
-    const s = await loadSettings();
-    expect(s.lang).toBe('th');
-    const { settings } = await browser.storage.local.get('settings');
-    expect(settings).toMatchObject({ lang: 'th' });
+    await browser.storage.local.set({ settings: { delay: 4 }, presets: [{ id: 'x' }] });
+    expect((await loadSettings()).lang).toBe('th');
+    expect((await browser.storage.local.get('settings')).settings).toEqual({ delay: 4 });
   });
 
   it('no stored lang and no presets → lang defaults to en', async () => {
-    setLang('th'); // loadSettings must ignore this and read storage instead
+    setLang('th');
     await browser.storage.local.set({ settings: {} });
     expect((await loadSettings()).lang).toBe('en');
   });
 
-  it('leaves a user-chosen glass value alone', async () => {
-    await browser.storage.local.set({ settings: { glass: 60 } });
-    expect((await loadSettings()).glass).toBe(60);
+  it('has no panel opacity any more', () => {
+    expect(defaultSettings()).not.toHaveProperty('glass');
+  });
+
+  it('migration 5 drops the stored glass keys and keeps the rest', async () => {
+    await browser.storage.local.set({ presets: [{ id: 'x' }], schemaVersion: 4, settings: { glass: 60, glassV2: true, delay: 7 } });
+    await runMigrations();
+    const got = await browser.storage.local.get(['settings', 'schemaVersion']);
+    expect(got.settings).toEqual({ delay: 7 });
+    expect(got.schemaVersion).toBe(5);
   });
 });
