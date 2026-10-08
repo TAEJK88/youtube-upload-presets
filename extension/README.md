@@ -60,8 +60,17 @@ item. Any failure blocks Phase 3.
        tab is unfocused. Clicking it focuses the tab.
      - Both videos are in Content with the right titles.
 2. **Scheduling.**
-   - In DevTools, set `settings.schedule` in `chrome.storage.local` to
-     `{ on: true, start: <tomorrow 08:00>, every: 1, unit: 'day' }`.
+   - Change settings from the side panel's DevTools (right-click the panel → Inspect)
+     or the service worker's console (`chrome://extensions` → the extension → "service
+     worker"). Not the Studio page's console: it runs in the page, without
+     `chrome.storage`. Read, merge and write `settings` as a whole, for example:
+     ```js
+     const { settings } = await chrome.storage.local.get('settings');
+     await chrome.storage.local.set({ settings: { ...settings,
+       schedule: { on: true, start: '2026-10-09T08:00', every: 1, unit: 'day' } } }); // tomorrow 08:00
+     ```
+     Studio picks the change up live. The same snippet, with another field, serves
+     items 16 and 18.
    - Queue 2 clips and Start.
    - Expected: the two are scheduled one day apart, and `settings.schedule.start` moves
      to the slot after the last one.
@@ -109,18 +118,7 @@ item. Any failure blocks Phase 3.
     - Expected: the console logs `[ytup] extension reloaded — page automation stopped`,
       the quick-action bars and the `UP` button go away, and the tab-title mark clears.
     - Picking 2 files in Studio's own dialog is now left to Studio (not intercepted).
-    - Also try it with a run in flight (reload the extension while an item uploads).
-      Expected:
-      - One in-page toast: "The extension was reloaded during an upload — if Studio's
-        upload dialog is still open, finish that upload and click Save yourself".
-      - The orphaned run stops at its next step: it doesn't click Save, it leaves
-        Studio's dialog open, and it starts no next item. The console shows
-        `[YT Presets] Error: The extension was reloaded — the queue stopped in this page`.
-      - No other toast follows, and the tab title gets no ✅/⚠️ back.
-      - Finish the upload in the dialog by hand, then reload the tab: that item shows
-        `[error] The page reloaded during the upload — …` and the next one is still
-        `[pending]`. Remove the finished item rather than Retry it (Retry would upload
-        it twice).
+    - With a run in flight: item 20.
 14. **Bridge not answering.** Queue a clip from the panel. Then, in the Studio tab's
     DevTools, block `file-bridge.html` (Network → right-click → Block request URL),
     reload the tab, and Start.
@@ -132,3 +130,56 @@ item. Any failure blocks Phase 3.
     - Expected: the toast "The side panel's file access is not answering — reload the
       Studio tab, then start again" appears within about 10 s, and the item stays
       `[pending]`.
+15. **Stop mid-run.** Queue 3 clips, Start, and click **Stop** while clip 1 uploads.
+    - Expected: the toast "Will stop after the current video finishes". Clip 1 finishes
+      `[done]`, clips 2 and 3 stay `[pending]`, then "Queue stopped (1 video(s) done)".
+    - Start works again afterwards (the lock was freed).
+    - Stop sent to a Studio tab that isn't running says "Nothing is running in this
+      Studio tab".
+16. **Review mode.** Set `autoSave: false` (item 2's snippet), queue 2 clips and Start.
+    - Expected: the details fill in, then the item shows `[review]` "Check the details
+      in the YouTube dialog, then click Save to move to the next file". Nothing clicks
+      Save, and the panel shows no Remove for that item.
+    - Click Save yourself: the item turns `[done]` and clip 2 starts.
+    - With `autoNext: true` too, the dialog is moved on to Visibility first.
+    - Set `autoSave: true` again afterwards.
+17. **The running tab closes while a second Studio tab is open.** Open Studio in tabs A
+    and B. Start in A; while clip 1 uploads, close A.
+    - While A runs, Add, Remove, Retry and Clear done sent to B are refused with
+      "Another Studio tab is running the queue — change the queue there".
+    - Expected after closing A: within about a second (or at once when B gets focus),
+      clip 1 shows `[error] The page reloaded during the upload — …` in B and in the
+      panel; the rest stay `[pending]`. Delete clip 1's draft in Content if there is
+      one; then Retry and Start in B work.
+    - Also let a run in A end normally with B open: every item in B and in the panel
+      ends `[done]`, none `[error]`.
+18. **Channel lock.**
+    - Set `lockChannel: { id: '<another channel id>', name: 'Other' }` and click
+      **Start…**: the panel logs `start: "⛔ Currently on channel \"…\" but locked to
+      \"Other\""` (the preflight refuses), and nothing runs. Set `lockChannel: null` again.
+    - Switch during the confirmation: click **Start…** and leave the summary open.
+      Switch Studio to another channel, then confirm. Expected: the toast "The channel
+      changed after you confirmed — click Start again to see the new summary", and
+      nothing runs.
+    - The same with the queue: while the summary is open, pick 2 files in Studio's own
+      dialog (intercepted into the queue), then confirm. Expected: "The queue changed
+      after you confirmed — click Start again to see the new summary".
+19. **Duplicate guards.**
+    - Add `Clip 1.mp4` from the panel twice. Expected: one item, and the second add
+      toasts "1 already in the queue".
+    - After `Clip 1` has uploaded (item 1), **Clear done** and add it again. Expected:
+      the toast says "1 already uploaded to this channel (red badge)", and the Start
+      summary has the line `Already uploaded: Clip 1.mp4 (<its title>)` and asks for
+      confirmation.
+20. **Extension reload with a run in flight.** Start a 2-clip queue and, while clip 1
+    uploads, reload the extension in `chrome://extensions`. Don't reload the tab.
+    - Expected: one in-page toast, "The extension was reloaded during an upload — if
+      Studio's upload dialog is still open, finish that upload and click Save
+      yourself".
+    - The orphaned run stops at its next step: it doesn't click Save, it leaves Studio's
+      dialog open, and it starts no next item. The console shows `[YT Presets] Error:
+      The extension was reloaded — the queue stopped in this page`.
+    - No other toast follows, and the tab title gets no ✅/⚠️ back.
+    - Finish the upload in the dialog by hand, then reload the tab: clip 1 shows
+      `[error] The page reloaded during the upload — …` and clip 2 is still `[pending]`.
+      Remove clip 1 rather than Retry it (Retry would upload it twice).
