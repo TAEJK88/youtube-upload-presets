@@ -124,7 +124,7 @@ async function renderQueue() {
         void toStudio('retry', (t) => sendMessage('queue:retry', it.id, t));
       }));
     }
-    li.append(button('Remove', () => void toStudio('remove', (t) => sendMessage('queue:remove', it.id, t))));
+    if (it.status !== 'uploading' && it.status !== 'review') li.append(button('Remove', () => void toStudio('remove', (t) => sendMessage('queue:remove', it.id, t))));
     list.append(li);
   }
 }

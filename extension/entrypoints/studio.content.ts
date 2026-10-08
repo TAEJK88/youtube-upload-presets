@@ -97,7 +97,10 @@ export default defineContentScript({
     stop.add(() => ui.dispose());
     const releaseLock = () => void sendMessage('runner:release', undefined).catch(() => {});
     setRunnerLock({
-      acquire: () => sendMessage('runner:acquire', undefined).catch((e) => (console.error('[ytup] runner lock', e), false)),
+      // The lock is ours: whatever the cached flag says, no other tab runs.
+      acquire: () => sendMessage('runner:acquire', undefined)
+        .then((ok) => (ok && setOtherTabRuns(false), ok))
+        .catch((e) => (console.error('[ytup] runner lock', e), false)),
       release: releaseLock,
     });
     // Leaving Studio (or the extension going away) frees the lock at once. Best effort: the
@@ -114,6 +117,14 @@ export default defineContentScript({
         .catch(() => false)
         .then((v) => (setOtherTabRuns(v), v));
     stop.add(() => setOtherTabRuns(false));
+    // Coming back to the tab: refresh at once rather than at the next tick.
+    const refresh = () => { if (document.visibilityState === 'visible') void elsewhere(); };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    stop.add(() => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    });
     // A reload in the middle of a run leaves this tab's lock behind.
     await sendMessage('runner:release', undefined).catch(() => {});
     restoreQueue(!(await elsewhere()));

@@ -66,6 +66,27 @@ describe('intercept', () => {
     expect(doc.value).toBe('C:\\fakepath\\a.mp4');
   });
 
+  it('leaves a multi-file drop to Studio while another tab runs the queue', () => {
+    const doc = new FakeInput();
+    vi.stubGlobal('document', doc);
+    vi.mocked(closeStudioUploadDialog).mockClear();
+    const dispose = Q.installIntercept();
+    Q.setOtherTabRuns(true);
+    try {
+      const ev = Object.assign(new Event('drop', { cancelable: true }), { dataTransfer: { files: doc.files } });
+      let reachedStudio = false;
+      doc.addEventListener('drop', () => { reachedStudio = true; });
+      doc.dispatchEvent(ev);
+      expect(reachedStudio).toBe(true);
+      expect(ev.defaultPrevented).toBe(false);
+      expect(closeStudioUploadDialog).not.toHaveBeenCalled();
+      expect(Q.queue).toHaveLength(0);
+    } finally {
+      Q.setOtherTabRuns(false);
+      dispose();
+    }
+  });
+
   it("leaves a multi-file pick to Studio while another tab runs the queue", () => {
     const doc = new FakeInput();
     vi.stubGlobal('document', doc);

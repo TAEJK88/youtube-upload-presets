@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { SCHEMA_VERSION } from '../lib/migrations';
-import { queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
+import { setPageUi } from '../lib/studio/page-ui';
+import { queue, runQueue, setOtherTabRuns, setRunnerLock, type QueueItem } from '../lib/studio/queue-runner';
+import { setBridge } from '../lib/studio/queue-files';
+import { settings } from '../lib/studio/state';
+// @ts-expect-error -- untyped test helper shared with the ported DOM tests
+import { makeDocument } from './fake-dom.mjs';
 import { installUnloadGuard, persistQueue, restoreQueue } from '../lib/studio/queue-store';
 import { disposeState, flushState, initState } from '../lib/studio/state';
 
@@ -63,6 +68,40 @@ describe('queue store', () => {
     vi.advanceTimersByTime(1000);
     await flushState();
     expect((await browser.storage.local.get('queue')).queue).toEqual([item('A.mp4', 'uploading')]);
+  });
+
+  // The cached flag can be stale-true when this tab wins the runner lock; this tab's own
+  // saves must not be skipped because of it.
+  it('still writes while this tab runs the queue, even with the flag stale', async () => {
+    vi.stubGlobal('document', makeDocument());
+    vi.stubGlobal('location', { pathname: '/channel/UCabcdefghijklmn/videos' });
+    Object.assign(document, { hasFocus: () => true });
+    setBridge(null); // the item fails fast at getQueueFile
+    setRunnerLock({ acquire: async () => true, release: () => {} });
+    const noop = () => {};
+    setPageUi({
+      item: () => persistQueue(), run: noop, queue: noop, schedule: noop, presetPreview: noop, toast: noop,
+      openDrawer: noop, notifyDone: noop, setTitleMark: noop, confirmStart: async () => true,
+    });
+    const confirm = settings.confirmStart;
+    settings.confirmStart = false;
+    try {
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(true);
+      queue.push(item('A.mp4', 'pending'));
+      setOtherTabRuns(true);
+      await runQueue();
+      setOtherTabRuns(false); // the refresh after the run (studio.content: .finally(elsewhere))
+      await vi.waitFor(async () => {
+        await flushState();
+        const saved = (await browser.storage.local.get('queue')).queue as QueueItem[] | undefined;
+        expect(saved?.[0]?.status).toBe('error');
+      });
+    } finally {
+      settings.confirmStart = confirm;
+      setRunnerLock({ acquire: async () => true, release: () => {} });
+      vi.unstubAllGlobals();
+    }
   });
 
   it('writes a waiting change at once when the page goes away, or the script is torn down', async () => {

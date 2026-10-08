@@ -8,10 +8,12 @@ const KEY = 'queue';
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 // Nothing is written while another Studio tab runs the queue: that tab's copy is the one
-// moving items along, and this tab only mirrors it (restoreQueue's onStored).
+// moving items along, and this tab only mirrors it (restoreQueue's onStored). The flag is
+// cached, so it can be stale when this tab wins the lock: a running tab always saves.
+const blocked = () => otherTabRunning() && !running;
 export function persistQueue(): void {
   clearTimeout(timer);
-  if (otherTabRunning()) return;
+  if (blocked()) return;
   timer = setTimeout(flushQueue, 300);
 }
 
@@ -21,7 +23,7 @@ export function flushQueue(): void {
   if (timer === undefined) return;
   clearTimeout(timer);
   timer = undefined;
-  if (!otherTabRunning()) save(KEY, queue);
+  if (!blocked()) save(KEY, queue);
 }
 
 // A reload ends a run: an item that was uploading or waiting for Save may have left a
