@@ -55,6 +55,26 @@ export async function getQueueFile(id: string, src: FileSrc): Promise<File> {
   }
 }
 
+// Before a run: does the bridge answer at all? A file it hands over, or a code about the
+// file itself ('missing', 'permission', 'read'), means yes; no bridge, a bridge error, or
+// silence for `ms` means no. Without this every item would fail after the bridge's own
+// timeouts (30 s, then 30 s more with a fresh frame).
+const FILE_CODES = new Set(['missing', 'permission', 'read']);
+export async function bridgeAnswers(id: string, ms = 10_000): Promise<boolean> {
+  if (!bridge) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const silent = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
+  const answer = bridge.getFile(id).then(
+    () => true,
+    (e: unknown) => FILE_CODES.has(e instanceof Error ? e.message : String(e)),
+  );
+  try {
+    return await Promise.race([answer, silent]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Forget files no queue item needs any more (the side panel's handles via the background).
 export function dropFiles(refs: Pick<FileRef, 'id' | 'src'>[]): void {
   const ids: string[] = [];

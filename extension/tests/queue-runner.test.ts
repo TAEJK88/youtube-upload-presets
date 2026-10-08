@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
 import { resetCfg } from '../lib/studio/channel';
+import { setBridge } from '../lib/studio/queue-files';
 import { counters, save, settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -163,3 +164,70 @@ describe('runner lock', () => {
     expect(calls).toEqual(['toast:Another Studio tab is already running the queue']);
   });
 });
+
+describe('a run that ends early (addendum C)', () => {
+  const lockCalls: string[] = [];
+  beforeEach(() => {
+    lockCalls.length = 0;
+    setBridge(null); // nothing can be read: every item fails at getQueueFile
+    Q.setRunnerLock({ acquire: async () => (lockCalls.push('acquire'), true), release: () => void lockCalls.push('release') });
+    setPageUi({ ...recorder, confirmStart: async () => true });
+    Object.assign(document, { hasFocus: () => true }); // the end-of-run title mark asks
+  });
+  afterEach(() => Q.setRunnerLock({ acquire: async () => true, release: () => {} }));
+
+  it('fails the item cleanly when the bridge is down', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    calls.length = 0;
+    await Q.runQueue();
+    expect(Q.queue[0]).toMatchObject({ status: 'error', msg: 'Could not get the file from the side panel (bridge not ready)' });
+    expect(lockCalls).toEqual(['acquire', 'release']);
+    expect(calls).toContain('notifyDone:Queue stopped — needs attention ⚠️');
+    expect(Q.running).toBe(false);
+  });
+
+  it('stops before the pause between items when asked to, and frees the lock', async () => {
+    await Q.addFiles([qfile('A.mp4'), qfile('B.mp4')]);
+    setPageUi({
+      ...recorder,
+      confirmStart: async () => true,
+      item: (it) => { if (it.status === 'error') Q.requestStop(); }, // Stop pressed while A fails
+    });
+    calls.length = 0;
+    await Q.runQueue();
+    expect(Q.queue.map((i) => i.status)).toEqual(['error', 'pending']);
+    expect(lockCalls).toEqual(['acquire', 'release']);
+    expect(calls).toContain('toast:Queue stopped (0 video(s) done)');
+    expect(Q.running).toBe(false);
+  });
+});
+
+describe('startQueue checks the file bridge first (addendum B.3)', () => {
+  const lockCalls: string[] = [];
+  beforeEach(() => {
+    lockCalls.length = 0;
+    Q.setRunnerLock({ acquire: async () => (lockCalls.push('acquire'), true), release: () => void lockCalls.push('release') });
+    setPageUi({ ...recorder, confirmStart: async () => true });
+    Object.assign(document, { hasFocus: () => true }); // the end-of-run title mark asks
+  });
+  afterEach(() => { setBridge(null); Q.setRunnerLock({ acquire: async () => true, release: () => {} }); });
+
+  it('refuses to start while the bridge does not answer', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    setBridge(null);
+    calls.length = 0;
+    await Q.startQueue();
+    expect(calls).toEqual(["toast:The side panel's file access is not answering — reload the Studio tab, then start again"]);
+    expect(lockCalls).toEqual([]);
+    expect(Q.queue[0]!.status).toBe('pending');
+  });
+
+  it('starts once the bridge answers, even with bad news about a file', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    setBridge({ getFile: async () => { throw new Error('missing'); } });
+    await Q.startQueue();
+    expect(lockCalls).toEqual(['acquire', 'release']);
+    expect(Q.queue[0]).toMatchObject({ status: 'error', msg: 'This file is no longer available — add it again' });
+  });
+});
+

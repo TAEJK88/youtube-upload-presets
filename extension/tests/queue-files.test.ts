@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
-import { bridgeFiles, dropFiles, getQueueFile, pageFiles, setBridge } from '../lib/studio/queue-files';
+import { bridgeAnswers, bridgeFiles, dropFiles, getQueueFile, pageFiles, setBridge } from '../lib/studio/queue-files';
 
 afterEach(() => { setBridge(null); vi.restoreAllMocks(); });
 
@@ -39,5 +39,23 @@ describe('queue files', () => {
     dropFiles([{ id: a!.qid, src: 'page' }, { id: 'h1', src: 'bridge' }]);
     await expect(getQueueFile(a!.qid, 'page')).rejects.toThrow();
     expect(send).toHaveBeenCalledWith('files:delete', ['h1']);
+  });
+
+  it('the bridge answers when it hands over a file or says what is wrong with it', async () => {
+    setBridge({ getFile: async (id) => new File(['v'], id) });
+    expect(await bridgeAnswers('x')).toBe(true);
+    for (const code of ['missing', 'permission', 'read']) {
+      setBridge({ getFile: async () => { throw new Error(code); } });
+      expect(await bridgeAnswers('x')).toBe(true);
+    }
+  });
+
+  it('the bridge does not answer when absent, broken or silent', async () => {
+    setBridge(null);
+    expect(await bridgeAnswers('x')).toBe(false);
+    setBridge({ getFile: async () => { throw new Error('bridge not ready'); } });
+    expect(await bridgeAnswers('x')).toBe(false);
+    setBridge({ getFile: () => new Promise<File>(() => {}) });
+    expect(await bridgeAnswers('x', 20)).toBe(false);
   });
 });

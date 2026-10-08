@@ -7,7 +7,7 @@ import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../templ
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
 import { ui } from './page-ui';
-import { dropFiles, getQueueFile, pageFiles } from './queue-files';
+import { bridgeAnswers, dropFiles, getQueueFile, pageFiles } from './queue-files';
 import { setSchedule } from './schedule';
 import { SEL } from './sel';
 import { activeId, counters, load, presetById, presets, save, saveSettings, settings } from './state';
@@ -575,9 +575,16 @@ export function installIntercept(): () => void {
   return () => ac.abort();
 }
 
-// The drawer's Start button: runQueue() after reading the channel again.
+// The drawer's Start button: runQueue() after reading the channel again, and after
+// making sure the file bridge answers when the next item's file comes from it (asking
+// for that file once is the cheapest probe; it is read again when the item uploads).
+// A wrong channel is left to runQueue(), which says so first.
 export async function startQueue(): Promise<void> {
   await freshCfg();
+  const next = queue.find((i) => i.status === 'pending');
+  if (!running && !channelProblem() && next?.src === 'bridge' && !(await bridgeAnswers(next.id))) {
+    return ui.toast(L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again"));
+  }
   return runQueue();
 }
 
