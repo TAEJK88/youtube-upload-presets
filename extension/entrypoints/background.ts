@@ -3,6 +3,7 @@ import { onMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
 import { initI18n } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
+import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { load } from '@/lib/storage';
 
 export default defineBackground(() => {
@@ -30,4 +31,9 @@ export default defineBackground(() => {
     await ready;
     return load('schemaVersion', 0);
   });
+
+  onMessage('notify', async ({ data, sender }) => {
+    await notifyQueueDone(data, sender.tab);
+  });
+  browser.notifications.onClicked.addListener((id) => void openFromNotification(id));
 });
