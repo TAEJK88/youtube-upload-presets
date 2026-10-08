@@ -3,6 +3,7 @@ import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
 import { resetCfg } from '../lib/studio/channel';
 import { setBridge } from '../lib/studio/queue-files';
+import { stopQueue } from '../lib/studio/queue-ops';
 import { counters, save, settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -199,6 +200,22 @@ describe('a run that ends early (addendum C)', () => {
     expect(lockCalls).toEqual(['acquire', 'release']);
     expect(calls).toContain('toast:Queue stopped (0 video(s) done)');
     expect(Q.running).toBe(false);
+  });
+});
+
+describe('stop during a run', () => {
+  beforeEach(() => {
+    setBridge(null);
+    Object.assign(document, { hasFocus: () => true }); // the end-of-run title mark asks
+  });
+
+  it('says the run will stop after the current video', async () => {
+    await Q.addFiles([qfile('A.mp4'), qfile('B.mp4')]);
+    setPageUi({ ...recorder, confirmStart: async () => true, item: (it) => { if (it.status === 'error') stopQueue(); } });
+    calls.length = 0;
+    await Q.runQueue();
+    expect(calls).toContain('toast:Will stop after the current video finishes');
+    expect(Q.queue.map((i) => i.status)).toEqual(['error', 'pending']);
   });
 });
 

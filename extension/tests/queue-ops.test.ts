@@ -30,10 +30,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('queue ops', () => {
-  it('stop asks the run to end after the current video', () => {
+  it('stop says so when nothing runs in this tab', () => {
     stopQueue();
-    expect(Q.stopReq).toBe(true);
-    expect(calls).toEqual(['toast:Will stop after the current video finishes']);
+    expect(calls).toEqual(['toast:Nothing is running in this Studio tab']);
   });
 
   it('remove takes the item out and lets its files go', () => {
