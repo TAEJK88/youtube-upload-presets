@@ -13,10 +13,20 @@ npm run check    # tsc + vitest — run before every commit
 npm run build    # .output/chrome-mv3 → chrome://extensions → Load unpacked
 ```
 
+Ported code is checked against the userscript at the pinned commit:
+`npm run port-check` (configs in `scripts/port/`; `node scripts/port-check.mjs --print <name>`
+prints the code a port starts from).
+
+Until the Phase 3 side panel, the developer panel drives the Studio tab: drop files,
+**Add all to queue**, **Start…**. Console lines from the extension start with `[ytup]`.
+
 ## Layout
 
 - `entrypoints/` — background, content scripts (`studio.content.ts` isolated, `studio-main.content.ts` MAIN world), side panel, file-bridge iframe
 - `lib/` — logic ported from the userscript; pure modules are unit-tested
+- `lib/studio/` — page automation ported from the userscript (`port-check` keeps it honest);
+  `page-ui.ts` is the seam between the runner and any UI
+- `entrypoints/invite.content.ts` — www.youtube.com: channel switcher and invite accept
 - `lib/studio/txt.ts`, `lib/studio/sel.ts` — the `TXT` / `SEL` tables (see the root README)
 - `tests/*.test.mjs` — tests ported from `../test/` (bodies unchanged); `tests/*.test.ts` — new tests
 
