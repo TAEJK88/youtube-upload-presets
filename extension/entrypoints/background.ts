@@ -4,6 +4,7 @@ import { isStudioUrl } from '@/lib/panel-scope';
 import { initI18n } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
+import { acquireRunner, releaseRunner, runnerElsewhere } from '@/lib/runner-lock';
 import { load } from '@/lib/storage';
 
 export default defineBackground(() => {
@@ -36,4 +37,14 @@ export default defineBackground(() => {
     await notifyQueueDone(data, sender.tab);
   });
   browser.notifications.onClicked.addListener((id) => void openFromNotification(id));
+
+  // One Studio tab runs the queue at a time.
+  const tabOf = (sender: { tab?: { id?: number } }) => {
+    if (sender.tab?.id === undefined) throw new Error('runner lock: not sent from a tab');
+    return sender.tab.id;
+  };
+  onMessage('runner:acquire', ({ sender }) => acquireRunner(tabOf(sender)));
+  onMessage('runner:release', ({ sender }) => releaseRunner(tabOf(sender)));
+  onMessage('runner:elsewhere', ({ sender }) => runnerElsewhere(tabOf(sender)));
+  browser.tabs.onRemoved.addListener((tabId) => void releaseRunner(tabId));
 });
