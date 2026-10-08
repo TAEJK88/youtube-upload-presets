@@ -4,7 +4,7 @@ import { isStudioUrl } from '@/lib/panel-scope';
 import { initI18n } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
-import { acquireRunner, releaseRunner, runnerElsewhere } from '@/lib/runner-lock';
+import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere } from '@/lib/runner-lock';
 import { load } from '@/lib/storage';
 import { deleteHandle } from '@/lib/file-store';
 
@@ -52,5 +52,5 @@ export default defineBackground(() => {
   onMessage('runner:acquire', ({ sender }) => acquireRunner(tabOf(sender)));
   onMessage('runner:release', ({ sender }) => releaseRunner(tabOf(sender)));
   onMessage('runner:elsewhere', ({ sender }) => runnerElsewhere(tabOf(sender)));
-  browser.tabs.onRemoved.addListener((tabId) => void releaseRunner(tabId));
+  registerRunnerLock();
 });
