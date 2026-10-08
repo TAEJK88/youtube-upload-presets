@@ -16,7 +16,7 @@ import { installQuickActions } from '@/lib/studio/quick-actions';
 import { bridgeFiles, setBridge } from '@/lib/studio/queue-files';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { addQueued, installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
-import { installUnloadGuard, restoreQueue } from '@/lib/studio/queue-store';
+import { flushQueue, followOtherTab, installUnloadGuard, restoreQueue } from '@/lib/studio/queue-store';
 import { disposeState, initState } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
 
@@ -101,7 +101,12 @@ export default defineContentScript({
       acquire: () => sendMessage('runner:acquire', undefined)
         .then((ok) => (ok && setOtherTabRuns(false), ok))
         .catch((e) => (console.error('[ytup] runner lock', e), false)),
-      release: releaseLock,
+      // The run's last statuses are saved before the lock goes: a mirror tab that sees it
+      // free cuts what it still has as uploading (followOtherTab).
+      release: () => {
+        flushQueue();
+        releaseLock();
+      },
     });
     // Leaving Studio (or the extension going away) frees the lock at once. Best effort: the
     // background also frees it when this tab closes or leaves Studio.
@@ -115,7 +120,7 @@ export default defineContentScript({
     const elsewhere = () =>
       sendMessage('runner:elsewhere', undefined)
         .catch(() => false)
-        .then((v) => (setOtherTabRuns(v), v));
+        .then((v) => (followOtherTab(v), v));
     stop.add(() => setOtherTabRuns(false));
     // Coming back to the tab: refresh at once rather than at the next tick.
     const refresh = () => { if (document.visibilityState === 'visible') void elsewhere(); };

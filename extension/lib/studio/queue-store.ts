@@ -1,5 +1,5 @@
 import { L } from '../i18n';
-import { otherTabRunning, queue, running, type QueueItem } from './queue-runner';
+import { otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
 
 // The queue's items live in chrome.storage.local ('queue') so they survive reloads and
@@ -35,11 +35,13 @@ const interrupted = (it: QueueItem): QueueItem => ({
     + (it.draftId ? ` (${it.draftId})` : ''),
 });
 
+const unfinished = (it: QueueItem) => it.status === 'uploading' || it.status === 'review';
+
 // markInterrupted is false while another Studio tab holds the runner lock: its item
 // really is still uploading.
 export function restoreQueue(markInterrupted: boolean): void {
   const items = load<QueueItem[]>(KEY, []);
-  const cut = (it: QueueItem) => markInterrupted && (it.status === 'uploading' || it.status === 'review');
+  const cut = (it: QueueItem) => markInterrupted && unfinished(it);
   queue.splice(0, queue.length, ...items.map((it) => (cut(it) ? interrupted(it) : it)));
   // Written back at once, so the side panel (which reads storage) shows the error too.
   if (items.some(cut)) save(KEY, queue);
@@ -48,6 +50,19 @@ export function restoreQueue(markInterrupted: boolean): void {
   onStored(KEY, (v) => {
     if (!running) queue.splice(0, queue.length, ...((v as QueueItem[] | undefined) ?? []));
   });
+}
+
+// Each runner:elsewhere answer (the content script's elsewhere()). When the other tab
+// stops holding the lock and this tab isn't running, what it left uploading or waiting
+// for Save is cut as on a reload: a tab closed mid-run never moves them on. (A run that
+// ends normally saved its last statuses before letting the lock go: see the lock's
+// release in studio.content.ts.)
+export function followOtherTab(runs: boolean): void {
+  const ended = otherTabRunning() && !runs;
+  setOtherTabRuns(runs);
+  if (!ended || running || !queue.some(unfinished)) return;
+  queue.splice(0, queue.length, ...queue.map((it) => (unfinished(it) ? interrupted(it) : it)));
+  save(KEY, queue);
 }
 
 // The userscript asked before leaving whenever the queue had files, because the Files

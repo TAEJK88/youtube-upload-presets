@@ -3,12 +3,12 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { setPageUi } from '../lib/studio/page-ui';
-import { queue, runQueue, setOtherTabRuns, setRunnerLock, type QueueItem } from '../lib/studio/queue-runner';
+import { otherTabRunning, queue, runQueue, setOtherTabRuns, setRunnerLock, type QueueItem } from '../lib/studio/queue-runner';
 import { setBridge } from '../lib/studio/queue-files';
 import { settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
-import { installUnloadGuard, persistQueue, restoreQueue } from '../lib/studio/queue-store';
+import { followOtherTab, installUnloadGuard, persistQueue, restoreQueue } from '../lib/studio/queue-store';
 import { disposeState, flushState, initState } from '../lib/studio/state';
 
 const item = (name: string, status: QueueItem['status'], extra: Partial<QueueItem> = {}): QueueItem => ({
@@ -132,5 +132,34 @@ describe('queue store', () => {
     restoreQueue(true);
     await browser.storage.local.set({ queue: [item('Z.mp4', 'pending')] });
     expect(queue.map((i) => i.file.name)).toEqual(['Z.mp4']);
+  });
+
+  // The running tab closed mid-run: its items stay 'uploading' in storage, and no tab
+  // would ever move them on. The mirror tab cuts them like a reload does.
+  describe('the other tab stops running', () => {
+    const stored = async () => ((await browser.storage.local.get('queue')).queue as QueueItem[]).map((i) => i.status);
+    beforeEach(async () => {
+      await browser.storage.local.set({ queue: [item('A.mp4', 'done'), item('B.mp4', 'uploading'), item('C.mp4', 'review'), item('D.mp4', 'pending')] });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(false);
+    });
+
+    it('marks its unfinished items interrupted and saves them', async () => {
+      followOtherTab(true);
+      expect(otherTabRunning()).toBe(true);
+      expect(queue.map((i) => i.status)).toEqual(['done', 'uploading', 'review', 'pending']);
+      followOtherTab(false);
+      expect(otherTabRunning()).toBe(false);
+      expect(queue.map((i) => i.status)).toEqual(['done', 'error', 'error', 'pending']);
+      expect(queue[1]!.msg).toMatch(/^The page reloaded during the upload/);
+      await flushState();
+      expect(await stored()).toEqual(['done', 'error', 'error', 'pending']);
+    });
+
+    it('does nothing without a flip from true to false', async () => {
+      followOtherTab(false);
+      followOtherTab(false);
+      expect(queue.map((i) => i.status)).toEqual(['done', 'uploading', 'review', 'pending']);
+    });
   });
 });
