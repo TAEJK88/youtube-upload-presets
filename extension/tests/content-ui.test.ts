@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
 import { createContentUi } from '../lib/studio/content-ui';
+import { setTitleMark } from '../lib/studio/page-notify';
 import * as Q from '../lib/studio/queue-runner';
 import { persistQueue } from '../lib/studio/queue-store';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
@@ -38,5 +39,18 @@ describe('content ui', () => {
     Q.queue[0]!.draftId = 'abcdefghijk';
     ui.tick();
     expect(persistQueue).toHaveBeenCalledTimes(1);
+  });
+
+  // A run still in flight when the extension reloads ends later: its finally must not put
+  // ✅/⚠️ back on a tab whose mark the teardown cleared.
+  it('sets no title mark once torn down', () => {
+    document.title = 'Channel content';
+    const ui = createContentUi();
+    ui.setTitleMark('(1/2) ⬆');
+    expect(document.title).toBe('(1/2) ⬆ Channel content');
+    ui.dispose();
+    setTitleMark(''); // what the content script's teardown does
+    ui.setTitleMark('⚠️');
+    expect(document.title).toBe('Channel content');
   });
 });

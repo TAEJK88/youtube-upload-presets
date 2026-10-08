@@ -19,6 +19,12 @@ export function createContentUi() {
   // uploadOne() reads the draft id while waiting for Save without a ui call; the tick
   // saves it, so a reload in that wait still finds it (the interrupted-item message).
   let drafts: string | undefined;
+  // Torn down (extension reloaded): a run still in flight must not put a mark back on the
+  // tab title after the teardown cleared it.
+  let torn = false;
+  const mark = (m: string) => {
+    if (!torn) setTitleMark(m);
+  };
   const broadcast = () => {
     const s: QueueState = { running, stopping: running && stopReq, prog: uploadProg, rev };
     const sig = JSON.stringify(s);
@@ -31,7 +37,7 @@ export function createContentUi() {
     persistQueue();
     broadcast();
   };
-  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void } = {
+  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; dispose(): void } = {
     item(it) {
       // A finished item's files are no longer needed (spec: File intake, step 5).
       if (it.status === 'done' && !released.has(it.id)) {
@@ -44,7 +50,7 @@ export function createContentUi() {
       // updateRunUI()'s one effect on the page: "(3/10) ⬆" in the tab title while running.
       const count = (s: string) => queue.filter((i) => i.status === s).length;
       const total = queue.length;
-      if (running) setTitleMark(`(${Math.min(count('done') + count('error') + 1, total)}/${total}) ⬆`);
+      if (running) mark(`(${Math.min(count('done') + count('error') + 1, total)}/${total}) ⬆`);
       changed();
     },
     queue: changed,
@@ -63,12 +69,15 @@ export function createContentUi() {
       beep(ok);
       sendMessage('notify', { title, text, focused: document.hasFocus() }).catch((e) => console.warn('[ytup] notify', e));
     },
-    setTitleMark,
+    setTitleMark: mark,
     async confirmStart() {
       const ok = confirmed;
       confirmed = false;
       if (!ok) ui.toast(L('ยืนยันการอัปโหลดในแผงด้านข้างก่อน', 'Confirm the upload in the side panel first'));
       return ok;
+    },
+    dispose() {
+      torn = true;
     },
     setConfirmed(v) {
       confirmed = v;

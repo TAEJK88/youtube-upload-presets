@@ -94,6 +94,7 @@ export default defineContentScript({
     });
     const ui = createContentUi();
     setPageUi(ui);
+    stop.add(() => ui.dispose());
     const releaseLock = () => void sendMessage('runner:release', undefined).catch(() => {});
     setRunnerLock({
       acquire: () => sendMessage('runner:acquire', undefined).catch((e) => (console.error('[ytup] runner lock', e), false)),
