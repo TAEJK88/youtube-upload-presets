@@ -5,7 +5,7 @@ import { L, locale } from '../i18n';
 import { visLabels } from '../presets';
 import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../template';
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
-import { buildVars, chanLabel, channelProblem, getChannel } from './channel';
+import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
 import { ui } from './page-ui';
 import { dropFiles, getQueueFile, pageFiles } from './queue-files';
 import { setSchedule } from './schedule';
@@ -72,6 +72,14 @@ interface Memo { title?: string; artists?: string; publishAt?: number; presetId?
 // One Studio tab runs the queue at a time (lib/runner-lock.ts, through the background).
 let lock = { acquire: async () => true, release: () => {} };
 export const setRunnerLock = (l: typeof lock) => { lock = l; };
+
+// getChannel() falls back to a copy of ytcfg that refreshCfg() made. Read it again right
+// before the preflight / start channel checks, so a stale copy can't pass channelProblem().
+// The content script sets the reader (MAIN-world ytcfg); without one nothing is refreshed.
+type CfgReader = (keys: string[]) => Promise<Record<string, unknown>>;
+let cfgReader: CfgReader | null = null;
+export const setCfgReader = (r: CfgReader | null) => { cfgReader = r; };
+const freshCfg = () => (cfgReader ? refreshCfg(cfgReader) : Promise.resolve());
 
 // @port-begin
 // ความคืบหน้าของคลิปที่กำลังอัป · อัปเดตจาก tick ทุก 0.8 วินาที (uploadOne ไม่ต้องรู้เรื่องนี้)
@@ -562,6 +570,12 @@ export function installIntercept(): void {
   // @port-end
 }
 
+// The drawer's Start button: runQueue() after reading the channel again.
+export async function startQueue(): Promise<void> {
+  await freshCfg();
+  return runQueue();
+}
+
 // The drawer's Stop button set this directly.
 export const requestStop = () => {
   stopReq = true;
@@ -596,6 +610,7 @@ export interface StartSummary {
 export async function startSummary(): Promise<StartSummary | { error: string }> {
   const pendingN = queue.filter((i) => i.status === 'pending').length;
   if (!pendingN) return { error: L('ไม่มีคลิปที่รอคิว', 'No videos waiting in the queue') };
+  await freshCfg();
   const problem = channelProblem();
   if (problem) return { error: '⛔ ' + problem };
   assignNumbers();

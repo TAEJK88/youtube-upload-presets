@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
+import { resetCfg } from '../lib/studio/channel';
 import { counters, save, settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -121,5 +122,44 @@ describe('runQueue', () => {
     await Q.runQueue();
     settings.lockChannel = null;
     expect(calls).toEqual(['openDrawer:', 'toast:⛔ Currently on channel "UCabcdefghijklmn" but locked to "Other"']);
+  });
+});
+
+describe('channel check reads ytcfg again (preflight / start)', () => {
+  const lockTo = (id: string) => { settings.lockChannel = { id, name: 'Mine' }; };
+  beforeEach(() => vi.stubGlobal('location', { pathname: '/' })); // no UC id in the URL: ytcfg decides
+  afterEach(() => { settings.lockChannel = null; Q.setCfgReader(null); resetCfg(); });
+
+  it('startSummary refreshes the channel before checking it', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    lockTo('UCmine0000000001');
+    const read = vi.fn(async () => ({ CHANNEL_ID: 'UCmine0000000001' }));
+    Q.setCfgReader(read);
+    const s = await Q.startSummary();
+    expect(read).toHaveBeenCalledWith(['CHANNEL_ID']);
+    expect(s).toMatchObject({ pendingN: 1, channel: { id: 'UCmine0000000001' } });
+  });
+
+  it('startQueue refreshes the channel before runQueue checks it', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    lockTo('UCmine0000000001');
+    Q.setCfgReader(async () => ({ CHANNEL_ID: 'UCother000000001' }));
+    calls.length = 0;
+    await Q.startQueue();
+    expect(calls).toEqual(['openDrawer:', 'toast:⛔ Currently on channel "UCother000000001" but locked to "Mine"']);
+  });
+});
+
+describe('runner lock', () => {
+  afterEach(() => { Q.setRunnerLock({ acquire: async () => true, release: () => {} }); settings.confirmStart = true; });
+
+  it('does not run while another Studio tab holds the lock', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    settings.confirmStart = false;
+    Q.setRunnerLock({ acquire: async () => false, release: () => {} });
+    calls.length = 0;
+    await Q.runQueue();
+    expect(Q.running).toBe(false);
+    expect(calls).toEqual(['toast:Another Studio tab is already running the queue']);
   });
 });
