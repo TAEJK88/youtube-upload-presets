@@ -109,8 +109,18 @@ item. Any failure blocks Phase 3.
     - Expected: the console logs `[ytup] extension reloaded — page automation stopped`,
       the quick-action bars and the `UP` button go away, and the tab-title mark clears.
     - Picking 2 files in Studio's own dialog is now left to Studio (not intercepted).
-    - Also try it with a run in flight: once that run ends, the tab title must not get a
-      ✅/⚠️ back (the torn-down page UI ignores title marks; covered by a unit test).
+    - Also try it with a run in flight (reload the extension while an item uploads).
+      Expected:
+      - One in-page toast: "The extension was reloaded during an upload — if Studio's
+        upload dialog is still open, finish that upload and click Save yourself".
+      - The orphaned run stops at its next step: it doesn't click Save, it leaves
+        Studio's dialog open, and it starts no next item. The console shows
+        `[YT Presets] Error: The extension was reloaded — the queue stopped in this page`.
+      - No other toast follows, and the tab title gets no ✅/⚠️ back.
+      - Finish the upload in the dialog by hand, then reload the tab: that item shows
+        `[error] The page reloaded during the upload — …` and the next one is still
+        `[pending]`. Remove the finished item rather than Retry it (Retry would upload
+        it twice).
 14. **Bridge not answering.** Queue a clip from the panel. Then, in the Studio tab's
     DevTools, block `file-bridge.html` (Network → right-click → Block request URL),
     reload the tab, and Start.

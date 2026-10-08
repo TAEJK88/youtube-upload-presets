@@ -4,7 +4,7 @@ import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
 import { dropFiles } from './queue-files';
-import { pollUploadProgress, queue, running, stopReq, uploadProg } from './queue-runner';
+import { pollUploadProgress, queue, running, setTornDown, stopReq, tornDown, tornError, uploadProg } from './queue-runner';
 import { persistQueue } from './queue-store';
 import { settings } from './state';
 
@@ -20,10 +20,9 @@ export function createContentUi() {
   // saves it, so a reload in that wait still finds it (the interrupted-item message).
   let drafts: string | undefined;
   // Torn down (extension reloaded): a run still in flight must not put a mark back on the
-  // tab title after the teardown cleared it.
-  let torn = false;
+  // tab title after the teardown cleared it, nor show its toasts.
   const mark = (m: string) => {
-    if (!torn) setTitleMark(m);
+    if (!tornDown()) setTitleMark(m);
   };
   const broadcast = () => {
     const s: QueueState = { running, stopping: running && stopReq, prog: uploadProg, rev };
@@ -39,6 +38,8 @@ export function createContentUi() {
   };
   const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; dispose(): void } = {
     item(it) {
+      // An orphaned run stops at its next status change (queue-runner: setTornDown).
+      if (tornDown()) throw tornError();
       // A finished item's files are no longer needed (spec: File intake, step 5).
       if (it.status === 'done' && !released.has(it.id)) {
         released.add(it.id);
@@ -58,7 +59,7 @@ export function createContentUi() {
     presetPreview: changed,
     toast(msg) {
       console.info('[ytup]', msg);
-      pageToast(msg);
+      if (!tornDown()) pageToast(msg);
       sendMessage('queue:toast', msg).catch(() => {});
     },
     openDrawer() {
@@ -77,7 +78,11 @@ export function createContentUi() {
       return ok;
     },
     dispose() {
-      torn = true;
+      // The one toast after teardown: the item in flight is left in Studio's dialog.
+      if (running && !tornDown()) {
+        pageToast(L('ส่วนขยายถูกโหลดใหม่ระหว่างอัปโหลด — ถ้าหน้าต่างอัปโหลดของ Studio ยังเปิดอยู่ ให้ทำต่อแล้วกด Save เอง', "The extension was reloaded during an upload — if Studio's upload dialog is still open, finish that upload and click Save yourself"));
+      }
+      setTornDown(true);
     },
     setConfirmed(v) {
       confirmed = v;

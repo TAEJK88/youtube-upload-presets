@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
+import { createContentUi } from '../lib/studio/content-ui';
+import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { setBridge } from '../lib/studio/queue-files';
 import { removeItem } from '../lib/studio/queue-ops';
@@ -18,6 +20,8 @@ const studio = vi.hoisted(() => ({
   onVisibility: (() => {}) as () => void,
 }));
 vi.mock('../lib/studio/video-duration', () => ({ videoDuration: async () => 0 }));
+vi.mock('../lib/studio/page-toast', () => ({ pageToast: vi.fn() }));
+vi.mock('../lib/studio/queue-store', () => ({ persistQueue: vi.fn() }));
 vi.mock('../lib/studio/automation', async (orig) => ({
   ...(await orig<typeof import('../lib/studio/automation')>()),
   sleep: async () => {},
@@ -65,7 +69,7 @@ const deferred = <T,>() => {
 
 let send: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
-  vi.stubGlobal('document', Object.assign(makeDocument(), { hasFocus: () => true }));
+  vi.stubGlobal('document', Object.assign(makeDocument(), { hasFocus: () => true, title: 'Channel content' }));
   vi.stubGlobal('location', { pathname: '/channel/UCabcdefghijklmn/videos' });
   send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
   setPageUi(recorder);
@@ -73,6 +77,8 @@ beforeEach(() => {
   calls.length = 0;
   Object.assign(studio, { open: false, click: () => { studio.open = false; }, onVisibility: () => {} });
   vi.mocked(D.closeStudioUploadDialog).mockClear();
+  vi.mocked(pageToast).mockClear();
+  Q.setTornDown(false);
   save('uploads', []);
 });
 afterEach(() => {
@@ -98,5 +104,47 @@ describe('the item being processed', () => {
     await run;
     expect(Q.queue[0]!.status).toBe('done');
     expect(Q.currentItemId()).toBe(null);
+  });
+});
+
+// The extension reloads while a run is in flight: the content script's teardown disposes
+// the UI. The orphaned run must leave Studio alone from then on.
+describe('a run after teardown', () => {
+  const RELOADED = "The extension was reloaded during an upload — if Studio's upload dialog is still open, finish that upload and click Save yourself";
+
+  it('does not click Save, keeps the dialog open and starts no next item', async () => {
+    await Q.addFiles([qfile('A.mp4'), qfile('B.mp4')]);
+    const ui = createContentUi();
+    setPageUi(ui);
+    ui.setConfirmed(true);
+    const getFile = vi.fn(async (id: string) => new File(['x'], id));
+    setBridge({ getFile });
+    const click = vi.fn();
+    studio.click = click;
+    studio.onVisibility = () => ui.dispose(); // torn down on the way to Save
+    await expect(Q.runQueue()).rejects.toThrow('The extension was reloaded');
+    expect(click).not.toHaveBeenCalled();
+    expect(D.closeStudioUploadDialog).not.toHaveBeenCalled();
+    expect(getFile).toHaveBeenCalledTimes(1);
+    expect(Q.queue[1]!.status).toBe('pending');
+    expect(Q.running).toBe(false);
+    expect(vi.mocked(pageToast).mock.calls).toEqual([[RELOADED]]); // and not the run's own end toast
+  });
+
+  it('does not fetch the next file once torn down', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    const ui = createContentUi();
+    setPageUi(ui);
+    ui.setConfirmed(true);
+    const getFile = vi.fn(async (id: string) => new File(['x'], id));
+    setBridge({ getFile });
+    Q.setRunnerLock({ acquire: async () => (ui.dispose(), true), release: () => {} });
+    try {
+      await expect(Q.runQueue()).rejects.toThrow('The extension was reloaded');
+    } finally {
+      Q.setRunnerLock({ acquire: async () => true, release: () => {} });
+    }
+    expect(getFile).not.toHaveBeenCalled();
+    expect(D.closeStudioUploadDialog).not.toHaveBeenCalled();
   });
 });

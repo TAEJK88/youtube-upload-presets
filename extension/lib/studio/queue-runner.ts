@@ -546,7 +546,16 @@ async function runQueue() {
 // has failed. Remove leaves it alone: while its file comes, its status is still 'pending'.
 let current: string | null = null;
 export const currentItemId = () => current;
+// Torn down (the extension reloaded under the page; content-ui's dispose sets it): a run
+// still in flight must not go on in Studio. The check here comes before the file fetch;
+// the UI's item() throws from then on, so the setItem() before the Save click stops the
+// item, and the error path's setItem() stops it before it closes Studio's dialog.
+let torn = false;
+export const setTornDown = (v: boolean) => { torn = v; };
+export const tornDown = () => torn;
+export const tornError = () => new Error(L('ส่วนขยายถูกโหลดใหม่ — หยุดคิวในหน้านี้แล้ว', 'The extension was reloaded — the queue stopped in this page'));
 async function uploadCurrent(it: QueueItem): Promise<void> {
+  if (torn) throw tornError();
   current = it.id;
   try {
     await uploadOne(it);

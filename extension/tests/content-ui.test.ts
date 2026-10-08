@@ -22,6 +22,7 @@ beforeEach(() => {
   vi.stubGlobal('document', makeDocument());
   vi.mocked(persistQueue).mockClear();
   Q.queue.splice(0);
+  Q.setTornDown(false); // dispose() sets it for the whole runner
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -75,7 +76,8 @@ describe('content ui', () => {
     const orig = ui.run.bind(ui);
     ui.run = () => { orig(); titles.push(document.title); };
     try {
-      await Q.runQueue();
+      // torn down before the first file fetch: the run stops with an error (queue-run-flow tests)
+      await expect(Q.runQueue()).rejects.toThrow('The extension was reloaded');
     } finally {
       settings.confirmStart = confirm;
       Q.setRunnerLock({ acquire: async () => true, release: () => {} });
