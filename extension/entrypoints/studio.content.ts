@@ -142,10 +142,10 @@ export default defineContentScript({
       if (files.length) await addQueued(files);
     });
     onMessage('queue:preflight', () => startSummary());
-    onMessage('queue:start', ({ data: confirmed }) => {
-      ui.setConfirmed(confirmed);
+    onMessage('queue:start', ({ data: seen }) => {
+      ui.setConfirmed(true); // the panel sends this once the user confirmed the summary
       // A run can take hours: answer now, report through queue:state.
-      void startQueue()
+      void startQueue(seen)
         .catch((e) => console.error('[ytup] run', e))
         .finally(elsewhere);
     });

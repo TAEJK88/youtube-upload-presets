@@ -585,12 +585,27 @@ export function installIntercept(): () => void {
 // making sure the file bridge answers when the next item's file comes from it (asking
 // for that file once is the cheapest probe; it is read again when the item uploads).
 // A wrong channel is left to runQueue(), which says so first.
-export async function startQueue(): Promise<void> {
+// `seen` is what the user confirmed (startSummary's channel and pending items): the run
+// starts only if both are still what they were.
+export interface StartBinding { channelId: string; ids: string[] }
+const pendingIds = () => queue.filter((i) => i.status === 'pending').map((i) => i.id);
+function bindingProblem(seen: StartBinding): string {
+  if (getChannel().id !== seen.channelId) return L('ช่องเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The channel changed after you confirmed — click Start again to see the new summary');
+  if (pendingIds().join('\n') !== seen.ids.join('\n')) return L('คิวเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The queue changed after you confirmed — click Start again to see the new summary');
+  return '';
+}
+export async function startQueue(seen: StartBinding): Promise<void> {
   await freshCfg();
+  if (running) return runQueue();
+  let problem = bindingProblem(seen);
+  if (problem) return ui.toast(problem);
   const next = queue.find((i) => i.status === 'pending');
-  if (!running && !channelProblem() && next?.src === 'bridge' && !(await bridgeAnswers(next.id))) {
+  if (!channelProblem() && next?.src === 'bridge' && !(await bridgeAnswers(next.id))) {
     return ui.toast(L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again"));
   }
+  // The probe can take seconds: check again right before the run.
+  problem = bindingProblem(seen);
+  if (problem) return ui.toast(problem);
   return runQueue();
 }
 
@@ -622,6 +637,7 @@ export async function addQueued(files: QFile[]): Promise<void> {
 export interface StartSummary {
   pendingN: number;
   channel: { id: string; name: string; avatar: string };
+  ids: string[]; // the pending items, in queue order; queue:start sends them back
   times: number[]; // release times, earliest first; empty = released per preset
   vis: string; // the presets' visibilities
   noTxt: number;
@@ -649,6 +665,7 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
   return {
     pendingN,
     channel: { id: ch.id, name: chanLabel(ch), avatar: ch.avatar },
+    ids: pendingItems.map((i) => i.id),
     times: pendingItems.map(itemPublishAt).filter((t): t is number => !!t).sort((a, b) => a - b),
     vis: [...new Set(pendingItems.map((i) => presetById(i.presetId).visibility || 'PRIVATE'))].join(', '),
     noTxt: pendingItems.filter((i) => !i.txt).length,

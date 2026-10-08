@@ -1,5 +1,5 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
-import type { StartSummary } from './studio/queue-runner';
+import type { StartBinding, StartSummary } from './studio/queue-runner';
 
 // What the side panel needs to follow a run live; the items themselves are in
 // chrome.storage.local ('queue'). `rev` goes up whenever the page changed something the
@@ -29,7 +29,7 @@ export type ProtocolMap = {
   // side panel → content (the Studio tab)
   'queue:add'(ids: string[]): void;
   'queue:preflight'(): StartSummary | { error: string };
-  'queue:start'(confirmed: boolean): void;
+  'queue:start'(seen: StartBinding): void; // the summary's channel and items, as confirmed
   'queue:stop'(): void;
   'queue:retry'(id: string): void;
   'queue:remove'(id: string): void;

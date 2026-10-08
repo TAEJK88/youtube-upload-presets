@@ -28,6 +28,8 @@ const recorder: PageUi = {
 let n = 0;
 const qfile = (name: string, body = 'x', type = '') =>
   Object.assign(new File([body], name, { type }), { qid: `id-${++n}`, src: 'bridge' as const });
+// What the panel sends with queue:start: the channel and the pending items its summary showed.
+const confirmed = (channelId = 'UCabcdefghijklmn') => ({ channelId, ids: Q.queue.filter((i) => i.status === 'pending').map((i) => i.id) });
 
 beforeEach(() => {
   vi.stubGlobal('document', makeDocument());
@@ -147,7 +149,7 @@ describe('channel check reads ytcfg again (preflight / start)', () => {
     lockTo('UCmine0000000001');
     Q.setCfgReader(async () => ({ CHANNEL_ID: 'UCother000000001' }));
     calls.length = 0;
-    await Q.startQueue();
+    await Q.startQueue(confirmed('UCother000000001'));
     expect(calls).toEqual(['openDrawer:', 'toast:⛔ Currently on channel "UCother000000001" but locked to "Mine"']);
   });
 });
@@ -241,7 +243,7 @@ describe('startQueue checks the file bridge first (addendum B.3)', () => {
     await Q.addFiles([qfile('A.mp4')]);
     setBridge(null);
     calls.length = 0;
-    await Q.startQueue();
+    await Q.startQueue(confirmed());
     expect(calls).toEqual(["toast:The side panel's file access is not answering — reload the Studio tab, then start again"]);
     expect(lockCalls).toEqual([]);
     expect(Q.queue[0]!.status).toBe('pending');
@@ -250,9 +252,54 @@ describe('startQueue checks the file bridge first (addendum B.3)', () => {
   it('starts once the bridge answers, even with bad news about a file', async () => {
     await Q.addFiles([qfile('A.mp4')]);
     setBridge({ getFile: async () => { throw new Error('missing'); } });
-    await Q.startQueue();
+    await Q.startQueue(confirmed());
     expect(lockCalls).toEqual(['acquire', 'release']);
     expect(Q.queue[0]).toMatchObject({ status: 'error', msg: 'This file is no longer available — add it again' });
   });
 });
 
+
+describe('start is bound to what the user confirmed', () => {
+  const lockCalls: string[] = [];
+  beforeEach(() => {
+    lockCalls.length = 0;
+    Q.setRunnerLock({ acquire: async () => (lockCalls.push('acquire'), true), release: () => void lockCalls.push('release') });
+    setPageUi({ ...recorder, confirmStart: async () => true });
+    setBridge({ getFile: async () => { throw new Error('missing'); } }); // answers: the probe passes
+    Object.assign(document, { hasFocus: () => true }); // the end-of-run title mark asks
+  });
+  afterEach(() => { setBridge(null); Q.setRunnerLock({ acquire: async () => true, release: () => {} }); });
+
+  it('the summary names the channel and the pending items, in order', async () => {
+    await Q.addFiles([qfile('B.mp4'), qfile('A.mp4')]);
+    const s = await Q.startSummary();
+    expect(s).toMatchObject({ channel: { id: 'UCabcdefghijklmn' }, ids: Q.queue.map((i) => i.id) });
+  });
+
+  it('refuses when the channel changed since the summary', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    calls.length = 0;
+    await Q.startQueue(confirmed('UCsomethingelse1'));
+    expect(calls).toEqual(['toast:The channel changed after you confirmed — click Start again to see the new summary']);
+    expect(lockCalls).toEqual([]);
+    expect(Q.queue[0]!.status).toBe('pending');
+  });
+
+  it('refuses when an item was added since the summary', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    const seen = confirmed();
+    await Q.addFiles([qfile('B.mp4')]);
+    calls.length = 0;
+    await Q.startQueue(seen);
+    expect(calls).toEqual(['toast:The queue changed after you confirmed — click Start again to see the new summary']);
+    expect(lockCalls).toEqual([]);
+    expect(Q.queue.map((i) => i.status)).toEqual(['pending', 'pending']);
+  });
+
+  it('runs when the channel and the items match', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    await Q.startQueue(confirmed());
+    expect(lockCalls).toEqual(['acquire', 'release']);
+    expect(Q.queue[0]!.status).toBe('error'); // the bridge said 'missing': it ran
+  });
+});
