@@ -12,9 +12,16 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 export function persistQueue(): void {
   clearTimeout(timer);
   if (otherTabRunning()) return;
-  timer = setTimeout(() => {
-    if (!otherTabRunning()) save(KEY, queue);
-  }, 300);
+  timer = setTimeout(flushQueue, 300);
+}
+
+// The waiting save, now: the page is going away (or the script is), and the last status
+// changes of a run must not be lost with the timer.
+export function flushQueue(): void {
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  timer = undefined;
+  if (!otherTabRunning()) save(KEY, queue);
 }
 
 // A reload ends a run: an item that was uploading or waiting for Save may have left a
@@ -44,7 +51,9 @@ export function restoreQueue(markInterrupted: boolean): void {
 // The userscript asked before leaving whenever the queue had files, because the Files
 // lived in the page. Now a reload only loses a run in progress and files picked in
 // Studio's own upload dialog.
-// Returns a disposer (extension reloaded: the files are gone with this script anyway).
+// Leaving the page also writes a waiting queue save at once (pagehide).
+// Returns a disposer (extension reloaded: the files are gone with this script anyway); it
+// writes a waiting save too.
 export function installUnloadGuard(): () => void {
   const guard = (e: BeforeUnloadEvent) => {
     if (running || queue.some((i) => (i.status === 'pending' || i.status === 'error') && i.src === 'page')) {
@@ -53,5 +62,10 @@ export function installUnloadGuard(): () => void {
     }
   };
   window.addEventListener('beforeunload', guard);
-  return () => window.removeEventListener('beforeunload', guard);
+  window.addEventListener('pagehide', flushQueue);
+  return () => {
+    window.removeEventListener('beforeunload', guard);
+    window.removeEventListener('pagehide', flushQueue);
+    flushQueue();
+  };
 }

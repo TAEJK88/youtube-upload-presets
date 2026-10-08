@@ -3,7 +3,7 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
-import { persistQueue, restoreQueue } from '../lib/studio/queue-store';
+import { installUnloadGuard, persistQueue, restoreQueue } from '../lib/studio/queue-store';
 import { disposeState, flushState, initState } from '../lib/studio/state';
 
 const item = (name: string, status: QueueItem['status'], extra: Partial<QueueItem> = {}): QueueItem => ({
@@ -63,6 +63,29 @@ describe('queue store', () => {
     vi.advanceTimersByTime(1000);
     await flushState();
     expect((await browser.storage.local.get('queue')).queue).toEqual([item('A.mp4', 'uploading')]);
+  });
+
+  it('writes a waiting change at once when the page goes away, or the script is torn down', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', new EventTarget());
+    try {
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(true);
+      const dispose = installUnloadGuard();
+      queue.push(item('A.mp4', 'uploading', { draftId: 'abcdefghijk' }));
+      persistQueue();
+      window.dispatchEvent(new Event('pagehide')); // no timer advanced: the 300 ms never pass
+      await flushState();
+      expect((await browser.storage.local.get('queue')).queue).toEqual([item('A.mp4', 'uploading', { draftId: 'abcdefghijk' })]);
+
+      queue[0]!.status = 'review';
+      persistQueue();
+      dispose();
+      await flushState();
+      expect(((await browser.storage.local.get('queue')).queue as QueueItem[])[0]!.status).toBe('review');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('follows changes from elsewhere', async () => {

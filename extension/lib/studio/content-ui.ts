@@ -16,6 +16,9 @@ export function createContentUi() {
   let rev = 0;
   let last = '';
   const released = new Set<string>();
+  // uploadOne() reads the draft id while waiting for Save without a ui call; the tick
+  // saves it, so a reload in that wait still finds it (the interrupted-item message).
+  let drafts: string | undefined;
   const broadcast = () => {
     const s: QueueState = { running, stopping: running && stopReq, prog: uploadProg, rev };
     const sig = JSON.stringify(s);
@@ -73,6 +76,9 @@ export function createContentUi() {
     // Every 0.8 s, like the userscript's progress tick.
     tick() {
       pollUploadProgress();
+      const d = queue.map((i) => i.draftId || '').join('\n');
+      if (drafts !== undefined && d !== drafts) persistQueue();
+      drafts = d;
       broadcast();
     },
   };
