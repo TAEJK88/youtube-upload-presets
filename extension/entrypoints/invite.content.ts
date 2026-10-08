@@ -1,3 +1,4 @@
+import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
 import { initI18n } from '@/lib/i18n';
 import { browserEnv, createInviteWatcher, INVITE_KEYS } from '@/lib/invite';
@@ -7,9 +8,16 @@ import { createSyncStore } from '@/lib/sync-store';
 // collaboration invites — all the userscript did outside Studio.
 export default defineContentScript({
   matches: ['https://www.youtube.com/*'],
-  async main() {
+  async main(ctx) {
     await initI18n();
-    const env = browserEnv(await createSyncStore(INVITE_KEYS));
+    const stop = stopOnInvalidated(ctx);
+    const store = await createSyncStore(INVITE_KEYS);
+    stop.add(() => store.dispose());
+    const env = browserEnv(store, {
+      setInterval: (fn, ms) => ctx.setInterval(fn, ms),
+      clearInterval,
+      setTimeout: (fn, ms) => ctx.setTimeout(fn, ms),
+    });
     const sw = createChannelSwitch(env);
     sw.watchChannelSwitcher();
     sw.recoverAfterSwitch();

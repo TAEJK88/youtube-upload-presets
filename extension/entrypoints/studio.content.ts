@@ -1,3 +1,4 @@
+import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
 import { createFileBridge } from '@/lib/file-bridge-client';
 import { initI18n } from '@/lib/i18n';
@@ -8,7 +9,7 @@ import { rpcClient, windowEndpoint } from '@/lib/rpc';
 import { createSyncStore } from '@/lib/sync-store';
 import { refreshCfg } from '@/lib/studio/channel';
 import { injectIntoUploadDialog } from '@/lib/studio/inject-spike';
-import { initState } from '@/lib/studio/state';
+import { disposeState, initState } from '@/lib/studio/state';
 
 // Spike FAB: tests whether a page click may open the side panel.
 function mountFab() {
@@ -28,12 +29,20 @@ function mountFab() {
 
 export default defineContentScript({
   matches: ['https://studio.youtube.com/*'],
-  async main() {
+  async main(ctx) {
     await initI18n();
+    const stop = stopOnInvalidated(ctx);
+    stop.add(disposeState);
 
     // The same watchers as on www.youtube.com: invite links can land on Studio, and the
     // post-switch "Oops" recovery runs here.
-    const env = browserEnv(await createSyncStore(INVITE_KEYS));
+    const store = await createSyncStore(INVITE_KEYS);
+    stop.add(() => store.dispose());
+    const env = browserEnv(store, {
+      setInterval: (fn, ms) => ctx.setInterval(fn, ms),
+      clearInterval,
+      setTimeout: (fn, ms) => ctx.setTimeout(fn, ms),
+    });
     const sw = createChannelSwitch(env);
     sw.watchChannelSwitcher();
     sw.recoverAfterSwitch();
@@ -45,6 +54,7 @@ export default defineContentScript({
     const main = rpcClient<MainOps>(windowEndpoint(window, window.location.origin), MAIN_CH);
     const readCfg = (keys: string[]) => main('getCfg', keys);
     const files = createFileBridge(document);
+    stop.add(() => files.dispose());
 
     onMessage('spike:cfg', () =>
       readCfg(['CHANNEL_ID', 'DELEGATED_SESSION_ID', 'SESSION_INDEX', 'INNERTUBE_CONTEXT_CLIENT_VERSION']),

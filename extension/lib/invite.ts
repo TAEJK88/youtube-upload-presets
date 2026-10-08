@@ -176,13 +176,26 @@ export const INVITE_KEYS = ['settings', SWITCH_KEY, SWITCHED_KEY, ACCEPT_ROUND_K
 
 // The real page as an InviteEnv: the globals the userscript used, and a chrome.storage
 // mirror in place of GM_getValue / GM_setValue.
-export const browserEnv = (kv: SyncStore): InviteEnv => ({
-  document,
-  location,
-  getComputedStyle: (el) => getComputedStyle(el),
+export interface Timers {
+  setInterval: (fn: () => void, ms: number) => ReturnType<typeof setInterval>;
+  clearInterval: (id: ReturnType<typeof setInterval>) => void;
+  setTimeout: (fn: () => void, ms: number) => unknown;
+}
+// Content scripts pass ctx.setInterval / ctx.setTimeout, which stop by themselves once the
+// extension is reloaded; the default is the page's own timers.
+const pageTimers: Timers = {
   setInterval: (fn, ms) => setInterval(fn, ms),
   clearInterval: (id) => clearInterval(id),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
+};
+
+export const browserEnv = (kv: SyncStore, timers: Timers = pageTimers): InviteEnv => ({
+  document,
+  location,
+  getComputedStyle: (el) => getComputedStyle(el),
+  setInterval: (fn, ms) => timers.setInterval(fn, ms),
+  clearInterval: (id) => timers.clearInterval(id),
+  setTimeout: (fn, ms) => timers.setTimeout(fn, ms),
   console,
   getValue: (key, fallback) => kv.get(key, fallback),
   setValue: (key, value) => kv.set(key, value),
