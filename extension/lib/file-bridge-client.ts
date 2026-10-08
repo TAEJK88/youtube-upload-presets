@@ -26,6 +26,7 @@ interface Mount {
   gone: Promise<never>; // rejects with 'bridge removed' once this mount is closed
   failGone: (e: Error) => void;
   stopWatch: () => void;
+  closed: boolean; // close() ran: later calls for this mount do nothing
 }
 
 export interface FileBridge {
@@ -77,7 +78,7 @@ export function createFileBridge(doc: Document, timeoutMs = 30_000, opts: FileBr
       failGone = reject;
     });
     gone.catch(() => {});
-    const m: Mount = { sent: false, n, frame, port: port1, call: rpcClient<FileOps>(portEndpoint(port1), FILE_CH, timeoutMs), loaded, gone, failGone, stopWatch: () => {} };
+    const m: Mount = { sent: false, n, frame, port: port1, call: rpcClient<FileOps>(portEndpoint(port1), FILE_CH, timeoutMs), loaded, gone, failGone, stopWatch: () => {}, closed: false };
     if (typeof MO === 'function') {
       const mo = new MO(() => {
         if (!frame.isConnected) {
@@ -92,6 +93,8 @@ export function createFileBridge(doc: Document, timeoutMs = 30_000, opts: FileBr
   }
 
   function close(m: Mount, why: string) {
+    if (m.closed) return;
+    m.closed = true;
     log(`#${m.n} dropped (${why})`);
     m.stopWatch();
     m.call.dispose('bridge removed');

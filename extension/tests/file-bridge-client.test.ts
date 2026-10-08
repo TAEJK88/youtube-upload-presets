@@ -200,4 +200,31 @@ describe('createFileBridge', () => {
     ]));
     bridge.dispose();
   });
+
+  it('drops a mount once: the observer closing it and the failing in-flight call do not log or clean up twice', async () => {
+    const { doc, frames } = fakeDoc();
+    let fire: () => void = () => {};
+    class FakeMO {
+      constructor(cb: () => void) { fire = cb; }
+      observe() {}
+      disconnect() {}
+    }
+    const bridge = createFileBridge(doc, 60_000, { MutationObserver: FakeMO as unknown as typeof MutationObserver });
+    const got = bridge.getFile('a');
+    const first = frames[0]!;
+    let removes = 0; // the bridge's own cleanup calls
+    const realRemove = first.remove.bind(first);
+    first.remove = () => { removes++; realRemove(); };
+    first.load();
+    first.attached = false; // the page took it out
+    fire(); // observer: close(#1)
+    await new Promise((r) => setTimeout(r, 0)); // the in-flight call fails with "bridge removed" and tries to close again
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await got).text()).toBe('abc');
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines.filter((l) => l.includes('#1 dropped'))).toHaveLength(1);
+    expect(removes).toBe(1);
+    bridge.dispose();
+  });
 });
