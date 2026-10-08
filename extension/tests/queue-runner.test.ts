@@ -195,7 +195,15 @@ describe('a run that ends early (addendum C)', () => {
       item: (it) => { if (it.status === 'error') Q.requestStop(); }, // Stop pressed while A fails
     });
     calls.length = 0;
-    await Q.runQueue();
+    const delay = settings.delay;
+    settings.delay = 60; // the pause must not run at all: the run ends well inside a second
+    const t0 = Date.now();
+    try {
+      await Q.runQueue();
+    } finally {
+      settings.delay = delay;
+    }
+    expect(Date.now() - t0).toBeLessThan(1000);
     expect(Q.queue.map((i) => i.status)).toEqual(['error', 'pending']);
     expect(lockCalls).toEqual(['acquire', 'release']);
     expect(calls).toContain('toast:Queue stopped (0 video(s) done)');
