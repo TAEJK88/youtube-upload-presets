@@ -1,28 +1,42 @@
 import { browser } from 'wxt/browser';
 import { deleteHandle, getHandle, listIds, putHandle } from '@/lib/file-store';
-import { sendMessage } from '@/lib/messages';
+import { onMessage, sendMessage } from '@/lib/messages';
+import type { QueueItem } from '@/lib/studio/queue-runner';
 
+// Developer panel (Phase 0 spike, extended in Phase 2): drives the Studio tab's queue
+// runner by message until the real side panel arrives in Phase 3. Exempt from L().
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 export const log = (msg: string) => {
   $('#log').textContent = `${new Date().toLocaleTimeString()} ${msg}\n${$('#log').textContent}`;
 };
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const button = (label: string, onclick: () => void) => {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = onclick;
+  return b;
+};
 
 export async function studioTabId(): Promise<number> {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) throw new Error('no active tab');
   return tab.id;
 }
-
-$('#cfg').addEventListener('click', async () => {
+// Send to the Studio tab and log what happened.
+async function toStudio(what: string, send: (tabId: number) => Promise<unknown>) {
   try {
-    log(`ytcfg: ${JSON.stringify(await sendMessage('spike:cfg', undefined, await studioTabId()))}`);
+    const r = await send(await studioTabId());
+    if (r !== undefined) log(`${what}: ${JSON.stringify(r, null, 1)}`);
   } catch (e) {
-    log(`ytcfg: ERROR ${errText(e)}`);
+    log(`${what}: ERROR ${errText(e)}`);
   }
-});
+}
+const storedQueue = async () => ((await browser.storage.local.get('queue')) as { queue?: QueueItem[] }).queue ?? [];
 
-async function render() {
+$('#cfg').addEventListener('click', () => toStudio('ytcfg', (t) => sendMessage('spike:cfg', undefined, t)));
+
+// Stored file handles (their keys become queue item ids).
+async function renderFiles() {
   const list = $('#files');
   list.replaceChildren();
   for (const id of await listIds()) {
@@ -30,20 +44,7 @@ async function render() {
     if (!h) continue;
     const li = document.createElement('li');
     li.textContent = `${h.name} · ${await h.queryPermission({ mode: 'read' })} `;
-    const inject = document.createElement('button');
-    inject.textContent = 'Inject into Studio';
-    inject.onclick = async () => {
-      try {
-        const r = await sendMessage('spike:inject', id, await studioTabId());
-        log(`inject ${h.name}: ${r.ok ? 'PASS' : 'FAIL'} — ${r.detail}`);
-      } catch (e) {
-        log(`inject ${h.name}: ERROR ${errText(e)}`);
-      }
-    };
-    const del = document.createElement('button');
-    del.textContent = 'Remove';
-    del.onclick = async () => { await deleteHandle(id); await render(); };
-    li.append(inject, del);
+    li.append(button('Forget', async () => { await deleteHandle(id); await renderFiles(); }));
     list.append(li);
   }
 }
@@ -61,7 +62,7 @@ drop.addEventListener('drop', async (e) => {
     await putHandle(crypto.randomUUID(), h as FileSystemFileHandle);
     log(`stored handle: ${h.name}`);
   }
-  await render();
+  await renderFiles();
 });
 
 $('#regrant').addEventListener('click', async () => {
@@ -69,18 +70,73 @@ $('#regrant').addEventListener('click', async () => {
     const h = await getHandle(id);
     if (h) log(`${h.name}: ${await h.requestPermission({ mode: 'read' })}`);
   }
-  await render();
+  await renderFiles();
 });
 
-$('#switch').addEventListener('click', async () => {
+// Handles no queue item uses yet go to the Studio tab's queue.
+$('#add').addEventListener('click', async () => {
+  const used = new Set((await storedQueue()).flatMap((it) => [it.id, it.thumb?.id]));
+  const ids = (await listIds()).filter((id) => !used.has(id));
+  log(`adding ${ids.length} file(s)`);
+  await toStudio('queue:add', (t) => sendMessage('queue:add', ids, t));
+});
+
+// The confirmation the userscript showed before a run, as plain text.
+$('#start').addEventListener('click', () =>
+  toStudio('start', async (t) => {
+    const s = await sendMessage('queue:preflight', undefined, t);
+    if ('error' in s) return s.error;
+    const when = s.times.length ? s.times.map((x) => new Date(x).toLocaleString()).join(' → ') : `per preset (${s.vis})`;
+    const text = [
+      `Upload ${s.pendingN} video(s) to ${s.channel.name} (${s.channel.id})`,
+      `Release: ${when}`,
+      s.noTxt ? `No .txt: ${s.noTxt}` : '',
+      s.noThumb ? `No thumbnail: ${s.noThumb}` : '',
+      ...s.badTime.map((x) => `Too soon: ${x.name} ${new Date(x.at).toLocaleString()}`),
+      ...s.prevUp.map((x) => `Already uploaded: ${x.name} (${x.title})`),
+      ...s.badTl.map((x) => `Tracklist: ${x.name}: ${x.error}`),
+    ].filter(Boolean).join('\n');
+    if (s.needsConfirm && !confirm(text)) return 'cancelled';
+    log(text);
+    await sendMessage('queue:start', true, t);
+    return 'started';
+  }),
+);
+$('#stop').addEventListener('click', () => toStudio('stop', (t) => sendMessage('queue:stop', undefined, t)));
+$('#clear').addEventListener('click', () => toStudio('clear', (t) => sendMessage('queue:clearDone', undefined, t)));
+$('#fill').addEventListener('click', () => toStudio('apply', (t) => sendMessage('fill:apply', undefined, t)));
+$('#diag').addEventListener('click', () => toStudio('dialog info', (t) => sendMessage('diag:dialogInfo', undefined, t)));
+$('#switch').addEventListener('click', () => {
   const handle = $<HTMLInputElement>('#handle').value.trim();
-  if (!handle) return;
-  try {
-    await sendMessage('dev:switchChannel', { handle, next: 'https://studio.youtube.com/' }, await studioTabId());
-    log(`switching to ${handle}`);
-  } catch (e) {
-    log(`switch: ERROR ${errText(e)}`);
-  }
+  if (handle) void toStudio('switch', (t) => sendMessage('dev:switchChannel', { handle, next: 'https://studio.youtube.com/' }, t));
 });
 
-render();
+// The queue as the Studio tab stored it.
+async function renderQueue() {
+  const list = $('#queue');
+  list.replaceChildren();
+  for (const it of await storedQueue()) {
+    const li = document.createElement('li');
+    li.textContent = `${it.file.name} [${it.status}] ${it.title} ${it.msg ? '— ' + it.msg : ''} `;
+    if (it.status === 'error') {
+      li.append(button('Retry', () => {
+        if (it.draftId && !confirm(`Already uploaded as draft ${it.draftId}. Delete it in Content first. Retry?`)) return;
+        void toStudio('retry', (t) => sendMessage('queue:retry', it.id, t));
+      }));
+    }
+    li.append(button('Remove', () => void toStudio('remove', (t) => sendMessage('queue:remove', it.id, t))));
+    list.append(li);
+  }
+}
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.queue) void renderQueue();
+});
+
+onMessage('queue:state', ({ data: s }) => {
+  const p = s.prog ? ` · ${s.prog.pct === null ? '' : Math.round(s.prog.pct * 100) + '% '}${s.prog.text}` : '';
+  $('#state').textContent = `${s.running ? (s.stopping ? 'stopping' : 'running') : 'idle'}${p}`;
+});
+onMessage('queue:toast', ({ data: msg }) => log(`toast: ${msg}`));
+
+renderFiles();
+renderQueue();

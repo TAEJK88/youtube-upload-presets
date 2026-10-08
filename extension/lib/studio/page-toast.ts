@@ -16,6 +16,8 @@ let el: { box: HTMLElement; text: HTMLElement } | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 function mount() {
+  // A host left by an earlier instance of this script (extension reloaded under the page).
+  document.querySelector('#ytup-toast')?.remove();
   const host = h('div', { id: 'ytup-toast' });
   const text = h('span');
   const box = h('div', { className: 'toast' }, h('span', { className: 'ti' }, icon('check', 13)), text);
