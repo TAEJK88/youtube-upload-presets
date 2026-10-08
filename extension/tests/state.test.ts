@@ -10,7 +10,10 @@ const P = (id: string) => ({ ...defaultPresets()[0]!, id, label: id });
 const current = () => Promise.resolve(SCHEMA_VERSION);
 
 beforeEach(() => fakeBrowser.reset());
-afterEach(() => setLang('en'));
+afterEach(() => {
+  state.disposeState();
+  setLang('en');
+});
 
 describe('state before initState', () => {
   it('holds the userscript defaults and an in-memory store', () => {
@@ -85,5 +88,71 @@ describe('initState', () => {
     expect(getLang()).toBe('th');
     await browser.storage.local.set({ settings: { lang: 'en' } });
     expect(getLang()).toBe('en');
+  });
+});
+
+describe('initState lifecycle', () => {
+  it('is idempotent: a second call shares the first, so there is one store and one refresh per change', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: [P('a')] });
+    const added = vi.spyOn(browser.storage.onChanged, 'addListener');
+    const first = state.initState(current);
+    const second = state.initState(current);
+    expect(second).toBe(first);
+    await Promise.all([first, second]);
+    await state.initState(current); // already ready: no-op
+    expect(added).toHaveBeenCalledTimes(1);
+    const splice = vi.spyOn(state.presets, 'splice');
+    await browser.storage.local.set({ presets: [P('x')] });
+    expect(splice).toHaveBeenCalledTimes(1);
+    expect(state.presets.map((p) => p.id)).toEqual(['x']);
+  });
+
+  it('disposeState stops following storage, and initState works again afterwards', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: [P('a')], counters: { a: 1 } });
+    await state.initState(current);
+    state.disposeState();
+    await browser.storage.local.set({ counters: { a: 2 } });
+    expect(state.counters).toEqual({ a: 1 }); // no longer following
+    state.save('counters', { a: 3 }); // back on the in-memory store: nothing reaches storage
+    await state.flushState();
+    expect((await browser.storage.local.get('counters')).counters).toEqual({ a: 2 });
+    await state.initState(current);
+    expect(state.counters).toEqual({ a: 2 });
+    await browser.storage.local.set({ counters: { a: 5 } });
+    expect(state.counters).toEqual({ a: 5 });
+  });
+
+  it('a disposeState during the load wins: the late store is dropped', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, counters: { a: 1 } });
+    const p = state.initState(current);
+    state.disposeState();
+    await p;
+    await browser.storage.local.set({ counters: { a: 9 } });
+    expect(state.counters).not.toEqual({ a: 9 });
+  });
+
+  it('an external write of no presets does not throw and clears activeId', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: [P('a')] });
+    await state.initState(current);
+    expect(state.activeId).toBe('a'); // nothing stored: falls back to the first preset
+    await browser.storage.local.set({ presets: [] });
+    expect(state.presets).toEqual([]);
+    expect(state.activeId).toBe('');
+  });
+
+  it('rejects when the background never answers ensureMigrated, and can be retried', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION - 1 });
+    await expect(state.initState(() => new Promise<number>(() => {}), 20)).rejects.toThrow(
+      '[ytup] background did not answer ensureMigrated',
+    );
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION });
+    await expect(state.initState(current, 20)).resolves.toBeUndefined();
+  });
+
+  it('merges the legacy top-level autoApply / autoNext keys into settings', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, autoApply: false, autoNext: true });
+    await state.initState(current);
+    expect(state.settings.autoApply).toBe(false);
+    expect(state.settings.autoNext).toBe(true);
   });
 });

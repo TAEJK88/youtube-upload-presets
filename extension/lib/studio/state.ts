@@ -48,26 +48,71 @@ function refreshPresets() {
   presets.splice(0, presets.length, ...load('presets', defaultPresets()));
 }
 function refreshActiveId() {
-  activeId = load('activeId', presets[0]!.id);
+  // Deliberate deviation from the userscript: an empty preset list (an external write) must not throw.
+  activeId = load('activeId', presets[0]?.id ?? '');
 }
 function refreshCounters() {
   replace(counters, load('counters', {}));
 }
 
 // Loads everything once the background's migrations have brought storage to this
-// version. `ensureMigrated` is injectable for tests.
-export async function initState(ensureMigrated = () => sendMessage('ensureMigrated', undefined)): Promise<void> {
+// version. `ensureMigrated` and its timeout are injectable for tests. Calling it again
+// while a load is done or in flight returns the same promise (one store, one set of
+// listeners); disposeState() lets it run afresh.
+let starting: Promise<void> | null = null;
+let generation = 0;
+let unsubscribe: (() => void)[] = [];
+
+export function initState(ensureMigrated = () => sendMessage('ensureMigrated', undefined), timeoutMs = 10_000): Promise<void> {
+  if (starting) return starting;
+  const gen = generation;
+  const p = start(ensureMigrated, timeoutMs, gen);
+  starting = p;
+  p.catch(() => {
+    if (starting === p) starting = null; // a failed start may be retried
+  });
+  return p;
+}
+
+async function migrated(ensureMigrated: () => Promise<number>, timeoutMs: number): Promise<number> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('[ytup] background did not answer ensureMigrated')), timeoutMs);
+  });
+  try {
+    return await Promise.race([ensureMigrated(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function start(ensureMigrated: () => Promise<number>, timeoutMs: number, gen: number): Promise<void> {
   let v = await loadStored<number | null>('schemaVersion', null);
-  if (v !== SCHEMA_VERSION) v = await ensureMigrated();
+  if (v !== SCHEMA_VERSION) v = await migrated(ensureMigrated, timeoutMs);
   if (v !== SCHEMA_VERSION) throw new Error(`[ytup] storage schema is ${v}, this build expects ${SCHEMA_VERSION}`);
   await loadSettings(); // stores the one-time defaults (glassV2, lang) exactly as the userscript did at load
-  kv = await createSyncStore(STATE_KEYS);
+  const store = await createSyncStore(STATE_KEYS);
+  if (gen !== generation) return void store.dispose(); // disposeState() ran while loading
+  kv = store;
   refreshSettings();
   refreshPresets();
   refreshActiveId();
   refreshCounters();
-  for (const k of ['settings', 'autoApply', 'autoNext']) kv.onChange(k, refreshSettings);
-  kv.onChange('presets', () => { refreshPresets(); refreshActiveId(); });
-  kv.onChange('activeId', refreshActiveId);
-  kv.onChange('counters', refreshCounters);
+  unsubscribe = [
+    ...['settings', 'autoApply', 'autoNext'].map((k) => kv.onChange(k, refreshSettings)),
+    kv.onChange('presets', () => { refreshPresets(); refreshActiveId(); }),
+    kv.onChange('activeId', refreshActiveId),
+    kv.onChange('counters', refreshCounters),
+  ];
+}
+
+// Stops following storage and goes back to the in-memory store, so initState() can run
+// again. Used when the extension is reloaded under a live page.
+export function disposeState(): void {
+  generation++;
+  starting = null;
+  for (const off of unsubscribe) off();
+  unsubscribe = [];
+  kv.dispose();
+  kv = createMemoryStore();
 }
