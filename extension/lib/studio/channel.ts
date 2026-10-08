@@ -15,6 +15,11 @@ export async function refreshCfg(read: (keys: string[]) => Promise<Record<string
   }
 }
 
+// Tests only: forget what refreshCfg() cached.
+export function resetCfg(): void {
+  for (const k of Object.keys(cfg)) delete cfg[k];
+}
+
 export interface Channel { id: string; name: string; avatar: string; handle: string }
 
 // @port-begin

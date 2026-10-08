@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildVars, channelProblem, getChannel, refreshCfg } from '../lib/studio/channel';
+import { buildVars, channelProblem, getChannel, refreshCfg, resetCfg } from '../lib/studio/channel';
 import { settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -28,6 +28,8 @@ function page(pathname: string, drawer?: { name: string; handle: string; avatar:
 }
 
 afterEach(() => {
+  resetCfg();
+  settings.year = '';
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   settings.lockChannel = null;
@@ -50,12 +52,33 @@ describe('getChannel', () => {
   });
 });
 
+describe('getChannel without a channel', () => {
+  it('has an empty id when the URL has no /channel/UC… and ytcfg has nothing', () => {
+    page('/feed/subscriptions');
+    expect(getChannel().id).toBe('');
+  });
+
+  it('does not keep a ytcfg id from an earlier test (resetCfg)', async () => {
+    page('/');
+    await refreshCfg(async () => ({ CHANNEL_ID: 'UCleftover123456' }));
+    expect(getChannel().id).toBe('UCleftover123456');
+    resetCfg();
+    expect(getChannel().id).toBe('');
+  });
+});
+
 describe('channelProblem', () => {
   it('is empty when no channel is locked or the lock matches', () => {
     page('/channel/UCabcdefghijklmn');
     expect(channelProblem()).toBe('');
     settings.lockChannel = { id: 'UCabcdefghijklmn', name: 'Thai Beats' };
     expect(channelProblem()).toBe('');
+  });
+
+  it('says it could not detect the channel when locked and no id can be found', () => {
+    page('/');
+    settings.lockChannel = { id: 'UCabcdefghijklmn', name: 'Thai Beats' };
+    expect(channelProblem()).toBe('Could not detect the current channel (locked to "Thai Beats")');
   });
 
   it('names both channels when they differ', () => {
@@ -71,5 +94,11 @@ describe('buildVars', () => {
     expect(buildVars('Midnight 140bpm.mp4', 1).producer).toBe('Thai Beats');
     settings.producer = 'BLXD';
     expect(buildVars('Midnight 140bpm.mp4', 1).producer).toBe('BLXD');
+  });
+
+  it('uses settings.year when set', () => {
+    page('/channel/UCabcdefghijklmn', { name: 'Thai Beats', handle: '@thaibeats', avatar: '' });
+    settings.year = '2031';
+    expect(buildVars('Midnight 140bpm.mp4', 1).year).toBe('2031');
   });
 });
