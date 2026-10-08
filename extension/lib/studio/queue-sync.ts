@@ -1,6 +1,7 @@
 import { L } from '../i18n';
 import { sendMessage } from '../messages';
 import { ui } from './page-ui';
+import { otherTabRunning } from './queue-runner';
 import { followOtherTab, restoreQueue } from './queue-store';
 
 // The Studio content script's link to the runner lock (lib/runner-lock.ts, through the
@@ -10,8 +11,8 @@ import { followOtherTab, restoreQueue } from './queue-store';
 // can't wait for one: queue saves and the intercept.
 export const elsewhere = (): Promise<boolean> =>
   sendMessage('runner:elsewhere', undefined)
-    .catch(() => false)
-    .then((v) => (followOtherTab(v), v));
+    .catch(() => otherTabRunning()) // no answer is not "the lock is free": keep what we knew
+    .then(async (v) => (await followOtherTab(v), v));
 
 // At startup. A reload in the middle of a run leaves this tab's lock behind, so it goes
 // first; then the stored queue comes back, its unfinished items cut unless another tab

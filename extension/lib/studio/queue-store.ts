@@ -1,3 +1,4 @@
+import { browser } from 'wxt/browser';
 import { L } from '../i18n';
 import { otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
@@ -57,12 +58,16 @@ export function restoreQueue(markInterrupted: boolean): void {
 // for Save is cut as on a reload: a tab closed mid-run never moves them on. (A run that
 // ends normally saved its last statuses before letting the lock go: see the lock's
 // release in studio.content.ts.)
-export function followOtherTab(runs: boolean): void {
+export async function followOtherTab(runs: boolean): Promise<void> {
   const ended = otherTabRunning() && !runs;
   setOtherTabRuns(runs);
-  if (!ended || running || !queue.some(unfinished)) return;
-  queue.splice(0, queue.length, ...queue.map((it) => (unfinished(it) ? interrupted(it) : it)));
-  save(KEY, queue);
+  if (!ended || running) return;
+  // The running tab saved its last statuses before releasing the lock, but this tab's
+  // copy may not have heard yet: cut what storage holds now.
+  const stored = ((await browser.storage.local.get(KEY))[KEY] as QueueItem[] | undefined) ?? [];
+  if (running || otherTabRunning()) return;
+  queue.splice(0, queue.length, ...stored.map((it) => (unfinished(it) ? interrupted(it) : it)));
+  if (stored.some(unfinished)) save(KEY, queue);
 }
 
 // The userscript asked before leaving whenever the queue had files, because the Files

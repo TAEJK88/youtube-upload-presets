@@ -5,7 +5,7 @@ import * as messages from '../lib/messages';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { otherTabRunning, queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
-import { mayEdit, resumeQueue } from '../lib/studio/queue-sync';
+import { elsewhere, mayEdit, resumeQueue } from '../lib/studio/queue-sync';
 import { disposeState, initState } from '../lib/studio/state';
 
 // The Studio content script's startup and edit gate, without WXT's defineContentScript.
@@ -53,6 +53,17 @@ describe('startup', () => {
     await resumeQueue();
     expect(queue.map((i) => i.status)).toEqual(['uploading', 'pending']);
     expect(otherTabRunning()).toBe(true);
+  });
+});
+
+describe('a failed runner:elsewhere', () => {
+  it('keeps the cached flag and cuts nothing', async () => {
+    queue.push(item('A.mp4', 'uploading'), item('B.mp4', 'pending'));
+    setOtherTabRuns(true);
+    vi.mocked(messages.sendMessage).mockImplementation((async () => { throw new Error('no background'); }) as typeof messages.sendMessage);
+    expect(await elsewhere()).toBe(true);
+    expect(otherTabRunning()).toBe(true);
+    expect(queue.map((i) => i.status)).toEqual(['uploading', 'pending']);
   });
 });
 

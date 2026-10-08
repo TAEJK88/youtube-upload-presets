@@ -145,10 +145,10 @@ describe('queue store', () => {
     });
 
     it('marks its unfinished items interrupted and saves them', async () => {
-      followOtherTab(true);
+      await followOtherTab(true);
       expect(otherTabRunning()).toBe(true);
       expect(queue.map((i) => i.status)).toEqual(['done', 'uploading', 'review', 'pending']);
-      followOtherTab(false);
+      await followOtherTab(false);
       expect(otherTabRunning()).toBe(false);
       expect(queue.map((i) => i.status)).toEqual(['done', 'error', 'error', 'pending']);
       expect(queue[1]!.msg).toMatch(/^The page reloaded during the upload/);
@@ -157,9 +157,20 @@ describe('queue store', () => {
     });
 
     it('does nothing without a flip from true to false', async () => {
-      followOtherTab(false);
-      followOtherTab(false);
+      await followOtherTab(false);
+      await followOtherTab(false);
       expect(queue.map((i) => i.status)).toEqual(['done', 'uploading', 'review', 'pending']);
+    });
+
+    // The running tab flushes its final 'done' before releasing the lock; this tab's copy
+    // can still say 'uploading', so the cut is made on a fresh read of storage.
+    it('cuts what storage holds now, not its own stale copy', async () => {
+      await followOtherTab(true);
+      await browser.storage.local.set({ queue: [item('A.mp4', 'done'), item('B.mp4', 'done'), item('C.mp4', 'done'), item('D.mp4', 'pending')] });
+      queue.splice(0, queue.length, item('A.mp4', 'done'), item('B.mp4', 'uploading'), item('C.mp4', 'review'), item('D.mp4', 'pending'));
+      await followOtherTab(false);
+      expect(await stored()).toEqual(['done', 'done', 'done', 'pending']);
+      expect(queue.map((i) => i.status)).toEqual(['done', 'done', 'done', 'pending']);
     });
   });
 });
