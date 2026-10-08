@@ -16,7 +16,8 @@ import { installQuickActions } from '@/lib/studio/quick-actions';
 import { bridgeFiles, setBridge } from '@/lib/studio/queue-files';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { addQueued, installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
-import { flushQueue, followOtherTab, installUnloadGuard, restoreQueue } from '@/lib/studio/queue-store';
+import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
+import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
 import { disposeState, initState } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
 
@@ -116,11 +117,6 @@ export default defineContentScript({
       requestStop();
       releaseLock();
     });
-    // Each answer is cached for what can't wait for one: queue saves and the intercept.
-    const elsewhere = () =>
-      sendMessage('runner:elsewhere', undefined)
-        .catch(() => false)
-        .then((v) => (followOtherTab(v), v));
     stop.add(() => setOtherTabRuns(false));
     // Coming back to the tab: refresh at once rather than at the next tick.
     const refresh = () => { if (document.visibilityState === 'visible') void elsewhere(); };
@@ -130,16 +126,8 @@ export default defineContentScript({
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('focus', refresh);
     });
-    // A reload in the middle of a run leaves this tab's lock behind.
-    await sendMessage('runner:release', undefined).catch(() => {});
-    restoreQueue(!(await elsewhere()));
+    await resumeQueue();
 
-    // While another tab runs the queue, its writes would overwrite ours.
-    const mayEdit = async () => {
-      if (!(await elsewhere())) return true;
-      ui.toast(L('แท็บ Studio อื่นกำลังอัปโหลดคิวอยู่ — แก้คิวในแท็บนั้น', 'Another Studio tab is running the queue — change the queue there'));
-      return false;
-    };
     onMessage('queue:add', async ({ data: ids }) => {
       if (!(await mayEdit())) return;
       const { files, failed } = await bridgeFiles(ids);

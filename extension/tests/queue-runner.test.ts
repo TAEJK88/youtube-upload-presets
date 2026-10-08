@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
+import * as messages from '../lib/messages';
 import * as Q from '../lib/studio/queue-runner';
 import { resetCfg } from '../lib/studio/channel';
 import { setBridge } from '../lib/studio/queue-files';
@@ -301,5 +302,23 @@ describe('start is bound to what the user confirmed', () => {
     await Q.startQueue(confirmed());
     expect(lockCalls).toEqual(['acquire', 'release']);
     expect(Q.queue[0]!.status).toBe('error'); // the bridge said 'missing': it ran
+  });
+});
+
+describe('addQueued lets go of the files no item uses', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('keeps new videos and thumbnails; drops a read .txt, unmatched files and a replaced thumbnail', async () => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
+    const oldThumb = qfile('A.jpg', 'img', 'image/jpeg');
+    await Q.addQueued([qfile('A.mp4'), oldThumb]);
+    expect(send).not.toHaveBeenCalled();
+    const vid = qfile('B.mp4');
+    const txt = qfile('B.txt', '00:00 X - Y');
+    const newThumb = qfile('a.png', 'img', 'image/png'); // same base name as A: replaces A.jpg
+    const stray = qfile('Nothing.jpg', 'img', 'image/jpeg');
+    await Q.addQueued([vid, txt, newThumb, stray]);
+    expect(send.mock.calls).toEqual([['files:delete', [txt.qid, stray.qid, oldThumb.qid]]]);
+    expect(Q.queue.map((i) => [i.id, i.thumb?.id ?? null])).toEqual([[Q.queue[0]!.id, newThumb.qid], [vid.qid, null]]);
   });
 });

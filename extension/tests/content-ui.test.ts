@@ -84,4 +84,18 @@ describe('content ui', () => {
     }
     expect(titles[0]).toBe('Channel content');
   });
+
+  // spec: File intake, step 5 — a finished item's handles go, once.
+  it("releases a done item's files exactly once, and only on done", () => {
+    const send = vi.mocked(messages.sendMessage);
+    const ui = createContentUi();
+    const it = item('a', { status: 'uploading', thumb: { id: 't', src: 'bridge', name: 'a.jpg', size: 1, type: '' } });
+    Q.queue.push(it);
+    for (const s of ['pending', 'uploading', 'review', 'error'] as const) ui.item({ ...it, status: s });
+    expect(send).not.toHaveBeenCalledWith('files:delete', expect.anything());
+    it.status = 'done';
+    ui.item(it);
+    ui.item(it);
+    expect(send.mock.calls.filter(([type]) => type === 'files:delete')).toEqual([['files:delete', ['a', 't']]]);
+  });
 });
