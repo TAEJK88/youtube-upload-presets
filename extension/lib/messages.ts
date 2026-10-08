@@ -1,5 +1,5 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
-import type { BackupWrites } from './backup';
+import type { BackupImport } from './backup';
 import type { StorePatch } from './store-writer';
 import type { StartBinding, StartSummary } from './studio/queue-runner';
 
@@ -31,7 +31,7 @@ export type ProtocolMap = {
   // settings / counters changes (lib/store-writer.ts); also sent by the side panel
   'store:patch'(p: StorePatch): void;
   // side panel → background: Settings → Import
-  'backup:write'(w: BackupWrites): void;
+  'backup:write'(imp: BackupImport): void;
   // side panel → content (the Studio tab)
   'queue:add'(ids: string[]): void;
   'queue:preflight'(): StartSummary | { error: string };

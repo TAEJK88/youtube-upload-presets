@@ -1,7 +1,8 @@
 import { browser } from 'wxt/browser';
-import { writeBackup, type BackupWrites } from './backup';
+import { applyBackup, writeBackup, type BackupImport } from './backup';
 import { getLang } from './i18n';
-import { applySettingsPatch, type SettingsPatch } from './settings';
+import { applySettingsPatch, loadSettings, type SettingsPatch } from './settings';
+import { load } from './storage';
 
 // settings and counters are written by the side panel and by the Studio page. Each side
 // sends only what it changed, and the background applies the changes one at a time, so
@@ -31,8 +32,13 @@ export async function applyStorePatch(p: StorePatch): Promise<void> {
 
 export const patchStore = (p: StorePatch) => serial(() => applyStorePatch(p));
 
-// Import replaces settings as a whole: in the same queue, so a patch can't land in between.
-export const writeBackupInOrder = (w: BackupWrites) => serial(() => writeBackup(w));
+// Import replaces settings as a whole: built from storage in its turn in the same queue,
+// so a patch queued before it is kept and none can land in between.
+export const writeBackupInOrder = ({ data, presets, own }: BackupImport) =>
+  serial(async () => {
+    const cur = { settings: await loadSettings(), cfg: await load<Record<string, unknown>>('cfg', {}) };
+    await writeBackup(applyBackup(data, presets, own, cur));
+  });
 
 // The userscript stored the language on its first load; a new install's language must
 // not flip to Thai later just because presets get saved.

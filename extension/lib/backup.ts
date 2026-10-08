@@ -52,6 +52,11 @@ export function parseBackup(text: string): ParsedBackup {
   return { ok: true, data, presets };
 }
 
+// What the side panel sends for an import: the parsed file and whether it is the user's
+// own. The background turns it into BackupWrites in its write queue (store-writer), against
+// what storage holds then, so a settings patch queued before it is not undone.
+export interface BackupImport { data: Record<string, unknown>; presets: Preset[]; own: boolean }
+
 export interface BackupWrites {
   presets: Preset[];
   activeId: string;

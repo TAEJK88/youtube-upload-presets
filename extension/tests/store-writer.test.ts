@@ -3,7 +3,8 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { setLang } from '../lib/i18n';
 import { applySettingsPatch, countersDiff, defaultSettings, settingsDiff } from '../lib/settings';
-import { ensureLang, patchStore } from '../lib/store-writer';
+import { parseBackup } from '../lib/backup';
+import { ensureLang, patchStore, writeBackupInOrder } from '../lib/store-writer';
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -59,5 +60,25 @@ describe('ensureLang', () => {
     setLang('en');
     await ensureLang();
     expect((await browser.storage.local.get('settings')).settings).toEqual({ lang: 'th' });
+  });
+});
+
+describe('writeBackupInOrder', () => {
+  const file = (settings: Record<string, unknown>) => {
+    const r = parseBackup(JSON.stringify({ app: 'yt-upload-presets', format: 1, presets: [{ id: 'mine', label: 'Mine' }], activeId: 'mine', settings }));
+    if (!r.ok) throw new Error('fixture');
+    return r;
+  };
+
+  it('applies the file to what storage holds when its turn comes, so a runner patch queued before it survives', async () => {
+    await browser.storage.local.set({ settings: { producer: 'Me', lang: 'en', schedule: { on: true, start: 'W', every: 1, unit: 'day' } } });
+    const { data, presets } = file({ delay: 5, producer: 'Them', schedule: { on: false, start: 'F', every: 2, unit: 'day' } });
+    // the runner moves the schedule on after the panel read the file, before the import is written
+    await Promise.all([
+      patchStore({ key: 'settings', patch: { schedule: { start: 'Z' } } }),
+      writeBackupInOrder({ data, presets, own: false }),
+    ]);
+    const got = (await browser.storage.local.get('settings')).settings;
+    expect(got).toMatchObject({ delay: 5, producer: 'Me', lang: 'en', schedule: { on: true, start: 'Z' } });
   });
 });
