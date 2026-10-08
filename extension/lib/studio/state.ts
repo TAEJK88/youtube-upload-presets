@@ -38,8 +38,15 @@ export const save = (key: string, value: unknown): void => {
   const entry: Pending = { p, done: false };
   pending.push(entry);
   const w = patcher(p).then(
-    // Kept until storage's echo arrives (dropDone), so the value never flips back meanwhile.
-    () => void (entry.done = true),
+    // Kept until storage holds it, so the value never flips back meanwhile. Its echo may
+    // already have come (and gone) while it was pending: read storage again, then drop it.
+    async () => {
+      entry.done = true;
+      if (!pending.includes(entry)) return; // disposeState() ran meanwhile
+      await kv.reread(p.key).catch((e) => console.error(`[ytup] storage re-read failed for ${key}`, e));
+      dropDone(p.key);
+      refresh(p.key);
+    },
     (e) => {
       console.error(`[ytup] storage write failed for ${key}`, e);
       pending.splice(pending.indexOf(entry), 1);

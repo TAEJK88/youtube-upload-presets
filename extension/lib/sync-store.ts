@@ -12,6 +12,8 @@ export interface SyncStore {
   onChange(key: string, fn: (value: unknown) => void): () => void;
   // Resolves once every write issued so far has reached storage.
   flush(): Promise<void>;
+  // Reads the key from storage again (skipped if an event or a write of ours lands meanwhile).
+  reread(key: string): Promise<void>;
   // Stops listening to storage; later set() calls throw.
   dispose(): void;
 }
@@ -76,15 +78,18 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
   buffer = undefined;
   for (const [k, v] of early) onEvent(k, v); // newer than the read: replay on top of it
 
-  const settle = async (key: string) => {
-    const left = (inflight.get(key) ?? 1) - 1;
-    if (left) return void inflight.set(key, left);
-    inflight.delete(key);
-    if (!stale.delete(key)) return;
+  const reread = async (key: string) => {
     const seen = gen.get(key);
     const got = await browser.storage.local.get(key);
     // An event or a newer local write that landed during the read is newer than it.
     if (live && !inflight.get(key) && gen.get(key) === seen) apply(key, got[key]);
+  };
+
+  const settle = async (key: string) => {
+    const left = (inflight.get(key) ?? 1) - 1;
+    if (left) return void inflight.set(key, left);
+    inflight.delete(key);
+    if (stale.delete(key)) await reread(key);
   };
 
   const known = (key: string) => {
@@ -123,6 +128,10 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
     async flush() {
       while (writes.size) await Promise.all([...writes]);
     },
+    reread(key) {
+      known(key);
+      return reread(key);
+    },
     dispose() {
       live = false;
       browser.storage.onChanged.removeListener(onChanged);
@@ -139,6 +148,7 @@ export function createMemoryStore(initial: Record<string, unknown> = {}): SyncSt
     set: (key, value) => void (value === undefined ? data.delete(key) : data.set(key, copy(value))),
     onChange: () => () => {},
     flush: async () => {},
+    reread: async () => {},
     dispose: () => {},
   };
 }

@@ -111,6 +111,28 @@ describe('initState', () => {
     expect((await browser.storage.local.get('counters')).counters).toEqual({ a: 1, b: 2 });
   });
 
+  it('a finished patch does not hide a later change made elsewhere', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, settings: { schedule: { on: true, start: 'W', every: 1, unit: 'day' } } });
+    let stored!: () => void;
+    const written = new Promise<void>((r) => (stored = r));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    await state.initState(current, 10_000, async (p) => {
+      await patchStore(p); // the background stores X and its echo arrives…
+      stored();
+      await gate; // …while the page still waits for the answer
+    });
+    state.settings.schedule.start = 'X';
+    state.saveSettings();
+    await written;
+    // the side panel moves the schedule on; its event arrives while P is still pending
+    await patchStore({ key: 'settings', patch: { schedule: { start: 'Y' } } });
+    release();
+    await state.flushState();
+    expect((await browser.storage.local.get('settings')).settings).toMatchObject({ schedule: { start: 'Y' } });
+    expect(state.settings.schedule.start).toBe('Y');
+  });
+
   it('a failed patch puts back what storage holds', async () => {
     await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, settings: { delay: 3 } });
     await state.initState(current, 10_000, async () => { throw new Error('no background'); });
