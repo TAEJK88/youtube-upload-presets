@@ -12,9 +12,11 @@ export function stopQueue(): void {
   ui.toast(L('จะหยุดหลังคลิปปัจจุบันเสร็จ', 'Will stop after the current video finishes'));
 }
 
+// The userscript hid Remove while an item was uploading or waiting for Save (3925): the
+// run is still working on it.
 export function removeItem(id: string): void {
   const i = queue.findIndex((it) => it.id === id);
-  if (i < 0) return;
+  if (i < 0 || queue[i]!.status === 'uploading' || queue[i]!.status === 'review') return;
   const [it] = queue.splice(i, 1);
   dropFiles(refsOf(it!));
   ui.queue();

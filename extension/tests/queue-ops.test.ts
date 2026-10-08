@@ -45,6 +45,15 @@ describe('queue ops', () => {
     expect(calls).toEqual(['queue']);
   });
 
+  it.each(['uploading', 'review'] as const)('remove leaves an item that is %s alone', (status) => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
+    Q.queue.push(item('a', status));
+    removeItem('a');
+    expect(Q.queue.map((i) => i.id)).toEqual(['a']);
+    expect(send).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it('retry puts a failed item back in line without its draft id', () => {
     Q.queue.push(item('a', 'error', { draftId: 'abcdefghijk' }));
     retryItem('a');
