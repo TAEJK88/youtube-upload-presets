@@ -15,6 +15,8 @@ export type ProtocolMap = {
   'runner:acquire'(): boolean;
   'runner:release'(): void;
   'runner:elsewhere'(): boolean;
+  // content → background: forget stored file handles (the page can't reach the extension's IndexedDB)
+  'files:delete'(ids: string[]): void;
   // developer panel → Studio tab: start a channel switch (the real trigger arrives in Phase 3)
   'dev:switchChannel'(t: { handle: string; next: string }): void;
 };

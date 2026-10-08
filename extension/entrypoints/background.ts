@@ -6,6 +6,7 @@ import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, releaseRunner, runnerElsewhere } from '@/lib/runner-lock';
 import { load } from '@/lib/storage';
+import { deleteHandle } from '@/lib/file-store';
 
 export default defineBackground(() => {
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
@@ -31,6 +32,11 @@ export default defineBackground(() => {
   onMessage('ensureMigrated', async () => {
     await ready;
     return load('schemaVersion', 0);
+  });
+
+  // The page has no access to the extension's IndexedDB; it asks here to forget handles.
+  onMessage('files:delete', async ({ data: ids }) => {
+    for (const id of ids) await deleteHandle(id);
   });
 
   onMessage('notify', async ({ data, sender }) => {
