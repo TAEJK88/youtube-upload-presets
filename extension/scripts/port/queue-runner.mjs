@@ -33,5 +33,10 @@ export default {
     ['setTitleMark(', 'ui.setTitleMark(', 1],
     ['addFiles(t.files);', 'addQueued(pageFiles(t.files));', 1],
     ['addFiles(files);', 'addQueued(pageFiles(files));', 1],
+    // installIntercept() returns a disposer: the two capture listeners go with an AbortSignal
+    ['    },\n    true\n  );', '    },\n    { capture: true, signal }\n  );', 2],
+    // STATUS is built when used, after initI18n() (it was built at import, so always English)
+    ['const STATUS = {', 'const STATUS = () => ({', 1],
+    ["    error: [L('ผิดพลาด', 'Error'), 'err'],\n  };", "    error: [L('ผิดพลาด', 'Error'), 'err'],\n  });", 1],
   ],
 };

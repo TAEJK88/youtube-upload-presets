@@ -5,5 +5,7 @@ export default {
   subs: [
     ['toast(', 'ui.toast(', 3],
     ['renderPresetPreview();', 'ui.presetPreview();', 1],
+    // installManualFill() returns a disposer that clears the poller
+    ['setInterval(async () => {', 'const poll = setInterval(async () => {', 1],
   ],
 };

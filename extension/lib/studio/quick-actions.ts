@@ -166,9 +166,11 @@ function qaHost(bar: HTMLElement): HTMLElement {
   return host;
 }
 
-export function installQuickActions(): void {
+// Returns a disposer: stops placing bars and removes the ones already on the page (their
+// buttons belong to this script instance).
+export function installQuickActions(): () => void {
   // @port-begin
-setInterval(() => {
+const poll = setInterval(() => {
   const on = settings.quickActions && !running;
   const host = on && getDetailsHost();
   const tEl = host && host.querySelector('ytcp-video-title');
@@ -184,4 +186,8 @@ setInterval(() => {
   if (dEl && !dEl.nextElementSibling?.classList.contains('ytp-qa')) dEl.after(qaHost(qaDescBar(host as HTMLElement)));
 }, 1000);
   // @port-end
+  return () => {
+    clearInterval(poll);
+    document.querySelectorAll('.ytp-qa').forEach((b) => b.remove());
+  };
 }

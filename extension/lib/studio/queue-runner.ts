@@ -98,13 +98,13 @@ let stopReq = false;
 // ห้ามเปลี่ยนหน้า/สลับช่องระหว่างที่คิวอัปโหลดยังมีไฟล์ (ไฟล์อยู่ในหน่วยความจำของหน้า จะหายถ้าเปลี่ยนหน้า)
 const uploadBusy = () => running || queue.some((i) => ['pending', 'uploading', 'review', 'error'].includes(i.status));
 
-const STATUS = {
+const STATUS = () => ({
   pending: [L('รอคิว', 'Queued'), 'muted'],
   uploading: [L('กำลังทำงาน', 'Working'), 'info'],
   review: [L('รอคุณกด Save', 'Waiting for you to Save'), 'warn'],
   done: [L('เสร็จแล้ว', 'Done'), 'ok'],
   error: [L('ผิดพลาด', 'Error'), 'err'],
-};
+});
 
 const isVideo = (f: FileMeta) => (f.type || '').startsWith('video/') || VIDEO_EXT.test(f.name);
 const isTxt = (f: FileMeta) => TXT_EXT.test(f.name);
@@ -536,7 +536,11 @@ async function runQueue() {
 }
 // @port-end
 
-export function installIntercept(): void {
+// Returns a disposer: an orphaned listener (extension reloaded under a live page) would
+// still close Studio's dialog and swallow the user's files.
+export function installIntercept(): () => void {
+  const ac = new AbortController();
+  const { signal } = ac;
   // @port-begin
   // ดักการเลือก/ลากหลายไฟล์ในหน้าต่างของ Studio -> ส่งเข้าคิวของสคริปต์แทน
   document.addEventListener(
@@ -551,7 +555,7 @@ export function installIntercept(): void {
       closeStudioUploadDialog();
       ui.openDrawer('queue');
     },
-    true
+    { capture: true, signal }
   );
   document.addEventListener(
     'drop',
@@ -565,9 +569,10 @@ export function installIntercept(): void {
       closeStudioUploadDialog();
       ui.openDrawer('queue');
     },
-    true
+    { capture: true, signal }
   );
   // @port-end
+  return () => ac.abort();
 }
 
 // The drawer's Start button: runQueue() after reading the channel again.
@@ -575,6 +580,13 @@ export async function startQueue(): Promise<void> {
   await freshCfg();
   return runQueue();
 }
+
+// The userscript built STATUS once at load; here that is before initI18n() has read the
+// language, so the labels are built when asked for.
+export const statusLabel = (s: ItemStatus): { text: string; tone: string } => {
+  const [text, tone] = STATUS()[s] as [string, string];
+  return { text, tone };
+};
 
 // The drawer's Stop button set this directly.
 export const requestStop = () => {
@@ -636,7 +648,7 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
 }
 
 export {
-  uploadProg, pollUploadProgress, queue, running, stopReq, uploadBusy, STATUS, isVideo, isTxt, isImg, baseKey, readText,
+  uploadProg, pollUploadProgress, queue, running, stopReq, uploadBusy, isVideo, isTxt, isImg, baseKey, readText,
   saveMemo, restoreMemo, addFiles, assignNumbers, scheduleOn, stepMs, itemPublishAt, queueSlots, takenSlots,
   refreshChanSched, effectiveStart, startIsPast, scheduleProblem, fmtWhen, toLocalInput, itemVars, itemTracklist,
   setItem, uploadOne, dialogVideoId, getUploads, logUpload, uploadOf, uploadsCSV, downloadCSV, runQueue,

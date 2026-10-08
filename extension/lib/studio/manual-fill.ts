@@ -32,9 +32,10 @@ async function applyToOpenDialog() {
 }
 // @port-end
 
-export function installManualFill(): void {
+// Returns a disposer, so the poller stops when the extension is reloaded under the page.
+export function installManualFill(): () => void {
   // @port-begin
-setInterval(async () => {
+const poll = setInterval(async () => {
   if (running) return;
   if (!uploadDialogOpen()) {
     session = null;
@@ -52,6 +53,7 @@ setInterval(async () => {
   }
 }, 1000);
   // @port-end
+  return () => clearInterval(poll);
 }
 
 export { session, applyToOpenDialog };

@@ -9,5 +9,7 @@ export default {
     ['html[dark] ', ':host-context(html[dark]) ', 8],
     ['tEl.after(qaTitleBar(host));', 'tEl.after(qaHost(qaTitleBar(host)));', 1],
     ['dEl.after(qaDescBar(host));', 'dEl.after(qaHost(qaDescBar(host)));', 1],
+    // installQuickActions() returns a disposer that clears the poller
+    ['setInterval(() => {', 'const poll = setInterval(() => {', 1],
   ],
 };
