@@ -9,7 +9,7 @@ import { usePanel } from '../panel';
 
 function Banner({ icon, text, children }: { icon: string; text: string; children?: ReactNode }) {
   return (
-    <div className="mx-[18px] mt-3 flex items-center gap-2.5 rounded-[14px] border border-warn/40 bg-warn/[0.08] px-3 py-2.5 text-[13px]">
+    <div role="status" className="mx-[18px] mt-3 flex items-center gap-2.5 rounded-[14px] border border-warn/40 bg-warn/[0.08] px-3 py-2.5 text-[13px]">
       <Icon name={icon} size={16} className="shrink-0 text-warn" />
       <span className="min-w-0 flex-1">{text}</span>
       {children}
@@ -19,7 +19,7 @@ function Banner({ icon, text, children }: { icon: string; text: string; children
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, view, refresh } = usePanel();
+  const { link, target, runner, elsewhere, view, refresh, setLost: share } = usePanel();
   // Queued files whose read permission went back to 'prompt' (a browser restart): D18.
   const [lost, setLost] = useState<string[]>([]);
   const ids = view ? queuedFileIds(view.items).join(',') : '';
@@ -28,7 +28,8 @@ export function Banners() {
     void needingGrant(ids ? ids.split(',') : []).then((l) => { if (alive) setLost(l); });
     return () => { alive = false; };
   }, [ids]);
-  const regrantAll = () => void regrant(lost).then(() => needingGrant(lost)).then((l) => { setLost(l); refresh(); });
+  useEffect(() => { share(lost); }, [lost, share]);
+  const regrantAll = () => void regrant(lost).then(() => needingGrant(lost)).then((l) => { setLost(l); share(l, true); refresh(); });
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };

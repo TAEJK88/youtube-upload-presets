@@ -25,12 +25,19 @@ export interface PanelApi {
   sendTo(tabId: number): ToTab;
   write: Writes;
   refresh(): void;
+  // Queued files whose read permission went back to 'prompt' (Banners finds them, as it is
+  // always mounted): Start waits for the Re-grant, and cards read their previews again
+  // once `grantRev` moves (bumped after each re-grant).
+  lost: string[];
+  grantRev: number;
+  setLost(ids: string[], regranted?: boolean): void;
 }
 
 const noop = () => {};
 export const PanelContext = createContext<PanelApi>({
   lang: 'en', data: null, target: null, link: 'noTab', view: null, runner: null, elsewhere: false,
   send: () => Promise.reject(new Error('no Studio tab')), sendTo: toTab, write: writes, refresh: noop,
+  lost: [], grantRev: 0, setLost: noop,
 });
 export const usePanel = () => useContext(PanelContext);
 
@@ -179,6 +186,14 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     });
   }, [targetId, runnerId]);
 
+  const [grant, setGrant] = useState<{ lost: string[]; rev: number }>({ lost: [], rev: 0 });
+  const setLost = useCallback((ids: string[], regranted = false) => {
+    setGrant((g) => {
+      const same = g.lost.length === ids.length && g.lost.every((id, i) => id === ids[i]);
+      return same && !regranted ? g : { lost: same ? g.lost : ids, rev: g.rev + (regranted ? 1 : 0) };
+    });
+  }, []);
+
   const live = useMemo<LiveApi>(() => {
     const state = targetId !== undefined ? states.get(targetId) ?? view?.state ?? null : null;
     const runnerState = runnerId !== undefined ? states.get(runnerId) ?? null : null;
@@ -193,8 +208,11 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       sendTo: toTab,
       write: writes,
       refresh: () => { sync.poke(); updateRunner(); },
+      lost: grant.lost,
+      grantRev: grant.rev,
+      setLost,
     };
-  }, [lang, data, target, link, view, runner, sync, updateRunner]);
+  }, [lang, data, target, link, view, runner, sync, updateRunner, grant, setLost]);
 
   return (
     <PanelContext.Provider value={api}>

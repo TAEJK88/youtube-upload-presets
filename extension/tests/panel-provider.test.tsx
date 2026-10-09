@@ -137,3 +137,29 @@ describe('a failing queue:view', () => {
     err.mockRestore();
   });
 });
+
+describe('files that need a re-grant', () => {
+  function Grant() {
+    const p = usePanel();
+    return (
+      <>
+        <div data-testid="g">{`${p.lost.join(',')}|${p.grantRev}`}</div>
+        <button onClick={() => p.setLost(['a', 'b'])}>lost</button>
+        <button onClick={() => p.setLost([], true)}>granted</button>
+      </>
+    );
+  }
+  it('are shared with the whole panel; each re-grant moves grantRev', async () => {
+    render(<PanelProvider><Grant /></PanelProvider>);
+    await flush();
+    expect(screen.getByTestId('g').textContent).toBe('|0');
+    fireEvent.click(screen.getByText('lost'));
+    expect(screen.getByTestId('g').textContent).toBe('a,b|0');
+    fireEvent.click(screen.getByText('lost')); // the same ids: no change
+    expect(screen.getByTestId('g').textContent).toBe('a,b|0');
+    fireEvent.click(screen.getByText('granted'));
+    expect(screen.getByTestId('g').textContent).toBe('|1');
+    fireEvent.click(screen.getByText('granted')); // a re-grant that changed nothing still re-reads previews
+    expect(screen.getByTestId('g').textContent).toBe('|2');
+  });
+});

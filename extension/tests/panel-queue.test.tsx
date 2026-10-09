@@ -3,12 +3,13 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as fileStore from '../lib/file-store';
 import * as intake from '../lib/panel/intake';
 import { QueueCard } from '../entrypoints/sidepanel/tabs/QueueCard';
 import { QueueFooter } from '../entrypoints/sidepanel/tabs/QueueFooter';
 import { QueueTab, usePanelDrop } from '../entrypoints/sidepanel/tabs/QueueTab';
 import { ScheduleBox } from '../entrypoints/sidepanel/tabs/ScheduleBox';
-import { useAsk } from '../entrypoints/sidepanel/ask';
+import { AskProvider, useAsk } from '../entrypoints/sidepanel/ask';
 import { PanelContext } from '../entrypoints/sidepanel/panel';
 import { toPanelData } from '../lib/panel/data';
 import { fmtWhen, toLocalInput } from '../lib/panel/format';
@@ -122,6 +123,32 @@ describe('queue card', () => {
     renderPanel(<QueueCard it={view.items[0]!} open={false} onOpen={() => {}} />, fakePanel({ view }),
       fakeLive({ liveState: state({ running: true, prog: { pct: 0.42 } as never }) }));
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('42');
+  });
+});
+
+describe('queue card: thumbnail preview', () => {
+  it('comes back after a re-grant', async () => {
+    let perm: PermissionState = 'prompt';
+    vi.spyOn(fileStore, 'getHandle').mockImplementation(async () => ({
+      queryPermission: async () => perm, getFile: async () => new File(['img'], 'Clip 1.jpg', { type: 'image/jpeg' }),
+    }) as unknown as FileSystemFileHandle);
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:thumb');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const view = viewWith([{ thumb: { id: 't0', src: 'bridge', name: 'Clip 1.jpg', size: 3, type: 'image/jpeg' } }]);
+    const card = (grantRev: number) => (
+      <PanelContext.Provider value={fakePanel({ view, grantRev })}>
+        <AskProvider><QueueCard it={view.items[0]!} open={false} onOpen={() => {}} /></AskProvider>
+      </PanelContext.Provider>
+    );
+    const { container, rerender } = render(card(0));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(container.querySelector('img[src="blob:thumb"]')).toBe(null);
+    perm = 'granted';
+    rerender(card(1));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(create).toHaveBeenCalled();
+    expect(container.querySelector('img[src="blob:thumb"]')).toBeTruthy();
+    vi.restoreAllMocks();
   });
 });
 
@@ -471,6 +498,15 @@ describe('upload footer', () => {
     expect(screen.getByText('To channel Mine')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Clear finished videos from the list' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Stop after the current video' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('Start waits while queued files need read access again (the Re-grant banner shows)', () => {
+    const view = viewWith([{ status: 'pending' }]);
+    renderPanel(<QueueFooter />, fakePanel({ view, lost: ['i0'] }));
+    expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    renderPanel(<QueueFooter />, fakePanel({ view, lost: [] }));
+    expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('a channel that is not the locked one blocks Start', () => {

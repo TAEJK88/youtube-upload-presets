@@ -242,6 +242,14 @@ describe('banners', () => {
     expect(request).toHaveBeenCalledTimes(2);
     expect(screen.queryByText('Files in the queue need read access again after a browser restart')).toBe(null);
     expect(api.refresh).toHaveBeenCalled();
+    // Shared with the panel: Start waits while files need a grant; cards reload their previews.
+    expect(api.setLost).toHaveBeenCalledWith(['i0', 't0']);
+    expect(api.setLost).toHaveBeenCalledWith([], true);
+  });
+
+  it('banners are announced to screen readers', () => {
+    renderPanel(<Banners />, fakePanel({ link: 'noScript' }));
+    expect(screen.getByRole('status').textContent).toContain('This tab is not connected to the extension yet');
   });
 });
 

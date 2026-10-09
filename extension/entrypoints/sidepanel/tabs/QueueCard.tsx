@@ -35,8 +35,9 @@ const notConnected = (e: unknown) => {
 const MSG_TONE: Partial<Record<ItemStatus, string>> = { error: 'bg-err/[0.09] text-err', done: 'bg-ok/[0.09] text-ok', review: 'bg-warn/10 text-warn' };
 type Edit = QueueEdit extends infer E ? (E extends { id: string } ? Omit<E, 'id'> : never) : never;
 
-// The thumbnail dropped on the panel, shown on the card (only while read access holds).
-function useThumbUrl(ref: FileRef | null): string | null {
+// The thumbnail dropped on the panel, shown on the card (only while read access holds;
+// read again after each re-grant, `grantRev`).
+function useThumbUrl(ref: FileRef | null, grantRev: number): string | null {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!ref || ref.src !== 'bridge') return void setUrl(null);
@@ -55,7 +56,7 @@ function useThumbUrl(ref: FileRef | null): string | null {
       if (made) URL.revokeObjectURL(made);
       setUrl(null);
     };
-  }, [ref?.id, ref?.src]);
+  }, [ref?.id, ref?.src, grantRev]);
   return url;
 }
 
@@ -73,13 +74,13 @@ const RemoveX = ({ onClick }: { onClick(): void }) => (
 );
 
 export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev?: ViewItem; next?: ViewItem; open: boolean; onOpen(open: boolean): void }) {
-  const { data, view, send } = usePanel();
+  const { data, view, send, grantRev } = usePanel();
   const { liveState } = useLive();
   const ask = useAsk();
   const titleEl = useRef<HTMLInputElement>(null);
   const focusTitle = useRef(false);
   const [drag, setDrag] = useState(false);
-  const thumbUrl = useThumbUrl(it.thumb);
+  const thumbUrl = useThumbUrl(it.thumb, grantRev);
   const current = it.id === view?.current;
   const editable = waiting(it) && !current;
   // The tab's move refuses a neighbour that can't change (queue-edit canEdit).
