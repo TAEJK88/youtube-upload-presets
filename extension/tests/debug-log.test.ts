@@ -63,6 +63,87 @@ describe('debug log', () => {
     }
   });
 
+  it('collapses consecutive identical entries (same ctx, level, msg) into one with a count', async () => {
+    appendLog('studio', 'error', 'storm', 'at first()');
+    appendLog('studio', 'error', 'storm', 'at later()');
+    appendLog('studio', 'error', 'storm');
+    appendLog('panel', 'error', 'storm'); // another context: a new entry
+    appendLog('panel', 'warn', 'storm'); // another level: a new entry
+    appendLog('panel', 'warn', 'storm');
+    await flushLog();
+    const log = await stored();
+    expect(log.map((e) => [e.ctx, e.level, e.msg, (e as { count?: number }).count])).toEqual([
+      ['studio', 'error', 'storm', 3],
+      ['panel', 'error', 'storm', undefined],
+      ['panel', 'warn', 'storm', 2],
+    ]);
+    expect(log[0]!.stack).toBe('at first()'); // the first occurrence's time and stack
+    expect(memoryLog().map((e) => e.count)).toEqual([3, undefined, 2]);
+  });
+
+  it('keeps collapsing across flushes: a storm stays one stored entry', async () => {
+    appendLog('studio', 'error', 'storm');
+    await flushLog();
+    appendLog('studio', 'error', 'storm');
+    appendLog('studio', 'error', 'storm');
+    await flushLog();
+    expect((await stored()).map((e) => [e.msg, (e as { count?: number }).count])).toEqual([['storm', 3]]);
+    appendLog('studio', 'error', 'other');
+    appendLog('studio', 'error', 'storm'); // not consecutive any more
+    await flushLog();
+    expect((await stored()).map((e) => e.msg)).toEqual(['storm', 'other', 'storm']);
+  });
+
+  it('cutting to the cap drops info entries before warn and error ones', async () => {
+    const old = Array.from({ length: LOG_CAP }, (_, i) => ({ t: i, ctx: 'background', level: i < 2 ? 'error' : i % 2 ? 'info' : 'warn', msg: `old ${i}` }));
+    await browser.storage.local.set({ [DEBUG_LOG_KEY]: old });
+    appendLog('panel', 'info', 'chatter 1');
+    appendLog('panel', 'info', 'chatter 2');
+    appendLog('panel', 'error', 'the one that matters');
+    await flushLog();
+    const log = await stored();
+    expect(log.length).toBe(LOG_CAP);
+    // the two old errors stay; the three oldest info lines (old 3, 5, 7) go
+    expect(log.slice(0, 3).map((e) => e.msg)).toEqual(['old 0', 'old 1', 'old 2']);
+    expect(log.map((e) => e.msg)).not.toContain('old 3');
+    expect(log.map((e) => e.msg)).not.toContain('old 7');
+    expect(log.map((e) => e.msg)).toContain('old 9');
+    expect(log.at(-1)!.msg).toBe('the one that matters');
+  });
+
+  it('with only warn and error entries left, the oldest go first', async () => {
+    await browser.storage.local.set({ [DEBUG_LOG_KEY]: Array.from({ length: LOG_CAP }, (_, i) => ({ t: i, ctx: 'background', level: 'warn', msg: `w ${i}` })) });
+    appendLog('panel', 'error', 'new');
+    await flushLog();
+    const log = await stored();
+    expect(log.length).toBe(LOG_CAP);
+    expect(log[0]!.msg).toBe('w 1');
+    expect(log.at(-1)!.msg).toBe('new');
+  });
+
+  it('a storm writes at most once every 2 s per context (the first write still after ~500 ms)', async () => {
+    vi.useFakeTimers();
+    const set = vi.spyOn(browser.storage.local, 'set');
+    appendLog('studio', 'error', 'first');
+    await vi.advanceTimersByTimeAsync(600);
+    expect(set).toHaveBeenCalledTimes(1);
+    // the storm: a new line every 100 ms for 5 s
+    for (let i = 0; i < 50; i++) {
+      appendLog('studio', 'error', `line ${i % 3}`);
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    // 5.6 s after the first write began: writes at ~2.5 s and ~4.5 s, not ten
+    expect(set.mock.calls.length).toBeLessThanOrEqual(3);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect((await stored()).length).toBe(51); // nothing lost: the last batch went out too
+    // quiet again: the next lone entry is written ~500 ms after it, once 2 s have passed
+    await vi.advanceTimersByTimeAsync(5000);
+    const before = set.mock.calls.length;
+    appendLog('studio', 'warn', 'lone');
+    await vi.advanceTimersByTimeAsync(600);
+    expect(set.mock.calls.length).toBe(before + 1);
+  });
+
   it('readLog / clearLog', async () => {
     appendLog('debug', 'info', 'a');
     await flushLog();
