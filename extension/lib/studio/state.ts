@@ -13,7 +13,7 @@ import { createMemoryStore, createSyncStore, type SyncStore } from '../sync-stor
 // in the side panel show up here without a reload, and save() writes through.
 
 // Every key the page code reads or writes with load() / save().
-export const STATE_KEYS = ['settings', 'autoApply', 'autoNext', 'presets', 'activeId', 'counters', 'queueMemo', 'uploads', 'queue'];
+export const STATE_KEYS = ['settings', 'autoApply', 'autoNext', 'presets', 'activeId', 'counters', 'queueMemo', 'uploads', 'queue', 'channels', 'fabPos'];
 
 // In memory until initState() runs, so modules work in tests without chrome.storage.
 let kv: SyncStore = createMemoryStore();

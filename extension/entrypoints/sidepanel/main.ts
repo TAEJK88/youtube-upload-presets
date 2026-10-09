@@ -33,8 +33,6 @@ async function toStudio(what: string, send: (tabId: number) => Promise<unknown>)
 }
 const storedQueue = async () => ((await browser.storage.local.get('queue')) as { queue?: QueueItem[] }).queue ?? [];
 
-$('#cfg').addEventListener('click', () => toStudio('ytcfg', (t) => sendMessage('spike:cfg', undefined, t)));
-
 // Stored file handles (their keys become queue item ids).
 async function renderFiles() {
   const list = $('#files');
@@ -106,10 +104,6 @@ $('#stop').addEventListener('click', () => toStudio('stop', (t) => sendMessage('
 $('#clear').addEventListener('click', () => toStudio('clear', (t) => sendMessage('queue:clearDone', undefined, t)));
 $('#fill').addEventListener('click', () => toStudio('apply', (t) => sendMessage('fill:apply', undefined, t)));
 $('#diag').addEventListener('click', () => toStudio('dialog info', (t) => sendMessage('diag:dialogInfo', undefined, t)));
-$('#switch').addEventListener('click', () => {
-  const handle = $<HTMLInputElement>('#handle').value.trim();
-  if (handle) void toStudio('switch', (t) => sendMessage('dev:switchChannel', { handle, next: 'https://studio.youtube.com/' }, t));
-});
 
 // The queue as the Studio tab stored it.
 async function renderQueue() {

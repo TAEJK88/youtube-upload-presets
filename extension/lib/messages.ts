@@ -1,6 +1,7 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
 import type { BackupImport } from './backup';
 import type { StorePatch } from './store-writer';
+import type { SwitchRequest } from './studio/channels';
 import type { QueueEdit } from './studio/queue-edit';
 import type { StartBinding, StartSummary } from './studio/queue-runner';
 import type { ChannelView, QueueView } from './studio/queue-view';
@@ -45,14 +46,12 @@ export type ProtocolMap = {
   'queue:clearDone'(): void;
   'queue:view'(): QueueView;
   'queue:edit'(e: QueueEdit): void;
+  'channel:switch'(req: SwitchRequest): void;
   'fill:apply'(): void;
   'diag:dialogInfo'(): unknown;
   // content → side panel (broadcast; nobody listens while the panel is closed)
   'queue:state'(s: QueueState): void;
   'queue:toast'(msg: string): void;
-  // developer tools in the Phase 0 panel (removed with it in Phase 3)
-  'spike:cfg'(): Record<string, unknown>;
-  'dev:switchChannel'(t: { handle: string; next: string }): void;
 };
 
 export const { sendMessage, onMessage } = defineExtensionMessaging<ProtocolMap>();

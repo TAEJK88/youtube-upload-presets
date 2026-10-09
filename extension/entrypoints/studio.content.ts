@@ -7,13 +7,15 @@ import { MAIN_CH, type MainOps } from '@/lib/main-ops';
 import { onMessage, sendMessage } from '@/lib/messages';
 import { rpcClient, windowEndpoint } from '@/lib/rpc';
 import { createSyncStore } from '@/lib/sync-store';
-import { refreshCfg } from '@/lib/studio/channel';
+import { getChannel, refreshCfg } from '@/lib/studio/channel';
+import { rememberChannel, switchChannel } from '@/lib/studio/channels';
 import { createContentUi, storeWriteFailed } from '@/lib/studio/content-ui';
 import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
 import { installQuickActions } from '@/lib/studio/quick-actions';
 import { setBridge } from '@/lib/studio/queue-files';
+import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
@@ -65,14 +67,10 @@ export default defineContentScript({
     const invite = createInviteWatcher(env);
     invite.watchInvite();
     invite.armSpaPoll();
-    onMessage('dev:switchChannel', ({ data }) => sw.switchToChannel({ handle: data.handle }, data.next));
 
     const main = rpcClient<MainOps>(windowEndpoint(window, window.location.origin), MAIN_CH);
     stop.add(() => main.dispose('extension reloaded'));
     const readCfg = (keys: string[]) => main('getCfg', keys);
-    onMessage('spike:cfg', () =>
-      readCfg(['CHANNEL_ID', 'DELEGATED_SESSION_ID', 'SESSION_INDEX', 'INNERTUBE_CONTEXT_CLIENT_VERSION']),
-    );
     const fab = mountFab();
     stop.add(() => fab.remove());
 
@@ -156,6 +154,8 @@ export default defineContentScript({
     });
     onMessage('queue:view', () => queueView(ui.state()));
     onMessage('queue:edit', ({ data }) => handleQueueEdit(data, mayEdit));
+    onMessage('channel:switch', ({ data }) => switchChannel(sw, data));
+    stop.add(installShortcuts());
     stop.add(followStoredChanges());
     onMessage('fill:apply', () => applyToOpenDialog());
     onMessage('diag:dialogInfo', () => diagnoseUploadDialog());
@@ -168,6 +168,12 @@ export default defineContentScript({
     stop.add(installUnloadGuard());
     ctx.setInterval(() => {
       void elsewhere();
+      // Its own try: a failure here must not stop the progress bar.
+      try {
+        rememberChannel(getChannel());
+      } catch (e) {
+        console.error('[ytup] channel memory', e);
+      }
       try {
         ui.tick();
       } catch (e) {
