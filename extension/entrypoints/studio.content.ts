@@ -10,6 +10,7 @@ import { createSyncStore } from '@/lib/sync-store';
 import { getChannel, refreshCfg } from '@/lib/studio/channel';
 import { rememberChannel, switchChannel } from '@/lib/studio/channels';
 import { createContentUi, storeWriteFailed } from '@/lib/studio/content-ui';
+import { fabModel, mountFab } from '@/lib/studio/fab';
 import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
@@ -22,25 +23,9 @@ import { installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunner
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
+import { showReloadBanner } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
-
-// Spike FAB: tests whether a page click may open the side panel.
-function mountFab() {
-  const host = document.createElement('div');
-  const root = host.attachShadow({ mode: 'open' });
-  const b = document.createElement('button');
-  b.textContent = 'UP';
-  b.title = 'Open YouTube Upload Presets';
-  b.style.cssText =
-    'position:fixed;left:16px;bottom:16px;z-index:2147483647;width:44px;height:44px;border-radius:50%;border:0;background:#111;color:#fff;font:600 12px system-ui;cursor:pointer';
-  b.onclick = () => {
-    sendMessage('openPanel', undefined).catch((e) => console.warn('[ytup] openPanel failed', e));
-  };
-  root.append(b);
-  document.documentElement.append(host);
-  return host;
-}
 
 export default defineContentScript({
   matches: ['https://studio.youtube.com/*'],
@@ -48,6 +33,12 @@ export default defineContentScript({
     await initI18n();
     // Everything below that outlives a reload of the extension is stopped through `stop`.
     const stop = stopOnInvalidated(ctx);
+    // Orphaned by an extension update / reload: tell the user to reload the tab. Added first,
+    // so it runs last (teardowns run in reverse), after the FAB is gone. WXT also invalidates
+    // this instance when a newer one starts in the page (dev reloads); that one works, so no banner.
+    stop.add(() => {
+      if (browser.runtime?.id == null) showReloadBanner();
+    });
     stop.add(disposeState);
     if (ctx.isInvalid) return;
 
@@ -71,8 +62,6 @@ export default defineContentScript({
     const main = rpcClient<MainOps>(windowEndpoint(window, window.location.origin), MAIN_CH);
     stop.add(() => main.dispose('extension reloaded'));
     const readCfg = (keys: string[]) => main('getCfg', keys);
-    const fab = mountFab();
-    stop.add(() => fab.remove());
 
     if (ctx.isInvalid) return;
     try {
@@ -96,6 +85,9 @@ export default defineContentScript({
     const ui = createContentUi();
     setPageUi(ui);
     stop.add(() => ui.dispose());
+    // The userscript's FAB: opens the side panel (needs the click's user gesture — see README).
+    const fab = mountFab(() => ui.openDrawer());
+    stop.add(() => fab.remove());
     setPatchFailed(storeWriteFailed);
     stop.add(() => setPatchFailed(null));
     const releaseLock = () => void sendMessage('runner:release', undefined).catch(() => {});
@@ -176,6 +168,7 @@ export default defineContentScript({
       }
       try {
         ui.tick();
+        fab.update(fabModel());
       } catch (e) {
         console.error('[ytup] progress', e);
       }
