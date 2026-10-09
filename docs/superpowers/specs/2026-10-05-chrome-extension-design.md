@@ -27,7 +27,7 @@ the extension reaches parity.
 | Main UI | Chrome Side Panel |
 | Migration | Port first (logic unchanged, split into modules), improve afterwards |
 | Framework | WXT (pinned exact version), TypeScript, npm, Node 22 |
-| Side panel UI | React 19 + Tailwind v4 + shadcn/ui, themed with black glass tokens, Material Symbols Rounded icons |
+| Side panel UI | React 19 + Tailwind v4 + shadcn/ui-style components, themed with black glass tokens, the userscript's Material Symbols Rounded paths as inline SVG (no icon font) |
 | In-page UI | Plain TS DOM inside Shadow DOM (quick actions, tracklist-fix dialog, FAB). No React in content scripts |
 | File intake | Drop on the Side Panel; files reach Studio through an extension-origin bridge iframe |
 | Tests | Vitest + WXT `fakeBrowser`; existing fake-dom mocks kept |
@@ -36,8 +36,8 @@ the extension reaches parity.
 
 ```
 ┌──────────── Side Panel (React + shadcn) ────┐      ┌── Background SW ──┐
-│ Queue · Schedule · Presets · Settings ·     │◄────►│ chrome.alarms     │
-│ Copyright                                   │ msgs │ (autopilot),      │
+│ Upload (with the schedule box) · Presets ·  │◄────►│ chrome.alarms     │
+│ Copyright · Settings                        │ msgs │ (autopilot),      │
 └──────────────▲──────────────────────────────┘      │ notifications,    │
                │ typed messages + storage.onChanged   │ panel enable/tab  │
 ┌──────────────▼──────── Studio tab ──────────────────┴───────────────────┐
@@ -93,7 +93,7 @@ www.youtube.com → invite.content.ts (channel switch + invite accept)
 | `GM_notification` | `chrome.notifications` from the background |
 | `unsafeWindow` | MAIN-world content script |
 | `GM_info` | `chrome.runtime.getManifest()` |
-| Google Fonts link | IBM Plex Sans Thai and Material Symbols Rounded bundled in the extension |
+| Google Fonts link | IBM Plex Sans Thai bundled in the extension; Material Symbols Rounded paths embedded as inline SVG |
 
 ## File intake (drop on the Side Panel)
 
@@ -132,8 +132,16 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
 - **Persistent state** (settings, presets, upload history, queue metadata, per-channel
   claims data) is read and written through `chrome.storage.local`. Both sides react to
   `storage.onChanged`.
-- **Target tab.** The panel binds to the active Studio tab in its window. On a
-  non-Studio tab it shows "Open YouTube Studio".
+- **One writer for settings and counters.** The background is the only writer of
+  `settings` and `counters`: the panel and the Studio tabs send `store:patch` (a diff), and
+  the background applies patches one at a time, so two writers never lose each other's
+  change. An import goes through `backup:write` the same way. `presets` and `activeId` are
+  written whole by the panel (plus Alt+1…9 in Studio); `channels` is read-modify-written by
+  the page's channel memory and the panel's channel list, as the userscript did across tabs.
+- **Target tab.** The panel binds to the active Studio tab in its window. The background
+  enables the panel on Studio tabs only, so there is no "Open YouTube Studio" screen; when the
+  Studio tab has no live content script (opened before the extension loaded or reloaded), the
+  panel shows **Reload this tab**.
 - **One runner at a time.** A `storage.session` lock `{runnerTabId}` stops two Studio
   tabs from running queues at once. The lock is released when the runner stops or when
   its tab closes (`tabs.onRemoved` in the background).
@@ -154,25 +162,38 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
   focuses the tab and opens the panel. The tab-title mark and the sound stay in the page.
 - **Update check.** Once a day, the background fetches the latest GitHub release of
   `TAEJK88/youtube-upload-presets` and compares versions. If a newer one exists, the
-  panel shows an "Update available" banner linking to the release.
+  panel shows an "Update available" banner linking to the release. Built in Phase 5, with
+  the GitHub Releases it checks.
 - **No in-memory state.** The service worker can be killed at any time; everything it
   needs is in storage.
 
 ## Side panel UI
 
-- **Same content.** Same tabs (Queue, Schedule, Presets, Settings, Copyright), the same
-  fields, actions and EN/TH strings as v4.26.1. Backup/share stays inside Settings.
-- **Built from shadcn/ui** components (Button, Tabs, Dialog, Popover, Calendar, Select,
-  Switch, Input, Textarea, ScrollArea, Tooltip, Badge, Progress, Sonner) on Tailwind v4.
-  The theme is defined as CSS variables carrying the black glass tokens from the current
-  Design B. IBM Plex Sans Thai, 12px minimum text, Material Symbols Rounded icons.
+- **Same content.** The drawer's tabs — Upload (with the schedule box), Presets, Copyright,
+  Settings — with the same fields, actions and EN/TH strings as v4.26.1 (`npm run ui-check`
+  proves the strings). Backup/share stays inside Settings.
+- **Built from shadcn/ui** components (Button, Tabs, Dialog, Switch, Input, Textarea, Badge,
+  Progress, Sonner) copied into `components/ui/`, on Tailwind v4; native `<select>` and
+  date-time inputs as in the drawer. The theme is defined as CSS variables carrying the black
+  glass tokens from the current Design B. IBM Plex Sans Thai, 12px minimum text, the
+  userscript's embedded Material Symbols Rounded icons, drawn as inline SVG paths (no icon
+  font). Dark only.
 - **Visual differences from today:**
   - The panel is docked and resizable (Chrome's minimum is about 320px), not floating.
   - The see-through blur of Studio behind the panel is gone, and so is the opacity slider.
-  - Changing the language re-renders instantly instead of reloading the page.
-- **FAB.** A small FAB stays in Studio as a shortcut to open the panel, if the Phase 0
-  spike shows `sidePanel.open()` can be triggered from a page click. If it can't, the
-  FAB is dropped and the toolbar icon is the only way in.
+  - Changing the language re-renders instantly instead of reloading the page, everywhere:
+    the panel, the Studio tab and www.youtube.com follow at once; the in-page quick-action
+    bars pick it up the next time they appear. The userscript's "stop the queue first"
+    refusal and its "the page reloads" note are gone.
+  - `glass` / `glassV2` leave the settings: migration step 5 deletes them from stored
+    settings (and from an imported userscript file; the backup schema stays 4).
+- **FAB.** The drawer's FAB stays in Studio (channel, default preset, activity, drag to move)
+  and opens the side panel. It no longer takes dropped files: the panel is the drop target.
+  If `sidePanel.open()` turns out not to accept the FAB's click, the FAB is dropped and the
+  toolbar icon / Alt+P are the way in.
+- **Alt+P** opens the panel on a Studio tab: a manifest command (`_execute_action`, suggested
+  Alt+P), plus the page's own shortcut when Chrome didn't assign the key. The panel is
+  disabled on other tabs, so Alt+P does nothing there. Neither can close the panel.
 
 ## In-page UI
 
@@ -185,7 +206,9 @@ and look.
 Tampermonkey storage cannot be read by the extension. Users export JSON from the
 userscript (Settings → Backup / share), then import it in the extension's Settings.
 The import accepts the v4.26.1 export format and runs it through the existing
-`migrations` code before writing to `chrome.storage.local`.
+`migrations` code before writing to `chrome.storage.local`. An import is refused while any
+Studio tab runs the queue ("Stop the queue before importing"); otherwise the queue survives
+it (no page reload, so the userscript's "clear the queue first" guard is gone).
 
 ## Error handling
 
@@ -193,8 +216,10 @@ The import accepts the v4.26.1 export format and runs it through the existing
   detects the invalidated context (`chrome.runtime.id` undefined) and shows a "Reload
   this tab" banner.
 - **Bridge failures.** If a handle is missing, permission is denied or the file was moved
-  or renamed, the item goes to `error` with that specific reason and a **Re-pick file**
-  action.
+  or renamed, the item goes to `error` with that specific reason and **Retry**. While any
+  waiting or failed item's file has lost read permission (after a browser restart), the
+  panel shows one banner button, **Re-grant access (N files)**, that asks for every such
+  file in one click.
 - **MAIN world not answering.** A `youtubei`/`getCfg` request times out after 10 s and
   surfaces as a scan error, as API failures do today.
 - **Studio markup drift.** The `SEL` / `TXT` tables and the "Copy upload dialog info"
@@ -233,7 +258,7 @@ cutover.
 | 0. Spike | WXT scaffold; panel opens on Studio; MAIN-world `ytcfg` read; a 1 GB video dropped on the panel reaches Studio's upload dialog through the bridge; restart → re-grant works; FAB → `sidePanel.open()` tested | All proven, or the fallback below is taken |
 | 1. Foundation | i18n, settings, storage, migrations, pure libs, ported tests, import from userscript JSON | `npm run check` green |
 | 2. Page automation | SEL/TXT, automation, schedule, collab, invite/switch, quick actions, manual-fill, queue runner | Runner drives a real upload from a dev command |
-| 3. Side panel | shadcn setup and theme; Queue (with bridge), Schedule, Presets, Settings (incl. Backup) | Upload checklist passes using only the panel |
+| 3. Side panel | shadcn setup and theme; Upload (with bridge and the schedule box), Presets, Copyright placeholder, Settings (incl. Backup) | Upload checklist passes using only the panel |
 | 4. Copyright | youtubei via MAIN world, scan, trim, autopilot on alarms, Copyright tab | Scan/trim/autopilot checklist passes |
 | 5. Cutover | Parity checklist against v4.26.1; `wxt zip` → GitHub Release; last userscript version shows a "moved to the extension" notice | Team on the extension |
 

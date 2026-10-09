@@ -21,7 +21,7 @@ Identical to Phase 3a's **Global Constraints** (exact versions, nothing outside 
 | D14 | Stop | Sent to the tab holding the runner lock. When that isn't the panel's tab, the panel says which tab will stop (new string); the panel shows toasts from its own tab only. |
 | D15 | Channel switch while files are queued | Allowed (the files survive now); refused only while a run is in progress (Phase 3a Task 3). |
 | D16 | FAB | Kept as the userscript's FAB — channel, default preset, activity badge, drag to move (`fabPos`) — and a click opens the side panel through the background. It no longer takes dropped files (the panel is the drop target; files dropped on a page can't be stored for the bridge). If the manual check finds that `sidePanel.open()` doesn't accept the click (Phase 0 spike item), delete the FAB mount in `studio.content.ts` (one line, Task 5) and record it. |
-| D17 | Alt+P | A manifest command (`_execute_action`, suggested Alt+P) opens the panel from anywhere in Chrome; the page's own Alt+P (Phase 3a) is the fallback when Chrome didn't assign the key. Neither can close the panel. |
+| D17 | Alt+P | A manifest command (`_execute_action`, suggested Alt+P) opens the panel on a Studio tab (the panel is disabled on other tabs, so the key does nothing there); the page's own Alt+P (Phase 3a) is the fallback when Chrome didn't assign the key. Neither can close the panel. |
 | D18 | Re-grant | One banner button, "Re-grant access (N files)", shown while any waiting or failed item's file has lost read permission; it asks for every such handle in one click. |
 
 ## File Structure
