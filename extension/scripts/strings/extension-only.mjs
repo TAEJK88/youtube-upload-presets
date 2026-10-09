@@ -44,4 +44,5 @@ export default [
   { th: 'อนุญาตอีกครั้ง (${} ไฟล์)', en: 'Re-grant access (${} files)', why: 'one click re-grants every queued file' },
   { th: 'จะหยุดคิวในแท็บ "${}" หลังคลิปปัจจุบันเสร็จ', en: 'Will stop the queue in the tab "${}" after the current video finishes', why: 'Stop is sent to the tab that runs the queue, which may not be this panel\'s tab (D14)' },
   { th: 'ส่วนขยายถูกอัปเดตหรือโหลดใหม่ — โหลดแท็บนี้ใหม่เพื่อใช้งานต่อ', en: 'The extension was updated or reloaded — reload this tab to keep using it', why: 'orphaned content script (spec: Error handling)' },
+  { th: 'แท็บนี้เกิดข้อผิดพลาด — ปิดแล้วเปิดแผงด้านข้างใหม่', en: 'This tab hit an error — close and reopen the side panel', why: 'a render error in one tab is caught by its error boundary; the drawer had no React tree to unmount' },
 ];

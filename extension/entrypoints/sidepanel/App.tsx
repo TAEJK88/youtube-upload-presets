@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L } from '@/lib/i18n';
 import { Icon } from './Icon';
 import { usePanel } from './panel';
+import { PaneBoundary } from './PaneBoundary';
 import { ActivityBar } from './shell/ActivityBar';
 import { Banners } from './shell/Banners';
 import { ChannelBar } from './shell/ChannelBar';
@@ -61,11 +62,11 @@ export function App() {
           {/* Kept mounted like the drawer's panes: edits and expanded cards survive a tab switch. */}
           {tabDefs().map(([k]) => (
             <TabsContent key={k} value={k} forceMount className="data-[state=inactive]:hidden">
-              {panes[k]()}
+              <PaneBoundary>{panes[k]()}</PaneBoundary>
             </TabsContent>
           ))}
         </div>
-        {footers[tab]?.()}
+        {footers[tab] && <PaneBoundary key={tab}>{footers[tab]()}</PaneBoundary>}
       </Tabs>
       <Toaster />
       {drop.dropping && (
