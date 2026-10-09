@@ -237,10 +237,10 @@ The panel's own console: right-click inside the panel → Inspect.
       only dismisses it, which leaves the file at 'prompt' and Start disabled). The banner
       stays with that one file (**Record** whether its button then does nothing), but Start is
       enabled: Start waits only on files the run will read whose access went back to
-      'prompt'. Start: the blocked file's item fails with the "No permission to read this
-      file" error, the others upload. **Record** whether clicking Re-grant afterwards can
-      unblock it (if not, the error's advice to click Re-grant is wrong for blocked files;
-      Phase 4 gives them their own sentence).
+      'prompt'. Start: the blocked file's item fails with "The browser blocked reading this
+      file — remove it from the queue and add it again", the others upload. **Record**
+      whether clicking Re-grant afterwards can unblock it (if it can, that error's advice is
+      more than needed).
     - Start ignores files the run won't read. With one error card left from an earlier run
       (its file still needs a grant) and the waiting clips granted, Start is enabled while
       the banner still counts the error card's file. With Settings → thumbnails off, a

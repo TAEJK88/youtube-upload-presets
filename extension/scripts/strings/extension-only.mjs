@@ -92,4 +92,5 @@ export default [
   { th: 'สลับเป็นธีมสว่าง', en: 'Switch to light theme', why: "theme toggle's name in dark (user request); the drawer followed Studio's theme and had no toggle" },
   { th: 'สลับเป็นธีมมืด', en: 'Switch to dark theme', why: "theme toggle's name in light (user request); the drawer followed Studio's theme and had no toggle" },  // Phase 4a
   { th: 'การตั้งค่าหรือพรีเซ็ตเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', en: 'Settings or presets changed after you confirmed — click Start again to see the new summary', why: 'the panel confirms the start; a settings / preset change from another window between summary and confirm refuses it (3b M11)' },
+  { th: 'เบราว์เซอร์บล็อกการอ่านไฟล์นี้ — ลบออกจากคิวแล้วเพิ่มไฟล์อีกครั้ง', en: 'The browser blocked reading this file — remove it from the queue and add it again', why: "files come through the side panel's file handles; a blocked one can't be re-granted (3b R2-m2)" },
 ];

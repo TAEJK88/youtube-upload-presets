@@ -36,7 +36,10 @@ export async function bridgeFiles(ids: string[]): Promise<{ files: QFile[]; fail
 // The bridge answers with codes (lib/file-bridge.ts readHandle); the queue shows sentences.
 function reason(code: string): string {
   if (code === 'missing') return L('ไม่พบไฟล์นี้แล้ว — เพิ่มไฟล์อีกครั้ง', 'This file is no longer available — add it again');
-  if (code === 'permission' || code === 'denied') return L('ยังไม่ได้อนุญาตให้อ่านไฟล์ — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง', 'No permission to read this file — click "Re-grant access" in the side panel');
+  if (code === 'permission') return L('ยังไม่ได้อนุญาตให้อ่านไฟล์ — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง', 'No permission to read this file — click "Re-grant access" in the side panel');
+  // Assumed until README item 16 is recorded: Re-grant can't lift a block in the same browser
+  // session (requestPermission() answers 'denied' without asking; 3b review R2-m2).
+  if (code === 'denied') return L('เบราว์เซอร์บล็อกการอ่านไฟล์นี้ — ลบออกจากคิวแล้วเพิ่มไฟล์อีกครั้ง', 'The browser blocked reading this file — remove it from the queue and add it again');
   if (code === 'read') return L('อ่านไฟล์ไม่ได้ (ถูกย้ายหรือเปลี่ยนชื่อ?) — เพิ่มไฟล์อีกครั้ง', 'Could not read this file (moved or renamed?) — add it again');
   return L(`ดึงไฟล์จากแผงด้านข้างไม่ได้ (${code})`, `Could not get the file from the side panel (${code})`);
 }

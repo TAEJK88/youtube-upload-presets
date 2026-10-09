@@ -26,12 +26,17 @@ describe('queue files', () => {
   it('turns bridge codes into sentences', async () => {
     setBridge({ getFile: async (id) => { throw new Error(id); } });
     await expect(getQueueFile('permission', 'bridge')).rejects.toThrow('Re-grant access');
-    await expect(getQueueFile('denied', 'bridge')).rejects.toThrow('No permission to read this file');
+    await expect(getQueueFile('denied', 'bridge')).rejects.toThrow('The browser blocked reading this file');
     await expect(getQueueFile('missing', 'bridge')).rejects.toThrow('no longer available');
     await expect(getQueueFile('read', 'bridge')).rejects.toThrow('moved or renamed');
     await expect(getQueueFile('bridge not ready', 'bridge')).rejects.toThrow('(bridge not ready)');
     const { failed } = await bridgeFiles(['missing']);
     expect(failed).toEqual([{ id: 'missing', reason: 'This file is no longer available — add it again' }]);
+  });
+
+  it('a blocked file says to add it again, not to re-grant (R2-m2)', async () => {
+    setBridge({ getFile: async () => { throw new Error('denied'); } });
+    await expect(getQueueFile('x', 'bridge')).rejects.toThrow('The browser blocked reading this file — remove it from the queue and add it again');
   });
 
   it('dropping forgets page files and asks the background to delete stored handles', async () => {
