@@ -352,4 +352,37 @@ describe('presets tab', () => {
     fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'again' } });
     expect(vi.mocked(api.write.presets).mock.calls.at(-1)![0].find((x) => x.id === 'playlist')!.label).toBe('Imported');
   });
+
+  it('the selected preset deleted elsewhere and then brought back: the editor stays on the default', () => {
+    const api = fakePanel();
+    const view = renderPanel(<PresetsTab />, api);
+    fireEvent.click(item('🎧 Playlist + Tracklist'));
+    echo(view, api, api.data!.presets.filter((x) => x.id !== 'playlist'));
+    echo(view, api, [...api.data!.presets]);
+    expect(item('🌑 TrapSoul Mix').getAttribute('aria-current')).toBe('true');
+    expect((screen.getByLabelText('Preset name') as HTMLInputElement).value).toBe('🌑 TrapSoul Mix');
+  });
+
+  it('New: an unrelated echo before the new preset arrives does not take the editor back to the default', () => {
+    const api = fakePanel();
+    const view = renderPanel(<PresetsTab />, api);
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    const list = vi.mocked(api.write.presets).mock.calls.at(-1)![0];
+    echo(view, api, [...api.data!.presets]); // e.g. a counters change re-read before the New lands
+    echo(view, api, list);
+    const label = screen.getByLabelText('Preset name') as HTMLInputElement;
+    expect(label.value).toBe('✨ New preset');
+    expect(document.activeElement).toBe(label);
+    expect(label.selectionEnd).toBe(label.value.length);
+  });
+
+  it('a failed New started from another preset goes back to that preset', async () => {
+    const api = fakePanel();
+    vi.mocked(api.write.presets).mockRejectedValueOnce(new Error('quota'));
+    renderPanel(<PresetsTab />, api);
+    fireEvent.click(item('🎧 Playlist + Tracklist'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'New' })));
+    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
+    expect((screen.getByLabelText('Preset name') as HTMLInputElement).value).toBe('🎧 Playlist + Tracklist');
+  });
 });
