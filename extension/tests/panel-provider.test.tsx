@@ -15,7 +15,7 @@ vi.mock('../lib/messages', async (orig) => ({
 import { toast } from 'sonner';
 import { setLang } from '../lib/i18n';
 import { sendMessage } from '../lib/messages';
-import { PanelProvider, usePanel } from '../entrypoints/sidepanel/panel';
+import { PanelProvider, useLive, usePanel } from '../entrypoints/sidepanel/panel';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 
 const studio = (id: number, windowId: number) => ({ id, windowId, url: 'https://studio.youtube.com/channel/UC1', title: `T${id}`, active: true });
@@ -118,6 +118,46 @@ describe('the "reload this tab" banner', () => {
     await act(async () => onState({ data: s, sender: { tab: { id: 3 } } }));
     await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     expect(screen.getByTestId('link').textContent).toBe('ok');
+  });
+});
+
+// The automation lock's jobs (D21): `elsewhere` is another tab running the queue,
+// `busyElsewhere` another tab holding the lock for anything.
+describe("the lock holder's jobs", () => {
+  function Jobs() {
+    const p = usePanel();
+    const live = useLive();
+    return <div data-testid="j">{`${p.elsewhere}|${p.busyElsewhere}|${live.liveState?.running ?? '-'}`}</div>;
+  }
+  const queueState = (running: boolean) => ({ running, stopping: false, prog: null, rev: 0, channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '', label: 'Mine', problem: '' } });
+
+  it('another tab doing copyright work only: busy, not running the queue, and its queue state is not the live one', async () => {
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+    render(<PanelProvider><Jobs /></PanelProvider>);
+    await flush();
+    const onState = handlers.get('queue:state')!;
+    await act(async () => onState({ data: queueState(true), sender: { tab: { id: 9 } } }));
+    await act(async () => onState({ data: queueState(false), sender: { tab: { id: 3 } } }));
+    await flush();
+    expect(screen.getByTestId('j').textContent).toBe('false|true|false');
+  });
+
+  it('the bound tab holding the lock itself is neither', async () => {
+    await browser.storage.session.set({ runnerTabId: 3, runnerJobs: ['queue', 'claims'] });
+    render(<PanelProvider><Jobs /></PanelProvider>);
+    await flush();
+    expect(screen.getByTestId('j').textContent).toBe('false|false|-');
+  });
+
+  it('a change of jobs alone moves the banner: the queue run ends, the copyright work goes on', async () => {
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['queue', 'claims'] });
+    render(<PanelProvider><Banners /></PanelProvider>);
+    await flush();
+    expect(screen.getByText('Another Studio tab is running the queue — change the queue there')).toBeTruthy();
+    await act(async () => { await browser.storage.session.set({ runnerJobs: ['claims'] }); });
+    await flush();
+    expect(screen.queryByText('Another Studio tab is running the queue — change the queue there')).toBe(null);
+    expect(screen.getByText('Another Studio tab is busy with copyright work — wait for it, or press Stop in the Copyright tab')).toBeTruthy();
   });
 });
 

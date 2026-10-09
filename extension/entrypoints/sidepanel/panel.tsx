@@ -47,7 +47,7 @@ export const usePanel = () => useContext(PanelContext);
 // useLive() re-renders with it, not every tab's contents.
 export interface LiveApi {
   state: QueueState | null; // the bound tab's live state (newer than view.state)
-  liveState: QueueState | null; // the running tab's live state, else the bound tab's
+  liveState: QueueState | null; // the live state of the tab running the queue, else the bound tab's
 }
 export const LiveContext = createContext<LiveApi>({ state: null, liveState: null });
 export const useLive = () => useContext(LiveContext);
@@ -196,11 +196,13 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // The holder's queue state is the live one only while it runs the queue (not copyright work).
+  const runsQueue = !!runner?.jobs.includes('queue');
   const live = useMemo<LiveApi>(() => {
     const state = targetId !== undefined ? states.get(targetId) ?? view?.state ?? null : null;
-    const runnerState = runnerId !== undefined ? states.get(runnerId) ?? null : null;
+    const runnerState = runnerId !== undefined && runsQueue ? states.get(runnerId) ?? null : null;
     return { state, liveState: runnerState ?? state };
-  }, [states, targetId, runnerId, view]);
+  }, [states, targetId, runnerId, runsQueue, view]);
 
   const api = useMemo<PanelApi>(() => {
     return {
