@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { check, extractPairs, pairKey, smallText, sourceFiles } from '../scripts/ui-check.mjs';
+import { canary, check, extractPairs, pairKey, smallText, sourceFiles, userscriptPairs } from '../scripts/ui-check.mjs';
 
 const us = extractPairs([
   "L('ตกลง', 'OK')",
@@ -59,7 +59,7 @@ describe('check', () => {
 
   it('flags text below 12px', () => {
     expect(smallText('a { font: 600 11px system-ui } <b class="text-[10px] text-[12px]">').map((s) => s.px)).toEqual([11, 10]);
-    expect(check({ files: [file('<i className="text-[11px]">')], us, extOnly: [], dropped: [] })).toEqual([
+    expect(check({ files: [file('<i className="text-[11px]" />')], us, extOnly: [], dropped: [] })).toEqual([
       'entrypoints/sidepanel/X.tsx:1 text is 11px: the minimum is 12px',
     ]);
   });
@@ -102,18 +102,24 @@ describe('check: every L( call is two literals', () => {
   });
 
   it('accepts a dynamic call on the reviewed allowlist, and flags a stale entry', () => {
-    const dynamicCalls = [{ file: 'entrypoints/sidepanel/X.tsx', call: 'L(msg, "A")', why: 'test' }];
+    const dynamicCalls = [{ file: 'entrypoints/sidepanel/X.tsx', line: 1, call: 'L(msg, "A")', why: 'test' }];
     expect(run('L(msg,  "A")', { allow: { dynamicCalls, sizes: [] } })).toEqual([]);
     expect(run('', { allow: { dynamicCalls, sizes: [] } })).toEqual([
-      'scripts/ui-allow.mjs dynamicCalls lists a call no source has: entrypoints/sidepanel/X.tsx L(msg, "A")',
+      'scripts/ui-allow.mjs dynamicCalls lists a call no source has: entrypoints/sidepanel/X.tsx:1 L(msg, "A")',
     ]);
     expect(run('L(msg, "A")', { allow: { dynamicCalls: [{ ...dynamicCalls[0], why: ' ' }], sizes: [] } })).toEqual([
-      'scripts/ui-allow.mjs dynamicCalls entry needs a reason (why): entrypoints/sidepanel/X.tsx L(msg, "A")',
+      'scripts/ui-allow.mjs dynamicCalls entry needs a reason (why): entrypoints/sidepanel/X.tsx:1 L(msg, "A")',
+    ]);
+    // the entry covers its own line only, not the same call elsewhere in the file
+    expect(run('L(msg, "A")\nL(msg, "A")', { allow: { dynamicCalls, sizes: [] } })).toEqual([
+      'entrypoints/sidepanel/X.tsx:2 L() needs two string literals: L(msg, "A")',
     ]);
   });
 
-  it('does not count the definition of L, member calls or other identifiers', () => {
-    expect(run("export const L = (th: string, en: string): string => (current === 'en' ? en : th);\nobj.L(x); URL(a, b); xL(c);", )).toEqual([]);
+  it('does not count the definition of L in lib/i18n.ts or other identifiers', () => {
+    const def = "export const L = (th: string, en: string): string => (current === 'en' ? en : th);\nURL(a, b); xL(c); x.Lx(); const o = { a: 1 };";
+    expect(check({ files: [file(def, 'lib/i18n.ts')], us, extOnly: [], dropped: [] })).toEqual([]);
+    expect(run(def)).toEqual(["entrypoints/sidepanel/X.tsx:1 L is used other than as a direct call L('…', '…'): export const L = (th: string, en: string): string => (current === 'en' ? en : th);"]);
   });
 
   it('a pair only inside a block comment is not "used"', () => {
@@ -205,9 +211,21 @@ describe('check: sizes', () => {
 
   it('accepts a reviewed size, and flags a stale or unexplained entry', () => {
     const files = [{ path: 'lib/a.css', text: '.b{font-size:calc(1rem + 1px)}' }];
-    expect(run(files, [{ file: 'lib/a.css', value: 'calc(1rem + 1px)', why: 'at least 17px' }])).toEqual([]);
-    expect(run([], [{ file: 'lib/a.css', value: 'calc(1rem + 1px)', why: 'x' }])).toEqual(['scripts/ui-allow.mjs sizes lists a size no source has: lib/a.css calc(1rem + 1px)']);
-    expect(run(files, [{ file: 'lib/a.css', value: 'calc(1rem + 1px)' }])).toEqual(['scripts/ui-allow.mjs sizes entry needs a reason (why): lib/a.css calc(1rem + 1px)']);
+    const entry = { file: 'lib/a.css', line: 1, value: 'calc(1rem + 1px)', why: 'at least 17px' };
+    expect(run(files, [entry])).toEqual([]);
+    expect(run([], [entry])).toEqual(['scripts/ui-allow.mjs sizes lists a size no source has: lib/a.css:1 calc(1rem + 1px)']);
+    expect(run(files, [{ ...entry, why: undefined }])).toEqual(['scripts/ui-allow.mjs sizes entry needs a reason (why): lib/a.css:1 calc(1rem + 1px)']);
+  });
+
+  it('a reviewed size covers its own line only', () => {
+    const files = [{ path: 'lib/a.css', text: '.b{font-size:calc(1rem + 1px)}\n.c{font-size:calc(1rem + 1px)}' }];
+    expect(run(files, [{ file: 'lib/a.css', line: 1, value: 'calc(1rem + 1px)', why: 'x' }])).toEqual([
+      'lib/a.css:2 text size calc(1rem + 1px) cannot be verified as at least 12px — use a fixed size, or list it in scripts/ui-allow.mjs sizes with a reason',
+    ]);
+    expect(run([{ path: 'lib/a.css', text: '.b{font-size:calc(1rem + 1px)}' }], [{ file: 'lib/a.css', line: 2, value: 'calc(1rem + 1px)', why: 'x' }])).toEqual([
+      'lib/a.css:1 text size calc(1rem + 1px) cannot be verified as at least 12px — use a fixed size, or list it in scripts/ui-allow.mjs sizes with a reason',
+      'scripts/ui-allow.mjs sizes lists a size no source has: lib/a.css:2 calc(1rem + 1px)',
+    ]);
   });
 
   it('flags a class that uses a theme token below 12px', () => {
@@ -230,5 +248,83 @@ describe('sourceFiles', () => {
     expect(sourceFiles(root).map((f) => f.path).sort()).toEqual([
       'assets/i.css', 'entrypoints/x/g.tsx', 'entrypoints/x/h.css', 'lib/a.ts', 'lib/b.js', 'lib/c.mjs', 'lib/d.jsx', 'public/j.svg', 'public/k.html',
     ]);
+  });
+});
+
+// Round 2: holes a second review found; each of these printed `ui-check: ok`.
+describe('check: L is only ever called directly', () => {
+  const run = (text, path = 'entrypoints/sidepanel/X.tsx') => check({ files: [{ path, text }], us, extOnly: [], dropped: [] });
+  const flagged = (text) => run(text).filter((e) => / L is used other than as a direct call /.test(e)).map((e) => e.split(' ')[0]);
+
+  it('flags aliases, member access, tagged templates and indirect calls', () => {
+    const at = 'entrypoints/sidepanel/X.tsx:2';
+    for (const src of [
+      "import { L as T } from '@/lib/i18n';\nT('ก', 'A')",
+    ]) expect(flagged(src)).toEqual(['entrypoints/sidepanel/X.tsx:1']);
+    for (const src of [
+      "i18n.L('ก', 'A')",
+      "i18n['L']('ก', 'A')",
+      'i18n?.["L"]("ก", "A")',
+      'L`ก`',
+      "(0, L)('ก', 'A')",
+      "L.call(null, 'ก', 'A')",
+      "const t = L; t('ก', 'A')",
+      'const { L: T } = i18n',
+      "const { 'L': T } = i18n",
+      "(L as any)('ก', 'A')",
+      "L!('ก', 'A')",
+      "new L('ก', 'A')",
+      "export { L as T } from '@/lib/i18n'",
+      'const o = { L }',
+    ]) expect(flagged('const a = 1;\n' + src), src).toEqual([at]);
+  });
+
+  it('allows the unaliased import, direct and optional calls', () => {
+    expect(run("import { L } from '@/lib/i18n';\nL('ตกลง', 'OK'); L?.('ตกลง', 'OK')")).toEqual([]);
+  });
+
+  it('fails a file with a syntax error', () => {
+    expect(run("const a = 1;\nL('ตกลง', 'OK'")).toEqual(["entrypoints/sidepanel/X.tsx:2 syntax error: ')' expected."]);
+    expect(run('var x = ;', 'lib/a.js')).toEqual(['lib/a.js:1 syntax error: Expression expected.']);
+  });
+});
+
+describe('the userscript canary', () => {
+  it('the pinned userscript yields 790 pairs, 725 unique', () => {
+    expect(canary(userscriptPairs())).toEqual([]);
+  });
+
+  it('fails loudly on any other count', () => {
+    expect(canary(us)).toEqual(['userscript canary: expected 790 L() pairs (725 unique) at the pinned commit, got 4 (4 unique) — the parser or the pin changed']);
+  });
+});
+
+describe('smallText: round 2', () => {
+  const sizes = (t, name) => smallText(t, name).map((s) => [s.line, s.value, s.px]);
+
+  it('reads quoted keys and bracket access', () => {
+    expect(sizes("a = {'font-size':'10px'};\nb = {'fontSize':'10px'};\nc = {\"fontSize\":10};\nel.style[\"fontSize\"]=\"10px\";\nd = {'font': 'bold 9px x'};\ne = {'fontSize': 12}", 'a.ts'))
+      .toEqual([[1, '10px', 10], [2, '10px', 10], [3, '10', 10], [4, '10px', 10], [5, '9px', 9]]);
+  });
+
+  it('reads JSX props in braces', () => {
+    expect(sizes("<Text fontSize={11} />\n<text fontSize={9}/>\n<x fontSize={size}/>\n<y fontSize={'10px'} />\n<z fontSize={14}/>\n<w fontSize={`8px`} />", 'a.tsx'))
+      .toEqual([[1, '11', 11], [2, '9', 9], [3, 'size', undefined], [4, '10px', 10], [6, '8px', 8]]);
+  });
+
+  it('treats Tailwind v4 text-(length:--x) as unverifiable, text-(--x) as a colour', () => {
+    expect(sizes('<b class="text-(length:--x) md:font-(length:--y) text-(--c) text-(color:--c)">')).toEqual([[1, '--x', undefined], [1, '--y', undefined]]);
+  });
+
+  it('ignores sizes inside comments', () => {
+    expect(sizes('/* font-size: 10px */ a{font-size:12px}\n/*\n.x { font: 9px x }\n*/', 'a.css')).toEqual([]);
+    expect(sizes('<!-- <p style="font-size:9px"> --> <p style="font-size:9px">', 'a.html')).toEqual([[1, '9px', 9]]);
+    expect(sizes("// fontSize: 10\nconst s = '// x'; /* font: 9px x */ const o = { fontSize: 11 }; // text-[8px]", 'a.ts')).toEqual([[2, '11', 11]]);
+    expect(check({ files: [{ path: 'lib/a.ts', text: '// fontSize: 10\n/** text-[9px] */\nconst a = 1;' }], us, extOnly: [], dropped: [] })).toEqual([]);
+  });
+
+  it('only length-valued --text-* tokens are sizes', () => {
+    expect(sizes('@theme { --text-muted: #666; --text-fg: rgb(0 0 0); --text-ink: var(--x); --text-tiny: 10px; --text-c: calc(1rem - 6px); --text-ok: 0.75rem }'))
+      .toEqual([[1, '10px', 10], [1, 'calc(1rem - 6px)', undefined]]);
   });
 });
