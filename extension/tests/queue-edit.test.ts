@@ -266,4 +266,20 @@ describe('followStoredChanges', () => {
     expect(Q.queue.map((i) => i.presetId)).toEqual([activeId, 'lofi', activeId]);
     expect(Q.queue[0]!.title).not.toBe('');
   });
+
+  it('a change that leaves the queue as it is writes nothing (an idle tab keeps its copy to itself)', async () => {
+    disposeState();
+    fakeBrowser.reset();
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION });
+    await initState(async () => SCHEMA_VERSION);
+    Q.queue.push(item('a', 'pending'));
+    Q.assignNumbers();
+    const off = followStoredChanges();
+    await new Promise((r) => setTimeout(r, 10));
+    calls.length = 0;
+    await browser.storage.local.set({ settings: { notify: false } });
+    await new Promise((r) => setTimeout(r, 10));
+    off();
+    expect(calls).not.toContain('queue');
+  });
 });

@@ -129,12 +129,16 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
 // Presets, the default preset, EP counters and settings are changed in the side panel.
 // The drawer re-rendered the queue after each (refreshLabels / renderQueue): titles and
 // numbers follow, and items whose preset was deleted move to the default preset.
-// Coalesced: one write from the panel can change several keys.
+// Coalesced: one write from the panel can change several keys. Saved only when something
+// moved: every Studio tab hears every change, and an idle tab rewriting its unchanged copy
+// could land after another tab's edit and undo it (the panel re-reads the view on any
+// stored change itself).
 export function followStoredChanges(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const requeue = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
+      const before = JSON.stringify(queue);
       // Not an item the run is working on: its upload keeps the preset it started with.
       const owned = (it: QueueItem) => it.status === 'uploading' || it.status === 'review' || it.id === currentItemId();
       for (const it of queue) {
@@ -143,7 +147,7 @@ export function followStoredChanges(): () => void {
         bumpEditRev();
       }
       assignNumbers();
-      ui.queue();
+      if (JSON.stringify(queue) !== before) ui.queue();
     }, 0);
   };
   const offs = ['presets', 'activeId', 'counters', 'settings'].map((k) => onStored(k, requeue));
