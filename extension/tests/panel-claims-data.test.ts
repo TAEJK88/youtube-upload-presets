@@ -27,9 +27,25 @@ describe('the Copyright tab data', () => {
     await browser.storage.local.set({ 'claimScan:UC2': { date: 'y' } });
     await new Promise((r) => setTimeout(r, 0));
     expect(fn).not.toHaveBeenCalled();
+    await browser.storage.session.set({ 'claimScan:UC1': { date: 'session' } }); // review m3: local only
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fn).not.toHaveBeenCalled();
     await browser.storage.local.set({ 'trimQueue:UC1': ['v:c'] });
     await vi.waitFor(() => expect(fn).toHaveBeenCalled());
     expect(fn.mock.calls.at(-1)![0].trimQueue).toEqual(['v:c']);
+    off();
+  });
+
+  it('a failed read while following is logged, not left unhandled (review m3)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fn = vi.fn();
+    const off = watchClaims('UC1', fn);
+    const get = vi.spyOn(browser.storage.local, 'get').mockRejectedValue(new Error('context invalidated'));
+    await browser.storage.local.set({ 'trimQueue:UC1': ['v:c'] });
+    await vi.waitFor(() => expect(err).toHaveBeenCalled());
+    expect(fn).not.toHaveBeenCalled();
+    get.mockRestore();
+    err.mockRestore();
     off();
   });
 

@@ -61,7 +61,8 @@ export const readClaims = async (ch: string) => toClaimsData(ch, await browser.s
 export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void {
   const keys = new Set(channelKeys(ch));
   const changed = (changes: Record<string, unknown>, area: string) => {
-    if (area === 'local' && Object.keys(changes).some((k) => keys.has(k))) void readClaims(ch).then(fn);
+    if (area !== 'local' || !Object.keys(changes).some((k) => keys.has(k))) return;
+    void readClaims(ch).then(fn, (e) => console.error('[ytup] claims read', e));
   };
   browser.storage.onChanged.addListener(changed);
   return () => browser.storage.onChanged.removeListener(changed);

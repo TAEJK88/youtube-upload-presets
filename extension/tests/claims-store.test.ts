@@ -56,7 +56,7 @@ describe('claims store in the Studio tab', () => {
     vi.useRealTimers();
     await vi.waitFor(() => expect(flushed).toBe(true));
     expect(load('logOpen', null)).toBe(false);
-    expect(String(err.mock.calls[0]?.[1])).toContain('timed out');
+    expect(String(err.mock.calls[0]?.[1])).toContain('timed out (it may still be applied)');
   });
 
   it('an answer in time clears the timer', async () => {

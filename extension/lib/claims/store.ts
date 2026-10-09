@@ -54,12 +54,13 @@ export const flushClaims = () => kv.flush();
 // same queue. A promise that never settles would hold the key's events back and flushClaims()
 // forever (the messaging library has no timeout), so after 30 s, the youtubei calls' limit
 // (D22), the op counts as failed: the copy is read from storage again, and if the op lands
-// later its storage change comes in like anyone else's.
+// later its storage change comes in like anyone else's. So a timed-out op may still be applied:
+// code reading load() right after one must not take it as not done (4b run steps).
 export const SEND_TIMEOUT_MS = 30_000;
 function timed(p: Promise<void>, key: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`claims:op on ${key} timed out`)), SEND_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new Error(`claims:op on ${key} timed out (it may still be applied)`)), SEND_TIMEOUT_MS);
   });
   return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }
