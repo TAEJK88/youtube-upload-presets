@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { acquireRunner, claimWorker, registerRunnerLock, releaseRunner, runnerElsewhere, runnerHeld, runnerHolds } from '../lib/runner-lock';
+import { acquireRunner, claimWorker, registerRunnerLock, releaseRunner, runnerElsewhere, runnerHeld, runnerHolds, studioTab } from '../lib/runner-lock';
 
 beforeEach(() => fakeBrowser.reset());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const tab = async () => (await browser.tabs.create({ url: 'https://studio.youtube.com/' })).id!;
 
 describe('runner lock', () => {
@@ -20,6 +21,8 @@ describe('runner lock', () => {
     expect(await runnerElsewhere(b, 'any')).toBe(true); // but a copyright job still holds the lock
     expect(await acquireRunner(b, 'queue')).toBe(false);
     expect(await runnerHolds(a, 'claims')).toBe(true);
+    expect(await runnerHolds(a, 'queue')).toBe(false); // a holds it for copyright work only
+    expect(await runnerHolds(b, 'claims')).toBe(false);
     await releaseRunner(a, 'claims');
     expect(await acquireRunner(b, 'queue')).toBe(true);
     expect((await browser.storage.session.get('runnerJobs')).runnerJobs).toEqual(['queue']);
@@ -130,5 +133,71 @@ describe('runner lock', () => {
       runnerElsewhere(a, 'queue'), // true
     ]);
     expect(got).toEqual([true, false, true, undefined, false, undefined, false, true, true]);
+  });
+  it('a worker whose tab left Studio frees the lease', async () => {
+    const a = await tab();
+    const b = await tab();
+    await claimWorker(a, 'UC1', false);
+    await browser.tabs.update(a, { url: 'https://www.youtube.com/' });
+    expect(await claimWorker(b, 'UC1', false)).toBe(true);
+  });
+
+  // The userscript's LEASE_STALE (5050–5058): a worker that stops renewing (a hung page, a
+  // dead script) is taken over after 20 s; a closed one at once (onRemoved, above).
+  it('a lease not renewed for 20 s is taken by another tab; renewing keeps it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const a = await tab();
+    const b = await tab();
+    vi.setSystemTime(1_000_000);
+    await claimWorker(a, 'UC1', false);
+    vi.setSystemTime(1_000_000 + 15_000);
+    expect(await claimWorker(a, 'UC1', false)).toBe(true); // renewed
+    vi.setSystemTime(1_000_000 + 30_000);
+    expect(await claimWorker(b, 'UC1', false)).toBe(false); // 15 s since the renewal
+    vi.setSystemTime(1_000_000 + 36_000);
+    expect(await claimWorker(b, 'UC1', false)).toBe(true); // 21 s: stale
+    expect(await claimWorker(a, 'UC1', false)).toBe(false);
+  });
+
+  it('renewing writes storage.session only every 5 s', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const a = await tab();
+    vi.setSystemTime(1_000_000);
+    const set = vi.spyOn(browser.storage.session, 'set');
+    await claimWorker(a, 'UC1', false);
+    vi.setSystemTime(1_000_000 + 4_000);
+    await claimWorker(a, 'UC1', false);
+    expect(set).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(1_000_000 + 5_000);
+    await claimWorker(a, 'UC1', false);
+    expect(set).toHaveBeenCalledTimes(2);
+  });
+
+  it('a discarded tab holds neither the lock nor the lease', async () => {
+    const a = await tab();
+    const b = await tab();
+    await acquireRunner(a, 'queue');
+    await claimWorker(a, 'UC1', false);
+    const get = browser.tabs.get.bind(browser.tabs);
+    vi.spyOn(browser.tabs, 'get').mockImplementation((async (id: number) =>
+      id === a ? { ...(await get(id)), discarded: true } : get(id)) as never);
+    expect(await runnerElsewhere(b, 'any')).toBe(false);
+    expect(await acquireRunner(b, 'queue')).toBe(true);
+    expect(await claimWorker(b, 'UC1', false)).toBe(true);
+  });
+
+  it('a channel id that is a prototype name is an ordinary channel', async () => {
+    const a = await tab();
+    const b = await tab();
+    expect(await claimWorker(a, '__proto__', false)).toBe(true);
+    expect(await claimWorker(b, '__proto__', false)).toBe(false);
+    expect(await claimWorker(b, 'constructor', false)).toBe(true);
+  });
+
+  it('only a Studio tab may ask for the lock or the lease', () => {
+    expect(studioTab({ tab: { id: 4, url: 'https://studio.youtube.com/channel/UC1' } })).toBe(4);
+    expect(studioTab({ tab: { id: 4 }, url: 'https://studio.youtube.com/' })).toBe(4);
+    expect(studioTab({ tab: { id: 4, url: 'https://www.youtube.com/' } })).toBe(null);
+    expect(studioTab({ url: 'chrome-extension://x/sidepanel.html' })).toBe(null);
   });
 });

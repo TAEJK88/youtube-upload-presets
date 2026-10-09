@@ -5,13 +5,22 @@ import { isStudioUrl } from './panel-scope';
 // the copyright jobs that change pages — trim, ads, Collab runs ('claims'). The holder's tab id
 // and its jobs live in storage.session, so they survive the service worker being stopped.
 // storage.session is cleared when the browser closes AND when the extension is reloaded or
-// updated, which is the safety net for a stale lock. A holder whose tab is gone, or is no
-// longer on Studio, doesn't count. Known limitation: a live Studio tab whose runner died
-// (content script gone) keeps the lock until that tab navigates away, closes, or reloads.
+// updated, which is the safety net for a stale lock. A holder whose tab is gone, discarded,
+// or no longer on Studio doesn't count. Known limitation: a live Studio tab whose runner died
+// (content script gone, or the page hung) keeps the lock until that tab navigates away,
+// closes, or reloads.
 const KEY = 'runnerTabId';
 export const JOBS_KEY = 'runnerJobs';
 export type Job = 'queue' | 'claims';
 export const isJob = (v: unknown): v is Job => v === 'queue' || v === 'claims';
+
+// A tab that is there, not discarded (Memory Saver), and on Studio.
+const liveStudio = (id: number) =>
+  browser.tabs.get(id).then((t) => !!t && !t.discarded && isStudioUrl(t.url), () => false);
+
+// The asking tab, for messages only a Studio tab may send (the lock, the worker lease).
+export const studioTab = (s: { tab?: { id?: number; url?: string }; url?: string }): number | null =>
+  s.tab?.id !== undefined && isStudioUrl(s.tab.url ?? s.url) ? s.tab.id : null;
 
 // Calls run one after another, so two tabs can't both see "free" and both take it.
 let chain: Promise<unknown> = Promise.resolve();
@@ -26,8 +35,7 @@ async function holder(): Promise<Holder | null> {
   const got = await browser.storage.session.get([KEY, JOBS_KEY]);
   const id = got[KEY];
   if (typeof id !== 'number') return null;
-  const onStudio = await browser.tabs.get(id).then((t) => isStudioUrl(t?.url), () => false);
-  if (!onStudio) {
+  if (!(await liveStudio(id))) {
     await browser.storage.session.remove([KEY, JOBS_KEY]);
     return null;
   }
@@ -75,26 +83,51 @@ export const RUNNER_HELD = 'runner-held';
 
 // One worker per channel (D21), the userscript's tab lease tabLock:<ch> (5043–5062): the first
 // live Studio tab on the channel that asks; `force` takes it (isWorker(true), a run started there).
-// A tab is the worker of one channel at most: asking for another lets the old one go.
+// A tab is the worker of one channel at most: asking for another lets the old one go. A lease
+// not renewed for LEASE_STALE is free (a hung page, a dead script: the userscript's 20 s); a
+// closed tab's goes at once (registerRunnerLock). Renewals are written every RENEW at most.
 export const WORKERS_KEY = 'claimsWorkers';
-const liveStudio = (id: number) => browser.tabs.get(id).then((t) => isStudioUrl(t?.url), () => false);
+export const LEASE_STALE = 20_000;
+const RENEW = 5_000;
+interface Lease { tabId: number; at: number }
+type Leases = Record<string, Lease>;
+// A null-prototype map: a channel id like '__proto__' is an ordinary key.
+async function readLeases(): Promise<Leases> {
+  const got = (await browser.storage.session.get(WORKERS_KEY))[WORKERS_KEY];
+  const w: Leases = Object.create(null);
+  if (got && typeof got === 'object') {
+    for (const [c, l] of Object.entries(got as Record<string, unknown>)) {
+      const x = l as Partial<Lease> | null;
+      if (typeof x?.tabId === 'number' && typeof x.at === 'number') w[c] = { tabId: x.tabId, at: x.at };
+    }
+  }
+  return w;
+}
 export const claimWorker = (tabId: number, ch: string, force: boolean) =>
   serial(async () => {
-    const got = (await browser.storage.session.get(WORKERS_KEY))[WORKERS_KEY];
-    const w: Record<string, number> = got && typeof got === 'object' ? { ...(got as Record<string, number>) } : {};
-    for (const [c, id] of Object.entries(w)) if (id === tabId && c !== ch) delete w[c];
+    const now = Date.now();
+    const w = await readLeases();
+    let changed = false;
+    for (const [c, l] of Object.entries(w)) {
+      if (l.tabId === tabId && c !== ch) {
+        delete w[c];
+        changed = true;
+      }
+    }
     const cur = w[ch];
-    const mine = force || cur === tabId || cur === undefined || !(await liveStudio(cur));
-    if (mine) w[ch] = tabId;
-    await browser.storage.session.set({ [WORKERS_KEY]: w });
+    const mine = force || !cur || cur.tabId === tabId || now - cur.at > LEASE_STALE || !(await liveStudio(cur.tabId));
+    if (mine && (cur?.tabId !== tabId || now - cur.at >= RENEW)) {
+      w[ch] = { tabId, at: now };
+      changed = true;
+    }
+    if (changed) await browser.storage.session.set({ [WORKERS_KEY]: w });
     return mine;
   });
 const dropWorker = (tabId: number) =>
   serial(async () => {
-    const got = (await browser.storage.session.get(WORKERS_KEY))[WORKERS_KEY] as Record<string, number> | undefined;
-    if (!got) return;
-    const w = Object.fromEntries(Object.entries(got).filter(([, id]) => id !== tabId));
-    await browser.storage.session.set({ [WORKERS_KEY]: w });
+    const w = await readLeases();
+    const keep = Object.entries(w).filter(([, l]) => l.tabId !== tabId);
+    if (keep.length !== Object.keys(w).length) await browser.storage.session.set({ [WORKERS_KEY]: Object.fromEntries(keep) });
   });
 
 // Called once from the background: a closed tab frees the lock and its worker lease right away.

@@ -6,7 +6,7 @@ import { isChannelId } from '@/lib/claims/keys';
 import { initI18n, watchLang } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
-import { acquireRunner, claimWorker, isJob, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld, runnerHolds } from '@/lib/runner-lock';
+import { acquireRunner, claimWorker, isJob, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld, runnerHolds, studioTab } from '@/lib/runner-lock';
 import { deleteFiles, sweepHandles } from '@/lib/file-gc';
 import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
@@ -75,14 +75,19 @@ export default defineBackground(() => {
     if (sender.tab?.id === undefined) throw new Error('runner lock: not sent from a tab');
     return sender.tab.id;
   };
-  onMessage('runner:acquire', ({ data, sender }) => acquireRunner(tabOf(sender), isJob(data) ? data : 'queue'));
+  // Taking the lock or a worker lease: a Studio tab only (any other sender is refused).
+  onMessage('runner:acquire', async ({ data, sender }) => {
+    const id = studioTab(sender);
+    return id !== null && acquireRunner(id, isJob(data) ? data : 'queue');
+  });
   onMessage('runner:release', ({ data, sender }) => releaseRunner(tabOf(sender), isJob(data) ? data : 'all'));
   onMessage('runner:elsewhere', ({ data, sender }) => runnerElsewhere(tabOf(sender), isJob(data) ? data : 'any'));
   onMessage('runner:holds', ({ data, sender }) => runnerHolds(tabOf(sender), isJob(data) ? data : 'queue'));
-  onMessage('runner:worker', ({ data, sender }) => {
+  onMessage('runner:worker', async ({ data, sender }) => {
     const d = data as { ch?: unknown; force?: unknown } | null;
     if (!isChannelId(d?.ch)) throw new Error('runner:worker: malformed');
-    return claimWorker(tabOf(sender), d.ch, d.force === true);
+    const id = studioTab(sender);
+    return id !== null && claimWorker(id, d.ch, d.force === true);
   });
   registerRunnerLock();
 });
