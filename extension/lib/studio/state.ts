@@ -28,6 +28,9 @@ interface Pending { p: StorePatch; done: boolean }
 let patcher: Patcher | null = null;
 const pending: Pending[] = [];
 const patchWrites = new Set<Promise<void>>();
+// The Studio content script shows a failed patch on the page while the queue runs.
+let patchFailed: ((key: StorePatch['key']) => void) | null = null;
+export const setPatchFailed = (fn: typeof patchFailed): void => void (patchFailed = fn);
 
 export const save = (key: string, value: unknown): void => {
   if (!patcher || (key !== 'settings' && key !== 'counters')) return kv.set(key, value);
@@ -52,6 +55,11 @@ export const save = (key: string, value: unknown): void => {
       const i = pending.indexOf(entry);
       if (i >= 0) pending.splice(i, 1); // gone already if disposeState() ran meanwhile
       refresh(key);
+      try {
+        patchFailed?.(p.key);
+      } catch (err) {
+        console.error('[ytup] patch failure report', err);
+      }
     },
   );
   patchWrites.add(w);

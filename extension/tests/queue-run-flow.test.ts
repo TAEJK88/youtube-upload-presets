@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
-import { createContentUi } from '../lib/studio/content-ui';
+import { createContentUi, storeWriteFailed } from '../lib/studio/content-ui';
 import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { setBridge } from '../lib/studio/queue-files';
@@ -154,5 +154,25 @@ describe('a run after teardown', () => {
     }
     expect(getFile).not.toHaveBeenCalled();
     expect(D.closeStudioUploadDialog).not.toHaveBeenCalled();
+  });
+});
+
+// A settings / counters patch the background could not store (lib/studio/state.ts).
+describe('a failed store write', () => {
+  const MSG = "Couldn't save a settings change — the schedule or EP numbers may be off for the rest of the run";
+
+  it('shows a toast on the page while the queue runs, and not when idle', async () => {
+    storeWriteFailed();
+    expect(pageToast).not.toHaveBeenCalled();
+    await Q.addFiles([qfile('A.mp4')]);
+    const file = deferred<File>(new File(['x'], 'A.mp4'));
+    const asked = deferred<void>();
+    setBridge({ getFile: () => (asked.resolve(), file.promise) });
+    const run = Q.runQueue();
+    await asked.promise; // running
+    storeWriteFailed();
+    expect(vi.mocked(pageToast).mock.calls).toEqual([[MSG]]);
+    file.resolve(new File(['x'], 'A.mp4'));
+    await run;
   });
 });

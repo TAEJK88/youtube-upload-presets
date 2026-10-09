@@ -98,3 +98,12 @@ export function createContentUi() {
   };
   return ui;
 }
+
+// A settings / counters change the background could not store (state.ts setPatchFailed).
+// The console has it too; during a run it also shows on the page, since the next schedule
+// slot or EP number may be wrong from here on.
+export function storeWriteFailed(): void {
+  if (running && !tornDown()) {
+    pageToast(L('บันทึกการตั้งค่าไม่สำเร็จ — ตารางเวลาหรือเลข EP อาจคลาดเคลื่อนตลอดการรันนี้', "Couldn't save a settings change — the schedule or EP numbers may be off for the rest of the run"));
+  }
+}

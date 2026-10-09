@@ -142,6 +142,21 @@ describe('initState', () => {
     expect(state.settings.delay).toBe(3);
   });
 
+  it('a failed patch is reported to the page', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION });
+    const failed = vi.fn();
+    state.setPatchFailed(failed);
+    try {
+      await state.initState(current, 10_000, async () => { throw new Error('no background'); });
+      state.counters.a = 1;
+      state.save('counters', state.counters);
+      await state.flushState();
+    } finally {
+      state.setPatchFailed(null);
+    }
+    expect(failed).toHaveBeenCalledWith('counters');
+  });
+
   it('a patch from before disposeState that fails later leaves the new pending patches alone', async () => {
     await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, settings: { delay: 3 } });
     let fail!: (e: Error) => void;

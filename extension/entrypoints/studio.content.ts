@@ -8,7 +8,7 @@ import { onMessage, sendMessage } from '@/lib/messages';
 import { rpcClient, windowEndpoint } from '@/lib/rpc';
 import { createSyncStore } from '@/lib/sync-store';
 import { refreshCfg } from '@/lib/studio/channel';
-import { createContentUi } from '@/lib/studio/content-ui';
+import { createContentUi, storeWriteFailed } from '@/lib/studio/content-ui';
 import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
@@ -18,7 +18,7 @@ import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-
 import { addQueued, installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
-import { disposeState, initState } from '@/lib/studio/state';
+import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
 
 // Spike FAB: tests whether a page click may open the side panel.
@@ -96,6 +96,8 @@ export default defineContentScript({
     const ui = createContentUi();
     setPageUi(ui);
     stop.add(() => ui.dispose());
+    setPatchFailed(storeWriteFailed);
+    stop.add(() => setPatchFailed(null));
     const releaseLock = () => void sendMessage('runner:release', undefined).catch(() => {});
     setRunnerLock({
       // The lock is ours: whatever the cached flag says, no other tab runs.
