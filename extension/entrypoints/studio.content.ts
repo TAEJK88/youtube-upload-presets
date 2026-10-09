@@ -19,9 +19,9 @@ import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
-import { installIntercept, isStartBinding, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
+import { installIntercept, isStartBinding, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
-import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
+import { elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
 import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
@@ -90,11 +90,12 @@ export default defineContentScript({
     setPatchFailed(storeWriteFailed);
     stop.add(() => setPatchFailed(null));
     const releaseLock = () => void sendMessage('runner:release', undefined).catch(() => {});
+    // The lock is ours: whatever the cached flag says, no other tab runs.
+    const acquireLock = () => sendMessage('runner:acquire', undefined)
+      .then((ok) => (ok && setOtherTabRuns(false), ok))
+      .catch((e) => (console.error('[ytup] runner lock', e), false));
     setRunnerLock({
-      // The lock is ours: whatever the cached flag says, no other tab runs.
-      acquire: () => sendMessage('runner:acquire', undefined)
-        .then((ok) => (ok && setOtherTabRuns(false), ok))
-        .catch((e) => (console.error('[ytup] runner lock', e), false)),
+      acquire: acquireLock,
       // The run's last statuses are saved before the lock goes: a mirror tab that sees it
       // free cuts what it still has as uploading (followOtherTab).
       release: () => {
@@ -103,10 +104,13 @@ export default defineContentScript({
       },
     });
     // Leaving Studio (or the extension going away) frees the lock at once. Best effort: the
-    // background also frees it when this tab closes or leaves Studio.
-    window.addEventListener('pagehide', releaseLock);
+    // background also frees it when this tab closes or leaves Studio. Back from the
+    // back/forward cache mid-run, the page takes it again (queue-sync watchLockLifecycle).
+    const offLock = watchLockLifecycle(window, {
+      release: releaseLock, acquire: acquireLock, running: () => running, stop: requestStop, toast: (m) => ui.toast(m),
+    });
     stop.add(() => {
-      window.removeEventListener('pagehide', releaseLock);
+      offLock();
       requestStop();
       releaseLock();
     });

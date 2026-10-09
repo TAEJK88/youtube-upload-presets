@@ -5,7 +5,7 @@ import * as messages from '../lib/messages';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { otherTabRunning, queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
-import { elsewhere, mayEdit, resumeQueue } from '../lib/studio/queue-sync';
+import { elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '../lib/studio/queue-sync';
 import { disposeState, initState } from '../lib/studio/state';
 
 // The Studio content script's startup and edit gate, without WXT's defineContentScript.
@@ -78,5 +78,55 @@ describe('mayEdit', () => {
     otherTab = false;
     expect(await mayEdit()).toBe(true);
     expect(toasts).toEqual([]);
+  });
+});
+
+// Final review M6: leaving Studio frees the lock (pagehide), but a page kept in the
+// back/forward cache can come back with its run still going; it takes the lock again, or
+// stops after the current video when another tab took it meanwhile.
+describe('the runner lock across the back/forward cache', () => {
+  const setup = (running: boolean, acquired: boolean) => {
+    const win = new EventTarget();
+    const d = { release: vi.fn(), acquire: vi.fn(async () => acquired), running: () => running, stop: vi.fn(), toast: vi.fn() };
+    const off = watchLockLifecycle(win, d);
+    const show = async (persisted: boolean) => {
+      win.dispatchEvent(Object.assign(new Event('pageshow'), { persisted }));
+      await new Promise((r) => setTimeout(r, 0));
+    };
+    return { win, d, off, show };
+  };
+
+  it('pagehide frees the lock', () => {
+    const { win, d } = setup(true, true);
+    win.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: true }));
+    expect(d.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('back from the cache mid-run: takes the lock again', async () => {
+    const { d, show } = setup(true, true);
+    await show(true);
+    expect(d.acquire).toHaveBeenCalledTimes(1);
+    expect(d.stop).not.toHaveBeenCalled();
+  });
+
+  it('back from the cache mid-run, another tab took the lock: stops after the current video and says so', async () => {
+    const { d, show } = setup(true, false);
+    await show(true);
+    expect(d.stop).toHaveBeenCalledTimes(1);
+    expect(d.toast).toHaveBeenCalledWith('Another Studio tab is already running the queue');
+  });
+
+  it('nothing to do for a fresh load or an idle page; off removes the listeners', async () => {
+    const idle = setup(false, true);
+    await idle.show(true);
+    expect(idle.d.acquire).not.toHaveBeenCalled();
+    const fresh = setup(true, true);
+    await fresh.show(false);
+    expect(fresh.d.acquire).not.toHaveBeenCalled();
+    fresh.off();
+    fresh.win.dispatchEvent(new Event('pagehide'));
+    await fresh.show(true);
+    expect(fresh.d.release).not.toHaveBeenCalled();
+    expect(fresh.d.acquire).not.toHaveBeenCalled();
   });
 });
