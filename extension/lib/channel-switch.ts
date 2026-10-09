@@ -12,8 +12,8 @@ export interface SwitchedMarker { at: number; tries: number; next: string }
 export interface SwitchEnv {
   document: Document;
   location: Location;
-  setInterval: (fn: () => void, ms: number) => ReturnType<typeof setInterval>;
-  clearInterval: (id: ReturnType<typeof setInterval>) => void;
+  setInterval: (fn: () => void, ms: number) => number | ReturnType<typeof setInterval>;
+  clearInterval: (id: number | ReturnType<typeof setInterval>) => void;
   console: Pick<Console, 'info'>;
   getValue: <T>(key: string, fallback?: T) => T;
   setValue: (key: string, value: unknown) => void;

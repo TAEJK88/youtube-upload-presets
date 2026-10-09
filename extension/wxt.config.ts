@@ -1,6 +1,9 @@
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'wxt';
 
 export default defineConfig({
+  modules: ['@wxt-dev/module-react'],
+  vite: () => ({ plugins: [tailwindcss()] }),
   manifest: {
     name: 'YouTube Upload Presets',
     description: 'Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments',

@@ -177,8 +177,8 @@ export const INVITE_KEYS = ['settings', SWITCH_KEY, SWITCHED_KEY, ACCEPT_ROUND_K
 // The real page as an InviteEnv: the globals the userscript used, and a chrome.storage
 // mirror in place of GM_getValue / GM_setValue.
 export interface Timers {
-  setInterval: (fn: () => void, ms: number) => ReturnType<typeof setInterval>;
-  clearInterval: (id: ReturnType<typeof setInterval>) => void;
+  setInterval: (fn: () => void, ms: number) => number | ReturnType<typeof setInterval>;
+  clearInterval: (id: number | ReturnType<typeof setInterval>) => void;
   setTimeout: (fn: () => void, ms: number) => unknown;
 }
 // Content scripts pass ctx.setInterval / ctx.setTimeout, which stop by themselves once the

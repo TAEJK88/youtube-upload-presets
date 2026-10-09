@@ -88,4 +88,4 @@ function icon(name: string, size = 16) {
 }
 // @port-end
 
-export { h, icon };
+export { h, icon, ICONS };
