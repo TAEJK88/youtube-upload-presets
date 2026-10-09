@@ -28,4 +28,12 @@ export default [
   { th: 'การสแกนและตัดส่วนที่ติดลิขสิทธิ์จะมาในเวอร์ชันถัดไปของส่วนขยาย', en: 'Copyright scan and trim arrive in a later version of the extension', why: 'placeholder tab until Phase 4' },
   { th: 'สลับช่องไม่สำเร็จ (${})', en: "Couldn't switch channels (${})", why: 'channel:switch is a message to the Studio tab and can fail; the drawer called the switcher directly' },
   { th: 'บันทึกไม่สำเร็จ (${})', en: "Couldn't save (${})", why: 'store writes are messages to the background and can reject; the drawer wrote synchronously' },
+  // Phase 3a: Settings tab, backup export / import
+  { th: 'หยุดคิวก่อนแล้วค่อยนำเข้า', en: 'Stop the queue before importing', why: 'import refused only while a run is in progress (no reload any more)' },
+  { th: 'พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน)', en: 'Existing presets and settings on this device will be replaced (locked channel and language stay unchanged).', why: 'the drawer sentence without "and the page will reload"' },
+  { th: 'นำเข้าพรีเซ็ต ${} รายการแล้ว', en: 'Imported ${} presets', why: 'the drawer reloaded the page instead of confirming' },
+  { th: ' เปิดแผง · ', en: ' open the panel · ', why: 'Alt+P opens the side panel; it cannot close it' },
+  { th: 'นำเข้าไม่สำเร็จ (${})', en: "Couldn't import (${})", why: 'backup:write is a message to the background and can reject; the drawer wrote synchronously' },
+  { th: 'ส่งออกไม่สำเร็จ (${})', en: "Couldn't export (${})", why: 'export reads extension storage asynchronously and can fail; the drawer read in memory' },
+  { th: 'คัดลอกข้อมูลหน้าต่างอัปโหลดไม่สำเร็จ (${})', en: "Couldn't copy the upload dialog info (${})", why: 'diag:dialogInfo is a message to the Studio tab (and clipboard writes) that can fail; the drawer ran it in the page' },
 ];

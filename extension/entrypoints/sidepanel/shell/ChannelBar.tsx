@@ -10,16 +10,10 @@ import { cn } from '@/lib/utils';
 import { IconButton } from '../fields';
 import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
+import { saveFailed } from '../save-failed';
 
 // The drawer's channel bar (3326–3350, 3418–3440): where the queue uploads to, whether that
 // is the locked channel, the lock button and the list of other channels.
-// A store write that failed: logged, and said in the panel (the write is a message to the
-// background, which can reject; the drawer wrote synchronously).
-const saveFailed = (e: unknown) => {
-  console.error('[ytup] store write failed', e);
-  toast(L(`บันทึกไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't save (${(e as Error)?.message ?? e})`));
-};
-
 export function ChannelBar() {
   const { data, view, write } = usePanel();
   const [listOpen, setListOpen] = useState(false);

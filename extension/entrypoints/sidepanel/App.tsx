@@ -9,6 +9,7 @@ import { Banners } from './shell/Banners';
 import { ChannelBar } from './shell/ChannelBar';
 import { CopyrightTab } from './tabs/CopyrightTab';
 import { QueueTab } from './tabs/QueueTab';
+import { SettingsTab } from './tabs/SettingsTab';
 
 export type TabKey = 'queue' | 'presets' | 'claims' | 'settings';
 // The drawer's tabs, in its order (3317).
@@ -23,7 +24,7 @@ const panes: Record<TabKey, () => ReactNode> = {
   queue: () => <QueueTab />,
   presets: () => null, // Task 9
   claims: () => <CopyrightTab />,
-  settings: () => null, // Task 8
+  settings: () => <SettingsTab />,
 };
 const footers: Partial<Record<TabKey, () => ReactNode>> = {};
 
