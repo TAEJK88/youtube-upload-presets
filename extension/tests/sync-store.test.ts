@@ -293,9 +293,46 @@ describe('expect(): a write someone else makes for us', () => {
     expect(kv.get('cfg')).toEqual({ a: 0 });
   });
 
+  it('a reread started before expect() is dropped even if it lands after', async () => {
+    await browser.storage.local.set({ cfg: { a: 0 } });
+    const kv = await createSyncStore(['cfg']);
+    const get = origGet();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let n = 0;
+    vi.spyOn(local(), 'get').mockImplementation((async (k: never) => {
+      const v = await get(k);
+      if (n++ === 0) await gate;
+      return v;
+    }) as never);
+    const rr = kv.reread('cfg'); // reads { a: 0 }, held back
+    await tick();
+    kv.expect('cfg', { a: 2 }, browser.storage.local.set({ cfg: { a: 2 } }));
+    await kv.flush();
+    release();
+    await rr;
+    expect(kv.get('cfg')).toEqual({ a: 2 });
+  });
+
+  it('throws for an unknown key, and after dispose()', async () => {
+    const kv = await createSyncStore(['cfg']);
+    expect(() => kv.expect('other', 1, Promise.resolve())).toThrow('unknown key');
+    kv.dispose();
+    expect(() => kv.expect('cfg', 1, Promise.resolve())).toThrow('disposed');
+  });
+
   it('the memory store just takes the value', () => {
     const kv = createMemoryStore();
     kv.expect('cfg', { a: 1 }, Promise.resolve());
+    expect(kv.get('cfg')).toEqual({ a: 1 });
+  });
+
+  it('the memory store logs a failed write instead of leaving it unhandled', async () => {
+    const kv = createMemoryStore();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    kv.expect('cfg', { a: 1 }, Promise.reject(new Error('refused')));
+    await tick();
+    expect(error).toHaveBeenCalledWith('[ytup] write failed for cfg', expect.any(Error));
     expect(kv.get('cfg')).toEqual({ a: 1 });
   });
 });

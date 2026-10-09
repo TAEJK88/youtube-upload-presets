@@ -93,6 +93,11 @@ export async function createSyncStore(keyList: string[], prefixes: string[] = []
     if (live && !inflight.get(key) && gen.get(key) === seen) apply(key, got[key]);
   };
 
+  // Events are held back only while a write is in flight. If a write is confirmed before its
+  // storage.onChanged echo arrives, the late echo is applied like an outside change: listeners
+  // see our own (possibly already superseded) value, then the newer one. Shared by set() and
+  // expect(). In Chrome the echo is normally dispatched before the writer's reply, so this is
+  // accepted. If it ever shows, keep the key settling until the echo of the last value is seen.
   const settle = async (key: string) => {
     const left = (inflight.get(key) ?? 1) - 1;
     if (left) return void inflight.set(key, left);
@@ -172,7 +177,11 @@ export function createMemoryStore(initial: Record<string, unknown> = {}): SyncSt
   return {
     get: <T>(key: string, fallback?: T): T => (data.has(key) ? copy(data.get(key) as T) : (fallback as T)),
     set: (key, value) => void (value === undefined ? data.delete(key) : data.set(key, copy(value))),
-    expect: (key, value) => void (value === undefined ? data.delete(key) : data.set(key, copy(value))),
+    expect: (key, value, done) => {
+      void Promise.resolve(done).catch((e) => console.error(`[ytup] write failed for ${key}`, e));
+      if (value === undefined) data.delete(key);
+      else data.set(key, copy(value));
+    },
     onChange: () => () => {},
     flush: async () => {},
     reread: async () => {},
