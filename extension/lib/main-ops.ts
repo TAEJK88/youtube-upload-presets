@@ -7,6 +7,9 @@ export type MainOps = {
 } & MainOpsYoutubei;
 
 // Studio's internal API, for the copyright module (D22): MAIN-world ytcfg and cookies.
+// Its answers are data from the page, not from Studio itself: any page script can post a reply on
+// this channel first. Shape-check them before use, and never build a storage key from them except
+// through isClaimsKey / channelKeys (lib/claims/keys.ts).
 export type MainOpsYoutubei = { youtubei(path: string, body: Record<string, unknown>): unknown };
 // The endpoints the copyright module calls (user.js 4722, 4748, 4784, 4796, 5373, 5789, 6026).
 export const YTI_PATHS = [

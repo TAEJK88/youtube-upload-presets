@@ -39,10 +39,13 @@ const ycfg = (k: string): any => W.ytcfg && W.ytcfg.get(k);
   }
 // @port-end
 
-// What the MAIN world serves: the allowlisted endpoints only (D22). The page could call the API
-// itself; this script just answers nothing else.
+// What the MAIN world serves: the allowlisted endpoints only (D22), with a plain-object body
+// (what postMessage clones from the content script's object literals). The page could call the
+// API itself; this script just answers nothing else.
+const isPlain = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 export async function youtubei(path: string, body: Record<string, unknown>): Promise<unknown> {
   if (!(YTI_PATHS as readonly string[]).includes(path)) throw new Error(`youtubei: ${path} is not allowed`);
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('youtubei: the body must be an object');
+  if (!isPlain(body)) throw new Error('youtubei: the body must be an object');
   return yti(path, body);
 }

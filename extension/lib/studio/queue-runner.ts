@@ -87,6 +87,19 @@ let cfgReader: CfgReader | null = null;
 export const setCfgReader = (r: CfgReader | null) => { cfgReader = r; };
 const freshCfg = () => (cfgReader ? refreshCfg(cfgReader) : Promise.resolve());
 
+// The channel's scheduled videos are read again before a start (the preflight, then the run).
+// Each youtubei call may take 30 s (D22) and the list up to 4 pages, so each of those two waits
+// gives up after START_SCHED_WAIT_MS (about 20 s in all, what a silent MAIN world cost before
+// Phase 4): the start goes on with the slots already known, and the refresh keeps running and
+// lands in chanSched when it answers (the run's own wait joins the same refresh).
+export const START_SCHED_WAIT_MS = 10_000;
+async function refreshForStart(): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'late'>((resolve) => { timer = setTimeout(() => resolve('late'), START_SCHED_WAIT_MS); });
+  const r = await Promise.race([refreshChanSched(true), late]).finally(() => clearTimeout(timer));
+  if (r === 'late') console.warn(`[YT Presets] scheduled list still loading after ${START_SCHED_WAIT_MS / 1000} s — starting with the slots known so far`);
+}
+
 // @port-begin
 // ความคืบหน้าของคลิปที่กำลังอัป · อัปเดตจาก tick ทุก 0.8 วินาที (uploadOne ไม่ต้องรู้เรื่องนี้)
 let uploadProg: { pct: number | null; text: string } | null = null; // { pct: 0..1 | null, text: string }
@@ -490,7 +503,7 @@ async function runQueue() {
   const badTl = pendingItems.filter((i) => i.txt).map((i) => [i, itemTracklist(i)] as const).filter(([, tc]) => tc.errors.length);
   const badTime = pendingItems.filter((i) => scheduleProblem(itemPublishAt(i)));
   const prevUp = pendingItems.filter((i) => i.prev);
-  await refreshChanSched(true); // เช็กคลิปที่ตั้งเวลาไว้ในช่องล่าสุด ก่อนแสดงเวลาที่จะใช้จริง
+  await refreshForStart(); // เช็กคลิปที่ตั้งเวลาไว้ในช่องล่าสุด ก่อนแสดงเวลาที่จะใช้จริง
   // ยืนยันครั้งเดียวในแผง: ช่องปลายทาง + สรุปคิว + ปัญหาที่ควรรู้ก่อนเริ่ม
   if (settings.confirmStart || badTl.length || badTime.length || prevUp.length) {
     const go = await ui.confirmStart();
@@ -741,7 +754,7 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
   const badTl = pendingItems.filter((i) => i.txt).map((i) => [i, itemTracklist(i)] as const).filter(([, tc]) => tc.errors.length);
   const badTime = pendingItems.filter((i) => scheduleProblem(itemPublishAt(i)));
   const prevUp = pendingItems.filter((i) => i.prev);
-  await refreshChanSched(true);
+  await refreshForStart();
   const ch = getChannel();
   return {
     pendingN,

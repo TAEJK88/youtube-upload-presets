@@ -44,5 +44,7 @@ export default {
     ['if (injectingFile || !settings.intercept || !e.target', 'if (injectingFile || !settings.intercept || otherTabRuns || !e.target', 1],
     // uploadCurrent() marks the item being processed (Remove refuses it) around uploadOne()
     ['await uploadOne(it);', 'await uploadCurrent(it);', 1],
+    // the schedule refresh before a start waits START_SCHED_WAIT_MS at most (youtubei calls take up to 30 s)
+    ['await refreshChanSched(true);', 'await refreshForStart();', 1],
   ],
 };
