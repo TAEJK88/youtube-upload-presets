@@ -73,8 +73,17 @@ const words = (s: string) => {
   for (const re of LATIN_IGNORE) t = t.replace(re, ' ');
   return t.match(/[A-Za-z]{2,}/g) ?? [];
 };
-let dataWords = new Set<string>(); // set by thData()
-const latin = (s: string) => (thai(s) || SAME_IN_BOTH.has(s) ? [] : words(s).filter((w) => !LATIN_OK.has(w) && !dataWords.has(w)));
+// The presets' own text (user content; the defaults are the same in both languages), set by
+// thData(): the literal pieces of each label, title, description line and tag (a template's
+// {variables} and [[ ]] split it), and the artist names they fill in. Only a whole piece is
+// exempt where it shows (a menu entry "1. 🌑 TrapSoul Mix", a filled-in title, a tag chip):
+// not its words on their own anywhere else ("Tracklist" alone is a leak), nor JSON key names.
+let presetTexts: string[] = [];
+const presetPieces = (v: string) => v.split(/\{[^}]*\}|\[\[|\]\]|\n/).map((x) => x.trim()).filter((x) => /[A-Za-z]{2}/.test(x));
+const withoutPresets = (s: string) =>
+  presetTexts.reduce((t, v) => t.replace(new RegExp(`(?<![A-Za-z])${esc(v)}(?![A-Za-z])`, 'g'), ' '), s);
+const latin = (s: string) =>
+  (thai(s) || SAME_IN_BOTH.has(s) ? [] : words(withoutPresets(s)).filter((w) => !LATIN_OK.has(w)));
 
 const ATTRS = ['title', 'aria-label', 'placeholder', 'alt', 'aria-valuetext', 'aria-description'];
 // Every text node and the attributes a screen reader or tooltip shows, in light and shadow DOM.
@@ -118,7 +127,9 @@ const schedule = { on: true, set: true, start: AT, late: true, times: [AT], skip
 const thData = (over: Record<string, unknown> = {}) => {
   setLang('th');
   const d = toPanelData({ settings: { lang: 'th', schedule: { on: true, start: '2030-01-01T08:00', every: 1, unit: 'day' }, ...over } });
-  dataWords = new Set(words(JSON.stringify(d.presets)));
+  presetTexts = d.presets
+    .flatMap((p) => [p.label, p.title, p.description, ...p.tags].flatMap(presetPieces).concat(p.artistPriority ?? []))
+    .sort((a, b) => b.length - a.length); // the longest first: a piece inside a longer one stays whole
   return d;
 };
 const thView = (over: Parameters<typeof viewWith>[1] = {}) => viewWith(items, { schedule, channel, state: state({ channel }), ...over });

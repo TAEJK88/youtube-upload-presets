@@ -28,7 +28,8 @@ used by some `L()` call in the extension's shipping code or listed with a reason
 page-side code (the FAB, page toasts) or by dead code passes too.
 `tests/panel-i18n.test.tsx` renders the whole panel (every tab, card state, question and banner),
 the FAB and the reload banner in Thai, and fails on any English pair and on any Latin word
-outside its short, commented allowlist.
+outside its short, commented allowlist and the presets' own text (whole pieces of a label,
+title, description line or tag, and their artist names; not their words on their own).
 `settings` and `counters` have one writer, the background (`store:patch`, `lib/store-writer.ts`).
 Console lines from the extension start with `[ytup]`.
 
