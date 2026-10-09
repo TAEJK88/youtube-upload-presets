@@ -10,7 +10,7 @@ import * as Q from '../lib/studio/queue-runner';
 import { editQueue, followStoredChanges, handleQueueAdd, handleQueueEdit } from '../lib/studio/queue-edit';
 import { activeId, disposeState, flushState, initState } from '../lib/studio/state';
 import { createContentUi } from '../lib/studio/content-ui';
-import { restoreQueue } from '../lib/studio/queue-store';
+import { flushQueue, persistQueue, restoreQueue } from '../lib/studio/queue-store';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
 
@@ -207,6 +207,50 @@ describe('an edit after the summary refuses the start', () => {
     await Q.startQueue({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev, sig: s.sig, asked: true });
     expect(calls).toContain(QUEUE_CHANGED);
     disposeState();
+  });
+
+  // Another window's card edit reaches this tab through storage (queue-store's onStored).
+  describe('an item edited in another window (review I2)', () => {
+    const summaryAfterRestore = async (stored: Q.QueueItem[]) => {
+      disposeState();
+      fakeBrowser.reset();
+      await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, queue: stored });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(true);
+      const s = await Q.startSummary();
+      if ('error' in s) throw new Error(s.error);
+      return { channelId: s.channel.id, ids: s.ids, editRev: s.editRev, sig: s.sig, asked: true };
+    };
+    afterEach(() => disposeState());
+
+    it('a release time set there after the summary refuses the start', async () => {
+      const seen = await summaryAfterRestore([item('a', 'pending')]);
+      await browser.storage.local.set({ queue: [item('a', 'pending', { publishAt: 1_900_000_000_000, publishEdited: true })] });
+      await vi.waitFor(() => expect(Q.queue[0]!.publishAt).toBe(1_900_000_000_000));
+      calls.length = 0;
+      await Q.startQueue(seen);
+      expect(calls).toEqual([QUEUE_CHANGED]);
+      expect(Q.queue[0]!.status).toBe('pending');
+    });
+
+    it('a change the summary does not show (a finished item, a duration) does not', async () => {
+      const seen = await summaryAfterRestore([item('a', 'pending'), item('b', 'done')]);
+      await browser.storage.local.set({ queue: [item('a', 'pending', { duration: 42 }), item('b', 'done', { msg: 'x' })] });
+      await vi.waitFor(() => expect(Q.queue[0]!.duration).toBe(42));
+      calls.length = 0;
+      await Q.startQueue(seen);
+      expect(calls).not.toContain(QUEUE_CHANGED);
+    });
+
+    it("this tab's own save coming back does not", async () => {
+      const seen = await summaryAfterRestore([item('a', 'pending')]);
+      persistQueue();
+      flushQueue();
+      await flushState(); // written, and its change event heard
+      calls.length = 0;
+      await Q.startQueue(seen);
+      expect(calls).not.toContain(QUEUE_CHANGED);
+    });
   });
 });
 

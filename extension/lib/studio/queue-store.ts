@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { L } from '../i18n';
 import { mergeQueue } from './queue-merge';
-import { otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
+import { bumpEditRev, otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
 
 // The queue's items live in chrome.storage.local ('queue') so they survive reloads and
@@ -46,6 +46,11 @@ const interrupted = (it: QueueItem): QueueItem => ({
 
 const unfinished = (it: QueueItem) => it.status === 'uploading' || it.status === 'review';
 
+// What the start summary shows of the pending items. Another window changing it after the
+// summary refuses the start like an edit made here (bumpEditRev; review I2).
+const shown = (list: QueueItem[]) => JSON.stringify(list.filter((i) => i.status === 'pending')
+  .map((i) => [i.id, i.presetId, i.publishEdited ? i.publishAt : 0, !!i.thumb, i.txt]));
+
 // markInterrupted is false while another Studio tab holds the runner lock: its item
 // really is still uploading.
 export function restoreQueue(markInterrupted: boolean): void {
@@ -65,7 +70,9 @@ export function restoreQueue(markInterrupted: boolean): void {
     if (running) return;
     const foreign = (v as QueueItem[] | undefined) ?? [];
     const next = timer !== undefined ? mergeQueue(base, queue, foreign) : foreign;
+    const was = shown(queue);
     queue.splice(0, queue.length, ...next);
+    if (shown(queue) !== was) bumpEditRev();
     remember(foreign);
   });
 }
