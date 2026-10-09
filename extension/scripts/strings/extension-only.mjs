@@ -48,4 +48,13 @@ export default [
   { th: 'ส่วนขยายถูกอัปเดตหรือโหลดใหม่ — โหลดแท็บนี้ใหม่เพื่อใช้งานต่อ', en: 'The extension was updated or reloaded — reload this tab to keep using it', why: 'orphaned content script (spec: Error handling)' },
   { th: 'แท็บนี้เกิดข้อผิดพลาด — ปิดแล้วเปิดแผงด้านข้างใหม่', en: 'This tab hit an error — close and reopen the side panel', why: 'a render error in one tab is caught by its error boundary; the drawer had no React tree to unmount' },
   { th: 'การแจ้งเตือน', en: 'Notifications', why: "the panel's toast region (Sonner) names itself for screen readers, in English unless given a label; the drawer's toast had no region" },
+  // Crash guard, RootBoundary and the debug page (user request: "a full debug panel inside the app")
+  { th: 'ส่วนขยายเกิดข้อผิดพลาด', en: 'The extension hit an error', why: 'crash guard / RootBoundary fallback heading (user request): the panel is never blank' },
+  { th: 'ขั้นล่าสุด: ${}', en: 'Last stage: ${}', why: 'crash guard: the startup stage main.tsx reached (user request)' },
+  { th: 'คัดลอกรายละเอียด', en: 'Copy details', why: 'crash guard: copy the error for the developer (user request)' },
+  { th: 'คัดลอกแล้ว', en: 'Copied', why: 'crash guard / debug page: copy confirmation (user request)' },
+  { th: 'เปิดหน้าดีบัก', en: 'Open debug page', why: 'crash guard, RootBoundary, PaneBoundary and Settings → Troubleshooting open debug.html (user request)' },
+  { th: 'โหลดแผงใหม่', en: 'Reload panel', why: 'crash guard: reload the side panel page (user request)' },
+  { th: 'แผงไม่เริ่มทำงาน: ยังรอเบื้องหลังอยู่ (ensureMigrated)…', en: "The panel didn't start: still waiting for the background (ensureMigrated)…", why: 'crash guard watchdog: the background never answered (user request)' },
+  { th: 'แผงไม่เริ่มทำงาน: ค้างอยู่ที่ขั้น ${}', en: "The panel didn't start: stuck at stage ${}", why: 'crash guard watchdog: stuck at another startup stage (user request)' },
 ];

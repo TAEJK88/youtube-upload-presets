@@ -43,7 +43,8 @@ describe('pane error boundary', () => {
         <PaneBoundary><p>Other tab</p></PaneBoundary>
       </div>,
     );
-    expect(screen.getByRole('alert').textContent).toBe('This tab hit an error — close and reopen the side panel');
+    expect(screen.getByRole('alert').textContent).toBe('This tab hit an error — close and reopen the side panel Open debug page');
+    expect(screen.getByRole('button', { name: 'Open debug page' })).toBeTruthy();
     expect(screen.getByText('Channel bar')).toBeTruthy();
     expect(screen.getByText('Other tab')).toBeTruthy();
     expect(err).toHaveBeenCalledWith('[ytup] panel render error', expect.any(RangeError));
@@ -53,7 +54,7 @@ describe('pane error boundary', () => {
     setLang('en');
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     renderPanel(<App />);
-    expect(screen.getByRole('alert').textContent).toBe('This tab hit an error — close and reopen the side panel');
+    expect(screen.getByRole('alert').textContent).toContain('This tab hit an error — close and reopen the side panel');
     expect(screen.getByRole('tab', { name: /Upload/ })).toBeTruthy();
     expect(err).toHaveBeenCalledWith('[ytup] panel render error', expect.any(RangeError));
   });
