@@ -1,6 +1,6 @@
 // FIRST: the same crash guard as the side panel (it logs as 'debug' here).
 import { failStartup, stage } from '../sidepanel/crash-guard';
-import '../sidepanel/theme'; // NEXT: the panel's theme, before first paint
+import '@/lib/theme'; // NEXT: the panel's theme, before first paint
 import '../sidepanel/style.css';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';

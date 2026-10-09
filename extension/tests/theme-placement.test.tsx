@@ -5,7 +5,7 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { DebugPage } from '../entrypoints/debug/DebugPage';
 import { ChannelBar } from '../entrypoints/sidepanel/shell/ChannelBar';
-import { setTheme } from '../entrypoints/sidepanel/theme';
+import { setTheme } from '../lib/theme';
 import { setLang } from '../lib/i18n';
 import { fakePanel, renderPanel } from './panel-fake';
 
@@ -31,6 +31,37 @@ describe('theme toggle placement', () => {
     fireEvent.click(b);
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeTruthy();
+  });
+
+  // At Chrome's narrowest panel (320px) the toggle left the channel name ~4px wide. Below 380px
+  // of panel the lock pill shows only its icon: the bar is a size container ('@container') and
+  // the label is sr-only under a container query ('@max-[344px]', the bar's content box: 380 -
+  // 2 x 18px padding). happy-dom has no layout or container queries, so this pins the classes
+  // and the structure, not the widths: that the label is the pill's only text, carries the
+  // narrow-hide class, and still names the button. The widths were measured in Chrome (see
+  // theme-toggle-fix-report.md); a rename of the class or a new visible child fails here.
+  it('below ~380px of panel the lock pill is icon-only, and keeps its name and title', () => {
+    const d = fakePanel().data!;
+    const cases = [
+      { lang: 'en' as const, lock: null, name: 'Lock channel' },
+      { lang: 'th' as const, lock: null, name: 'ล็อกช่อง' },
+      { lang: 'en' as const, lock: { id: 'UC1', name: 'Mine' }, name: 'Locked' },
+      { lang: 'th' as const, lock: { id: 'UC1', name: 'Mine' }, name: 'ล็อกแล้ว' },
+    ];
+    for (const c of cases) {
+      setLang(c.lang);
+      renderPanel(<ChannelBar />, fakePanel({ data: { ...d, settings: { ...d.settings, lockChannel: c.lock } } }));
+      const pill = screen.getByRole('button', { name: c.name });
+      expect(pill.getAttribute('title')).toBeTruthy();
+      expect(pill.parentElement!.classList.contains('@container')).toBe(true);
+      const label = pill.querySelector('span')!;
+      expect(label.textContent).toBe(c.name);
+      expect(label.classList.contains('@max-[344px]:sr-only')).toBe(true);
+      // nothing else in the pill is text: the icon alone stays visible
+      const visible = [...pill.childNodes].filter((n) => n !== label && (n.textContent ?? '').trim());
+      expect(visible).toEqual([]);
+      cleanup();
+    }
   });
 
   it("on the debug page, in the title's row", () => {

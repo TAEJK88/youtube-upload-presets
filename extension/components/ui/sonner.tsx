@@ -1,6 +1,6 @@
 import { Toaster as Sonner } from 'sonner';
-import { useTheme } from '@/entrypoints/sidepanel/ThemeToggle';
 import { L } from '@/lib/i18n';
+import { useTheme } from '@/lib/use-theme';
 
 // The drawer's toast: bottom centre, black glass (white in the light theme), 3.8 s. Sonner
 // names its region "Notifications alt+T" unless told otherwise; the hotkey part it adds itself.

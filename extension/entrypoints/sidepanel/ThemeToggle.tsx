@@ -1,9 +1,7 @@
-import { useSyncExternalStore } from 'react';
 import { L } from '@/lib/i18n';
+import { setTheme } from '@/lib/theme';
+import { useTheme } from '@/lib/use-theme';
 import { IconButton } from './fields';
-import { currentTheme, setTheme, subscribeTheme } from './theme';
-
-export const useTheme = () => useSyncExternalStore(subscribeTheme, currentTheme);
 
 // The header's theme switch: a sun in dark (go light), a moon in light (go dark).
 export function ThemeToggle({ className }: { className?: string }) {

@@ -1,6 +1,6 @@
 // FIRST: the crash guard listens before any other module evaluates (see crash-guard.ts).
 import { failStartup, stage } from './crash-guard';
-import './theme'; // NEXT: <html data-theme> before first paint
+import '@/lib/theme'; // NEXT: <html data-theme> before first paint
 import './style.css';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';

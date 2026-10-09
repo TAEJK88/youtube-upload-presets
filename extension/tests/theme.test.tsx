@@ -8,14 +8,14 @@ import { setLang } from '../lib/i18n';
 
 // The panel's dark/light theme: a per-device view preference in the extension origin's
 // localStorage ('ytup-theme'), applied to <html data-theme> before first paint by
-// entrypoints/sidepanel/theme.ts, which main.tsx (panel and debug page) imports right after
+// lib/theme.ts, which main.tsx (panel and debug page) imports right after
 // the crash guard.
 const KEY = 'ytup-theme';
 const html = () => document.documentElement;
 // A fresh copy of the module: importing it is what applies the stored theme.
 const themeMod = async () => {
   vi.resetModules();
-  return import('../entrypoints/sidepanel/theme');
+  return import('../lib/theme');
 };
 const toggleMod = () => import('../entrypoints/sidepanel/ThemeToggle');
 
@@ -26,7 +26,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   cleanup();
-  (await import('../entrypoints/sidepanel/theme')).disposeTheme();
+  (await import('../lib/theme')).disposeTheme();
   vi.restoreAllMocks();
   localStorage.clear();
   delete html().dataset.theme;
@@ -104,18 +104,27 @@ describe('the toggle', () => {
     const { ThemeToggle } = await toggleMod();
     render(<ThemeToggle />);
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: 'light' }));
+      window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: 'light', storageArea: localStorage }));
     });
     expect(html().dataset.theme).toBe('light');
     expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeTruthy();
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'other', newValue: 'x' }));
+      window.dispatchEvent(new StorageEvent('storage', { key: 'other', newValue: 'x', storageArea: localStorage }));
     });
     expect(html().dataset.theme).toBe('light');
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: null })); // localStorage.clear() elsewhere
+      window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: localStorage })); // localStorage.clear() elsewhere
     });
     expect(html().dataset.theme).toBe('dark');
+  });
+  it('ignores sessionStorage events (a same-origin frame clearing its sessionStorage)', async () => {
+    localStorage.setItem(KEY, 'light');
+    await themeMod();
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: sessionStorage }));
+      window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: 'dark', storageArea: sessionStorage }));
+    });
+    expect(html().dataset.theme).toBe('light');
   });
 });
 
@@ -146,18 +155,56 @@ describe("the crash guard's plain-DOM fallback", () => {
 
 describe('wiring', () => {
   const src = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
+  const files = (dir: string): string[] =>
+    readdirSync(join(__dirname, '..', dir), { withFileTypes: true }).flatMap((d) =>
+      d.isDirectory() ? files(`${dir}/${d.name}`) : /\.tsx?$/.test(d.name) ? [`${dir}/${d.name}`] : []);
   it('panel and debug page import the theme right after the crash guard', () => {
-    expect(src('entrypoints/sidepanel/main.tsx')).toMatch(/^(\/\/[^\n]*\n)*import \{[^}]*\} from '\.\/crash-guard';\nimport '\.\/theme';[^\n]*\n/);
-    expect(src('entrypoints/debug/main.tsx')).toMatch(/^(\/\/[^\n]*\n)*import \{[^}]*\} from '\.\.\/sidepanel\/crash-guard';\nimport '\.\.\/sidepanel\/theme';[^\n]*\n/);
+    expect(src('entrypoints/sidepanel/main.tsx')).toMatch(/^(\/\/[^\n]*\n)*import \{[^}]*\} from '\.\/crash-guard';\nimport '@\/lib\/theme';[^\n]*\n/);
+    expect(src('entrypoints/debug/main.tsx')).toMatch(/^(\/\/[^\n]*\n)*import \{[^}]*\} from '\.\.\/sidepanel\/crash-guard';\nimport '@\/lib\/theme';[^\n]*\n/);
   });
-  it('the stylesheet has a light palette (the userscript\'s tokens) next to the dark one', () => {
-    const css = src('entrypoints/sidepanel/style.css');
-    const light = css.match(/\[data-theme='light'\]\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(light).toContain('color-scheme: light');
-    for (const t of ['--bg: #ffffff', '--surface: #f7f7f9', '--surface2: #efeff3', '--line: #e4e4ea', '--line2: #d6d6de', '--fg: #111114',
-      '--fg2: #5d5d6b', '--fg3: #8d8d9a', '--ok: #16a34a', '--warn: #d97706', '--err: #dc2626', '--info: #2563eb', '--muted: #9a9aa6', '--popover: #ffffff']) {
-      expect(light).toContain(t);
+  it('components/ never import from an entrypoint (useTheme lives in lib/)', () => {
+    const bad = files('components').filter((f) => /from '(@\/|(\.\.\/)+)entrypoints\//.test(src(f)));
+    expect(bad).toEqual([]);
+  });
+  // The entry <script type="module"> is render-blocking, so a stored light theme is set before
+  // Chrome paints the empty page with the dark defaults. Vite rewrites the entry tag and drops
+  // the attribute from index.html, so a plugin in wxt.config.ts puts it on the built tag.
+  it('the built panel and debug page entry scripts are render-blocking', async () => {
+    const { renderBlocking } = await import('../wxt.config');
+    const { handler } = renderBlocking().transformIndexHtml as { handler: (html: string, ctx: { filename: string }) => string };
+    const built = '<head>\n    <script type="module" crossorigin src="/chunks/sidepanel-x.js"></script>\n    <link rel="modulepreload" crossorigin href="/chunks/a.js">\n</head>';
+    for (const page of ['sidepanel', 'debug']) {
+      expect(handler(built, { filename: `/x/entrypoints/${page}/index.html` })).toContain('<script type="module" blocking="render" crossorigin src="/chunks/sidepanel-x.js"></script>');
     }
+    expect(handler(built, { filename: '/x/entrypoints/file-bridge/index.html' })).toBe(built);
+  });
+  const css = () => src('entrypoints/sidepanel/style.css');
+  const block = (sel: RegExp) => Object.fromEntries([...(css().match(sel)?.[1] ?? '').matchAll(/^\s*([\w-]+):\s*([^;]+);/gm)].map((m) => [m[1], m[2]!.trim()]));
+  const LIGHT = /:root\[data-theme='light'\]\s*\{([^}]*)\}/;
+  const DARK = /:root\s*\{([^}]*)\}/;
+  it("the stylesheet has a light palette (the userscript's tokens) next to the dark one", () => {
+    // The userscript's values, except --fg3, --ok and --warn: one step darker so 12px text
+    // clears 4.5:1 on white and on --surface (style.css says why).
+    expect(block(LIGHT)).toMatchObject({
+      'color-scheme': 'light', '--bg': '#ffffff', '--surface': '#f7f7f9', '--surface2': '#efeff3', '--line': '#e4e4ea', '--line2': '#d6d6de', '--fg': '#111114',
+      '--fg2': '#5d5d6b', '--fg3': '#6e6e7a', '--ok': '#15803d', '--warn': '#b45309', '--err': '#dc2626', '--info': '#2563eb', '--muted': '#9a9aa6', '--popover': '#ffffff',
+      '--raised-shadow': '0 24px 60px -12px rgba(15, 15, 25, 0.28), 0 2px 6px rgba(15, 15, 25, 0.06)', // the userscript's light --shadow
+    });
+  });
+  // Dark is the default and the drawer's look: every token pinned, so an edit to :root that
+  // changes dark fails here instead of going unnoticed.
+  it('the dark palette is unchanged', () => {
+    expect(block(DARK)).toEqual({
+      'color-scheme': 'dark', '--bg': '#0c0c0e', '--surface': 'rgba(255, 255, 255, 0.05)', '--surface2': 'rgba(255, 255, 255, 0.09)',
+      '--line': 'rgba(255, 255, 255, 0.09)', '--line2': 'rgba(255, 255, 255, 0.16)', '--fg': '#f4f4f5', '--fg2': '#bcbcc4', '--fg3': '#8a8a94',
+      '--ok': '#4ade80', '--warn': '#fbbf24', '--err': '#f87171', '--info': '#93c5fd', '--muted': '#66666e', '--popover': '#151517',
+      '--tint': '#ffffff', '--on-fg': '#0b0b0c', '--on-fg2': '#55555c', '--fg-hover': '#ffffff', '--fg-active': '#d8d8dc', '--on-err': '#0b0b0c',
+      '--err-hover': '#fca5a5', '--raised': '#0f0f12', '--raised-line': 'rgba(255, 255, 255, 0.12)',
+      '--raised-shadow': '0 30px 80px -20px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.07)',
+    });
+  });
+  it('the dialog takes its shadow from the theme', () => {
+    expect(src('components/ui/dialog.tsx')).toContain('shadow-(--raised-shadow)');
   });
   // A colour written into a component assumes one theme (white text, white washes, a dark
   // hex): each is a token in style.css instead. Allowed, with the reason:
@@ -165,12 +212,46 @@ describe('wiring', () => {
     'bg-black/30', // the dialog's overlay dims whatever is behind it, in either theme
     'bg-black/75 px-1 text-xs text-white', // the duration on a video thumbnail, as YouTube shows it
     'bg-black/80 px-1 text-xs text-white', // the same badge in the Presets tab's YouTube preview
-    'shadow-[0_30px_80px_-20px_rgba(0,0,0,.7),inset_0_1px_0_rgba(255,255,255,.07)]', // dialog depth; the inset highlight just vanishes on white
   ];
-  const COLOUR = /(?:^|[\s'"`:])(?:[\w-]+:)*(?:bg|text|border|ring|shadow|outline|fill|stroke|from|to)-(?:white|black)\b|#[0-9a-fA-F]{3,8}\b|rgba?\(/g;
-  const files = (dir: string): string[] =>
-    readdirSync(join(__dirname, '..', dir), { withFileTypes: true }).flatMap((d) =>
-      d.isDirectory() ? files(`${dir}/${d.name}`) : /\.tsx?$/.test(d.name) ? [`${dir}/${d.name}`] : []);
+  // CSS named colours (CSS Color 4), for inline styles and arbitrary Tailwind values.
+  const NAMED = ('aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue '
+    + 'chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki '
+    + 'darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise '
+    + 'darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod '
+    + 'gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue '
+    + 'lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray '
+    + 'lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple '
+    + 'mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite '
+    + 'navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink '
+    + 'plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue '
+    + 'slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen')
+    .split(' ').join('|');
+  // Tailwind's palettes (v4, with 4.2's mauve, olive, mist and taupe) and every utility that takes a colour.
+  const PALETTE = 'slate|gray|zinc|neutral|stone|mauve|olive|mist|taupe|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose';
+  const UTIL = 'bg|text-shadow|text|border(?:-[xytrblse])?|inset-ring|ring-offset|ring|inset-shadow|drop-shadow|shadow|outline|fill|stroke|from|via|to|divide|caret|accent|decoration|placeholder';
+  const COLOURS = [
+    // a palette colour, white or black as a utility, with any variant or ! in front
+    new RegExp(`(?:^|[\\s'"\`:!])(?:${UTIL})-(?:white|black|(?:${PALETTE})-\\d{2,3})\\b`, 'g'),
+    // a named colour as an arbitrary value: bg-[white], text-[color:red]
+    new RegExp(`-\\[(?:color:)?(?:${NAMED})\\]`, 'gi'),
+    // a named colour in an inline style or CSS text: { color: 'white' }, background-color: red
+    new RegExp(`\\b(?:color|background(?:-?color)?|border(?:-?(?:top|right|bottom|left))?(?:-?color)?|outline(?:-?color)?|fill|stroke|(?:box|text)-?shadow|caret-?color|accent-?color|text-?decoration-?color)\\s*:\\s*['"\`]?[^'"\`;}\\n]*?\\b(?:${NAMED})\\b`, 'gi'),
+    /#[0-9a-fA-F]{3,8}\b/g, // hex
+    /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/g, // colour functions
+  ];
+  const colours = (line: string) => COLOURS.flatMap((re) => [...line.matchAll(re)].map((m) => m[0].trim()));
+  it('the scan catches each kind of literal colour, and not the tokens', () => {
+    for (const bad of ['text-zinc-400', 'bg-red-500/50', 'hover:divide-white', 'caret-black', 'accent-sky-600', 'decoration-rose-300', 'via-white',
+      'border-x-gray-200', 'ring-offset-black', 'placeholder:text-neutral-500', '!text-white', '[&_svg]:fill-black', 'text-shadow-black', 'bg-[color:white]', 'bg-[white]',
+      "style={{ color: 'white' }}", 'style={{ backgroundColor: "rebeccapurple" }}', "{ border: '1px solid red' }", 'style="background-color: black"',
+      '#fff', 'rgba(0,0,0,.5)', 'hsl(0 0% 100%)', 'hsla(0,0%,0%,.1)', 'oklch(0.7 0.1 200)', 'oklab(1 0 0)']) {
+      expect(colours(`<div className="x" ${bad} />`), bad).not.toEqual([]);
+    }
+    for (const ok of ['text-fg3', 'bg-tint/[0.08]', 'border-raised-line', "style={{ background: 'var(--raised)', border: '1px solid var(--raised-line)' }}",
+      'text-xs', 'bg-warn/10', 'shadow-(--raised-shadow)', 'label(x)', 'bg-surface2', "color: 'inherit'", 'text-redact']) {
+      expect(colours(`<div className="x" ${ok} />`), ok).toEqual([]);
+    }
+  });
   it('the panel and debug page components use colour tokens, not colours that assume dark', () => {
     const found: string[] = [];
     // crash-kit.ts is the plain-DOM fallback (inline styles, no stylesheet): tested on its own below.
@@ -179,7 +260,7 @@ describe('wiring', () => {
       for (const a of ALLOWED) text = text.replaceAll(a, '');
       text.split('\n').forEach((line, i) => {
         if (line.trim().startsWith('//')) return;
-        for (const m of line.matchAll(COLOUR)) found.push(`${f}:${i + 1} ${m[0].trim()}`);
+        for (const c of colours(line)) found.push(`${f}:${i + 1} ${c}`);
       });
     }
     expect(found).toEqual([]);

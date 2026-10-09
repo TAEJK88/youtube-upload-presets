@@ -17,7 +17,7 @@
    The tokens after --popover replace colours the components used to hard-code for dark:
    --tint is the overlay colour (white on dark, black on light) for tint/[alpha] washes,
    --on-fg / --on-fg2 are text on an --fg filled surface (the go button, the selected tab),
-   --raised / --raised-line the dialog and toast box. */
+   --raised / --raised-line / --raised-shadow the dialog and toast box. */
 :root {
   color-scheme: dark;
   --bg: #0c0c0e;
@@ -43,10 +43,16 @@
   --err-hover: #fca5a5;
   --raised: #0f0f12;
   --raised-line: rgba(255, 255, 255, 0.12);
+  --raised-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-/* Light: the userscript's base #ytp-root palette (2531–2536), exactly. It had no popover
-   colour: white, with the --line2 border. */
+/* Light: the userscript's base #ytp-root palette (2531–2536), with one deliberate deviation.
+   --fg3, --ok and --warn are one step darker than the userscript's (#8d8d9a, #16a34a,
+   #d97706), same hues, because they carry essential 12px text (warnings, the done status,
+   hints, why the go button is disabled). The userscript's values give 2.8–3.3:1 on the light
+   surfaces; these give 5.0:1 on white, 4.7:1 on --surface and 4.4:1 on --surface2 and on
+   the bg-warn/10 and bg-ok/[0.09] boxes. Dark keeps the userscript's values.
+   It had no popover colour: white, with the --line2 border. --raised-shadow is its --shadow. */
 :root[data-theme='light'] {
   color-scheme: light;
   --bg: #ffffff;
@@ -56,9 +62,9 @@
   --line2: #d6d6de;
   --fg: #111114;
   --fg2: #5d5d6b;
-  --fg3: #8d8d9a;
-  --ok: #16a34a;
-  --warn: #d97706;
+  --fg3: #6e6e7a;
+  --ok: #15803d;
+  --warn: #b45309;
   --err: #dc2626;
   --info: #2563eb;
   --muted: #9a9aa6;
@@ -72,6 +78,7 @@
   --err-hover: #b91c1c;
   --raised: #ffffff;
   --raised-line: var(--line2);
+  --raised-shadow: 0 24px 60px -12px rgba(15, 15, 25, 0.28), 0 2px 6px rgba(15, 15, 25, 0.06);
 }
 
 @theme inline {

@@ -1,9 +1,25 @@
 import tailwindcss from '@tailwindcss/vite';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'wxt';
+
+// The panel's and the debug page's entry script is render-blocking (blocking="render", Chrome
+// 105+), so lib/theme.ts sets a stored light theme before the first paint, not one frame after
+// the empty page painted with the dark defaults. Vite rewrites the entry <script type="module">
+// and drops the attribute from index.html, so it goes on the built tag here.
+export const renderBlocking = (): Plugin => ({
+  name: 'ytup-render-blocking-entry',
+  transformIndexHtml: {
+    order: 'post',
+    handler: (html, { filename }) =>
+      /[\\/]entrypoints[\\/](sidepanel|debug)[\\/]index\.html$/.test(filename)
+        ? html.replace(/<script type="module" crossorigin src=/g, '<script type="module" blocking="render" crossorigin src=')
+        : html,
+  },
+});
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
-  vite: () => ({ plugins: [tailwindcss()] }),
+  vite: () => ({ plugins: [tailwindcss(), renderBlocking()] }),
   manifest: {
     name: 'YouTube Upload Presets',
     description: 'Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments',

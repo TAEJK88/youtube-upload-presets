@@ -39,9 +39,11 @@ export function subscribeTheme(l: () => void): () => void {
   return () => listeners.delete(l);
 }
 
-// Another page of the extension (the debug page, a second panel) changed it.
+// Another page of the extension (the debug page, a second panel) changed it, or cleared
+// localStorage (key null). The event fires for sessionStorage too, where a same-origin
+// frame's clear() also has key null: only localStorage counts.
 const onStorage = (e: StorageEvent) => {
-  if (e.key === THEME_KEY || e.key === null) apply(parse(e.newValue));
+  if (e.storageArea === localStorage && (e.key === THEME_KEY || e.key === null)) apply(parse(e.newValue));
 };
 
 export function installTheme(): void {

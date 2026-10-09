@@ -35,7 +35,10 @@ export function ChannelBar() {
   };
   return (
     <>
-      <div className={cn('flex items-center gap-3 px-[18px] pt-4 pb-3', problem && 'bg-err/[0.09]')}>
+      {/* A size container: below 380px of panel (344px of content box, inside the 18px padding)
+          the lock pill drops its label, so the channel name keeps its room at Chrome's
+          narrowest panel. The label stays as the pill's accessible name, and the title stays. */}
+      <div className={cn('@container flex items-center gap-3 px-[18px] pt-4 pb-3', problem && 'bg-err/[0.09]')}>
         <div className="relative size-10 shrink-0">
           {c?.avatar
             ? <img src={c.avatar} alt="" className="size-10 rounded-full object-cover ring-2 ring-tint/25" />
@@ -54,11 +57,12 @@ export function ChannelBar() {
           title={lock ? L(`ล็อกไว้ที่ "${lock.name}" · คลิกเพื่อปลดล็อก`, `Locked to "${lock.name}" · click to unlock`) : L('ล็อกให้อัปได้เฉพาะช่องนี้', 'Only allow uploads to this channel')}
           className={cn(
             'flex cursor-pointer items-center gap-1.5 rounded-full border border-tint/[0.16] bg-tint/10 px-3.5 py-[7px] text-xs font-semibold whitespace-nowrap text-fg hover:bg-tint/[0.16]',
+            '@max-[344px]:size-8 @max-[344px]:justify-center @max-[344px]:p-0',
             lock && !problem && 'border-fg3',
           )}
         >
           <Icon name={lock ? 'lock' : 'unlock'} size={14} />
-          {lock ? L('ล็อกแล้ว', 'Locked') : L('ล็อกช่อง', 'Lock channel')}
+          <span className="@max-[344px]:sr-only">{lock ? L('ล็อกแล้ว', 'Locked') : L('ล็อกช่อง', 'Lock channel')}</span>
         </button>
         <ThemeToggle className="rounded-full bg-tint/[0.08]" />
       </div>
