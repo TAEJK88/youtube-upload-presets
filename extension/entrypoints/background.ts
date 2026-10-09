@@ -5,7 +5,7 @@ import { initI18n, watchLang } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld } from '@/lib/runner-lock';
-import { deleteHandle } from '@/lib/file-store';
+import { deleteFiles, sweepHandles } from '@/lib/file-gc';
 import { ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
 export default defineBackground(() => {
@@ -51,15 +51,10 @@ export default defineBackground(() => {
   });
 
   // The page has no access to the extension's IndexedDB; it asks here to forget handles.
-  onMessage('files:delete', async ({ data: ids, sender }) => {
-    if (!mayWrite('files:delete', sender, ext)) throw new Error('files:delete: not allowed from this sender');
-    for (const id of ids) {
-      try {
-        await deleteHandle(id);
-      } catch (e) {
-        console.warn('[ytup] files:delete', id, e); // one failure must not keep the rest
-      }
-    }
+  onMessage('files:delete', ({ data: ids, sender }) => deleteFiles(ids, sender, ext));
+  // Handles that no queue item uses (an add cut short): swept once per browser start.
+  browser.runtime.onStartup.addListener(() => {
+    void ready.then(() => sweepHandles()).catch((e) => console.error('[ytup] handle sweep', e));
   });
 
   onMessage('notify', async ({ data, sender }) => {
