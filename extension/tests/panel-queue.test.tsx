@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as intake from '../lib/panel/intake';
 import { QueueCard } from '../entrypoints/sidepanel/tabs/QueueCard';
 import { QueueTab, usePanelDrop } from '../entrypoints/sidepanel/tabs/QueueTab';
+import { ScheduleBox } from '../entrypoints/sidepanel/tabs/ScheduleBox';
 import { PanelContext } from '../entrypoints/sidepanel/panel';
+import { toPanelData } from '../lib/panel/data';
 import type { QueueView, ViewItem } from '../lib/studio/queue-view';
 import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
@@ -156,5 +158,80 @@ describe('the panel-wide drop target', () => {
     fireEvent.drop(screen.getByTestId('t'), { dataTransfer: { ...dt, types: ['text/plain'] } });
     expect(onDropped).not.toHaveBeenCalled();
     expect(intake.dropHandles).not.toHaveBeenCalled();
+  });
+});
+
+describe('schedule box', () => {
+  it('off: says so; switching on picks tomorrow 19:00 when no start is set', () => {
+    const api = fakePanel();
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+    expect(screen.getByText("Off · videos are published using the preset's visibility")).toBeTruthy();
+    fireEvent.click(screen.getByRole('switch', { name: 'Schedule releases' }));
+    const patch = vi.mocked(api.write.settings).mock.calls[0]![0];
+    expect(patch.schedule).toMatchObject({ on: true });
+    expect(patch.schedule!.start).toMatch(/T19:00$/);
+  });
+
+  it('switching on keeps a start that is already set', () => {
+    const api = fakePanel({ data: toPanelData({ settings: { schedule: { on: false, start: '2030-01-01T08:00', every: 1, unit: 'day' } } }) });
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+    fireEvent.click(screen.getByRole('switch', { name: 'Schedule releases' }));
+    expect(api.write.settings).toHaveBeenCalledWith({ schedule: { on: true } });
+  });
+
+  it('on and set: the summary, and a start time that has passed', () => {
+    const start = Date.now() + 2 * 86400e3;
+    const api = fakePanel({
+      data: toPanelData({ settings: { schedule: { on: true, start: '2026-01-01T08:00', every: 1, unit: 'day' } } }),
+      view: viewWith([{}, {}], { schedule: { on: true, set: true, start, late: true, times: [start, start + 86400e3], skipped: 0, taken: [] } }),
+    });
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+    expect(screen.getByText(/ → .* · every 1 days$/)).toBeTruthy();
+    expect(screen.getByText(/has passed — the queue will start/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
+    expect(api.write.settings).toHaveBeenCalledWith({ schedule: { start: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d$/) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
+    expect(vi.mocked(api.write.settings).mock.calls.at(-1)![0].schedule!.start).toMatch(/T19:00$/);
+  });
+
+  it('on but no start yet; the channel\'s scheduled videos and skipped slots', () => {
+    const on = { schedule: { on: true, start: '', every: 2, unit: 'hour' } };
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: toPanelData({ settings: on }), view: viewWith([]) }));
+    expect(screen.getByText("Pick the first video's release time")).toBeTruthy();
+    cleanup();
+    const start = Date.now() + 86400e3;
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({
+      data: toPanelData({ settings: { schedule: { ...on.schedule, start: '2030-01-01T08:00' } } }),
+      view: viewWith([{}], { schedule: { on: true, set: true, start, late: false, times: [start], skipped: 1, taken: [start - 3600e3, start + 3600e3] } }),
+    }));
+    expect(screen.getByText(/^Starts .* · every 2 hours · 2 already scheduled on the channel \(next .*\) — skipped 1 slot\(s\)$/)).toBeTruthy();
+  });
+
+  it('the header folds the box only while on, and not from the switch', () => {
+    const onOpen = vi.fn();
+    renderPanel(<ScheduleBox open onOpen={onOpen} />, fakePanel());
+    fireEvent.click(screen.getByText('Schedule releases'));
+    expect(onOpen).not.toHaveBeenCalled();
+    cleanup();
+    const api = fakePanel({ data: toPanelData({ settings: { schedule: { on: true, start: '2030-01-01T08:00', every: 1, unit: 'day' } } }) });
+    renderPanel(<ScheduleBox open onOpen={onOpen} />, api);
+    expect(screen.getByLabelText('First video releases')).toBeTruthy();
+    fireEvent.click(screen.getByRole('switch', { name: 'Schedule releases' }));
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Schedule releases'));
+    expect(onOpen).toHaveBeenCalledWith(false);
+  });
+
+  it('closed: no fields; the fields write every and unit', () => {
+    const data = toPanelData({ settings: { schedule: { on: true, start: '2030-01-01T08:00', every: 1, unit: 'day' } } });
+    renderPanel(<ScheduleBox open={false} onOpen={() => {}} />, fakePanel({ data }));
+    expect(screen.queryByLabelText('First video releases')).toBe(null);
+    cleanup();
+    const api = fakePanel({ data });
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+    fireEvent.change(screen.getByLabelText('Every'), { target: { value: '3' } });
+    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { every: 3 } });
+    fireEvent.change(screen.getByLabelText('days'), { target: { value: 'hour' } });
+    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { unit: 'hour' } });
   });
 });
