@@ -145,7 +145,7 @@ describe('settings tab: import', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     cleanup();
     vi.mocked(toast).mockClear();
-    vi.mocked(runnerTab).mockResolvedValue({ tabId: 9, windowId: 1, title: 'Other' });
+    vi.mocked(runnerTab).mockResolvedValue({ tabId: 9, windowId: 1, title: 'Other', jobs: ['queue'] });
     renderPanel(<SettingsTab />, fakePanel());
     await pick();
     expect(toast).toHaveBeenCalledWith('Stop the queue before importing');
@@ -164,7 +164,7 @@ describe('settings tab: import', () => {
   it('a run that started while asking still refuses it', async () => {
     renderPanel(<SettingsTab />, fakePanel());
     await pick();
-    vi.mocked(runnerTab).mockResolvedValue({ tabId: 9, windowId: 1, title: 'Other' });
+    vi.mocked(runnerTab).mockResolvedValue({ tabId: 9, windowId: 1, title: 'Other', jobs: ['queue'] });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'My file' })));
     expect(importBackup).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith('Stop the queue before importing');

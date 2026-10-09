@@ -21,6 +21,7 @@ export interface PanelApi {
   view: QueueView | null; // that tab's queue, as its runner sees it
   runner: RunnerTab | null; // the tab holding the runner lock, if any (may be the target)
   elsewhere: boolean; // another tab is running the queue
+  busyElsewhere: boolean; // another tab holds the lock for any job (the queue or copyright work)
   send: ToTab; // to the target
   sendTo(tabId: number): ToTab;
   write: Writes;
@@ -36,7 +37,7 @@ export interface PanelApi {
 
 const noop = () => {};
 export const PanelContext = createContext<PanelApi>({
-  lang: 'en', data: null, target: null, link: 'noTab', view: null, runner: null, elsewhere: false,
+  lang: 'en', data: null, target: null, link: 'noTab', view: null, runner: null, elsewhere: false, busyElsewhere: false,
   send: () => Promise.reject(new Error('no Studio tab')), sendTo: toTab, write: writes, refresh: noop,
   lost: [], grantRev: 0, setLost: noop,
 });
@@ -52,7 +53,7 @@ export const LiveContext = createContext<LiveApi>({ state: null, liveState: null
 export const useLive = () => useContext(LiveContext);
 
 const sameRunner = (a: RunnerTab | null, b: RunnerTab | null) =>
-  a === b || (!!a && !!b && a.tabId === b.tabId && a.windowId === b.windowId && a.title === b.title);
+  a === b || (!!a && !!b && a.tabId === b.tabId && a.windowId === b.windowId && a.title === b.title && a.jobs.join() === b.jobs.join());
 
 export function PanelProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<PanelData | null>(null);
@@ -204,7 +205,8 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const api = useMemo<PanelApi>(() => {
     return {
       lang, data, target, link, view, runner,
-      elsewhere: !!runner && runner.tabId !== target?.tabId,
+      elsewhere: !!runner && runner.tabId !== target?.tabId && runner.jobs.includes('queue'),
+      busyElsewhere: !!runner && runner.tabId !== target?.tabId,
       send: target ? toTab(target.tabId) : () => Promise.reject(new Error('no Studio tab')),
       sendTo: toTab,
       write: writes,

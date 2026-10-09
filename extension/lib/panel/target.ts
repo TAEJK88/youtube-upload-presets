@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { isStudioUrl } from '../panel-scope';
+import { isJob, type Job } from '../runner-lock';
 
 // The panel works with the Studio tab active in its own window (the background enables it
 // on Studio tabs only).
@@ -40,22 +41,25 @@ export function watchTabs(windowId: number, fn: (e: TabEvent) => void): () => vo
   };
 }
 
-// The tab holding the one-runner lock (lib/runner-lock.ts, storage.session). Stop goes there;
-// the panel says so when it isn't the bound tab. A tab that is gone or left Studio is nobody.
-export interface RunnerTab { tabId: number; windowId: number; title: string }
+// The tab holding the automation lock (lib/runner-lock.ts, storage.session), and what for.
+// Stop goes there; the panel says so when it isn't the bound tab. A tab that is gone or left
+// Studio is nobody. A lock written before jobs existed was the queue's.
+export interface RunnerTab { tabId: number; windowId: number; title: string; jobs: Job[] }
 
 export async function runnerTab(): Promise<RunnerTab | null> {
-  const id = (await browser.storage.session.get('runnerTabId')).runnerTabId;
+  const got = await browser.storage.session.get(['runnerTabId', 'runnerJobs']);
+  const id = got.runnerTabId;
   if (typeof id !== 'number') return null;
   const t = asTarget(await browser.tabs.get(id).catch(() => undefined));
-  return t && { tabId: t.tabId, windowId: t.windowId, title: t.title };
+  const jobs = Array.isArray(got.runnerJobs) ? (got.runnerJobs as unknown[]).filter(isJob) : ['queue' as Job];
+  return t && { tabId: t.tabId, windowId: t.windowId, title: t.title, jobs };
 }
 
-// fn runs when the lock moves, and when any tab navigates (a new URL) or closes: the runner
+// fn runs when the lock moves or its jobs change, and when any tab navigates (a new URL) or closes: the runner
 // tab may have left Studio or be gone, and runnerTab() re-checks it.
 export function watchRunner(fn: () => void): () => void {
   const changed = (changes: Record<string, unknown>, area: string) => {
-    if (area === 'session' && 'runnerTabId' in changes) fn();
+    if (area === 'session' && ('runnerTabId' in changes || 'runnerJobs' in changes)) fn();
   };
   const updated = (_id: number, info: { url?: string }) => {
     if (info.url) fn();

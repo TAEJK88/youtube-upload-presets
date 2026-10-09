@@ -1,6 +1,7 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
 import type { BackupImport } from './backup';
 import type { ClaimsOp } from './claims/ops';
+import type { Job } from './runner-lock';
 import type { StorePatch } from './store-writer';
 import type { SwitchRequest } from './studio/channels';
 import type { QueueEdit } from './studio/queue-edit';
@@ -29,10 +30,13 @@ export type ProtocolMap = {
   'files:delete'(ids: string[]): void;
   // "queue finished" desktop notification
   notify(n: QueueDoneNote): void;
-  // the one-runner lock (the sender's tab is the asker)
-  'runner:acquire'(): boolean;
-  'runner:release'(): void;
-  'runner:elsewhere'(): boolean;
+  // the one automation lock (D21; the sender's tab is the asker)
+  'runner:acquire'(job: Job): boolean;
+  'runner:release'(job: Job | 'all'): void;
+  'runner:elsewhere'(job: Job | 'any'): boolean;
+  'runner:holds'(job: Job): boolean;
+  // the channel's copyright worker (the userscript's tab lease)
+  'runner:worker'(d: { ch: string; force: boolean }): boolean;
   // settings / counters changes (lib/store-writer.ts); also sent by the side panel
   'store:patch'(p: StorePatch): void;
   // side panel → background: Settings → Import

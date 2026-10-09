@@ -402,11 +402,9 @@ The panel's own console: right-click inside the panel → Inspect.
       back/forward cache with the run still going: the run carries on and keeps the lock (in
       another Studio tab the panel shows "Another Studio tab is running the queue — change
       the queue there"). If another tab started a run meanwhile, the restored page toasts
-      "Another Studio tab is already running the queue" and stops after its current video.
-      Known overlap (accepted, Phase 4 lock work): until then both tabs upload, one video
-      each; the restored tab's saves can briefly show the other run's cards with old
-      statuses until that run saves again, and the restored tab's interrupted item can share
-      a release slot with the other run's. No item is uploaded twice.
+      "Another Studio tab is already running the queue" and stops at once: its video stays
+      a draft in Studio (the other tab shows it as interrupted), and only the other tab
+      uploads.
       **Record** whether the page came back from the cache at all (if Studio reloads instead,
       the item comes back as interrupted, as in item 15).
 

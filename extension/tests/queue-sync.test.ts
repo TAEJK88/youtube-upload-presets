@@ -28,8 +28,8 @@ beforeEach(async () => {
     item: noop, run: noop, queue: noop, schedule: noop, presetPreview: noop, openDrawer: noop, notifyDone: noop,
     setTitleMark: noop, confirmStart: async () => false, toast: (m) => void toasts.push(m),
   } satisfies PageUi);
-  vi.spyOn(messages, 'sendMessage').mockImplementation((async (type: string) => {
-    sent.push(type);
+  vi.spyOn(messages, 'sendMessage').mockImplementation((async (type: string, data: unknown) => {
+    sent.push(type + ':' + JSON.stringify(data));
     return type === 'runner:elsewhere' ? otherTab : undefined;
   }) as typeof messages.sendMessage);
   await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, queue: [item('A.mp4', 'uploading'), item('B.mp4', 'pending')] });
@@ -44,7 +44,7 @@ describe('startup', () => {
   it('releases a lock left by a reload first, then cuts the interrupted item', async () => {
     otherTab = false;
     await resumeQueue();
-    expect(sent).toEqual(['runner:release', 'runner:elsewhere']);
+    expect(sent).toEqual(['runner:release:"queue"', 'runner:elsewhere:"queue"']);
     expect(queue.map((i) => i.status)).toEqual(['error', 'pending']);
   });
 
@@ -83,11 +83,11 @@ describe('mayEdit', () => {
 
 // Final review M6: leaving Studio frees the lock (pagehide), but a page kept in the
 // back/forward cache can come back with its run still going; it takes the lock again, or
-// stops after the current video when another tab took it meanwhile.
+// aborts the run at once when another tab took it meanwhile (3b R-M3).
 describe('the runner lock across the back/forward cache', () => {
   const setup = (running: boolean, acquired: boolean) => {
     const win = new EventTarget();
-    const d = { release: vi.fn(), acquire: vi.fn(async () => acquired), running: () => running, stop: vi.fn(), toast: vi.fn() };
+    const d = { release: vi.fn(), acquire: vi.fn(async () => acquired), running: () => running, abort: vi.fn(), toast: vi.fn() };
     const off = watchLockLifecycle(win, d);
     const show = async (persisted: boolean) => {
       win.dispatchEvent(Object.assign(new Event('pageshow'), { persisted }));
@@ -106,13 +106,13 @@ describe('the runner lock across the back/forward cache', () => {
     const { d, show } = setup(true, true);
     await show(true);
     expect(d.acquire).toHaveBeenCalledTimes(1);
-    expect(d.stop).not.toHaveBeenCalled();
+    expect(d.abort).not.toHaveBeenCalled();
   });
 
-  it('back from the cache mid-run, another tab took the lock: stops after the current video and says so', async () => {
+  it('back from the cache mid-run, another tab took the lock: aborts the run and says so', async () => {
     const { d, show } = setup(true, false);
     await show(true);
-    expect(d.stop).toHaveBeenCalledTimes(1);
+    expect(d.abort).toHaveBeenCalledTimes(1);
     expect(d.toast).toHaveBeenCalledWith('Another Studio tab is already running the queue');
   });
 
@@ -128,5 +128,21 @@ describe('the runner lock across the back/forward cache', () => {
     await fresh.show(true);
     expect(fresh.d.release).not.toHaveBeenCalled();
     expect(fresh.d.acquire).not.toHaveBeenCalled();
+  });
+});
+
+describe('back from the back/forward cache', () => {
+  it('another tab took the lock meanwhile: the run aborts at once', async () => {
+    const target = new EventTarget();
+    const abort = vi.fn();
+    const stop = watchLockLifecycle(target, {
+      release: () => {}, acquire: async () => false, running: () => true, abort, toast: (m) => void toasts.push(m),
+    });
+    const show = new Event('pageshow') as PageTransitionEvent;
+    Object.defineProperty(show, 'persisted', { value: true });
+    target.dispatchEvent(show);
+    await vi.waitFor(() => expect(abort).toHaveBeenCalled());
+    expect(toasts).toEqual(['Another Studio tab is already running the queue']);
+    stop();
   });
 });

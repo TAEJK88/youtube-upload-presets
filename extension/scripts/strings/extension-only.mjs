@@ -94,4 +94,5 @@ export default [
   // Phase 4a
   { th: 'การตั้งค่าหรือพรีเซ็ตเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', en: 'Settings or presets changed after you confirmed — click Start again to see the new summary', why: 'the panel confirms the start; a settings / preset change from another window between summary and confirm refuses it (3b M11)' },
   { th: 'เบราว์เซอร์บล็อกการอ่านไฟล์นี้ — ลบออกจากคิวแล้วเพิ่มไฟล์อีกครั้ง', en: 'The browser blocked reading this file — remove it from the queue and add it again', why: "files come through the side panel's file handles; a blocked one can't be re-granted (3b R2-m2)" },
+  { th: 'แท็บ Studio อื่นกำลังทำงานด้านลิขสิทธิ์อยู่ — รอให้เสร็จ หรือกดหยุดในแท็บลิขสิทธิ์', en: 'Another Studio tab is busy with copyright work — wait for it, or press Stop in the Copyright tab', why: 'one automation lock for the queue and the copyright jobs (D21); the userscript let a trim in one tab run beside an upload in another' },
 ];

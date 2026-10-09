@@ -45,14 +45,14 @@ describe('startFlow (the drawer\'s Start button, confirmed in the panel)', () =>
 
 describe('stopFlow', () => {
   it('stops the tab that runs the queue and names it when it is another tab', async () => {
-    const d = { bound: 1, runner: { tabId: 7, windowId: 1, title: 'Channel content - YouTube Studio' }, stop: vi.fn(async () => {}), toast: vi.fn() };
+    const d = { bound: 1, runner: { tabId: 7, windowId: 1, title: 'Channel content - YouTube Studio', jobs: ['queue' as const] }, stop: vi.fn(async () => {}), toast: vi.fn() };
     await stopFlow(d);
     expect(d.stop).toHaveBeenCalledWith(7);
     expect(d.toast).toHaveBeenCalledWith('Will stop the queue in the tab "Channel content - YouTube Studio" after the current video finishes');
   });
 
   it('this tab runs it: the page says so itself', async () => {
-    const d = { bound: 1, runner: { tabId: 1, windowId: 1, title: 'x' }, stop: vi.fn(async () => {}), toast: vi.fn() };
+    const d = { bound: 1, runner: { tabId: 1, windowId: 1, title: 'x', jobs: ['queue' as const] }, stop: vi.fn(async () => {}), toast: vi.fn() };
     await stopFlow(d);
     expect(d.stop).toHaveBeenCalledWith(1);
     expect(d.toast).not.toHaveBeenCalled();
@@ -66,7 +66,7 @@ describe('stopFlow', () => {
 
   it('the tab name in the toast has no run mark from the title ("(2/5) ⬆", ✅, ⚠️)', async () => {
     for (const title of ['(2/5) ⬆ Channel content - YouTube Studio', '✅ Channel content - YouTube Studio', '⚠️ Channel content - YouTube Studio']) {
-      const d = { bound: 1, runner: { tabId: 7, windowId: 1, title }, stop: vi.fn(async () => {}), toast: vi.fn() };
+      const d = { bound: 1, runner: { tabId: 7, windowId: 1, title, jobs: ['queue' as const] }, stop: vi.fn(async () => {}), toast: vi.fn() };
       await stopFlow(d);
       expect(d.toast).toHaveBeenCalledWith('Will stop the queue in the tab "Channel content - YouTube Studio" after the current video finishes');
     }
@@ -74,7 +74,7 @@ describe('stopFlow', () => {
 
   it('a stop that does not arrive is not announced', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const other = { bound: 1, runner: { tabId: 7, windowId: 1, title: 'T' }, stop: vi.fn(() => Promise.reject(new Error('gone'))), toast: vi.fn() };
+    const other = { bound: 1, runner: { tabId: 7, windowId: 1, title: 'T', jobs: ['queue' as const] }, stop: vi.fn(() => Promise.reject(new Error('gone'))), toast: vi.fn() };
     await stopFlow(other);
     expect(other.toast).not.toHaveBeenCalledWith(expect.stringContaining('Will stop'));
     expect(other.toast).toHaveBeenCalledWith('That tab is no longer running the queue'); // not silence

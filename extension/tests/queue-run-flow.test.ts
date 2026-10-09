@@ -241,6 +241,27 @@ describe('a run after teardown', () => {
   });
 });
 
+// Back from the back/forward cache while another tab took the lock (queue-sync abort).
+describe('a run that lost the lock', () => {
+  afterEach(() => Q.abortRun(null));
+
+  it('stops at its next status change: no Save click, no next item, and no more saves from this tab', async () => {
+    await Q.addFiles([qfile('A.mp4'), qfile('B.mp4')]);
+    const ui = createContentUi();
+    setPageUi(ui);
+    ui.setConfirmed(true);
+    setBridge({ getFile: async (id: string) => new File(['x'], id) });
+    const click = vi.fn();
+    studio.click = click;
+    studio.onVisibility = () => Q.abortRun(new Error('Another Studio tab is already running the queue'));
+    await expect(Q.runQueue()).rejects.toThrow('Another Studio tab is already running the queue');
+    expect(click).not.toHaveBeenCalled();
+    expect(D.closeStudioUploadDialog).not.toHaveBeenCalled(); // its upload stays a draft in Studio
+    expect(Q.queue[1]!.status).toBe('pending');
+    expect(Q.otherTabRunning()).toBe(true); // this tab's queue saves are blocked from now on
+  });
+});
+
 // A settings / counters patch the background could not store (lib/studio/state.ts).
 describe('a failed store write', () => {
   const MSG = "Couldn't save a settings change — the schedule or EP numbers may be off for the rest of the run";

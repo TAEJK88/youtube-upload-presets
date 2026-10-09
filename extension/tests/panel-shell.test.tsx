@@ -10,6 +10,7 @@ import { LiveContext, PanelContext, type PanelApi } from '../entrypoints/sidepan
 import { ActivityBar } from '../entrypoints/sidepanel/shell/ActivityBar';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 import { ChannelBar } from '../entrypoints/sidepanel/shell/ChannelBar';
+import { QueueFooter } from '../entrypoints/sidepanel/tabs/QueueFooter';
 import { setLang } from '../lib/i18n';
 import { ICONS } from '../lib/studio/dom';
 import * as fileStore from '../lib/file-store';
@@ -157,7 +158,7 @@ describe('channel bar', () => {
     expect(toast).toHaveBeenCalledWith(running);
     cleanup();
     vi.mocked(toast).mockClear();
-    const other = fakePanel({ data: twoChannels(), elsewhere: true, runner: { tabId: 9, windowId: 2, title: 'Other' } });
+    const other = fakePanel({ data: twoChannels(), elsewhere: true, runner: { tabId: 9, windowId: 2, title: 'Other', jobs: ['queue'] } });
     renderPanel(<ChannelBar />, other);
     fireEvent.click(screen.getByRole('button', { name: 'Other channels · open in a new tab' }));
     fireEvent.click(screen.getByRole('button', { name: /Switch$/ }));
@@ -209,7 +210,7 @@ describe('banners', () => {
   it('runner elsewhere: says so and goes to that tab', async () => {
     const update = vi.spyOn(browser.tabs, 'update').mockResolvedValue({} as never);
     const focus = vi.spyOn(browser.windows, 'update').mockResolvedValue({} as never);
-    const api = fakePanel({ runner: { tabId: 9, windowId: 2, title: 'Other' }, elsewhere: true });
+    const api = fakePanel({ runner: { tabId: 9, windowId: 2, title: 'Other', jobs: ['queue'] }, elsewhere: true });
     renderPanel(<Banners />, api);
     expect(screen.getByText('Another Studio tab is running the queue — change the queue there')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Go to that tab' }));
@@ -218,8 +219,15 @@ describe('banners', () => {
     expect(focus).toHaveBeenCalledWith(2, { focused: true });
     expect(api.refresh).toHaveBeenCalled();
     cleanup();
-    renderPanel(<Banners />, fakePanel({ runner: { tabId: 1, windowId: 1, title: 'This' }, elsewhere: false }));
+    renderPanel(<Banners />, fakePanel({ runner: { tabId: 1, windowId: 1, title: 'This', jobs: ['queue'] }, elsewhere: false }));
     expect(screen.queryByRole('button', { name: 'Go to that tab' })).toBe(null);
+  });
+
+  it('another tab busy with copyright work: its own banner, and Start is disabled', () => {
+    renderPanel(<><Banners /><QueueFooter /></>, fakePanel({ runner: { tabId: 2, windowId: 1, title: 'B', jobs: ['claims'] }, busyElsewhere: true, view: viewWith([{}]) }));
+    expect(screen.getByText('Another Studio tab is busy with copyright work — wait for it, or press Stop in the Copyright tab')).toBeTruthy();
+    expect(screen.queryByText('Another Studio tab is running the queue — change the queue there')).toBe(null);
+    expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('re-grant: counts the queued files that lost read access, asks for all of them in one click', async () => {

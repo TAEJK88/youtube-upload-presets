@@ -19,7 +19,7 @@ function Banner({ icon, text, children }: { icon: string; text: string; children
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, view, refresh, setLost: share } = usePanel();
+  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, setLost: share } = usePanel();
   // Queued files without read permission: back to 'prompt' after a browser restart (D18),
   // or 'denied' (a blocked prompt). The banner offers a re-grant for all of them; only the
   // 'prompt' ones are shared with Start (a denied file fails its own item when it uploads).
@@ -53,6 +53,11 @@ export function Banners() {
       )}
       {elsewhere && runner && (
         <Banner icon="upload" text={L('แท็บ Studio อื่นกำลังอัปโหลดคิวอยู่ — แก้คิวในแท็บนั้น', 'Another Studio tab is running the queue — change the queue there')}>
+          <Button size="sm" onClick={goToRunner}>{L('ไปที่แท็บนั้น', 'Go to that tab')}</Button>
+        </Banner>
+      )}
+      {!elsewhere && busyElsewhere && runner && (
+        <Banner icon="shield" text={L('แท็บ Studio อื่นกำลังทำงานด้านลิขสิทธิ์อยู่ — รอให้เสร็จ หรือกดหยุดในแท็บลิขสิทธิ์', 'Another Studio tab is busy with copyright work — wait for it, or press Stop in the Copyright tab')}>
           <Button size="sm" onClick={goToRunner}>{L('ไปที่แท็บนั้น', 'Go to that tab')}</Button>
         </Banner>
       )}

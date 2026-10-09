@@ -4,7 +4,7 @@ import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
 import { dropFiles } from './queue-files';
-import { assignNumbers, pollUploadProgress, queue, running, setTornDown, startQueue, stopReq, tornDown, tornError, uploadProg, type StartBinding } from './queue-runner';
+import { abortedRun, assignNumbers, pollUploadProgress, queue, running, setTornDown, startQueue, stopReq, tornDown, tornError, uploadProg, type StartBinding } from './queue-runner';
 import { persistQueue } from './queue-store';
 import { settings } from './state';
 import { channelView } from './queue-view';
@@ -42,8 +42,11 @@ export function createContentUi() {
   };
   const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; state(): QueueState; dispose(): void } = {
     item(it) {
-      // An orphaned run stops at its next status change (queue-runner: setTornDown).
+      // An orphaned run stops at its next status change (queue-runner: setTornDown), and so
+      // does one that lost the lock coming back from the back/forward cache (abortRun).
       if (tornDown()) throw tornError();
+      const a = abortedRun();
+      if (a) throw a;
       // A finished item's files are no longer needed (spec: File intake, step 5).
       if (it.status === 'done' && !released.has(it.id)) {
         released.add(it.id);

@@ -67,7 +67,7 @@ export function StartSummaryBody({ s }: { s: StartSummary }) {
 
 // The Upload tab's footer (3731–3744, glass 3154–3160) and its labels (updateRunUI 4044–4077).
 export function QueueFooter() {
-  const { data, view, runner, elsewhere, link, target, send, sendTo, lost } = usePanel();
+  const { data, view, runner, elsewhere, busyElsewhere, link, target, send, sendTo, lost } = usePanel();
   const { state, liveState } = useLive();
   const ask = useAsk();
   // A preflight can take a second or more (fresh config, the channel's schedule): one at a time.
@@ -126,7 +126,7 @@ export function QueueFooter() {
   return (
     <div className="flex gap-2 border-t border-tint/[0.08] px-[18px] py-3.5">
       <Button variant="go" size="lg" className="group min-w-0 flex-1 justify-start gap-3 text-left"
-        disabled={running || !pending || blocked || elsewhere || link !== 'ok' || busy || mustGrant} onClick={start}>
+        disabled={running || !pending || blocked || busyElsewhere || link !== 'ok' || busy || mustGrant} onClick={start}>
         {/* .btn.go .gi: the play icon, spinning while the run goes (.btn.go.running .gi) */}
         <span data-go-icon className={cn('grid size-[30px] shrink-0 place-items-center rounded-full bg-on-fg/10 group-disabled:bg-tint/10', running && 'animate-[spin_1.2s_linear_infinite]')}>
           <Icon name="play" size={14} />

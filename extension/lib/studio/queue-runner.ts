@@ -554,8 +554,21 @@ let torn = false;
 export const setTornDown = (v: boolean) => { torn = v; };
 export const tornDown = () => torn;
 export const tornError = () => new Error(L('ส่วนขยายถูกโหลดใหม่ — หยุดคิวในหน้านี้แล้ว', 'The extension was reloaded — the queue stopped in this page'));
+// Back from the back/forward cache while another tab took the runner lock (queue-sync
+// watchLockLifecycle): this run must not go on beside that one. Like a teardown, the next
+// status change throws (content-ui item()); this tab's saves stop, as for any mirror tab.
+let aborted: Error | null = null;
+export const abortedRun = () => aborted;
+// null clears it (a later Start in this tab is a fresh run; tests).
+export function abortRun(err: Error | null): void {
+  aborted = err;
+  if (!err) return;
+  otherTabRuns = true;
+  stopReq = true;
+}
 async function uploadCurrent(it: QueueItem): Promise<void> {
   if (torn) throw tornError();
+  if (aborted) throw aborted;
   current = it.id;
   try {
     await uploadOne(it);
@@ -649,6 +662,8 @@ function bindingProblem(seen: StartBinding): string {
 export async function startQueue(seen: StartBinding): Promise<void> {
   await freshCfg();
   if (running) return runQueue();
+  // Not while the aborted run is still on its way out: that would let it go on.
+  aborted = null;
   let problem = bindingProblem(seen);
   if (problem) return ui.toast(problem);
   const next = queue.find((i) => i.status === 'pending' && i.src === 'bridge');

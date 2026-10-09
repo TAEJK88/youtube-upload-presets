@@ -611,7 +611,7 @@ describe('upload footer', () => {
   it('another tab runs the queue: Start is off, Stop goes to that tab', async () => {
     const other = vi.fn(async () => undefined);
     const sendTo = vi.fn(() => other) as never;
-    const api = fakePanel({ view: viewWith([{ status: 'pending' }]), runner: { tabId: 7, windowId: 2, title: 'Other Studio' }, elsewhere: true, sendTo });
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]), runner: { tabId: 7, windowId: 2, title: 'Other Studio', jobs: ['queue'] }, elsewhere: true, sendTo });
     renderPanel(<QueueFooter />, api, fakeLive({ state: state(), liveState: state({ running: true }) }));
     expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Stop after the current video' })));
@@ -667,7 +667,7 @@ describe('upload footer', () => {
   });
 
   it('Stop is on while another tab holds the run, before its state arrives', () => {
-    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }]), runner: { tabId: 7, windowId: 2, title: 'Other' }, elsewhere: true }), fakeLive({ state: state(), liveState: state() }));
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }]), runner: { tabId: 7, windowId: 2, title: 'Other', jobs: ['queue'] }, elsewhere: true }), fakeLive({ state: state(), liveState: state() }));
     expect((screen.getByRole('button', { name: 'Stop after the current video' }) as HTMLButtonElement).disabled).toBe(false);
   });
 

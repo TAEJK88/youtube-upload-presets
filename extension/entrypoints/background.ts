@@ -2,10 +2,11 @@ import '@/lib/debug-capture/background'; // FIRST: the debug page shows what goe
 import { browser } from 'wxt/browser';
 import { onMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
+import { isChannelId } from '@/lib/claims/keys';
 import { initI18n, watchLang } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
-import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld } from '@/lib/runner-lock';
+import { acquireRunner, claimWorker, isJob, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld, runnerHolds } from '@/lib/runner-lock';
 import { deleteFiles, sweepHandles } from '@/lib/file-gc';
 import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
@@ -68,13 +69,20 @@ export default defineBackground(() => {
   });
   browser.notifications.onClicked.addListener((id) => void openFromNotification(id));
 
-  // One Studio tab runs the queue at a time.
+  // One Studio tab drives Studio at a time (the queue or a copyright job), and one tab per
+  // channel is its copyright worker (D21).
   const tabOf = (sender: { tab?: { id?: number } }) => {
     if (sender.tab?.id === undefined) throw new Error('runner lock: not sent from a tab');
     return sender.tab.id;
   };
-  onMessage('runner:acquire', ({ sender }) => acquireRunner(tabOf(sender)));
-  onMessage('runner:release', ({ sender }) => releaseRunner(tabOf(sender)));
-  onMessage('runner:elsewhere', ({ sender }) => runnerElsewhere(tabOf(sender)));
+  onMessage('runner:acquire', ({ data, sender }) => acquireRunner(tabOf(sender), isJob(data) ? data : 'queue'));
+  onMessage('runner:release', ({ data, sender }) => releaseRunner(tabOf(sender), isJob(data) ? data : 'all'));
+  onMessage('runner:elsewhere', ({ data, sender }) => runnerElsewhere(tabOf(sender), isJob(data) ? data : 'any'));
+  onMessage('runner:holds', ({ data, sender }) => runnerHolds(tabOf(sender), isJob(data) ? data : 'queue'));
+  onMessage('runner:worker', ({ data, sender }) => {
+    const d = data as { ch?: unknown; force?: unknown } | null;
+    if (!isChannelId(d?.ch)) throw new Error('runner:worker: malformed');
+    return claimWorker(tabOf(sender), d.ch, d.force === true);
+  });
   registerRunnerLock();
 });

@@ -209,7 +209,7 @@ describe('the panel in Thai', () => {
         data: thData({ lockChannel: { id: 'UC9', name: 'ช่องอื่น' } }),
         view: thView({ current: 'i2', state: running, channel: problem }),
         elsewhere: true,
-        runner: { tabId: 2, windowId: 1, title: 'สตูดิโออื่น' } as never,
+        runner: { tabId: 2, windowId: 1, title: 'สตูดิโออื่น', jobs: ['queue'] } as never,
       }),
       fakeLive({ state: running, liveState: running }),
     );

@@ -21,7 +21,9 @@ describe('target', () => {
     expect(await runnerTab()).toBe(null);
     await browser.storage.session.set({ runnerTabId: 9 });
     const get = vi.spyOn(browser.tabs, 'get').mockResolvedValue({ id: 9, windowId: 2, url: 'https://studio.youtube.com/', title: 'A' } as never);
-    expect(await runnerTab()).toEqual({ tabId: 9, windowId: 2, title: 'A' });
+    expect(await runnerTab()).toEqual({ tabId: 9, windowId: 2, title: 'A', jobs: ['queue'] });
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+    expect(await runnerTab()).toEqual({ tabId: 9, windowId: 2, title: 'A', jobs: ['claims'] });
     get.mockRejectedValue(new Error('No tab with id: 9'));
     expect(await runnerTab()).toBe(null);
   });

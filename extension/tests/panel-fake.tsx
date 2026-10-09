@@ -36,6 +36,7 @@ export function fakePanel(over: Partial<PanelApi> = {}): PanelApi {
     view: viewWith(),
     runner: null,
     elsewhere: false,
+    busyElsewhere: !!over.elsewhere, // a queue run elsewhere holds the lock too (panel.tsx api)
     send,
     sendTo: () => send,
     write: {

@@ -10,15 +10,16 @@ import { followOtherTab, restoreQueue } from './queue-store';
 // Does another Studio tab hold the lock? Each answer is cached (followOtherTab) for what
 // can't wait for one: queue saves and the intercept.
 export const elsewhere = (): Promise<boolean> =>
-  sendMessage('runner:elsewhere', undefined)
+  sendMessage('runner:elsewhere', 'queue')
     .catch(() => otherTabRunning()) // no answer is not "the lock is free": keep what we knew
     .then(async (v) => (await followOtherTab(v), v));
 
 // At startup. A reload in the middle of a run leaves this tab's lock behind, so it goes
-// first; then the stored queue comes back, its unfinished items cut unless another tab
-// is the one running them.
+// first — the queue's job only: a copyright job (a trim run changes pages) keeps it (D21).
+// Then the stored queue comes back, its unfinished items cut unless another tab is the one
+// running them.
 export async function resumeQueue(): Promise<void> {
-  await sendMessage('runner:release', undefined).catch(() => {});
+  await sendMessage('runner:release', 'queue').catch(() => {});
   restoreQueue(!(await elsewhere()));
 }
 
@@ -32,17 +33,19 @@ export async function mayEdit(): Promise<boolean> {
 // Leaving Studio frees the lock at once (pagehide; the background also frees it when the tab
 // closes or leaves Studio). A page kept in the back/forward cache is frozen, not gone: back
 // from it (pageshow, persisted) with its run still going, it takes the lock again, or, when
-// another tab took it meanwhile, stops after the current video rather than run alongside.
+// another tab took it meanwhile, aborts the run at once: the other tab already cut this tab's
+// in-flight item to 'interrupted' (its upload stays a draft in Studio), so nothing is uploaded
+// twice and no release slot is shared (closes 3b R-M3).
 export function watchLockLifecycle(
   win: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>,
-  d: { release(): void; acquire(): Promise<boolean>; running(): boolean; stop(): void; toast(msg: string): void },
+  d: { release(): void; acquire(): Promise<boolean>; running(): boolean; abort(): void; toast(msg: string): void },
 ): () => void {
   const hide = () => d.release();
   const show = (e: Event) => {
     if (!(e as PageTransitionEvent).persisted || !d.running()) return;
     void d.acquire().then((ok) => {
       if (ok) return;
-      d.stop();
+      d.abort();
       d.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่', 'Another Studio tab is already running the queue'));
     });
   };
