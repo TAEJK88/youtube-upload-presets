@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AskProvider, useAsk, type AskOptions } from '../entrypoints/sidepanel/ask';
 
 afterEach(cleanup);
@@ -47,5 +47,11 @@ describe('ask (the drawer\'s confirm box)', () => {
     expect(await first).toBe(null);
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter' });
     expect(await second).toBe(true);
+  });
+
+  it('useAsk outside the provider throws a clear error', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => render(<Grab />)).toThrow(/AskProvider/);
+    err.mockRestore();
   });
 });

@@ -50,15 +50,21 @@ export function AreaField({ value, onValue, onFocus, onBlur, ...rest }: Omit<Com
 // type=number inputs the drawer saved on `change` (blur or Enter), not on every keystroke.
 export function NumberField({ value, onValue, ...rest }: Omit<ComponentProps<'input'>, 'value' | 'onChange' | 'type'> & { value: string; onValue(v: string): void }) {
   const { text, setText, focused } = useFollow(value);
-  const commit = () => { if (text !== value) onValue(text); };
+  const committed = useRef<string | null>(null); // Enter commits, and the blur after it must not
+  const commit = () => {
+    if (text === value || text === committed.current) return;
+    committed.current = text;
+    onValue(text);
+  };
   return (
     <Input
       {...rest}
       type="number"
       className={cn('w-24', rest.className)}
       value={text}
-      onFocus={() => { focused.current = true; }}
-      onBlur={() => { focused.current = false; commit(); }}
+      onFocus={() => { focused.current = true; committed.current = null; }}
+      // The parent may normalise the value (clamp, reject): show what is stored, not the draft.
+      onBlur={() => { focused.current = false; commit(); setText(value); }}
       onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
       onChange={(e) => setText(e.target.value)}
     />

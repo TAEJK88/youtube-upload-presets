@@ -7,6 +7,8 @@ import { Icon } from './Icon';
 // The drawer's ask() (3204–3237): a confirm box in the panel instead of the browser's
 // confirm(). Resolves true = main button, false = second button, null = dismissed (Esc,
 // click outside, Cancel) — and when there is no second button, dismissing answers false.
+// A question replaced by a newer one, or closed some other way, resolves null: callers must
+// test `=== true` / `=== false` / `== null` deliberately and never treat null as false.
 export interface AskOptions {
   title: string;
   body?: ReactNode;
@@ -17,8 +19,12 @@ export interface AskOptions {
   icon?: string;
 }
 type Ask = (o: AskOptions) => Promise<boolean | null>;
-const AskContext = createContext<Ask>(async () => false);
-export const useAsk = () => useContext(AskContext);
+const AskContext = createContext<Ask | null>(null);
+export function useAsk(): Ask {
+  const ask = useContext(AskContext);
+  if (!ask) throw new Error('useAsk() must be used inside <AskProvider>');
+  return ask;
+}
 
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState<AskOptions | null>(null);
