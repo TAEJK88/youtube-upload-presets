@@ -351,15 +351,27 @@ The panel's own console: right-click inside the panel → Inspect.
       the moved start, never in clip 1's slot. The same goes for a card's title field: after
       a change from elsewhere, leaving the field shows the new value.
     - **Attach a `.txt` that can't be read.** In Terminal, `chmod 000 Unreadable.txt`, then drop
-      it on a waiting card: the toast reads "Could not add 1 file(s): Could not read this file
-      (moved or renamed?) — add it again" (not "This tab is not connected to the extension
-      yet — reload this tab"), and the card keeps its old `.txt`. `chmod 644` it afterwards.
+      it on a waiting card: the toast reads "Could not add 1 file(s): " followed by a reason
+      (not "This tab is not connected to the extension yet — reload this tab"), and the card
+      keeps its old `.txt`. `chmod 644` it afterwards. **Record** the reason. Expected:
+      Chrome's own `NotReadableError` text, passed through as it is (English in Thai mode
+      too): "The requested file could not be read, typically due to permission problems that
+      have occurred after a reference to a file was acquired." The handle's `getFile()` only
+      reads metadata and succeeds, so the bridge hands the file over; the read fails in the
+      Studio tab's `readText()` (`arrayBuffer()`), and `attach` (`lib/studio/queue-edit.ts`)
+      puts the error's message after "Could not add 1 file(s): ". If Chrome fails
+      `getFile()` instead, the reason is the bridge's "Could not read this file (moved or
+      renamed?) — add it again".
     - **Leave Studio mid-run, then Back.** During clip 1 navigate the tab to another site,
       confirm "Leave site?", then press Back. If Chrome restored the page from its
       back/forward cache with the run still going: the run carries on and keeps the lock (in
       another Studio tab the panel shows "Another Studio tab is running the queue — change
       the queue there"). If another tab started a run meanwhile, the restored page toasts
       "Another Studio tab is already running the queue" and stops after its current video.
+      Known overlap (accepted, Phase 4 lock work): until then both tabs upload, one video
+      each; the restored tab's saves can briefly show the other run's cards with old
+      statuses until that run saves again, and the restored tab's interrupted item can share
+      a release slot with the other run's. No item is uploaded twice.
       **Record** whether the page came back from the cache at all (if Studio reloads instead,
       the item comes back as interrupted, as in item 15).
     - **Known limitation (Phase 4), don't count as a failure:** two windows editing cards
@@ -390,7 +402,9 @@ Record what happens; the Phase 0 spike results document
     ids in the panel's DevTools → Application → IndexedDB → `ytup-files` → `handles`. Quit
     and restart Chrome, open the service worker console: the handles of files no queue item
     uses are gone from `ytup-files`; the queued items' handles are still there, and there is
-    no `[ytup] handle sweep` error.
+    no `[ytup] handle sweep` error. Known window: files dropped within about 1 s of Chrome
+    starting can be swept before their item is saved, and then fail with "This file is no
+    longer available — add it again" (handles carry no timestamp to skip new ones).
 44. **Bridge parent-source check (note, nothing to run).** The bridge accepts a connect only
     from its Studio parent frame (origin `https://studio.youtube.com`, `source` is its
     parent, a port attached): `isBridgeConnect` in `lib/file-bridge.ts`, unit-tested in
