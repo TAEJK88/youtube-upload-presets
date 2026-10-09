@@ -85,8 +85,8 @@ To send a report: **Copy diagnostic report** (paste it into a message) or **Down
 (.json)** (attach the file). The report holds every section above and the last 300 log entries.
 It includes your stored presets and settings (but not your files); look it over before sending
 it outside your team. The log keeps the newest 300 entries in `chrome.storage.local`
-(`debugLog`); it is not part of a settings backup. Errors from Studio's page-world script
-(`studio-main`) reach it only when the page script reports a failed call.
+(`debugLog`); it is not part of a settings backup. Errors inside Studio's page-world script
+(`studio-main`) are not captured (it has no extension APIs): see Studio's DevTools console.
 
 ## Phase 3 exit check (manual, in Chrome)
 
