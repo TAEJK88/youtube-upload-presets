@@ -309,4 +309,47 @@ describe('presets tab', () => {
     const saved = vi.mocked(api.write.presets).mock.calls.at(-1)![0].find((x) => x.id === 'playlist')!;
     expect(saved.tags.at(-1)!.endsWith('{bpm}')).toBe(true);
   });
+
+  // An external list (another panel window, an import) that arrived while a write of ours was
+  // in flight: the next keystroke builds on it, not on the list from before.
+  const imported = (api: PanelApi) => api.data!.presets.map((x) => (x.id === 'playlist' ? { ...x, label: 'Imported' } : x));
+
+  it('a failed write: the list that came from storage meanwhile is what the next edit builds on', async () => {
+    const api = fakePanel();
+    let reject!: (e: Error) => void;
+    vi.mocked(api.write.presets).mockImplementationOnce(() => new Promise((_, r) => { reject = r; }));
+    const view = renderPanel(<PresetsTab />, api);
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'mine' } });
+    echo(view, api, imported(api));
+    await act(async () => reject(new Error('quota')));
+    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'again' } });
+    const last = vi.mocked(api.write.presets).mock.calls.at(-1)![0];
+    expect(last.find((x) => x.id === 'playlist')!.label).toBe('Imported');
+    expect(last[0]!.title).toBe('again');
+  });
+
+  it('an import that lands while a write of ours is in flight is not undone by the next edit', async () => {
+    const api = fakePanel();
+    let resolve!: () => void;
+    vi.mocked(api.write.presets).mockImplementationOnce(() => new Promise<void>((r) => { resolve = r; }));
+    const view = renderPanel(<PresetsTab />, api);
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'mine' } });
+    echo(view, api, imported(api));
+    await act(async () => resolve());
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'again' } });
+    expect(vi.mocked(api.write.presets).mock.calls.at(-1)![0].find((x) => x.id === 'playlist')!.label).toBe('Imported');
+  });
+
+  it('a write that throws at once still lets later lists from storage in', async () => {
+    const api = fakePanel();
+    vi.mocked(api.write.presets).mockImplementationOnce(() => { throw new Error('boom'); });
+    const view = renderPanel(<PresetsTab />, api);
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'mine' } });
+    await act(async () => {});
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' });
+    echo(view, api, imported(api));
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'again' } });
+    expect(vi.mocked(api.write.presets).mock.calls.at(-1)![0].find((x) => x.id === 'playlist')!.label).toBe('Imported');
+  });
 });

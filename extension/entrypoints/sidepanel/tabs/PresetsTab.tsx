@@ -47,10 +47,17 @@ export function PresetsTab() {
   const labelEl = useRef<HTMLInputElement>(null);
   const listEl = useRef<HTMLDivElement>(null);
   // Writes build on the last list written, not on a render that may not have caught up. While
-  // a write of ours is in flight, a re-read of storage can only be older than it: ignore it.
+  // a write of ours is in flight, a re-read of storage may be older than it: it is kept aside
+  // and looked at once our writes have settled (see writePresets).
   const latest = useRef(presets);
   const inFlight = useRef(0);
-  useEffect(() => { if (!inFlight.current) latest.current = presets; }, [presets]);
+  const skipped = useRef<Preset[] | null>(null);
+  const mine = useRef(new Set<string>()); // the lists written in this burst, as JSON
+  const failed = useRef(false);
+  useEffect(() => {
+    if (inFlight.current) skipped.current = presets;
+    else latest.current = presets;
+  }, [presets]);
   const latestActive = useRef(activeId);
   useEffect(() => { latestActive.current = activeId; }, [activeId]);
   // A preset just added is only in the list once the stored write comes back.
@@ -84,10 +91,29 @@ export function PresetsTab() {
   }, [p?.id]);
   if (!data || !p) return null;
 
-  const writePresets = (next: Preset[], active?: string) => {
+  // Back to no write in flight: a list that came from storage meanwhile is adopted when it
+  // is someone else's (another window, an import), or when one of our writes failed. Our own
+  // older echo is not: the last list we wrote is newer, and its echo is still to come.
+  const settle = () => {
+    if (--inFlight.current) return;
+    const got = skipped.current;
+    if (got && (failed.current || !mine.current.has(JSON.stringify(got)))) latest.current = got;
+    skipped.current = null;
+    mine.current.clear();
+    failed.current = false;
+  };
+  const writePresets = (next: Preset[], active?: string): Promise<void> => {
     latest.current = next;
+    mine.current.add(JSON.stringify(next));
     inFlight.current++;
-    return (active === undefined ? write.presets(next) : write.presetsAndActive(next, active)).finally(() => { inFlight.current--; });
+    const fail = (e: unknown) => { failed.current = true; throw e; };
+    let p: Promise<void>;
+    try {
+      p = active === undefined ? write.presets(next) : write.presetsAndActive(next, active);
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    return p.catch(fail).finally(settle);
   };
   const update = (patch: Partial<Preset>) => void writePresets(latest.current.map((x) => (x.id === p.id ? { ...x, ...patch } : x))).catch(saveFailed);
   const add = (np: Preset, focus = false) => {
