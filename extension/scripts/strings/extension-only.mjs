@@ -25,4 +25,6 @@ export default [
   { th: 'แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', en: 'This tab is not connected to the extension yet — reload this tab', why: 'Studio tab opened before the extension (re)loaded: no content script to talk to' },
   { th: 'โหลดแท็บนี้ใหม่', en: 'Reload this tab', why: 'button for the banner above, and the in-page banner after an extension update (3b)' },
   { th: 'ไปที่แท็บนั้น', en: 'Go to that tab', why: 'the run is in another Studio tab' },
+  { th: 'การสแกนและตัดส่วนที่ติดลิขสิทธิ์จะมาในเวอร์ชันถัดไปของส่วนขยาย', en: 'Copyright scan and trim arrive in a later version of the extension', why: 'placeholder tab until Phase 4' },
+  { th: 'สลับช่องไม่สำเร็จ (${})', en: "Couldn't switch channels (${})", why: 'channel:switch is a message to the Studio tab and can fail; the drawer called the switcher directly' },
 ];

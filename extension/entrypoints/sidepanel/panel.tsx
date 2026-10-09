@@ -40,7 +40,7 @@ export interface LiveApi {
   state: QueueState | null; // the bound tab's live state (newer than view.state)
   liveState: QueueState | null; // the running tab's live state, else the bound tab's
 }
-const LiveContext = createContext<LiveApi>({ state: null, liveState: null });
+export const LiveContext = createContext<LiveApi>({ state: null, liveState: null });
 export const useLive = () => useContext(LiveContext);
 
 export function PanelProvider({ children }: { children: ReactNode }) {
