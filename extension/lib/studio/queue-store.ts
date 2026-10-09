@@ -18,6 +18,7 @@ const remember = (list: QueueItem[]) => { base = structuredClone(list); };
 const blocked = () => otherTabRunning() && !running;
 export function persistQueue(): void {
   clearTimeout(timer);
+  timer = undefined; // no save of ours waits (onStored merges only while one does)
   if (blocked()) return;
   timer = setTimeout(flushQueue, 300);
 }

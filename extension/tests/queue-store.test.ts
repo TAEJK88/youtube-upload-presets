@@ -149,6 +149,51 @@ describe('queue store', () => {
     expect(((await browser.storage.local.get('queue')).queue as QueueItem[]).map((i) => i.title)).toEqual(['mine', 'theirs']);
   });
 
+  it('two foreign saves while ours waits: the second one counts, not ours (review I3)', async () => {
+    vi.useFakeTimers();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending')] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(true);
+    queue[0] = { ...queue[0]!, title: 'mine', titleEdited: true };
+    persistQueue();
+    const theirs = (title: string) => [item('A.mp4', 'pending'), item('B.mp4', 'pending', { title, titleEdited: true })];
+    await browser.storage.local.set({ queue: theirs('x') });
+    await vi.advanceTimersByTimeAsync(0);
+    await browser.storage.local.set({ queue: theirs('y') });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.map((i) => i.title)).toEqual(['mine', 'y']);
+  });
+
+  it('an edit of ours already saved does not beat a newer foreign edit of that item (review I3)', async () => {
+    vi.useFakeTimers();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending')] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(true);
+    queue[0] = { ...queue[0]!, title: 'mine', titleEdited: true };
+    persistQueue();
+    await vi.advanceTimersByTimeAsync(300);
+    await flushState(); // our save of A has landed
+    queue[1] = { ...queue[1]!, title: 'b here', titleEdited: true }; // a new edit waits
+    persistQueue();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending', { title: 'theirs', titleEdited: true }), item('B.mp4', 'pending')] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.map((i) => i.title)).toEqual(['theirs', 'b here']);
+  });
+
+  it('a save dropped because another tab started running is no longer waiting: its saves replace our copy (review m2)', async () => {
+    vi.useFakeTimers();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending')] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(true);
+    queue[0] = { ...queue[0]!, title: 'mine', titleEdited: true };
+    persistQueue();
+    setOtherTabRuns(true); // within the 300 ms, another tab starts the queue
+    persistQueue(); // blocked: nothing will be saved
+    await browser.storage.local.set({ queue: [item('A.mp4', 'uploading')] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.map((i) => i.status)).toEqual(['uploading']);
+  });
+
   it('with no save of ours waiting, a foreign save replaces the copy as before', async () => {
     await browser.storage.local.set({ queue: [item('A.mp4', 'pending')] });
     await initState(async () => SCHEMA_VERSION);
