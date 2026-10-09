@@ -9,6 +9,7 @@ import { Banners } from './shell/Banners';
 import { ChannelBar } from './shell/ChannelBar';
 import { CopyrightTab } from './tabs/CopyrightTab';
 import { PresetsFooter, PresetsTab } from './tabs/PresetsTab';
+import { QueueFooter } from './tabs/QueueFooter';
 import { QueueTab, usePanelDrop } from './tabs/QueueTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
@@ -27,7 +28,7 @@ const panes: Record<TabKey, () => ReactNode> = {
   claims: () => <CopyrightTab />,
   settings: () => <SettingsTab />,
 };
-const footers: Partial<Record<TabKey, () => ReactNode>> = { presets: () => <PresetsFooter /> };
+const footers: Partial<Record<TabKey, () => ReactNode>> = { queue: () => <QueueFooter />, presets: () => <PresetsFooter /> };
 
 export function App() {
   const [tab, setTab] = useState<TabKey>('queue');

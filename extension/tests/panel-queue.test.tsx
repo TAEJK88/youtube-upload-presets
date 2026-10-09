@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as intake from '../lib/panel/intake';
 import { QueueCard } from '../entrypoints/sidepanel/tabs/QueueCard';
+import { QueueFooter } from '../entrypoints/sidepanel/tabs/QueueFooter';
 import { QueueTab, usePanelDrop } from '../entrypoints/sidepanel/tabs/QueueTab';
 import { ScheduleBox } from '../entrypoints/sidepanel/tabs/ScheduleBox';
 import { PanelContext } from '../entrypoints/sidepanel/panel';
@@ -233,5 +234,75 @@ describe('schedule box', () => {
     expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { every: 3 } });
     fireEvent.change(screen.getByLabelText('days'), { target: { value: 'hour' } });
     expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { unit: 'hour' } });
+  });
+});
+
+describe('upload footer', () => {
+  it('Start shows the count, the schedule and the channel; Clear needs a finished video', () => {
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }, { status: 'pending' }], { schedule: { on: true, set: true, start: 1, late: false, times: [], skipped: 0, taken: [] } }) }));
+    expect(screen.getByText('Upload 2 video(s) · scheduled')).toBeTruthy();
+    expect(screen.getByText('To channel Mine')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Clear finished videos from the list' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Stop after the current video' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a channel that is not the locked one blocks Start', () => {
+    const view = viewWith([{ status: 'pending' }], { channel: { ...state().channel, problem: 'Currently on channel "Mine" but locked to "Other"' } });
+    renderPanel(<QueueFooter />, fakePanel({ view }));
+    expect(screen.getByText('Channel does not match the locked one')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Channel does not match/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('while running: the progress title, Start off, Stop on', () => {
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'done' }, { status: 'uploading' }, { status: 'pending' }]) }), fakeLive({ state: state({ running: true }), liveState: state({ running: true }) }));
+    expect((screen.getByRole('button', { name: /Uploading 2\/3/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Stop after the current video' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('Start → summary → confirm → queue:start with what was confirmed', async () => {
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
+    vi.mocked(api.send).mockImplementation((async (type: string) =>
+      type === 'queue:preflight'
+        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 2, times: [], vis: 'PRIVATE', noTxt: 1, noThumb: 0, badTime: [], prevUp: [{ name: 'Clip 1.mp4', title: 'Old' }], badTl: [], needsConfirm: true }
+        : undefined) as never);
+    renderPanel(<QueueFooter />, api);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /Upload 1 video\(s\)/ })));
+    expect(screen.getByText('1 already uploaded to this channel — they will be duplicated')).toBeTruthy();
+    expect(screen.getByText('Clip 1.mp4: Old')).toBeTruthy();
+    expect(screen.getByText('Per preset (PRIVATE)')).toBeTruthy();
+    expect(screen.getByText('1 video(s)')).toBeTruthy(); // no .txt
+    await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Upload 1 video(s)' }).at(-1)!));
+    expect(api.send).toHaveBeenCalledWith('queue:start', { channelId: 'UC1', ids: ['i0'], editRev: 2 });
+  });
+
+  it('Cancel in the summary starts nothing', async () => {
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
+    vi.mocked(api.send).mockImplementation((async (type: string) =>
+      type === 'queue:preflight'
+        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 0, times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm: true }
+        : undefined) as never);
+    renderPanel(<QueueFooter />, api);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /Upload 1 video\(s\)/ })));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })));
+    expect(api.send).not.toHaveBeenCalledWith('queue:start', expect.anything());
+  });
+
+  it('another tab runs the queue: Start is off, Stop goes to that tab', async () => {
+    const other = vi.fn(async () => undefined);
+    const sendTo = vi.fn(() => other) as never;
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]), runner: { tabId: 7, windowId: 2, title: 'Other Studio' }, elsewhere: true, sendTo });
+    renderPanel(<QueueFooter />, api, fakeLive({ state: state(), liveState: state({ running: true }) }));
+    expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Stop after the current video' })));
+    expect(sendTo).toHaveBeenCalledWith(7);
+    expect(other).toHaveBeenCalledWith('queue:stop', undefined);
+    expect(api.send).not.toHaveBeenCalledWith('queue:stop', undefined);
+  });
+
+  it('Clear sends queue:clearDone once a video is done', () => {
+    const api = fakePanel({ view: viewWith([{ status: 'done' }]) });
+    renderPanel(<QueueFooter />, api);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear finished videos from the list' }));
+    expect(api.send).toHaveBeenCalledWith('queue:clearDone', undefined);
   });
 });
