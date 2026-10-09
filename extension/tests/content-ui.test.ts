@@ -20,6 +20,7 @@ const item = (id: string, extra: Partial<Q.QueueItem> = {}): Q.QueueItem => ({
 beforeEach(() => {
   vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
   vi.stubGlobal('document', makeDocument());
+  vi.stubGlobal('location', { pathname: '/' }); // the broadcast state reads the channel
   vi.mocked(persistQueue).mockClear();
   Q.queue.splice(0);
   Q.setTornDown(false); // dispose() sets it for the whole runner
@@ -31,6 +32,18 @@ afterEach(() => {
 });
 
 describe('content ui', () => {
+  it('the broadcast state carries the channel; a channel change is sent again', () => {
+    const send = vi.mocked(messages.sendMessage);
+    const ui = createContentUi();
+    ui.tick();
+    vi.stubGlobal('location', { pathname: '/channel/UCaaaaaaaaaaaaaaaaaaaaaa/videos' });
+    ui.tick();
+    ui.tick();
+    const states = send.mock.calls.filter(([t]) => t === 'queue:state').map(([, s]) => s as messages.QueueState);
+    expect(states.map((s) => s.channel.id)).toEqual(['', 'UCaaaaaaaaaaaaaaaaaaaaaa']);
+    expect(ui.state()).toEqual(states[1]);
+  });
+
   // uploadOne() reads the draft id while waiting for Save without telling the UI; a reload
   // in that wait must still find it in storage.
   it('saves the queue when the tick sees a new draft id', () => {

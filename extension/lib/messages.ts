@@ -1,7 +1,9 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
 import type { BackupImport } from './backup';
 import type { StorePatch } from './store-writer';
+import type { QueueEdit } from './studio/queue-edit';
 import type { StartBinding, StartSummary } from './studio/queue-runner';
+import type { ChannelView, QueueView } from './studio/queue-view';
 
 // What the side panel needs to follow a run live; the items themselves are in
 // chrome.storage.local ('queue'). `rev` goes up whenever the page changed something the
@@ -11,6 +13,7 @@ export interface QueueState {
   stopping: boolean;
   prog: { pct: number | null; text: string } | null;
   rev: number;
+  channel: ChannelView; // what the channel bar shows; a change makes the panel re-read
 }
 
 export interface QueueDoneNote { title: string; text: string; focused: boolean }
@@ -40,6 +43,8 @@ export type ProtocolMap = {
   'queue:retry'(id: string): void;
   'queue:remove'(id: string): void;
   'queue:clearDone'(): void;
+  'queue:view'(): QueueView;
+  'queue:edit'(e: QueueEdit): void;
   'fill:apply'(): void;
   'diag:dialogInfo'(): unknown;
   // content → side panel (broadcast; nobody listens while the panel is closed)

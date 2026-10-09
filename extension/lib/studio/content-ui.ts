@@ -7,6 +7,7 @@ import { dropFiles } from './queue-files';
 import { pollUploadProgress, queue, running, setTornDown, stopReq, tornDown, tornError, uploadProg } from './queue-runner';
 import { persistQueue } from './queue-store';
 import { settings } from './state';
+import { channelView } from './queue-view';
 
 // The PageUi the Studio content script runs with. What the userscript's drawer did is
 // split three ways: the page keeps the tab-title mark, the sound and a toast; the queue
@@ -24,8 +25,9 @@ export function createContentUi() {
   const mark = (m: string) => {
     if (!tornDown()) setTitleMark(m);
   };
+  const state = (): QueueState => ({ running, stopping: running && stopReq, prog: uploadProg, rev, channel: channelView() });
   const broadcast = () => {
-    const s: QueueState = { running, stopping: running && stopReq, prog: uploadProg, rev };
+    const s = state();
     const sig = JSON.stringify(s);
     if (sig === last) return;
     last = sig;
@@ -36,7 +38,7 @@ export function createContentUi() {
     persistQueue();
     broadcast();
   };
-  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; dispose(): void } = {
+  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; state(): QueueState; dispose(): void } = {
     item(it) {
       // An orphaned run stops at its next status change (queue-runner: setTornDown).
       if (tornDown()) throw tornError();
@@ -95,6 +97,7 @@ export function createContentUi() {
       drafts = d;
       broadcast();
     },
+    state,
   };
   return ui;
 }

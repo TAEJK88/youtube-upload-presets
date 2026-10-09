@@ -13,11 +13,13 @@ import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
 import { installQuickActions } from '@/lib/studio/quick-actions';
-import { bridgeFiles, setBridge } from '@/lib/studio/queue-files';
+import { bridgeFiles, dropFiles, setBridge } from '@/lib/studio/queue-files';
+import { editQueue, followStoredChanges } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { addQueued, installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
+import { queueView } from '@/lib/studio/queue-view';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
 
@@ -157,6 +159,13 @@ export default defineContentScript({
     onMessage('queue:clearDone', async () => {
       if (await mayEdit()) clearDone();
     });
+    onMessage('queue:view', () => queueView(ui.state()));
+    onMessage('queue:edit', async ({ data }) => {
+      if (await mayEdit()) await editQueue(data);
+      // Refused: the files the panel stored for this item are not needed.
+      else if (data.op === 'attach') dropFiles(data.fileIds.map((id) => ({ id, src: 'bridge' as const })));
+    });
+    stop.add(followStoredChanges());
     onMessage('fill:apply', () => applyToOpenDialog());
     onMessage('diag:dialogInfo', () => diagnoseUploadDialog());
 
