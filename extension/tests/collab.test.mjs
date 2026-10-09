@@ -1,6 +1,9 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { C } from './harness.mjs';
+import * as collab from '../lib/collab';
+import { TXT } from '../lib/studio/txt';
+
+const C = { ...collab, TXT };
 
 /* ---------- parseHandles ---------- */
 

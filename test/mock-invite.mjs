@@ -6,7 +6,7 @@
 // With a single request YouTube skips the list and opens the modal directly.
 import { makeDocument } from './fake-dom.mjs';
 
-export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0 } = {}) {
+export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false } = {}) {
   const doc = makeDocument();
   const truth = { opened: [], accepted: [], declined: [] };
   const el = (tag, attrs = {}, text) => {
@@ -91,10 +91,19 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   };
 
   if (skipList) openModal(remaining[0]); else renderList();
+  // the live failure: an errored, row-less request list left floating over the card
+  if (deadList) {
+    listPaper.children = [];
+    listPaper.append(el('h1', {}, 'Collaboration requests'), el('div', {}, 'Oops, something went wrong.'));
+    const x = el('ytcp-icon-button', { id: 'close-button' });
+    x.onclick = () => { listHost.hidden = true; truth.closedDeadList = true; };
+    listPaper.append(x);
+    listHost.hidden = false;
+  }
 
-  const u = new URL(url || 'https://studio.youtube.com/channel/UC1/videos/upload?d=acd&inviterChannelId=UC2');
+  const u = new URL(url || 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/videos/upload?d=acd&inviterChannelId=UCSd21ggmlMhbvaMT5IGxajA');
   const win = {
-    location: { hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, href: u.href },
+    location: { hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, href: u.href, origin: u.origin },
     getComputedStyle: () => ({ visibility: 'visible', display: 'block' }),
     console: { info() {} },
   };

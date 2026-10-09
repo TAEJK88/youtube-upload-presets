@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.27.0
+// @version      4.28.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -34,6 +34,7 @@
   const TXT = {
     // --- ใช้ได้ทั้งอังกฤษและไทย ---
     acceptInvite: /^(accept|accept invitation|accept invite|ยอมรับ|ยอมรับคำเชิญ)$/i, // ปุ่มยอมรับคำเชิญสิทธิ์ช่อง
+    noPermission: /don.t have permission to view this page|ไม่มีสิทธิ์เข้าดูหน้านี้/i, // หน้า Oops ของ Studio
     aboutInvite: /invit|collaborat|เชิญ|ผู้ร่วมสร้าง/i, // กล่องข้อความต้องพูดถึงคำเชิญ (กันกดปุ่มผิด)
     saveButton: /^(save|บันทึก)$/i, // ปุ่ม Save ของหน้าต่าง (ใช้ตอนหา id ไม่เจอ)
     cancelButton: /^(cancel|discard|ยกเลิก|ละทิ้ง)$/i, // ปุ่ม Cancel ของหน้าต่าง (ใช้ตอนหา id ไม่เจอ)
@@ -134,6 +135,8 @@
     inviteRowTitle: '#video-title',
     // --- หน้าสลับช่องของ YouTube (www.youtube.com/channel_switcher → /account) ---
     switcherItem: 'ytd-account-item-renderer', // หนึ่งแถว = หนึ่งช่อง (ไม่มี UC id ในแถว มีแต่ชื่อกับ @handle)
+    switcherItemClick: 'tp-yt-paper-icon-item', // ตัวที่กดได้จริงในแถว
+    switcherConfirm: 'ytd-popup-container yt-confirm-dialog-renderer #confirm-button', // ปุ่ม "Got it" ของช่องที่เราเป็นผู้จัดการ
     // --- Monetisation / Ad suitability ---
     monetBox: 'ytcp-video-monetization',
     monetDialog: 'ytcp-video-monetization-edit-dialog',
@@ -250,6 +253,8 @@
   //   www.youtube.com/channel_switcher?next=<ปลายทาง>
   // หน้านั้นจะลิสต์ทุกช่อง พอกดช่องไหน YouTube จะสลับให้แล้วเด้งไปที่ next เอง
   const SWITCH_KEY = 'pendingChannelSwitch';
+  const SWITCHED_KEY = 'channelSwitchedAt';
+  const ACCEPT_ROUND_KEY = 'inviteAcceptRound'; // นับรอบการเปิดลิงก์คำเชิญซ้ำเพื่อรับคลิปถัดไป
   const SWITCH_TTL = 180000;
   const pendingSwitch = () => {
     const p = GM_getValue(SWITCH_KEY, null);
@@ -270,19 +275,69 @@
     if (!want) return;
     const say = (m) => console.info('[YT Upload Presets] switch: ' + m);
     say(`looking for ${want.handle || want.name} on the channel switcher`);
+    const vis = (e) => !!e && e.getClientRects().length > 0;
     let tries = 0;
+    let picked = false;
     const timer = setInterval(() => {
-      if (++tries > 60 || !pendingSwitch()) { clearInterval(timer); return; }
+      if (++tries > 60) { clearInterval(timer); return; }
+      // ช่องที่เราเป็น "ผู้จัดการ" (manager) ไม่สลับทันที แต่เด้งกล่องบอกว่ากิจกรรมส่วนตัว
+      // ยังนับกับบัญชีเดิมอยู่ ต้องกด "Got it" ก่อนถึงจะสลับจริง — ช่องที่เราเป็นเจ้าของ
+      // ไม่มีกล่องนี้ (serviceEndpoint ต่างกัน: openPopupAction vs ปลายทางสลับช่องตรง ๆ)
+      const okHost = document.querySelector(SEL.switcherConfirm);
+      const okBtn = okHost && (okHost.querySelector('button') || okHost);
+      if (picked && vis(okBtn) && TXT.dismissNotice.test(normText(okBtn.textContent))) {
+        clearInterval(timer);
+        say('confirming the manager-channel notice');
+        okBtn.click();
+        return;
+      }
+      if (picked) return; // กดแถวไปแล้ว — รอกล่องยืนยัน หรือรอ YouTube พาไปเอง
+      if (!pendingSwitch()) { clearInterval(timer); return; }
       const row = [...document.querySelectorAll(SEL.switcherItem)]
-        .find((r) => r.getClientRects().length > 0 && switcherRowMatches(r.textContent, want.handle, want.name));
+        .find((r) => vis(r) && switcherRowMatches(r.textContent, want.handle, want.name));
       if (!row) return;
-      clearInterval(timer);
+      picked = true;
       clearSwitch();
+      // YouTube เด้งไป next ทันทีโดยที่ session ใหม่ยังไม่ทันมีผล หน้าแรกที่โหลดจึงขึ้น Oops
+      // ได้ ทั้งที่สลับช่องสำเร็จแล้ว — จดไว้ว่าเพิ่งสลับ เพื่อให้โหลดซ้ำให้เองถ้าเจอหน้านั้น
+      GM_setValue(SWITCHED_KEY, { at: Date.now(), tries: 0, next: want.next || '' });
       say(`switching to ${want.handle || want.name}`);
-      row.click();
+      (row.querySelector(SEL.switcherItemClick) || row).click();
     }, 500);
   }
   watchChannelSwitcher();
+
+  // เพิ่งสลับช่องแล้วเจอหน้า Oops = session ใหม่ยังตามมาไม่ทัน โหลดหน้าเดิมซ้ำก็ผ่าน
+  function recoverAfterSwitch() {
+    if (location.hostname !== 'studio.youtube.com') return;
+    const s = GM_getValue(SWITCHED_KEY, null);
+    if (!s || Date.now() - (s.at || 0) > 90000) return;
+    const say = (m) => console.info('[YT Upload Presets] switch: ' + m);
+    let tries = 0;
+    const timer = setInterval(() => {
+      const oops = TXT.noPermission.test(document.body.innerText || '');
+      if (!oops) {
+        if (++tries < 12) return; // ยังโหลดไม่เสร็จ รออีกหน่อยก่อนจะบอกว่าผ่านแล้ว
+        clearInterval(timer);
+        GM_setValue(SWITCHED_KEY, null);
+        return;
+      }
+      clearInterval(timer);
+      // location.reload() ไม่พอ — YouTube เด้งมาพร้อม ?sttick=0 ติดมาด้วย โหลดซ้ำทั้ง URL เดิม
+      // ก็ขึ้น Oops ทุกครั้ง แต่เข้า URL สะอาด ๆ ของช่องเดียวกันกลับเข้าได้ปกติ
+      const here = location.href;
+      const clean = [s.next, location.origin + location.pathname].find((u) => u && u !== here);
+      if (!clean || (s.tries || 0) >= 2) {
+        GM_setValue(SWITCHED_KEY, null);
+        say(clean ? 'still no permission after retrying — giving up' : 'no clean URL left to retry — giving up');
+        return;
+      }
+      GM_setValue(SWITCHED_KEY, { at: s.at, tries: (s.tries || 0) + 1, next: s.next || '' });
+      say('switched but the page says no permission — retrying on a clean URL');
+      location.href = clean;
+    }, 500);
+  }
+  recoverAfterSwitch();
 
   let inviteWatching = false;
   function watchInvite() {
@@ -315,8 +370,17 @@
       return [...host.querySelectorAll(SEL.inviteRequestRow)].find(visible) || null;
     };
     const rowTitle = (r) => normText(r.querySelector(SEL.inviteRowTitle)?.textContent).slice(0, 60);
+    // กล่อง "Collaboration requests" ชอบค้างที่ "Oops, something went wrong" โดยไม่มีแถวเลย
+    // แล้วลอยทับบัตรคำเชิญที่อยู่ข้างหลัง ทำให้ปุ่ม Accept กดไม่ได้ — กล่องแบบนี้ไม่มีประโยชน์
+    // ปิดทิ้งก่อนแล้วค่อยทำงานกับบัตรที่อยู่ข้างใต้
+    const deadList = () => {
+      const host = document.querySelector(SEL.inviteListDialog);
+      if (!host || !visible(host.querySelector(SEL.paperDialog))) return null;
+      return [...host.querySelectorAll(SEL.inviteRequestRow)].some(visible) ? null : host;
+    };
 
     const MAX = 25; // กันวนไม่รู้จบถ้าแถวไม่หายไปหลังกดยอมรับ
+    const ACCEPT_ROUNDS = 15; // เปิดลิงก์คำเชิญซ้ำได้สูงสุดกี่รอบ (กันวนไม่รู้จบ)
     const IDLE_BEFORE_DONE = 8; // รอบที่ว่างติดกันก่อนจะสรุปว่าหมดแล้ว
     let tries = 0;
     let done = 0;      // จำนวนคำเชิญที่กดยอมรับไปแล้ว
@@ -327,11 +391,30 @@
     const stop = () => { clearInterval(timer); inviteWatching = false; };
     const finish = () => {
       stop();
+      say(`finished — accepted ${done}`);
+      // YouTube เสนอคำเชิญให้ทีละคลิปต่อการเปิดหน้าหนึ่งครั้ง พอยอมรับไปแล้วกล่องรายการ
+      // จะค้างที่ "Oops, something went wrong" และโหลดหน้าเดิมซ้ำก็ไม่มีคำเชิญถัดไปขึ้นมา
+      // ต้องกลับไปที่ลิงก์คำเชิญเดิมเท่านั้น — ประกอบขึ้นใหม่ได้จาก id ช่องเราใน path
+      // กับ inviterChannelId ใน query ของหน้าที่ YouTube เด้งมา
+      if (done && nextInviteRound()) return;
       if (done) inviteNote(done > 1
         ? L(`ยอมรับคำเชิญให้แล้ว ${done} คลิป`, `Accepted ${done} collaboration requests`)
         : L('ยอมรับคำเชิญเรียบร้อย', 'Invitation accepted'));
-      say(`finished — accepted ${done}`);
+      GM_setValue(ACCEPT_ROUND_KEY, null);
     };
+    // คืน true ถ้าสั่งไปรอบถัดไปแล้ว
+    function nextInviteRound() {
+      const me = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1];
+      const inviter = new URLSearchParams(location.search).get('inviterChannelId');
+      if (!me || !inviter) return false;
+      const prev = GM_getValue(ACCEPT_ROUND_KEY, null);
+      const n = (prev && Date.now() - prev.at < 300000 ? prev.n : 0) + 1;
+      if (n > ACCEPT_ROUNDS) { GM_setValue(ACCEPT_ROUND_KEY, null); say('reached the round limit — stopping'); return false; }
+      GM_setValue(ACCEPT_ROUND_KEY, { n, at: Date.now() });
+      say(`accepted ${done}; reopening the invite link for the next request (round ${n})`);
+      location.href = `${location.origin}/channel/${me}/collaboration/${inviter}`;
+      return true;
+    }
     const timer = setInterval(() => {
       if (++tries > 180) {
         stop();
@@ -342,6 +425,18 @@
         return;
       }
       if (Date.now() - lastAction < 2500) return; // ให้หน้าต่างเปิด/ปิดให้เสร็จก่อนค่อยทำต่อ
+
+      // 0) ปิดกล่องรายการที่ค้าง/ว่างเปล่าก่อน ไม่งั้นมันจะบังบัตรคำเชิญที่อยู่ข้างหลัง
+      const dead = deadList();
+      if (dead) {
+        const x = dead.querySelector(SEL.dialogClose);
+        if (x) {
+          lastAction = Date.now();
+          say('closing the empty "Collaboration requests" box covering the invite');
+          (x.querySelector('button') || x).click();
+          return;
+        }
+      }
 
       // 1) หน้าต่างยอมรับเปิดอยู่ → กด Accept
       const b = acceptBtn();

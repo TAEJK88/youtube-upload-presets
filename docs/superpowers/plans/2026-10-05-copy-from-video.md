@@ -18,7 +18,7 @@
 - Studio API calls are read-only: `list_creator_videos` and `get_creator_videos` only.
 - Video templates are never written into `presets`, never exported in the JSON backup, and never auto-selected.
 - `Alt+1…9` keeps selecting real presets only.
-- Release as **v4.27.0**. Run the tests before bumping `@version` (README rule).
+- Release as **v4.28.0**. Run the tests before bumping `@version` (README rule).
 - The harness slices code by anchor comments. Keep the anchors this plan names exactly as written: `// ===== หาพรีเซ็ตตาม id`, `// ===== template =====`, `// ===== ตรวจ tracklist`.
 
 ## File Structure

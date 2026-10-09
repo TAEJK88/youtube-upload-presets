@@ -25,11 +25,18 @@ function fakeClock(pump) {
   return { win, tick, restore, alive: () => timers.some((t) => !t.dead) };
 }
 
-function run(opts, ticks = 40) {
+function run(opts, ticks = 40, store = {}) {
   const page = mockInvitePage(opts);
   const clock = fakeClock(page.truth.pump);
   Object.assign(page.win, { setInterval: clock.win.setInterval, clearInterval: clock.win.clearInterval });
-  const watchInvite = makeWatcher(page.doc, page.win);
+  const nav = [];
+  Object.defineProperty(page.win.location, 'href', {
+    get: () => page.win.location._href, set: (v) => nav.push(v), configurable: true,
+  });
+  page.win.location._href = 'https://studio.youtube.com' + page.win.location.pathname;
+  page.nav = nav;
+  page.store = store;
+  const watchInvite = makeWatcher(page.doc, page.win, store);
   try {
     watchInvite();
     clock.tick(ticks);
@@ -79,7 +86,7 @@ test('a page with no requests accepts nothing and gives up', () => {
 });
 
 test('a non-invite Studio URL never arms the watcher', () => {
-  const { truth } = run({ titles: ['Video A'], url: 'https://studio.youtube.com/channel/UC1/videos/upload' });
+  const { truth } = run({ titles: ['Video A'], url: 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/videos/upload' });
   assert.deepEqual(truth.opened, [], 'must not touch an ordinary content page');
 });
 
@@ -100,4 +107,59 @@ test('a gap longer than the idle window ends the run cleanly', () => {
   const { truth, alive } = run({ titles: ['Video A', 'Video B'], gapTicks: 40 });
   assert.deepEqual(truth.accepted, ['Video A'], 'stops rather than polling forever');
   assert.equal(alive, false);
+});
+
+/* ---------- picking up the next request ----------
+   Observed live: YouTube offers one request per page load. After an accept the
+   list sticks on "Oops, something went wrong", and reloading that URL brings
+   nothing — only reopening the original /collaboration/ link does. The script
+   never sees that link (YouTube redirects first), so it rebuilds it from the
+   channel id in the path and inviterChannelId in the query. */
+
+test('after accepting, the original invite link is reopened for the next request', () => {
+  const r = run({ titles: ['Video A'], skipList: true });
+  assert.deepEqual(r.truth.accepted, ['Video A']);
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA'],
+    'must rebuild the /collaboration/ link, not reload the list URL');
+});
+
+test('the round counter advances so the loop is bounded', () => {
+  const store = {};
+  run({ titles: ['Video A'], skipList: true }, 40, store);
+  assert.equal(store.inviteAcceptRound.n, 1);
+});
+
+test('the round limit stops the loop', () => {
+  const store = { inviteAcceptRound: { n: 15, at: Date.now() } };
+  const r = run({ titles: ['Video A'], skipList: true }, 40, store);
+  assert.deepEqual(r.nav, [], 'must not reopen the link once the limit is reached');
+  assert.equal(store.inviteAcceptRound, null);
+});
+
+test('a visit that accepts nothing does not reopen the link', () => {
+  const r = run({ titles: [] }, 185);
+  assert.deepEqual(r.nav, []);
+});
+
+test('a URL without inviterChannelId cannot be rebuilt, so it stops', () => {
+  const r = run({ titles: ['Video A'], skipList: true,
+    url: 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA' });
+  assert.deepEqual(r.truth.accepted, ['Video A']);
+  assert.deepEqual(r.nav, [], 'no inviterChannelId to rebuild from');
+});
+
+/* ---------- the errored request list that covers the invite ----------
+   Seen live every run: "Collaboration requests" sticks on "Oops, something went
+   wrong" with no rows and floats over the invite card, leaving Accept dimmed. */
+
+test('an empty errored request list is dismissed, then the invite is accepted', () => {
+  const r = run({ titles: ['Video A'], skipList: true, deadList: true });
+  assert.equal(r.truth.closedDeadList, true, 'the useless box must be closed');
+  assert.deepEqual(r.truth.accepted, ['Video A'], 'and the card underneath accepted');
+});
+
+test('a request list with rows is never dismissed', () => {
+  const r = run({ titles: ['Video A', 'Video B'] });
+  assert.notEqual(r.truth.closedDeadList, true);
+  assert.deepEqual(r.truth.accepted, ['Video A', 'Video B']);
 });
