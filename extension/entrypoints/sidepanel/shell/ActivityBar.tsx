@@ -1,7 +1,8 @@
 import { Progress } from '@/components/ui/progress';
-import { activityFrom } from '@/lib/activity';
+import { activityFrom, emojiIconName } from '@/lib/activity';
 import { L } from '@/lib/i18n';
 import type { TabKey } from '../App';
+import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
 
 // The drawer's activity bar (actBar 3304–3312, activity() / renderActivity() 4079–4136):
@@ -26,6 +27,7 @@ export function ActivityBar({ onGo }: { onGo(tab: TabKey): void }) {
   const title = a.task === 'upload' && a.count ? L(`กำลังอัปโหลด ${a.count.at}/${a.count.of}`, `Uploading ${a.count.at}/${a.count.of}`) : a.title;
   const pct = a.progress === null ? null : Math.round(a.progress * 100);
   const go = () => onGo(a.tab);
+  const ic = emojiIconName(a.icon); // emojiIcon(a.icon, 15) (4122)
   return (
     <div
       role="button"
@@ -36,7 +38,7 @@ export function ActivityBar({ onGo }: { onGo(tab: TabKey): void }) {
       className="mx-[18px] mt-3 cursor-pointer rounded-[14px] border border-white/10 bg-white/5 px-3 py-2.5 hover:bg-surface2"
     >
       <div className="flex items-center gap-2 text-[13px]">
-        <span className="grid w-5 place-items-center text-fg2">{a.icon}</span>
+        <span className="grid w-5 place-items-center text-fg2">{ic ? <Icon name={ic} size={15} /> : a.icon}</span>
         <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
         <span className="text-xs text-fg2">{pct === null ? '' : `${pct}%`}</span>
       </div>

@@ -1,4 +1,4 @@
-import { activityFrom, type Activity } from '../activity';
+import { activityFrom, emojiIconName, type Activity } from '../activity';
 import { L } from '../i18n';
 import { h, icon } from './dom';
 import { queue, running, uploadProg } from './queue-runner';
@@ -29,9 +29,11 @@ const CSS = `
 .badge[hidden]{display:none}
 .ic{flex:0 0 auto;display:block}`;
 
-// The userscript's emojiIcon(), for the one activity this page has (the upload queue's ⬆;
-// claim scans don't run in the extension yet): the icon, or the text when it has none.
-const emojiIcon = (e: string): Node => (e.replace(/\uFE0F/g, '').trim() === '⬆' ? icon('upload', 12) : document.createTextNode(e));
+// The userscript's emojiIcon(): the activity's icon, or the text when it has none.
+const emojiIcon = (e: string): Node => {
+  const name = emojiIconName(e);
+  return name ? icon(name, 12) : document.createTextNode(e);
+};
 
 export interface FabModel {
   channel: string;

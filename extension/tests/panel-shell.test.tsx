@@ -11,6 +11,7 @@ import { ActivityBar } from '../entrypoints/sidepanel/shell/ActivityBar';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 import { ChannelBar } from '../entrypoints/sidepanel/shell/ChannelBar';
 import { setLang } from '../lib/i18n';
+import { ICONS } from '../lib/studio/dom';
 import * as fileStore from '../lib/file-store';
 import { toPanelData } from '../lib/panel/data';
 import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
@@ -178,6 +179,10 @@ describe('activity bar', () => {
     renderPanel(<ActivityBar onGo={go} />, api, fakeLive({ liveState: state({ running: true, prog: { pct: 0.5, text: 'Uploading 50%' } }) }));
     expect(screen.getByText('Uploading 1/2')).toBeTruthy();
     expect(screen.getByText('25%')).toBeTruthy();
+    // The activity's emoji is drawn as its icon (emojiIcon(a.icon, 15), 4122).
+    const bar = screen.getByRole('button', { name: /Uploading 1\/2/ });
+    expect(bar.textContent).not.toContain('⬆');
+    expect(bar.querySelector('svg path')?.getAttribute('d')).toBe(ICONS.upload);
     fireEvent.click(screen.getByRole('button', { name: /Uploading 1\/2/ }));
     expect(go).toHaveBeenCalledWith('queue');
   });

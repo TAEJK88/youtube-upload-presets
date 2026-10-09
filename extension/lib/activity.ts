@@ -53,3 +53,13 @@ export function activityFrom(q: QueueSummary, claims: ClaimsStatus | null, prog:
   }
   return null;
 }
+
+// The userscript's EMOJI_ICON (2503–2508): an activity's emoji is drawn as this icon
+// (emojiIcon(), 2524). null: no icon, show the emoji as text.
+const EMOJI_ICON: Record<string, string> = {
+  '✅': 'ok', '✓': 'check', '✔': 'check', '⚠': 'alert', '🤖': 'robot', '🤝': 'collab', '💰': 'paid', '⏸': 'pause', '⏳': 'wait',
+  '❌': 'cancel', '⏰': 'alarm', '📝': 'note', '⬆': 'upload', '✂': 'cut', '🎉': 'party', '🎵': 'music', '⛔': 'block',
+  '🔍': 'search', '🔄': 'sync', '▶': 'play', '⏭': 'next', '⚙': 'gear', '⚡': 'bolt', '👀': 'eye', 'ℹ': 'info', '🔒': 'lock',
+  '⬇': 'download', '📋': 'queue',
+};
+export const emojiIconName = (e: string): string | null => EMOJI_ICON[e.replace(/️/g, '').trim()] ?? null;
