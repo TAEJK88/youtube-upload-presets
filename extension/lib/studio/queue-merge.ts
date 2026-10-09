@@ -8,8 +8,14 @@ import type { QueueItem } from './queue-runner';
 //  - an item it didn't touch takes the foreign version;
 //  - an item either side removed stays removed;
 //  - the order is this tab's when it moved items, otherwise the foreign one, new items after it.
+// Once our save has left (flushQueue), the other window's event is dropped until our write
+// lands (sync-store) and the key is read again: two saves landing within a few milliseconds of
+// each other can still lose an edit, the later one winning whole.
 export function mergeQueue(base: QueueItem[], local: QueueItem[], foreign: QueueItem[]): QueueItem[] {
-  const before = new Map(base.map((it) => [it.id, JSON.stringify(it)]));
+  // n and an auto title are worked out again by every tab (assignNumbers) and stay in memory:
+  // they don't count as an edit.
+  const own = (it: QueueItem) => JSON.stringify({ ...it, n: 0, title: it.titleEdited ? it.title : '' });
+  const before = new Map(base.map((it) => [it.id, own(it)]));
   const mine = new Map(local.map((it) => [it.id, it]));
   const theirs = new Map(foreign.map((it) => [it.id, it]));
   // In both copies, or new on one side; an item of `base` that one side dropped is gone.
@@ -19,7 +25,7 @@ export function mergeQueue(base: QueueItem[], local: QueueItem[], foreign: Queue
     const f = theirs.get(id);
     if (!l) return f!;
     if (!f) return l;
-    return before.get(id) !== JSON.stringify(l) ? l : f;
+    return before.get(id) !== own(l) ? l : f;
   };
   const both = (list: QueueItem[]) => list.map((it) => it.id).filter((id) => before.has(id) && mine.has(id));
   const moved = both(local).join('\n') !== both(base).join('\n');

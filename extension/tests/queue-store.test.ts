@@ -139,9 +139,9 @@ describe('queue store', () => {
     await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending')] });
     await initState(async () => SCHEMA_VERSION);
     restoreQueue(true);
-    queue[0] = { ...queue[0]!, title: 'mine' }; // this window's edit, saved 300 ms later
+    queue[0] = { ...queue[0]!, title: 'mine', titleEdited: true }; // this window's edit, saved 300 ms later
     persistQueue();
-    await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending', { title: 'theirs' })] });
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending', { title: 'theirs', titleEdited: true })] });
     await vi.advanceTimersByTimeAsync(0); // the other window's save arrives
     expect(queue.map((i) => i.title)).toEqual(['mine', 'theirs']);
     await vi.advanceTimersByTimeAsync(300);

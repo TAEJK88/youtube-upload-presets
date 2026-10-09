@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { mergeQueue } from '../lib/studio/queue-merge';
 import type { QueueItem } from '../lib/studio/queue-runner';
 
+// A title other than the id is one the user typed (titleEdited), as a card edit sets it.
 const it_ = (id: string, title = id): QueueItem => ({
   id, src: 'bridge', file: { name: id + '.mp4', size: 1, type: '' }, presetId: 'trapsoul', n: 0, title,
-  titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0,
+  titleEdited: title !== id, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0,
 });
 const ids = (l: QueueItem[]) => l.map((i) => i.id);
 
@@ -33,5 +34,15 @@ describe('mergeQueue (two windows editing within 300 ms, 3b M3)', () => {
   it("keeps this side's order when it moved items, the foreign order otherwise", () => {
     expect(ids(mergeQueue(base, [it_('c'), it_('a'), it_('b')], [...base, it_('F')]))).toEqual(['c', 'a', 'b', 'F']);
     expect(ids(mergeQueue(base, [it_('a', 'x'), it_('b'), it_('c')], [it_('b'), it_('a'), it_('c')]))).toEqual(['b', 'a', 'c']);
+  });
+
+  it('a title or number recomputed in memory is not an edit (after a preset or counter change)', () => {
+    const mk = (id: string, extra: Partial<QueueItem> = {}): QueueItem => ({ ...it_(id, 'old ' + id), titleEdited: false, ...extra });
+    const base = [mk('a'), mk('b')];
+    const local = [mk('a', { title: 'new a', titleEdited: true }), mk('b', { title: 'new b', n: 7 })];
+    const foreign = [mk('a', { title: 'new a' }), mk('b', { title: 'new b', publishAt: 123, publishEdited: true })];
+    expect(mergeQueue(base, local, foreign)[1]!.publishAt).toBe(123);
+    // An edited title is an edit.
+    expect(mergeQueue(base, local, foreign)[0]!.titleEdited).toBe(true);
   });
 });
