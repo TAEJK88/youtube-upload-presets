@@ -202,11 +202,14 @@ The panel's own console: right-click inside the panel → Inspect.
       click granted all files (if the banner stays with fewer files, click again).
     - Afterwards the banner is gone, Start is enabled again, and the card's thumbnail preview
       is back without closing or reopening the panel. Start: they upload.
-    - Repeat with 3+ files from a dropped folder and block one prompt ('denied'). The banner
+    - Repeat with 3+ files from a dropped folder and block one prompt by clicking **Don't allow** (Esc usually
+      only dismisses it, which leaves the file at 'prompt' and Start disabled). The banner
       stays with that one file (**Record** whether its button then does nothing), but Start is
       enabled: Start waits only on files the run will read whose access went back to
       'prompt'. Start: the blocked file's item fails with the "No permission to read this
-      file" error, the others upload.
+      file" error, the others upload. **Record** whether clicking Re-grant afterwards can
+      unblock it (if not, the error's advice to click Re-grant is wrong for blocked files;
+      Phase 4 gives them their own sentence).
     - Start ignores files the run won't read. With one error card left from an earlier run
       (its file still needs a grant) and the waiting clips granted, Start is enabled while
       the banner still counts the error card's file. With Settings → thumbnails off, a
