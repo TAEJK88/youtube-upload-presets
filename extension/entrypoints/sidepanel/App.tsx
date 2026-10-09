@@ -3,6 +3,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L } from '@/lib/i18n';
 import { Icon } from './Icon';
+import { Banners } from './shell/Banners';
 
 export type TabKey = 'queue' | 'presets' | 'claims' | 'settings';
 // The drawer's tabs, in its order (3317).
@@ -17,6 +18,7 @@ export function App() {
   const [tab, setTab] = useState<TabKey>('queue');
   return (
     <div className="flex h-dvh flex-col">
+      <Banners />
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="mx-[18px] mt-3">
           {tabDefs().map(([k, label, ic]) => (

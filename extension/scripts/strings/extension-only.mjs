@@ -21,4 +21,8 @@ export default [
   { th: 'เพิ่มไม่ได้ ${} ไฟล์: ', en: 'Could not add ${} file(s): ', why: 'bridge failures when adding' },
   // Phase 3a: settings writes go through the background store writer
   { th: 'บันทึกการตั้งค่าไม่สำเร็จ — ตารางเวลาหรือเลข EP อาจคลาดเคลื่อนตลอดการรันนี้', en: "Couldn't save a settings change — the schedule or EP numbers may be off for the rest of the run", why: "the background writer can fail; the userscript wrote synchronously" },
+  // Phase 3a: the side panel
+  { th: 'แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', en: 'This tab is not connected to the extension yet — reload this tab', why: 'Studio tab opened before the extension (re)loaded: no content script to talk to' },
+  { th: 'โหลดแท็บนี้ใหม่', en: 'Reload this tab', why: 'button for the banner above, and the in-page banner after an extension update (3b)' },
+  { th: 'ไปที่แท็บนั้น', en: 'Go to that tab', why: 'the run is in another Studio tab' },
 ];
