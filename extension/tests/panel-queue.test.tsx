@@ -61,6 +61,23 @@ describe('queue card', () => {
     expect(api.send).toHaveBeenCalledWith('queue:retry', 'i0');
   });
 
+  it('Remove and Retry that do not reach the tab say so', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      for (const [status, name] of [['pending', 'Remove from queue'], ['error', 'Retry']] as const) {
+        const api = fakePanel({ view: viewWith([{ status }]) });
+        vi.mocked(api.send).mockRejectedValue(new Error('no receiver'));
+        renderPanel(<QueueCard it={api.view!.items[0]!} open={false} onOpen={() => {}} />, api);
+        await act(async () => fireEvent.click(screen.getByRole('button', { name })));
+        expect(toast).toHaveBeenCalledWith(RELOAD);
+        cleanup();
+        vi.mocked(toast).mockClear();
+      }
+    } finally {
+      err.mockRestore();
+    }
+  });
+
   it('Retry without a draft goes straight away', () => {
     const api = one({ status: 'error' });
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -193,6 +210,12 @@ describe('upload tab', () => {
     cleanup();
     renderPanel(<QueueTab />, fakePanel({ view: viewWith([{ status: 'uploading' }, { status: 'pending' }]) }), fakeLive({ liveState: state({ running: true }) }));
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('0');
+  });
+
+  it('the drop zone: a click anywhere on it picks files', () => {
+    renderPanel(<QueueTab />, fakePanel({ view: viewWith([]) }));
+    fireEvent.click(screen.getByText('Drop files or a folder anywhere on this panel'));
+    expect(intake.pickFiles).toHaveBeenCalledTimes(1);
   });
 
   it('the drop zone: Space picks files; the folder button is not inside another control', async () => {
@@ -368,15 +391,17 @@ describe('schedule box', () => {
 
   it('the late note shows the set time and the time the queue will use', () => {
     const start = Date.now() + 86400e3;
-    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ start: '2020-01-01T08:00' }), view: lateView(start) }));
+    const { container } = renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ start: '2020-01-01T08:00' }), view: lateView(start) }));
+    expect((container.firstChild as HTMLElement).className).toContain('border-warn'); // .sched.late
     expect(screen.getByText(`The set time (${fmtWhen(new Date('2020-01-01T08:00').getTime())}) has passed — the queue will start ${fmtWhen(start)} instead`)).toBeTruthy();
   });
 
   it('a start cleared while the late note shows: no note, and the panel keeps rendering', () => {
     // The stored start updates at once; the view's `late` only after the queue:view round trip.
     const start = Date.now() + 86400e3;
-    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ start: '' }), view: lateView(start) }));
+    const { container } = renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ start: '' }), view: lateView(start) }));
     expect(screen.queryByText(/has passed/)).toBe(null);
+    expect((container.firstChild as HTMLElement).className).not.toContain('border-warn');
     expect(screen.getByText("Pick the first video's release time")).toBeTruthy();
   });
 

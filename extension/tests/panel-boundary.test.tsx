@@ -13,7 +13,17 @@ vi.mock('../entrypoints/sidepanel/tabs/SettingsTab', () => ({
   },
 }));
 
+// The Upload footer fails only when a test asks it to.
+let footerThrows = false;
+vi.mock('../entrypoints/sidepanel/tabs/QueueFooter', () => ({
+  QueueFooter: () => {
+    if (footerThrows) throw new RangeError('Invalid time value');
+    return <p>Footer</p>;
+  },
+}));
+
 afterEach(() => {
+  footerThrows = false;
   cleanup();
   vi.restoreAllMocks();
 });
@@ -45,6 +55,17 @@ describe('pane error boundary', () => {
     renderPanel(<App />);
     expect(screen.getByRole('alert').textContent).toBe('This tab hit an error — close and reopen the side panel');
     expect(screen.getByRole('tab', { name: /Upload/ })).toBeTruthy();
+    expect(err).toHaveBeenCalledWith('[ytup] panel render error', expect.any(RangeError));
+  });
+
+  it('a failing footer leaves the tabs and the panes', () => {
+    setLang('en');
+    footerThrows = true;
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderPanel(<App />);
+    expect(screen.getAllByRole('alert').length).toBe(2); // the mocked Settings pane and the footer
+    expect(screen.getByRole('tab', { name: /Upload/ })).toBeTruthy();
+    expect(screen.getByText('Drop files or a folder anywhere on this panel')).toBeTruthy();
     expect(err).toHaveBeenCalledWith('[ytup] panel render error', expect.any(RangeError));
   });
 });
