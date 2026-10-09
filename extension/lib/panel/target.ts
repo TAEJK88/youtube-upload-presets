@@ -23,8 +23,12 @@ export function watchTabs(windowId: number, fn: (e: TabEvent) => void): () => vo
   };
   const updated = (_id: number, info: { status?: string; url?: string; title?: string }, tab: { active?: boolean; windowId?: number }) => {
     if (!tab.active || tab.windowId !== windowId) return;
-    if (info.url) fn('switched');
-    else if (info.status === 'loading') fn('loading');
+    // A full navigation reports its new URL and 'loading' in one event: the page's script is
+    // gone until it completes, so both are told.
+    if (info.url) {
+      fn('switched');
+      if (info.status === 'loading') fn('loading');
+    } else if (info.status === 'loading') fn('loading');
     else if (info.status === 'complete') fn('loaded');
     else if (info.title) fn('titled');
   };

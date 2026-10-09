@@ -60,8 +60,14 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const runnerRef = useRef<number | undefined>(undefined);
   useEffect(() => { runnerRef.current = runnerId; }, [runnerId]);
   const seen = useRef(new Map<number, string>()); // rev + channel per tab: re-read the view when it moves
+  const linkRef = useRef<LinkStatus>('noTab');
   const sync = useMemo(
-    () => createViewSync({ fetch: (id) => sendMessage('queue:view', undefined, id), onView: setView, onStatus: setLink, onError: (e) => toast(`queue:view: ${(e as Error)?.message ?? e}`) }),
+    () => createViewSync({
+      fetch: (id) => sendMessage('queue:view', undefined, id),
+      onView: setView,
+      onStatus: (s) => { linkRef.current = s; setLink(s); },
+      onError: (e) => toast(`queue:view: ${(e as Error)?.message ?? e}`),
+    }),
     [],
   );
 
@@ -147,7 +153,8 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       if (tabId !== targetRef.current?.tabId && tabId !== runnerRef.current) return;
       setStates((m) => new Map(m).set(tabId, s));
       const sig = `${s.rev}|${JSON.stringify(s.channel)}`;
-      if (tabId === targetRef.current?.tabId && seen.current.get(tabId) !== sig) sync.poke();
+      // Not linked yet: a reloaded page's first broadcast can look just like the old page's.
+      if (tabId === targetRef.current?.tabId && (seen.current.get(tabId) !== sig || linkRef.current !== 'ok')) sync.poke();
       seen.current.set(tabId, sig);
     });
     // Toasts from the bound tab only: a stop sent to another tab is announced by the panel

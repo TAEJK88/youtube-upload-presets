@@ -40,4 +40,12 @@ describe('target', () => {
     await fakeBrowser.tabs.onActivated.trigger({ tabId: 4, windowId: 1 });
     expect(seen).toEqual(['switched', 'loading', 'loaded', 'titled', 'switched']);
   });
+
+  it('a full navigation to a new URL reports the load too (its script is gone until it completes)', async () => {
+    const seen: string[] = [];
+    const off = watchTabs(1, (e) => seen.push(e));
+    await fakeBrowser.tabs.onUpdated.trigger(4, { status: 'loading', url: 'https://studio.youtube.com/channel/UC2' }, { active: true, windowId: 1 } as never);
+    off();
+    expect(seen).toEqual(['switched', 'loading']);
+  });
 });

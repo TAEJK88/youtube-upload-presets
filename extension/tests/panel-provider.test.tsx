@@ -4,8 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
-vi.mock('../lib/messages', async (orig) => ({ ...(await orig<object>()), sendMessage: vi.fn(async () => ({ items: [] })), onMessage: vi.fn() }));
+const handlers = vi.hoisted(() => new Map<string, (m: unknown) => void>());
+vi.mock('../lib/messages', async (orig) => ({
+  ...(await orig<object>()),
+  sendMessage: vi.fn(async () => ({ items: [] })),
+  onMessage: (type: string, fn: (m: unknown) => void) => { handlers.set(type, fn); return () => {}; },
+}));
 
+import { sendMessage } from '../lib/messages';
 import { PanelProvider, usePanel } from '../entrypoints/sidepanel/panel';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 
@@ -76,5 +82,38 @@ describe('runner elsewhere', () => {
     await flush();
     expect(err).toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Go to that tab' })).toBeNull();
+  });
+});
+
+describe('the "reload this tab" banner', () => {
+  it('a reload whose first broadcast looks like the old page\'s still re-checks the tab', async () => {
+    const now = vi.spyOn(Date, 'now');
+    let t = 1_000_000;
+    now.mockImplementation(() => t);
+    let up = true;
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => {
+      if (type === 'queue:view' && !up) throw new Error('Could not establish connection. Receiving end does not exist.');
+      return { items: [] };
+    }) as never);
+    function Link() { return <div data-testid="link">{usePanel().link}</div>; }
+    render(<PanelProvider><Link /></PanelProvider>);
+    await flush();
+    const onState = handlers.get('queue:state')!;
+    const s = { running: false, stopping: false, prog: null, rev: 0, channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '', label: 'Mine', problem: '' } };
+    await act(async () => onState({ data: s, sender: { tab: { id: 3 } } }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+    expect(screen.getByTestId('link').textContent).toBe('ok');
+    // the tab reloads; its new script registers late, after the grace period
+    up = false;
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'loading' }, tabs[3] as never); });
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'complete' }, tabs[3] as never); });
+    t += 10_000;
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+    expect(screen.getByTestId('link').textContent).toBe('noScript');
+    // the new script is up and broadcasts the same rev and channel as the old one
+    up = true;
+    await act(async () => onState({ data: s, sender: { tab: { id: 3 } } }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+    expect(screen.getByTestId('link').textContent).toBe('ok');
   });
 });
