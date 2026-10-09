@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { getLang, initI18n, L, locale, resolveLang, setLang } from '../lib/i18n';
+import { getLang, initI18n, L, locale, resolveLang, setLang, watchLang } from '../lib/i18n';
 
 beforeEach(() => fakeBrowser.reset());
 afterEach(() => setLang('en'));
@@ -33,5 +33,17 @@ describe('i18n', () => {
     await browser.storage.local.set({ settings: { lang: 'th' } });
     expect(await initI18n()).toBe('th');
     expect(getLang()).toBe('th');
+  });
+
+  it('watchLang follows a language change made in another context', async () => {
+    const seen: string[] = [];
+    const off = watchLang((l) => seen.push(l));
+    await browser.storage.local.set({ settings: { lang: 'th' } });
+    expect(getLang()).toBe('th');
+    await browser.storage.local.set({ settings: { lang: 'th', delay: 3 } }); // same language: no call
+    off();
+    await browser.storage.local.set({ settings: { lang: 'en' } });
+    expect(seen).toEqual(['th']);
+    expect(getLang()).toBe('th'); // stopped following
   });
 });

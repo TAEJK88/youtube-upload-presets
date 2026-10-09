@@ -1,6 +1,6 @@
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
-import { initI18n } from '@/lib/i18n';
+import { initI18n, watchLang } from '@/lib/i18n';
 import { browserEnv, createInviteWatcher, INVITE_KEYS } from '@/lib/invite';
 import { createSyncStore } from '@/lib/sync-store';
 
@@ -11,6 +11,7 @@ export default defineContentScript({
   async main(ctx) {
     await initI18n();
     const stop = stopOnInvalidated(ctx);
+    stop.add(watchLang());
     const store = await createSyncStore(INVITE_KEYS);
     stop.add(() => store.dispose());
     const env = browserEnv(store, {

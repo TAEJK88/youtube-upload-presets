@@ -23,3 +23,17 @@ export async function initI18n(): Promise<Lang> {
   setLang(resolveLang(settings as { lang?: unknown } | undefined, presets !== undefined));
   return current;
 }
+
+// The language is a setting the side panel changes; every context follows it at once
+// (the userscript reloaded the page instead). Returns a disposer.
+export function watchLang(onChange?: (l: Lang) => void): () => void {
+  const fn = (changes: Record<string, { newValue?: unknown }>, area: string) => {
+    if (area !== 'local' || !changes.settings) return;
+    const l = (changes.settings.newValue as { lang?: unknown } | undefined)?.lang;
+    if ((l !== 'th' && l !== 'en') || l === current) return;
+    current = l;
+    onChange?.(l);
+  };
+  browser.storage.onChanged.addListener(fn);
+  return () => browser.storage.onChanged.removeListener(fn);
+}
