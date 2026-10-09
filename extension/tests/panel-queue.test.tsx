@@ -126,6 +126,32 @@ describe('queue card', () => {
   });
 });
 
+describe('queue card: attach failures', () => {
+  const attach = async (impl: (files: FileSystemFileHandle[], deliver: (ids: string[]) => Promise<unknown>) => Promise<number>) => {
+    vi.spyOn(intake, 'pickAttachments').mockResolvedValue([{ kind: 'file', name: 'a.txt' } as FileSystemFileHandle]);
+    vi.mocked(intake.sendFiles).mockImplementation(impl);
+    one({ status: 'pending' });
+    await act(async () => void fireEvent.click(screen.getByText('Attach .txt / thumbnail')));
+  };
+  it('handles that could not be stored: "Could not add", not "not connected"', async () => {
+    await attach(async () => { throw new Error('quota'); });
+    expect(toast).toHaveBeenCalledWith('Could not add 1 file(s): quota');
+  });
+  it('a tab that did not take them: "not connected"', async () => {
+    await attach(async (_files, deliver) => { await deliver(['id1']); return 1; });
+    expect(toast).not.toHaveBeenCalled(); // delivered
+    cleanup();
+    vi.mocked(toast).mockClear();
+    vi.mocked(intake.sendFiles).mockImplementation(async (_files, deliver) => { await deliver(['id1']); return 1; });
+    const view = viewWith([{ status: 'pending' }]);
+    const api = fakePanel({ view });
+    vi.mocked(api.send).mockRejectedValue(new Error('Receiving end does not exist'));
+    renderPanel(<QueueCard it={view.items[0]!} open={false} onOpen={() => {}} />, api);
+    await act(async () => void fireEvent.click(screen.getByText('Attach .txt / thumbnail')));
+    expect(toast).toHaveBeenCalledWith(RELOAD);
+  });
+});
+
 describe('queue card: thumbnail preview', () => {
   it('comes back after a re-grant', async () => {
     let perm: PermissionState = 'prompt';
@@ -265,6 +291,19 @@ describe('upload tab', () => {
   it('Apply to all is off while the queue runs', () => {
     renderPanel(<QueueTab />, fakePanel({ view: viewWith([{ status: 'uploading' }]) }), fakeLive({ liveState: state({ running: true }) }));
     expect((screen.getByRole('button', { name: /Apply to all/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a default preset that could not be saved, or an Apply to all the tab never got, says so', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
+    vi.mocked(api.write.activeId).mockRejectedValue(new Error('quota'));
+    vi.mocked(api.send).mockRejectedValue(new Error('Receiving end does not exist'));
+    renderPanel(<QueueTab />, api);
+    await act(async () => void fireEvent.change(screen.getByTitle('Preset for newly added videos'), { target: { value: 'lofi' } }));
+    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
+    await act(async () => void fireEvent.click(screen.getByRole('button', { name: /Apply to all/ })));
+    expect(toast).toHaveBeenCalledWith(RELOAD);
+    err.mockRestore();
   });
 
   it('the default preset select writes activeId', () => {

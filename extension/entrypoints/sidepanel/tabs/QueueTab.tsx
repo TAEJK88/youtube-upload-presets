@@ -8,8 +8,15 @@ import { dropHandles, expandHandles, hasFiles, pickFiles, pickFolder, sendFiles 
 import { cn } from '@/lib/utils';
 import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
+import { saveFailed } from '../save-failed';
 import { QueueCard } from './QueueCard';
 import { ScheduleBox } from './ScheduleBox';
+
+// The tab's message channel failed or nobody answered: the change never reached the queue.
+const notConnected = (e: unknown) => {
+  console.error('[ytup] upload tab', e);
+  toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
+};
 
 // Files from a drop or a picker → stored → the Studio tab's queue (addFiles there).
 export function useAddFiles() {
@@ -108,11 +115,11 @@ export function QueueTab() {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <NativeSelect className="min-w-0 flex-1" title={L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos')} value={data.activeId} onChange={(e) => void write.activeId(e.target.value)}>
+        <NativeSelect className="min-w-0 flex-1" title={L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos')} value={data.activeId} onChange={(e) => void write.activeId(e.target.value).catch(saveFailed)}>
           {data.presets.map((p, i) => <option key={p.id} value={p.id}>{`${i + 1}. ${p.label}`}</option>)}
         </NativeSelect>
         <Button size="sm" disabled={running} title={L('เปลี่ยนพรีเซ็ตของทุกคลิปที่ยังไม่ได้อัป', 'Change the preset of all videos not yet uploaded')}
-          onClick={() => void send('queue:edit', { op: 'presetAll', presetId: data.activeId })}>
+          onClick={() => void send('queue:edit', { op: 'presetAll', presetId: data.activeId }).catch(notConnected)}>
           <Icon name="layers" size={14} />{L('ใช้กับทุกคลิป', 'Apply to all')}
         </Button>
         {has && (

@@ -108,12 +108,27 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
     dropFiles(failed.map((f) => ({ id: f.id, src: 'bridge' as const })));
   }
   if (!canEdit(it)) return dropFiles(files.map((f) => ({ id: f.qid, src: f.src })));
-  // Read every .txt before touching the item: the run can take it during an await.
+  // Read every .txt before touching the item: the run can take it during an await. One that
+  // can't be read is a failed file like the bridge's (handleQueueAdd); the rest still attach.
   const texts = new Map<string, string>();
-  for (const f of files) if (isTxt(f)) texts.set(f.qid, await readText(f));
-  if (!canEdit(it)) return dropFiles(files.map((f) => ({ id: f.qid, src: f.src })));
-  const unused: { qid: string; src: FileSrc }[] = [];
+  const unreadable: { id: string; reason: string }[] = [];
   for (const f of files) {
+    if (!isTxt(f)) continue;
+    try {
+      texts.set(f.qid, await readText(f));
+    } catch (e) {
+      unreadable.push({ id: f.qid, reason: (e as Error)?.message ?? String(e) });
+    }
+  }
+  if (unreadable.length) {
+    ui.toast(L(`เพิ่มไม่ได้ ${unreadable.length} ไฟล์: `, `Could not add ${unreadable.length} file(s): `) + unreadable[0]!.reason);
+    dropFiles(unreadable.map((f) => ({ id: f.id, src: 'bridge' as const })));
+  }
+  const usable = files.filter((f) => !unreadable.some((u) => u.id === f.qid));
+  if (!canEdit(it)) return dropFiles(usable.map((f) => ({ id: f.qid, src: f.src })));
+  if (!usable.length) return;
+  const unused: { qid: string; src: FileSrc }[] = [];
+  for (const f of usable) {
     if (isTxt(f)) {
       it.txt = texts.get(f.qid) ?? '';
       it.txtName = f.name;

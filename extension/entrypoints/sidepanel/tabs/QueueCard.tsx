@@ -100,11 +100,15 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
   const pct = it.status === 'uploading' && liveState?.prog && liveState.prog.pct !== null ? Math.round(liveState.prog.pct * 100) : null;
   const removable = it.status !== 'uploading' && it.status !== 'review' && !current;
 
+  // As useAddFiles: a tab that didn't answer is "not connected"; handles that couldn't be
+  // stored are files that could not be added.
   const attachFiles = async (files: FileSystemFileHandle[]) => {
+    let delivering = false;
     try {
-      await sendFiles(files, (ids) => send('queue:edit', { op: 'attach', id: it.id, fileIds: ids }));
-    } catch {
-      toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
+      await sendFiles(files, (ids) => { delivering = true; return send('queue:edit', { op: 'attach', id: it.id, fileIds: ids }); });
+    } catch (e) {
+      if (delivering) return notConnected(e);
+      toast(L(`เพิ่มไม่ได้ ${files.length} ไฟล์: `, `Could not add ${files.length} file(s): `) + ((e as Error)?.message ?? String(e)));
     }
   };
   // A .txt or image dropped on the card attaches to it; videos and folders go to the panel.

@@ -113,6 +113,18 @@ describe('editQueue', () => {
     expect(Q.queue[0]!.thumb?.id).toBe('i1');
   });
 
+  // The panel would otherwise say "this tab is not connected" for a file it delivered fine.
+  it('attach with a .txt that cannot be read: a toast for that file, the rest attached, no rejection', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    vi.spyOn(files, 'bridgeFiles').mockResolvedValue({ files: [qfile('a.txt', 't1'), qfile('a.jpg', 'i1')], failed: [] });
+    vi.spyOn(Q, 'readText').mockRejectedValue(new DOMException('changed', 'NotReadableError'));
+    Q.queue.push(item('a', 'pending'));
+    await expect(editQueue({ op: 'attach', id: 'a', fileIds: ['t1', 'i1'] })).resolves.toBeUndefined();
+    expect(calls).toContain('toast:Could not add 1 file(s): changed');
+    expect(Q.queue[0]).toMatchObject({ txt: '', thumb: { id: 'i1' } });
+    expect(drop.mock.calls.flat(2).map((r) => r.id)).toEqual(['t1']);
+  });
+
   it('attach to an item that started uploading meanwhile lets every file go', async () => {
     const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
     vi.spyOn(files, 'bridgeFiles').mockImplementation(async () => {
