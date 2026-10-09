@@ -1,6 +1,8 @@
 import '@/lib/debug-capture/studio'; // FIRST: the debug page shows what goes wrong below
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
+import { disposeClaimsStore, initClaimsStore } from '@/lib/claims/store';
+import { wireClaims } from '@/lib/claims/wiring';
 import { createFileBridge } from '@/lib/file-bridge-client';
 import { initI18n, L } from '@/lib/i18n';
 import { browserEnv, createInviteWatcher, INVITE_KEYS } from '@/lib/invite';
@@ -69,6 +71,16 @@ export default defineContentScript({
       return;
     }
     if (ctx.isInvalid) return;
+    // The copyright data (per channel; one writer, the background) and Studio's own API.
+    stop.add(disposeClaimsStore); // first: a teardown while it loads drops what it loaded
+    await initClaimsStore();
+    if (ctx.isInvalid) return;
+    // Studio's API for the copyright module (its own client: 30 s, the userscript's fetch had no
+    // timeout; getCfg keeps 10 s, D22), and the queue's schedule avoids the channel's scheduled
+    // videos (refreshChanSched, user.js 1899).
+    const yt = rpcClient<MainOps>(windowEndpoint(window, window.location.origin), MAIN_CH, 30_000);
+    stop.add(() => yt.dispose('extension reloaded'));
+    stop.add(wireClaims((path, body) => yt('youtubei', path, body)));
     await refreshCfg(readCfg);
     // The preflight and the start read ytcfg again themselves (startSummary / startQueue).
     setCfgReader(readCfg);

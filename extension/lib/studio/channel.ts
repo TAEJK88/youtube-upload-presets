@@ -3,17 +3,23 @@ import { buildVars as buildVarsWith, type BuildOpts, type Vars } from '../templa
 import { SEL } from './sel';
 import { settings } from './state';
 
-// ytcfg lives in the page's MAIN world. The content script copies what getChannel()
-// needs into `cfg` (refreshCfg) so getChannel() stays synchronous, as in the userscript.
+// ytcfg lives in the page's MAIN world. The content script copies what the page code needs into
+// `cfg` (refreshCfg) so getChannel() stays synchronous, as in the userscript: CHANNEL_ID for
+// getChannel(), and INNERTUBE_CONTEXT, which the copyright module checks to know Studio has
+// loaded (ycfg('INNERTUBE_CONTEXT'), user.js 4737 / 4763 / 6316).
+export const CFG_KEYS = ['CHANNEL_ID', 'INNERTUBE_CONTEXT'];
 const cfg: Record<string, unknown> = {};
 const mainWorld: { ytcfg?: { get(key: string): string | undefined } } = { ytcfg: { get: (key) => cfg[key] as string | undefined } };
 export async function refreshCfg(read: (keys: string[]) => Promise<Record<string, unknown>>): Promise<void> {
   try {
-    Object.assign(cfg, await read(['CHANNEL_ID']));
+    Object.assign(cfg, await read(CFG_KEYS));
   } catch (e) {
     console.warn('[ytup] ytcfg', e);
   }
 }
+
+// ycfg(key) as last copied (refreshCfg), for the copyright module.
+export const cachedCfg = (key: string): unknown => cfg[key];
 
 // Tests only: forget what refreshCfg() cached.
 export function resetCfg(): void {

@@ -141,7 +141,7 @@ describe('channel check reads ytcfg again (preflight / start)', () => {
     const read = vi.fn(async () => ({ CHANNEL_ID: 'UCmine0000000001' }));
     Q.setCfgReader(read);
     const s = await Q.startSummary();
-    expect(read).toHaveBeenCalledWith(['CHANNEL_ID']);
+    expect(read).toHaveBeenCalledWith(['CHANNEL_ID', 'INNERTUBE_CONTEXT']);
     expect(s).toMatchObject({ pendingN: 1, channel: { id: 'UCmine0000000001' } });
   });
 

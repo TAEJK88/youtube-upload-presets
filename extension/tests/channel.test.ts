@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildVars, channelProblem, getChannel, refreshCfg, resetCfg } from '../lib/studio/channel';
+import { buildVars, cachedCfg, channelProblem, getChannel, refreshCfg, resetCfg } from '../lib/studio/channel';
 import { settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -47,6 +47,7 @@ describe('getChannel', () => {
     page('/');
     await refreshCfg(async (keys) => Object.fromEntries(keys.map((k) => [k, 'UCfromytcfg12345'])));
     expect(getChannel().id).toBe('UCfromytcfg12345');
+    expect(cachedCfg('INNERTUBE_CONTEXT')).toBe('UCfromytcfg12345');
     await refreshCfg(async () => { throw new Error('getCfg: timed out after 10000 ms'); });
     expect(getChannel().id).toBe('UCfromytcfg12345');
   });
