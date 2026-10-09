@@ -100,12 +100,14 @@ www.youtube.com → invite.content.ts (channel switch + invite accept)
 `File` objects cannot travel over `chrome.runtime` messaging, and Studio's upload input
 needs a real `File` inside the Studio tab (`DataTransfer` injection, current line 1543).
 
-1. **Drop.** The panel's drop handler calls `DataTransferItem.getAsFileSystemHandle()` for
-   every video, thumbnail and `.txt`. Handles go into extension IndexedDB as
-   `{itemId → handle}` (`lib/file-store.ts`). Queue metadata (preset, title, schedule,
-   pairing by base name) goes into `chrome.storage.local`. `.txt` contents are read in
-   the panel at drop time (UTF-8, falling back to windows-874 as today) and stored with
-   the item.
+1. **Drop.** The panel's drop handler (and its pickers) calls
+   `DataTransferItem.getAsFileSystemHandle()` for every video, thumbnail and `.txt`.
+   Handles go into extension IndexedDB as `{id → handle}`, one random id per file
+   (`lib/file-store.ts`), and the panel sends the ids to the Studio tab (`queue:add`). The
+   Studio tab fetches the files through the bridge (step 2) and does the rest, as the
+   userscript did: it reads each `.txt` (UTF-8, falling back to windows-874 as today) and
+   stores its text with the item, pairs files by base name, and writes the queue metadata
+   (preset, title, schedule) to `chrome.storage.local`. The panel never builds queue items.
 2. **Bridge.** `studio.content.ts` mounts a hidden `file-bridge.html` iframe. It has the
    same origin as the panel, so it sees the same IndexedDB.
 3. **Fetch.** When the runner reaches an item, it asks the bridge for `itemId`. The bridge
@@ -114,8 +116,11 @@ needs a real `File` inside the Studio tab (`DataTransfer` injection, current lin
    injection runs unchanged.
 4. **Reload and restart.** Handles persist, so the queue survives tab reloads and channel
    switches. After a browser restart, read permission may go back to `prompt`. The panel
-   then shows one **Re-grant access (N files)** button, which calls `requestPermission()`
-   on a user click. One grant covers the extension origin, and the queue resumes.
+   then shows one **Re-grant access (N files)** button. One click calls
+   `requestPermission()` on each such handle in turn (Chrome may prompt per handle; the
+   manual check records how many prompts one click shows), and the queue resumes. Start
+   waits until no queued file needs a grant; the Studio tab refuses a start that slips
+   through.
 5. **Cleanup.** A handle is deleted when its item is done or removed from the queue.
 
 The rule "don't change pages or channels while the queue has files" goes away once
@@ -125,10 +130,19 @@ step 4 works.
 
 All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
 
-- **Panel → page:** `queue:start`, `queue:stop`, `queue:edit`, `queue:remove`,
-  `claims:scan`, `claims:trim`, `claims:autopilot`, `diag:dialogInfo`.
-- **Page → panel:** `queue:state` and `claims:state` broadcasts (live runner state:
-  current item, step, progress percentage).
+- **Panel → page (the Studio tab):** `queue:add`, `queue:preflight`, `queue:start`,
+  `queue:stop`, `queue:retry`, `queue:remove`, `queue:clearDone`, `queue:view`,
+  `queue:edit`, `channel:switch`, `fill:apply`, `diag:dialogInfo`. Phase 4 adds
+  `claims:scan`, `claims:trim`, `claims:autopilot`.
+- **Page → panel:** `queue:state` broadcasts the live runner state (running, stopping,
+  progress, a revision number, the channel) and `queue:toast` the page's toasts. The panel
+  doesn't take the queue from them: a `queue:state` whose revision changed, a storage
+  change or a minute's timer makes it ask its tab for `queue:view` again. Phase 4 adds
+  `claims:state`.
+- **Page → background:** `openPanel`, `ensureMigrated`, `files:delete`, `notify`,
+  `runner:acquire`, `runner:release`, `runner:elsewhere`, `store:patch`. **Panel →
+  background:** `store:patch`, `backup:write`. `files:delete`, `store:patch` and
+  `backup:write` are refused from senders that may not write (`mayWrite`).
 - **Persistent state** (settings, presets, upload history, queue metadata, per-channel
   claims data) is read and written through `chrome.storage.local`. Both sides react to
   `storage.onChanged`.
@@ -145,6 +159,10 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
 - **One runner at a time.** A `storage.session` lock `{runnerTabId}` stops two Studio
   tabs from running queues at once. The lock is released when the runner stops or when
   its tab closes (`tabs.onRemoved` in the background).
+- **Stop goes to the lock holder.** The panel's Stop is sent to the tab that holds the
+  runner lock, which may not be the panel's own tab. When it isn't, the panel names the tab
+  that will stop ("Will stop the queue in the tab "…" after the current video finishes").
+  The panel shows toasts from its own tab only (plan 3b D14).
 - **Content ↔ MAIN world.** `window.postMessage` on a fixed channel name
   (`ytup:main`). Requests carry an id; responses echo it. The MAIN script answers only
   `getCfg` and `youtubei`, and ignores any message whose `source` is not `window` or
@@ -159,7 +177,8 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
   that channel. If no such tab exists, the channel is marked `due` in storage, and the
   run starts the next time that channel opens in Studio.
 - **Notifications.** "Queue finished" goes through `chrome.notifications`. A click
-  focuses the tab and opens the panel. The tab-title mark and the sound stay in the page.
+  focuses the tab, and opens the panel if Chrome accepts the click as the user gesture
+  `sidePanel.open()` needs (recorded in the manual check). The tab-title mark and the sound stay in the page.
 - **Update check.** Once a day, the background fetches the latest GitHub release of
   `TAEJK88/youtube-upload-presets` and compares versions. If a newer one exists, the
   panel shows an "Update available" banner linking to the release. Built in Phase 5, with
@@ -170,8 +189,8 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
 ## Side panel UI
 
 - **Same content.** The drawer's tabs — Upload (with the schedule box), Presets, Copyright,
-  Settings — with the same fields, actions and EN/TH strings as v4.26.1 (`npm run ui-check`
-  proves the strings). Backup/share stays inside Settings.
+  Settings — with the same fields, actions and EN/TH strings as v4.27.1, the userscript
+  commit `npm run ui-check` pins (it proves the strings). Backup/share stays inside Settings.
 - **Built from shadcn/ui** components (Button, Tabs, Dialog, Switch, Input, Textarea, Badge,
   Progress, Sonner) copied into `components/ui/`, on Tailwind v4; native `<select>` and
   date-time inputs as in the drawer. The theme is defined as CSS variables carrying the black
@@ -228,7 +247,9 @@ it (no page reload, so the userscript's "clear the queue first" guard is gone).
 ## Testing
 
 - **Runner and checks.** Vitest with WXT's `fakeBrowser`. `npm run check` runs
-  `tsc --noEmit` and `vitest run`, and must pass before every release.
+  `tsc --noEmit`, `vitest run`, `port-check` (ported code against the pinned userscript)
+  and `ui-check --coverage` (UI strings and the 12px floor), and must pass before every
+  release.
 - **Ported tests.** The template, chapters, tracklist, migrations, collab, activity and
   details-host tests import modules directly. `test/harness.mjs` is deleted.
 - **DOM tests.** `fake-dom.mjs`, `mock-studio.mjs` and `mock-invite.mjs` are kept as they
