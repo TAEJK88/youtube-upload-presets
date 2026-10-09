@@ -1,0 +1,41 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { browser } from 'wxt/browser';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
+import * as messages from '../lib/messages';
+import { claimsWrite, readClaims, toClaimsData, watchClaims } from '../lib/panel/claims-data';
+
+beforeEach(() => fakeBrowser.reset());
+
+describe('the Copyright tab data', () => {
+  it('fills defaults the way the page does', () => {
+    const d = toClaimsData('UC1', {});
+    expect(d.cfg.apEveryHours).toBe('6');
+    expect(d.autopilot).toEqual({ on: false, next: 0 });
+    expect(d.scan).toBe(null);
+    expect(d.trimQueue).toEqual([]);
+    expect(d.songs).toEqual({});
+    expect(d.logOpen).toBe(false);
+  });
+
+  it("reads one channel's keys, and follows only those", async () => {
+    await browser.storage.local.set({ 'claimScan:UC1': { date: 'd', total: 0, rows: [] }, 'claimScan:UC2': { date: 'x' }, cfg: { ownNames: 'Me' } });
+    const d = await readClaims('UC1');
+    expect(d.scan?.date).toBe('d');
+    expect(d.cfg.ownNames).toBe('Me');
+    const fn = vi.fn();
+    const off = watchClaims('UC1', fn);
+    await browser.storage.local.set({ 'claimScan:UC2': { date: 'y' } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fn).not.toHaveBeenCalled();
+    await browser.storage.local.set({ 'trimQueue:UC1': ['v:c'] });
+    await vi.waitFor(() => expect(fn).toHaveBeenCalled());
+    expect(fn.mock.calls.at(-1)![0].trimQueue).toEqual(['v:c']);
+    off();
+  });
+
+  it('writes go to the background as ops', async () => {
+    const spy = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined as never);
+    await claimsWrite({ op: 'list', key: 'trimQueue:UC1', add: ['a'] });
+    expect(spy).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['a'] });
+  });
+});
