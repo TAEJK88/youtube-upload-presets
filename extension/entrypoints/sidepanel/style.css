@@ -8,6 +8,7 @@
 
 @source '../../components';
 @source '.';
+@source '../debug'; /* debug.html shares this stylesheet */
 
 /* The userscript drawer's look: the black theme + Design B glass (UI CSS 2950–3196).
    The docked panel is not see-through, so the glass background is its solid colour

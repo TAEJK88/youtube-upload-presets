@@ -9,6 +9,7 @@ import { runnerTab } from '@/lib/panel/target';
 import { RUNNER_HELD } from '@/lib/runner-lock';
 import type { Settings, SettingsPatch } from '@/lib/settings';
 import { useAsk } from '../ask';
+import { crashButtons, openDebugPage } from '../crash-kit';
 import { Hint, Kv, NumberField, Section, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
@@ -161,6 +162,7 @@ export function SettingsTab() {
         <Button size="sm" className="mt-2.5" onClick={() => void copyDiag()}>
           <Icon name="copy" size={13} />{L('คัดลอกข้อมูลหน้าต่างอัปโหลด', 'Copy upload dialog info')}
         </Button>
+        <Button size="sm" className="mt-2.5 ml-2" onClick={openDebugPage}>{crashButtons().debug}</Button>
       </Section>
 
       <Section title={L('ทั่วไป', 'General')} icon="sliders">

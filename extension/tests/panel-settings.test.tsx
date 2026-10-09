@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
+import { browser } from 'wxt/browser';
 import { SettingsTab } from '../entrypoints/sidepanel/tabs/SettingsTab';
 import { setLang } from '../lib/i18n';
 import { importBackup } from '../lib/panel/backup-io';
@@ -24,6 +25,14 @@ afterEach(cleanup);
 const flush = () => act(async () => {});
 
 describe('settings tab', () => {
+  it('Troubleshooting → Open debug page opens debug.html in a tab', async () => {
+    const create = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    renderPanel(<SettingsTab />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Open debug page' })));
+    expect(create).toHaveBeenCalledWith({ url: browser.runtime.getURL('/debug.html') });
+    create.mockRestore();
+  });
+
   it('switches write one key each', () => {
     const api = fakePanel();
     renderPanel(<SettingsTab />, api);
