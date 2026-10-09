@@ -89,4 +89,7 @@ export default [
   { th: 'ดาวน์โหลดรายงาน (.json)', en: 'Download report (.json)', why: 'debug page (user request)' },
   { th: 'รันการย้ายข้อมูลอีกครั้ง (ensureMigrated)', en: 'Re-run migrations (ensureMigrated)', why: 'debug page (user request)' },
   { th: 'หน้าดีบัก', en: 'Debug page', why: 'debug page (user request)' },
+  // Dark/light theme toggle (user request: "add dark/light theme switching icon")
+  { th: 'สลับเป็นธีมสว่าง', en: 'Switch to light theme', why: "theme toggle's name in dark (user request); the drawer followed Studio's theme and had no toggle" },
+  { th: 'สลับเป็นธีมมืด', en: 'Switch to dark theme', why: "theme toggle's name in light (user request); the drawer followed Studio's theme and had no toggle" },
 ];

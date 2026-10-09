@@ -73,15 +73,11 @@ export function stuckLine(s: Stage): string {
   return L(`แผงไม่เริ่มทำงาน: ค้างอยู่ที่ขั้น ${s}`, `The panel didn't start: stuck at stage ${s}`);
 }
 
-const dark = () => {
-  try {
-    return matchMedia('(prefers-color-scheme: dark)').matches;
-  } catch {
-    return true;
-  }
-};
+// The panel's theme (theme.ts sets it on <html> before anything else can fail); unset is
+// dark, the panel's default.
+const dark = () => document.documentElement.dataset.theme !== 'light';
 
-// Plain DOM: readable without the stylesheet, in light and dark.
+// Plain DOM: readable without the stylesheet, in the light and the dark theme.
 export function render(heading: string, detail: string, copyWhat: string): void {
   const d = dark();
   const fg = d ? '#f2f2f2' : '#111111';

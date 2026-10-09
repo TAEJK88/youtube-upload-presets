@@ -11,9 +11,11 @@ import { IconButton } from '../fields';
 import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
 import { saveFailed } from '../save-failed';
+import { ThemeToggle } from '../ThemeToggle';
 
 // The drawer's channel bar (3326–3350, 3418–3440): where the queue uploads to, whether that
-// is the locked channel, the lock button and the list of other channels.
+// is the locked channel, the lock button and the list of other channels. Its top row is the
+// panel's header, so the theme toggle sits at its end.
 export function ChannelBar() {
   const { data, view, write } = usePanel();
   const [listOpen, setListOpen] = useState(false);
@@ -36,28 +38,29 @@ export function ChannelBar() {
       <div className={cn('flex items-center gap-3 px-[18px] pt-4 pb-3', problem && 'bg-err/[0.09]')}>
         <div className="relative size-10 shrink-0">
           {c?.avatar
-            ? <img src={c.avatar} alt="" className="size-10 rounded-full object-cover shadow-[0_0_0_2px_rgba(255,255,255,.25)]" />
-            : <div className="grid size-10 place-items-center rounded-full bg-surface2 text-fg3 shadow-[0_0_0_2px_rgba(255,255,255,.25)]"><Icon name="tv" size={18} /></div>}
-          <span className={cn('absolute -right-px -bottom-px size-3 rounded-full border-2 border-[#0c0c0e]', problem ? 'bg-err' : 'bg-ok')} />
+            ? <img src={c.avatar} alt="" className="size-10 rounded-full object-cover ring-2 ring-tint/25" />
+            : <div className="grid size-10 place-items-center rounded-full bg-surface2 text-fg3 ring-2 ring-tint/25"><Icon name="tv" size={18} /></div>}
+          <span className={cn('absolute -right-px -bottom-px size-3 rounded-full border-2 border-bg', problem ? 'bg-err' : 'bg-ok')} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium tracking-[.04em] text-white/60">{L('กำลังอัปไปที่ช่อง', 'Uploading to channel')}</div>
+          <div className="text-xs font-medium tracking-[.04em] text-tint/60">{L('กำลังอัปไปที่ช่อง', 'Uploading to channel')}</div>
           <div className="truncate text-[15px] font-bold">{c?.label ?? '—'}</div>
           <div className={cn('truncate font-mono text-xs text-fg3', problem && 'font-sans font-semibold whitespace-normal text-err')}>{problem || c?.id || '—'}</div>
         </div>
-        <IconButton icon="swap" title={L('ช่องอื่น ๆ · เปิดในแท็บใหม่', 'Other channels · open in a new tab')} className="rounded-full bg-white/[0.08]" onClick={() => setListOpen((o) => !o)} />
+        <IconButton icon="swap" title={L('ช่องอื่น ๆ · เปิดในแท็บใหม่', 'Other channels · open in a new tab')} className="rounded-full bg-tint/[0.08]" onClick={() => setListOpen((o) => !o)} />
         <button
           type="button"
           onClick={toggleLock}
           title={lock ? L(`ล็อกไว้ที่ "${lock.name}" · คลิกเพื่อปลดล็อก`, `Locked to "${lock.name}" · click to unlock`) : L('ล็อกให้อัปได้เฉพาะช่องนี้', 'Only allow uploads to this channel')}
           className={cn(
-            'flex cursor-pointer items-center gap-1.5 rounded-full border border-white/[0.16] bg-white/10 px-3.5 py-[7px] text-xs font-semibold whitespace-nowrap text-fg hover:bg-white/[0.16]',
+            'flex cursor-pointer items-center gap-1.5 rounded-full border border-tint/[0.16] bg-tint/10 px-3.5 py-[7px] text-xs font-semibold whitespace-nowrap text-fg hover:bg-tint/[0.16]',
             lock && !problem && 'border-fg3',
           )}
         >
           <Icon name={lock ? 'lock' : 'unlock'} size={14} />
           {lock ? L('ล็อกแล้ว', 'Locked') : L('ล็อกช่อง', 'Lock channel')}
         </button>
+        <ThemeToggle className="rounded-full bg-tint/[0.08]" />
       </div>
       {listOpen && <ChannelList />}
     </>

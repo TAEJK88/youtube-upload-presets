@@ -153,7 +153,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
   if (it.txt && tc) {
     if (it.fixChanges.length && editable) {
       chips.push(
-        <Chip key="fix" className="border-transparent bg-[#f4f4f5] font-semibold text-[#0b0b0c] hover:bg-white hover:text-[#0b0b0c]" title={it.fixChanges.join('\n')} onClick={() => edit({ op: 'fixTracklist' })}>
+        <Chip key="fix" className="border-transparent bg-fg font-semibold text-on-fg hover:bg-fg-hover hover:text-on-fg" title={it.fixChanges.join('\n')} onClick={() => edit({ op: 'fixTracklist' })}>
           <Icon name="note" size={13} />{L('แก้ tracklist ให้', 'Fix tracklist')}
         </Chip>,
       );
@@ -229,7 +229,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
       onDragLeave={() => setDrag(false)}
       onDrop={onDrop}
       className={cn(
-        'mt-2 rounded-[16px] border border-white/[0.09] bg-white/5 p-3 hover:border-white/[0.16]',
+        'mt-2 rounded-[16px] border border-tint/[0.09] bg-tint/5 p-3 hover:border-tint/[0.16]',
         (it.status === 'uploading' || it.status === 'review') && 'border-info/35',
         it.status === 'error' && 'border-err/35',
         drag && 'border-fg2',
@@ -239,7 +239,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         className="flex cursor-pointer gap-3"
         onClick={(e) => { if (!(e.target as HTMLElement).closest('button:not([data-exp]),input,select,a,[role=button]')) toggle(); }}
       >
-        <div className="relative grid h-[52px] w-[92px] shrink-0 place-items-center overflow-hidden rounded-[10px] bg-white/[0.06] text-fg3" title={fmtSize(it.file.size)}>
+        <div className="relative grid h-[52px] w-[92px] shrink-0 place-items-center overflow-hidden rounded-[10px] bg-tint/[0.06] text-fg3" title={fmtSize(it.file.size)}>
           {thumbUrl ? <img src={thumbUrl} alt="" className="absolute inset-0 size-full object-cover" /> : <Icon name="film" size={22} />}
           <span className="absolute right-1 bottom-1 rounded bg-black/75 px-1 text-xs text-white">{it.duration ? fmtDur(it.duration) : fmtSize(it.file.size)}</span>
         </div>
@@ -250,7 +250,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
               title={open ? L('ย่อ', 'Collapse') : editable ? L('แก้ไขรายละเอียด', 'Edit details') : L('ดูรายละเอียด', 'Show details')} />
             {removable && <IconButton icon="x" className="size-7 hover:text-err" title={L('เอาออกจากคิว', 'Remove from queue')} onClick={() => void send('queue:remove', it.id).catch(notConnected)} />}
           </div>
-          {!open && <div className={cn('truncate text-xs text-white/60', it.title.length > TITLE_MAX && 'text-err')} title={it.title}>{it.title || '—'}</div>}
+          {!open && <div className={cn('truncate text-xs text-tint/60', it.title.length > TITLE_MAX && 'text-err')} title={it.title}>{it.title || '—'}</div>}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={cn('text-xs', TONE[status.tone])}>{status.text}</span>
             {at !== null && (
@@ -326,7 +326,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
       {chips.length > 0 && <div className="mt-2.5 flex flex-wrap gap-1.5">{chips}</div>}
       {pct !== null && <Progress value={pct} className="mt-2.5" />}
       {it.msg && (
-        <div className={cn('mt-2.5 flex gap-2 rounded-[12px] bg-white/5 px-2.5 py-2 text-xs text-fg2', MSG_TONE[it.status])}>
+        <div className={cn('mt-2.5 flex gap-2 rounded-[12px] bg-tint/5 px-2.5 py-2 text-xs text-fg2', MSG_TONE[it.status])}>
           <Icon name={MSG_ICON[it.status]} size={14} className="mt-px shrink-0" />
           <span>{it.msg}</span>
         </div>

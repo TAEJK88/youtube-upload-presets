@@ -28,7 +28,7 @@ export function CrashView({ error, stage }: { error: unknown; stage: Stage }) {
     <div role="alert" className="flex flex-col gap-2 p-4 text-[13px] text-fg">
       <h1 className="text-base font-semibold">{crashHeading()}</h1>
       <p>{stageLine(stage)}</p>
-      <pre className="overflow-auto rounded-[8px] border border-white/20 p-2 font-mono text-xs break-words whitespace-pre-wrap select-text">{errorDetail(error)}</pre>
+      <pre className="overflow-auto rounded-[8px] border border-tint/20 p-2 font-mono text-xs break-words whitespace-pre-wrap select-text">{errorDetail(error)}</pre>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => void copyText(crashDetails(error, stage)).then((ok) => setCopied(ok))}>{copied ? b.copied : b.copy}</Button>
         <Button size="sm" onClick={openDebugPage}>{b.debug}</Button>

@@ -35,7 +35,7 @@ export function ActivityBar({ onGo }: { onGo(tab: TabKey): void }) {
       title={a.detail}
       onClick={go}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }}
-      className="mx-[18px] mt-3 cursor-pointer rounded-[14px] border border-white/10 bg-white/5 px-3 py-2.5 hover:bg-surface2"
+      className="mx-[18px] mt-3 cursor-pointer rounded-[14px] border border-tint/10 bg-tint/5 px-3 py-2.5 hover:bg-surface2"
     >
       <div className="flex items-center gap-2 text-[13px]">
         <span className="grid w-5 place-items-center text-fg2">{ic ? <Icon name={ic} size={15} /> : a.icon}</span>

@@ -9,7 +9,7 @@ export function Switch({ className, ...props }: ComponentProps<typeof SwitchPrim
       className={cn('inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full bg-line2 transition-colors data-[state=checked]:bg-fg disabled:opacity-40', className)}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="block size-4 translate-x-0.5 rounded-full bg-fg transition-transform data-[state=checked]:translate-x-[18px] data-[state=checked]:bg-[#0b0b0c]" />
+      <SwitchPrimitive.Thumb className="block size-4 translate-x-0.5 rounded-full bg-fg transition-transform data-[state=checked]:translate-x-[18px] data-[state=checked]:bg-on-fg" />
     </SwitchPrimitive.Root>
   );
 }

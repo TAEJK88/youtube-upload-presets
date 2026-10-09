@@ -124,23 +124,23 @@ export function QueueFooter() {
   });
 
   return (
-    <div className="flex gap-2 border-t border-white/[0.08] px-[18px] py-3.5">
+    <div className="flex gap-2 border-t border-tint/[0.08] px-[18px] py-3.5">
       <Button variant="go" size="lg" className="group min-w-0 flex-1 justify-start gap-3 text-left"
         disabled={running || !pending || blocked || elsewhere || link !== 'ok' || busy || mustGrant} onClick={start}>
         {/* .btn.go .gi: the play icon, spinning while the run goes (.btn.go.running .gi) */}
-        <span data-go-icon className={cn('grid size-[30px] shrink-0 place-items-center rounded-full bg-black/10 group-disabled:bg-white/10', running && 'animate-[spin_1.2s_linear_infinite]')}>
+        <span data-go-icon className={cn('grid size-[30px] shrink-0 place-items-center rounded-full bg-on-fg/10 group-disabled:bg-tint/10', running && 'animate-[spin_1.2s_linear_infinite]')}>
           <Icon name="play" size={14} />
         </span>
         <span className="flex min-w-0 flex-col items-start leading-[1.25]">
           <b className="max-w-full truncate text-[13.5px] font-semibold">{title}</b>
-          <small className="max-w-full truncate text-xs font-medium text-[#55555c] group-disabled:text-fg3">{sub}</small>
+          <small className="max-w-full truncate text-xs font-medium text-on-fg2 group-disabled:text-fg3">{sub}</small>
         </span>
       </Button>
       <IconButton icon="stop" title={L('หยุดหลังคลิปปัจจุบันเสร็จ', 'Stop after the current video')}
-        className="h-auto w-12 self-stretch rounded-[14px] border border-white/[0.16] bg-white/[0.06] text-white hover:text-err disabled:opacity-35"
+        className="h-auto w-12 self-stretch rounded-[14px] border border-tint/[0.16] bg-tint/[0.06] text-tint hover:text-err disabled:opacity-35"
         disabled={!(liveState?.running || elsewhere)} onClick={stop} />
       <IconButton icon="clear" title={L('ล้างคลิปที่อัปเสร็จออกจากรายการ', 'Clear finished videos from the list')}
-        className="h-auto w-12 self-stretch rounded-[14px] border border-white/[0.16] bg-white/[0.06] text-white disabled:opacity-35"
+        className="h-auto w-12 self-stretch rounded-[14px] border border-tint/[0.16] bg-tint/[0.06] text-tint disabled:opacity-35"
         disabled={!done} onClick={clear} />
     </div>
   );

@@ -53,7 +53,7 @@ export function App() {
               <Icon name={ic} size={17} />
               {label}
               {k === 'queue' && total > 0 && (
-                <span className="rounded-full bg-white/[0.18] px-1.5 text-xs text-white group-data-[state=active]:bg-[#0b0b0c]">{total}</span>
+                <span className="rounded-full bg-tint/[0.18] px-1.5 text-xs text-tint group-data-[state=active]:bg-on-fg">{total}</span>
               )}
             </TabsTrigger>
           ))}
@@ -70,7 +70,7 @@ export function App() {
       </Tabs>
       <Toaster />
       {drop.dropping && (
-        <div className="pointer-events-none fixed inset-2 z-40 grid place-items-center rounded-[16px] border-2 border-dashed border-fg2 bg-[rgba(12,12,14,.6)] text-[15px] font-semibold text-fg">
+        <div className="pointer-events-none fixed inset-2 z-40 grid place-items-center rounded-[16px] border-2 border-dashed border-fg2 bg-bg/60 text-[15px] font-semibold text-fg">
           {L('วางเพื่อเพิ่มเข้าคิว', 'Drop to add to the queue')}
         </div>
       )}

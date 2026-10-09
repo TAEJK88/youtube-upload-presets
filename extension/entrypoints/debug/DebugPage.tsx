@@ -9,6 +9,7 @@ import {
   pingBackground, type Answer, type FileStore, type Section,
 } from '@/lib/debug/report';
 import { copyText, crashButtons, errorDetail } from '../sidepanel/crash-kit';
+import { ThemeToggle } from '../sidepanel/ThemeToggle';
 
 // debug.html: everything that can go wrong, visible and copyable, with no Studio tab open
 // and with a broken background. Each section loads on its own and shows its own failure.
@@ -282,7 +283,10 @@ function ActionsSection(deps: DebugDeps) {
 export function DebugPage(deps: DebugDeps = {}) {
   return (
     <main className="mx-auto flex max-w-[900px] flex-col gap-3 px-4 py-5">
-      <h1 className="text-lg font-semibold">YouTube Upload Presets · {L('หน้าดีบัก', 'Debug page')}</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="mr-auto text-lg font-semibold">YouTube Upload Presets · {L('หน้าดีบัก', 'Debug page')}</h1>
+        <ThemeToggle />
+      </div>
       <OverviewSection ping={deps.ping} />
       <LogSection />
       <StoredSection />

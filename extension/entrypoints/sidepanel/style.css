@@ -10,9 +10,14 @@
 @source '.';
 @source '../debug'; /* debug.html shares this stylesheet */
 
-/* The userscript drawer's look: the black theme + Design B glass (UI CSS 2950–3196).
-   The docked panel is not see-through, so the glass background is its solid colour
-   (rgba(12,12,14,.82) over black). Dark only: the black theme overrode the light one. */
+/* Two themes on <html data-theme> (theme.ts; dark when unset).
+   Dark, the default: the userscript drawer's look, the black theme + Design B glass (UI CSS
+   2950–3196). The docked panel is not see-through, so the glass background is its solid
+   colour (rgba(12,12,14,.82) over black).
+   The tokens after --popover replace colours the components used to hard-code for dark:
+   --tint is the overlay colour (white on dark, black on light) for tint/[alpha] washes,
+   --on-fg / --on-fg2 are text on an --fg filled surface (the go button, the selected tab),
+   --raised / --raised-line the dialog and toast box. */
 :root {
   color-scheme: dark;
   --bg: #0c0c0e;
@@ -29,6 +34,44 @@
   --info: #93c5fd;
   --muted: #66666e;
   --popover: #151517;
+  --tint: #ffffff;
+  --on-fg: #0b0b0c;
+  --on-fg2: #55555c;
+  --fg-hover: #ffffff;
+  --fg-active: #d8d8dc;
+  --on-err: #0b0b0c;
+  --err-hover: #fca5a5;
+  --raised: #0f0f12;
+  --raised-line: rgba(255, 255, 255, 0.12);
+}
+
+/* Light: the userscript's base #ytp-root palette (2531–2536), exactly. It had no popover
+   colour: white, with the --line2 border. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f7f7f9;
+  --surface2: #efeff3;
+  --line: #e4e4ea;
+  --line2: #d6d6de;
+  --fg: #111114;
+  --fg2: #5d5d6b;
+  --fg3: #8d8d9a;
+  --ok: #16a34a;
+  --warn: #d97706;
+  --err: #dc2626;
+  --info: #2563eb;
+  --muted: #9a9aa6;
+  --popover: #ffffff;
+  --tint: #000000;
+  --on-fg: #ffffff;
+  --on-fg2: #b4b4be;
+  --fg-hover: #000000;
+  --fg-active: #3a3a42;
+  --on-err: #ffffff;
+  --err-hover: #b91c1c;
+  --raised: #ffffff;
+  --raised-line: var(--line2);
 }
 
 @theme inline {
@@ -46,6 +89,15 @@
   --color-info: var(--info);
   --color-muted: var(--muted);
   --color-popover: var(--popover);
+  --color-tint: var(--tint);
+  --color-on-fg: var(--on-fg);
+  --color-on-fg2: var(--on-fg2);
+  --color-fg-hover: var(--fg-hover);
+  --color-fg-active: var(--fg-active);
+  --color-on-err: var(--on-err);
+  --color-err-hover: var(--err-hover);
+  --color-raised: var(--raised);
+  --color-raised-line: var(--raised-line);
   --font-sans: 'IBM Plex Sans Thai', 'Leelawadee UI', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
 }

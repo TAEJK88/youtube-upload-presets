@@ -14,7 +14,7 @@ export function DialogContent({ className, children, ...props }: ComponentProps<
       <DialogPrimitive.Content
         className={cn(
           'fixed top-1/2 left-1/2 z-50 max-h-[calc(100dvh-24px)] w-[calc(100vw-24px)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 overflow-y-auto',
-          'rounded-[22px] border border-white/[0.12] bg-[#0f0f12] p-5 text-fg shadow-[0_30px_80px_-20px_rgba(0,0,0,.7),inset_0_1px_0_rgba(255,255,255,.07)] outline-none',
+          'rounded-[22px] border border-raised-line bg-raised p-5 text-fg shadow-[0_30px_80px_-20px_rgba(0,0,0,.7),inset_0_1px_0_rgba(255,255,255,.07)] outline-none',
           className,
         )}
         {...props}

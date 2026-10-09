@@ -96,7 +96,7 @@ export function NumberField({ value, onValue, ...rest }: Omit<ComponentProps<'in
 // The drawer's .sec: a section heading with an icon, sections separated by a hairline.
 export function Section({ title, icon, children, className }: { title?: string; icon?: string; children: ReactNode; className?: string }) {
   return (
-    <section className={cn('mt-[22px] border-white/[0.08] first:mt-0 [&+&]:border-t [&+&]:pt-[18px]', className)}>
+    <section className={cn('mt-[22px] border-tint/[0.08] first:mt-0 [&+&]:border-t [&+&]:pt-[18px]', className)}>
       {title && (
         <h4 className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold tracking-[.03em] text-fg3">
           {icon && <Icon name={icon} size={15} className="opacity-80" />}

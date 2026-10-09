@@ -96,16 +96,16 @@ export function QueueTab() {
           files, as in the drawer; from the keyboard its two buttons do (no control inside another). */}
       <div
         onClick={() => pick(pickFiles)}
-        className={cn('flex cursor-pointer items-center rounded-[14px] border border-dashed border-white/[0.22] hover:border-fg3 hover:bg-surface', has ? 'gap-2.5 px-3 py-2' : 'gap-3 px-3.5 py-3')}
+        className={cn('flex cursor-pointer items-center rounded-[14px] border border-dashed border-tint/[0.22] hover:border-fg3 hover:bg-surface', has ? 'gap-2.5 px-3 py-2' : 'gap-3 px-3.5 py-3')}
       >
-        <div className={cn('grid shrink-0 place-items-center bg-white/10', has ? 'size-[30px] rounded-[9px]' : 'size-8 rounded-[10px]')}><Icon name="upload" size={16} /></div>
+        <div className={cn('grid shrink-0 place-items-center bg-tint/10', has ? 'size-[30px] rounded-[9px]' : 'size-8 rounded-[10px]')}><Icon name="upload" size={16} /></div>
         <div className="min-w-0">
           <b className="block text-[13px] font-medium">{L('ลากไฟล์หรือโฟลเดอร์มาวางตรงไหนของแผงก็ได้', 'Drop files or a folder anywhere on this panel')}</b>
-          <span className="text-xs text-white/60">
+          <span className="text-xs text-tint/60">
             <button type="button" className="cursor-pointer rounded-sm" onClick={(e) => { e.stopPropagation(); pick(pickFiles); }}>
               {L('หรือคลิกเพื่อเลือกไฟล์ · ', 'or click to select files · ')}
             </button>
-            <button type="button" className="cursor-pointer rounded-sm text-white underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(pickFolder); }}>
+            <button type="button" className="cursor-pointer rounded-sm text-tint underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(pickFolder); }}>
               {L('เลือกทั้งโฟลเดอร์', 'pick a whole folder')}
             </button>
           </span>
@@ -135,8 +135,8 @@ export function QueueTab() {
         <div data-testid="stats" className="mt-3 flex flex-wrap items-baseline text-xs">
           {([[total, L('ทั้งหมด', 'Total'), ''], [count('pending'), L('รอคิว', 'Queued'), 'text-info'], [done, L('เสร็จแล้ว', 'Done'), 'text-ok'], [errors, L('ผิดพลาด', 'Errors'), 'text-err']] as const).map(([n, label, tone], i) => (
             <span key={label} className="flex items-baseline gap-1">
-              {i > 0 && <span className="mx-2 text-white/40">·</span>}
-              <b className={tone}>{n}</b><span className="text-white/70">{label}</span>
+              {i > 0 && <span className="mx-2 text-tint/40">·</span>}
+              <b className={tone}>{n}</b><span className="text-tint/70">{label}</span>
             </span>
           ))}
         </div>

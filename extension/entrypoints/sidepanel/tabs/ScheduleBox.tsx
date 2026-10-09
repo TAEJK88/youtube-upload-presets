@@ -56,17 +56,17 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
   };
 
   return (
-    <div className={cn('mt-3 rounded-[14px] border border-white/10 bg-white/[0.06]', late && 'border-warn/45')}>
+    <div className={cn('mt-3 rounded-[14px] border border-tint/10 bg-tint/[0.06]', late && 'border-warn/45')}>
       <div className={cn('flex items-center gap-2.5 px-3 py-2.5', s.on && 'cursor-pointer')} onClick={onHead}
         title={s.on ? (open ? L('คลิกเพื่อย่อ', 'Click to collapse') : L('คลิกเพื่อแก้เวลา', 'Click to edit times')) : ''}>
         {/* A button while on, for the keyboard: its click bubbles to the row's handler. */}
         <Head {...(s.on ? { type: 'button', 'aria-expanded': open } : {})}
           className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[8px] text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fg2">
-          <span className="grid w-[22px] shrink-0 place-items-center text-white/75"><Icon name="clock" size={16} /></span>
+          <span className="grid w-[22px] shrink-0 place-items-center text-tint/75"><Icon name="clock" size={16} /></span>
           <span className="min-w-0 flex-1">
             <b className="block text-[13px] font-medium">{L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')}</b>
             {/* The drawer's tooltip also named each video; the view carries their times only. */}
-            <small className={cn('block truncate text-xs text-white/65', late && 'text-warn')} title={sv?.set ? sv.taken.map((at) => fmtWhen(at)).join('\n') : ''}>{summary}</small>
+            <small className={cn('block truncate text-xs text-tint/65', late && 'text-warn')} title={sv?.set ? sv.taken.map((at) => fmtWhen(at)).join('\n') : ''}>{summary}</small>
           </span>
           {s.on && <Icon name="chev" size={14} className={cn('shrink-0 text-fg3 transition-transform', open && 'rotate-180')} />}
         </Head>
