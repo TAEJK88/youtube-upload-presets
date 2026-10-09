@@ -146,7 +146,8 @@ The panel's own console: right-click inside the panel → Inspect.
     and Space or Enter opens each picker. "pick a whole folder": a folder with a `Covers/`
     subfolder adds the videos with their `.txt` and images paired by name; hidden files
     (`.DS_Store`) are skipped. Cancelling a picker is silent. Drop a folder of 30+ files on
-    the panel: everything is added, with one toast.
+    the panel: everything is added, with one toast. With the Presets tab open, drop a video
+    anywhere on the panel: the panel switches to the Upload tab and the card appears there.
 11. **Card edits.** Expand a card: edit the title (the counter follows; ↻ regenerates it);
     change its preset (the title follows); type artists, then clear them (back to "auto from
     .txt"); with scheduling on, type a release time into its date-time field (nothing resets
@@ -161,8 +162,12 @@ The panel's own console: right-click inside the panel → Inspect.
     edited title survives (no lost update); the other cards follow the new template.
 13. **Scheduling (the schedule box).** Switch "Schedule releases" on: the first release is
     tomorrow 19:00.
-    - Quick picks: "Next 18:00" and "Next 20:00" both before the hour and within 15 minutes
-      of it; "Tomorrow 19:00"; "Within 1 hr".
+    - Quick picks fill "First video releases":
+      - "Next 18:00" at least 15 minutes before 18:00 (e.g. at 17:40): today 18:00. Less
+        than 15 minutes before it, or later (e.g. at 17:50): tomorrow 18:00. "Next 20:00" the
+        same around 20:00.
+      - "Tomorrow 19:00": tomorrow 19:00, whatever the time.
+      - "Within 1 hr": an hour from now, rounded up to the quarter hour (at 14:07: 15:15).
     - Type into the date-time field: it isn't reset while focused. Typing a year digit by
       digit (partial years, M4) and clearing one segment save `''` and the summary reads
       "Pick the first video's release time", as the userscript did.
@@ -185,9 +190,17 @@ The panel's own console: right-click inside the panel → Inspect.
 16. **Browser restart, then re-grant.** Queue 2 clips (one with a thumbnail), quit Chrome fully,
     reopen Studio and the panel: the banner "Files in the queue need read access again after a
     browser restart" with **Re-grant access (N files)**; the card's thumbnail preview is gone.
-    - Click it. **Record** how many permission prompts one click shows, and whether one click
-      granted all files (if the banner stays with fewer files, click again).
-    - Afterwards the thumbnail preview is back. Start: they upload.
+    - **Start while Re-grant is showing.** Before clicking Re-grant: Start is disabled (greyed
+      out, nothing happens on click), in this window's panel and in any other window's panel
+      on a Studio tab. Force it: inspect the panel, delete the Start button's `disabled`
+      attribute in Elements, click Start (and confirm the summary if it shows).
+      Studio and the panel toast "The queued files need read access again — click "Re-grant
+      access" in the side panel, then start again"; nothing runs and every card stays
+      waiting (none turns to an error, none shows "No permission to read this file").
+    - Click Re-grant. **Record** how many permission prompts one click shows, and whether one
+      click granted all files (if the banner stays with fewer files, click again).
+    - Afterwards the banner is gone, Start is enabled again, and the card's thumbnail preview
+      is back without closing or reopening the panel. Start: they upload.
     - Repeat with 3+ files from a dropped folder. **Record** what happens when you block one
       prompt ('denied'): whether the banner's button then does nothing (the item then fails
       with the "No permission to read this file" error).
@@ -210,6 +223,12 @@ The panel's own console: right-click inside the panel → Inspect.
     finishes".
     - **Record**: inspect B's panel and switch to tab A: whether the hidden panel in B keeps
       polling (requests in its console / Network) while A's panel is the visible one.
+    - Phase 2's "Nothing is running in this Studio tab" (a Stop sent to a tab that isn't
+      running) can't be reached from the panel in normal use: Stop is disabled unless some
+      tab runs the queue, and it goes to the running tab. If A's run ends just as you click
+      Stop in B, A's Studio page may show that toast (B's panel doesn't show A's toasts); if
+      A was closed or left Studio, B's panel toasts "That tab is no longer running the
+      queue". Expected otherwise: neither appears.
 19. **Intercept.** In Studio's own upload dialog pick 2 videos: the dialog closes, both appear in
     the queue, Start uploads them. Reloading while they wait asks "Leave site?".
 20. **Manual fill.** Upload one file through Studio's own dialog: the details fill in from the
@@ -258,12 +277,15 @@ The panel's own console: right-click inside the panel → Inspect.
     summary open, pick 2 files in Studio's dialog, then confirm: "The queue changed after you
     confirmed — …".
 31. **Duplicate guards.** Add `Clip 1.mp4` twice: one card, toast "1 already in the queue". After
-    it uploaded, **Clear done** and add it again: "1 already uploaded to this channel (red
+    it uploaded, **Clear finished videos from the list** (the footer's clear button) and add it
+    again: "1 already uploaded to this channel (red
     badge)", the card's red "Already uploaded …" chip opens that video in a new tab, and the
     Start summary warns "1 already uploaded to this channel — they will be duplicated".
 32. **Extension reload with a run in flight.** Start 2 and reload the extension during clip 1:
-    one in-page toast "The extension was reloaded during an upload — …"; the orphaned run clicks
-    nothing more and starts nothing; no ✅/⚠️ comes back to the title. Finish the upload in the
+    one in-page toast "The extension was reloaded during an upload — …"; Studio's console (filter
+    `[YT Presets]`) logs `[YT Presets] Error: The extension was reloaded — the queue stopped in
+    this page` (the Thai text in Thai) when the run reaches its next step; the orphaned run
+    clicks nothing more and starts nothing; no ✅/⚠️ comes back to the title. Finish the upload in the
     dialog by hand, reload the tab: clip 1 shows the reload error and clip 2 waits. Remove clip 1
     (Retry would upload it twice).
 33. **Navigation during an add (rare).** Drop a large folder and navigate Studio to another page
@@ -301,6 +323,72 @@ The panel's own console: right-click inside the panel → Inspect.
     collaboration requests". The side panel closes on www.youtube.com (**record** it). With
     Settings → **Auto-accept channel permission invites** off, reopening a link logs nothing
     from `invite:`.
+
+### During a run
+
+39. **Edits during a run.** Queue 3 clips and Start; while clip 1 uploads:
+    - Clip 1's card (and, while its file is fetched, the card of the clip about to upload)
+      refuses edits: its title, preset, release time and artists fields are disabled, it has
+      no ↑/↓, no ✕ and no attach buttons, and a `.txt` dropped on it is not attached (the
+      panel adds it to the queue as a new file instead).
+    - Edit clip 2 (title, preset, artists, release time), attach a `.txt` to it and move it
+      below clip 3: each change shows at once, and when its turn comes Studio's dialog gets
+      the new title, description and release time, in the new order.
+    - Remove clip 3: its card goes; the run ends after clip 2.
+    - Retry an error card (one left from an earlier item) during the run: it goes back to
+      waiting and is uploaded in this run, in its place in the list.
+    - With scheduling on, click into the schedule box's "First video releases" field before
+      clip 1 finishes, and leave the focus there until clip 1 is Done (the runner moves the
+      start to the slot after clip 1). Click out of the field: it now shows the moved start,
+      not the one it showed while focused. Nudge its minutes: the next clip is scheduled from
+      the moved start, never in clip 1's slot. The same goes for a card's title field: after
+      a change from elsewhere, leaving the field shows the new value.
+    - **Attach a `.txt` that can't be read.** In Terminal, `chmod 000 Unreadable.txt`, then drop
+      it on a waiting card: the toast reads "Could not add 1 file(s): Could not read this file
+      (moved or renamed?) — add it again" (not "This tab is not connected to the extension
+      yet — reload this tab"), and the card keeps its old `.txt`. `chmod 644` it afterwards.
+    - **Leave Studio mid-run, then Back.** During clip 1 navigate the tab to another site,
+      confirm "Leave site?", then press Back. If Chrome restored the page from its
+      back/forward cache with the run still going: the run carries on and keeps the lock (in
+      another Studio tab the panel shows "Another Studio tab is running the queue — change
+      the queue there"). If another tab started a run meanwhile, the restored page toasts
+      "Another Studio tab is already running the queue" and stops after its current video.
+      **Record** whether the page came back from the cache at all (if Studio reloads instead,
+      the item comes back as interrupted, as in item 15).
+    - **Known limitation (Phase 4), don't count as a failure:** two windows editing cards
+      within about 300 ms of each other can lose one of the edits (each idle tab writes its
+      whole queue).
+
+### Phase 0 spike checks still open (ledger: Task 7)
+
+Record what happens; the Phase 0 spike results document
+(`docs/superpowers/specs/2026-10-05-spike-results.md`) is written from these observations.
+
+40. **Moved or renamed file (spike #8).** Queue `Clip 1.mp4` with `Clip 1.jpg`, and `Clip
+    2.mp4`. Rename `Clip 1.mp4` in Finder, then Start: clip 1 goes to error with "Could not read
+    this file (moved or renamed?) — add it again" and **Retry**; clip 2 still uploads. Then
+    queue `Clip 3.mp4` with `Clip 3.jpg`, rename `Clip 3.jpg`, Start: clip 3 fails with
+    `Thumbnail "Clip 3.jpg": Could not read this file (moved or renamed?) — add it again`.
+    (A `.txt` renamed after queuing changes nothing: its text was read when it was added.)
+41. **A ~1 GB video through the bridge (spike #3).** Queue one ~1 GB `.mp4` and Start: Studio's
+    dialog starts uploading it within a few seconds of its turn, shows the full file size and
+    finishes; the console shows no `[ytup] file bridge: … dropped` and no "Could not get the
+    file from the side panel (…)" error. **Record** the time from Start to Studio's upload
+    progress appearing.
+42. **Service worker smoke test (Task 16).** `chrome://extensions` → the extension → **service
+    worker** → Inspect; in its console `await chrome.storage.local.get('schemaVersion')` gives
+    `{schemaVersion: 5}`, and there is no `[ytup] startup` error.
+43. **Leftover handles are swept (optional).** Drop 3 files on the panel and close the panel at
+    once, before the cards appear (or reload the extension right after the drop). Note the
+    ids in the panel's DevTools → Application → IndexedDB → `ytup-files` → `handles`. Quit
+    and restart Chrome, open the service worker console: the handles of files no queue item
+    uses are gone from `ytup-files`; the queued items' handles are still there, and there is
+    no `[ytup] handle sweep` error.
+44. **Bridge parent-source check (note, nothing to run).** The bridge accepts a connect only
+    from its Studio parent frame (origin `https://studio.youtube.com`, `source` is its
+    parent, a port attached): `isBridgeConnect` in `lib/file-bridge.ts`, unit-tested in
+    `tests/file-bridge.test.ts`. Items 9 and 37 show it working in real Studio; close the
+    ledger item from those.
 
 ### Known, dev only (note, don't test)
 
