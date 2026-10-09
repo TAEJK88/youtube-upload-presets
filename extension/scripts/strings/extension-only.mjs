@@ -42,4 +42,5 @@ export default [
   // Phase 3b: the Upload tab, FAB, banner
   { th: 'ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่', en: 'Files in the queue need read access again after a browser restart', why: 'file handles lose permission after a restart (spec: File intake step 4)' },
   { th: 'อนุญาตอีกครั้ง (${} ไฟล์)', en: 'Re-grant access (${} files)', why: 'one click re-grants every queued file' },
+  { th: 'จะหยุดคิวในแท็บ "${}" หลังคลิปปัจจุบันเสร็จ', en: 'Will stop the queue in the tab "${}" after the current video finishes', why: 'Stop is sent to the tab that runs the queue, which may not be this panel\'s tab (D14)' },
 ];
