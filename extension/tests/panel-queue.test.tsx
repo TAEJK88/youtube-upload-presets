@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as intake from '../lib/panel/intake';
 import { QueueCard } from '../entrypoints/sidepanel/tabs/QueueCard';
@@ -8,6 +9,7 @@ import { QueueTab, usePanelDrop } from '../entrypoints/sidepanel/tabs/QueueTab';
 import { ScheduleBox } from '../entrypoints/sidepanel/tabs/ScheduleBox';
 import { PanelContext } from '../entrypoints/sidepanel/panel';
 import { toPanelData } from '../lib/panel/data';
+import { fmtWhen, toLocalInput } from '../lib/panel/format';
 import type { QueueView, ViewItem } from '../lib/studio/queue-view';
 import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
@@ -163,6 +165,9 @@ describe('the panel-wide drop target', () => {
 });
 
 describe('schedule box', () => {
+  const sched = (over: Record<string, unknown>) => toPanelData({ settings: { schedule: { on: true, start: '2030-01-01T08:00', every: 1, unit: 'day', ...over } } });
+  const lateView = (start: number) => viewWith([], { schedule: { on: true, set: true, start, late: true, times: [start], skipped: 0, taken: [] } });
+
   it('off: says so; switching on picks tomorrow 19:00 when no start is set', () => {
     const api = fakePanel();
     renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
@@ -190,7 +195,7 @@ describe('schedule box', () => {
     expect(screen.getByText(/ → .* · every 1 days$/)).toBeTruthy();
     expect(screen.getByText(/has passed — the queue will start/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
-    expect(api.write.settings).toHaveBeenCalledWith({ schedule: { start: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d$/) } });
+    expect(api.write.settings).toHaveBeenCalledWith({ schedule: { start: toLocalInput(start) } });
     fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
     expect(vi.mocked(api.write.settings).mock.calls.at(-1)![0].schedule!.start).toMatch(/T19:00$/);
   });
@@ -205,7 +210,8 @@ describe('schedule box', () => {
       data: toPanelData({ settings: { schedule: { ...on.schedule, start: '2030-01-01T08:00' } } }),
       view: viewWith([{}], { schedule: { on: true, set: true, start, late: false, times: [start], skipped: 1, taken: [start - 3600e3, start + 3600e3] } }),
     }));
-    expect(screen.getByText(/^Starts .* · every 2 hours · 2 already scheduled on the channel \(next .*\) — skipped 1 slot\(s\)$/)).toBeTruthy();
+    const sum = screen.getByText(/^Starts .* · every 2 hours · 2 already scheduled on the channel \(next .*\) — skipped 1 slot\(s\)$/);
+    expect(sum.title).toBe([fmtWhen(start - 3600e3), fmtWhen(start + 3600e3)].join('\n')); // the channel's videos, not the queue's times
   });
 
   it('the header folds the box only while on, and not from the switch', () => {
@@ -230,10 +236,111 @@ describe('schedule box', () => {
     cleanup();
     const api = fakePanel({ data });
     renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
-    fireEvent.change(screen.getByLabelText('Every'), { target: { value: '3' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Every' }), { target: { value: '3' } });
     expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { every: 3 } });
-    fireEvent.change(screen.getByLabelText('days'), { target: { value: 'hour' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Every' }), { target: { value: 'hour' } });
     expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { unit: 'hour' } });
+  });
+
+  it('the fields show the stored every and unit; the start field writes the start', () => {
+    const api = fakePanel({ data: sched({ every: 3, unit: 'hour' }) });
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+    expect((screen.getByRole('spinbutton', { name: 'Every' }) as HTMLInputElement).value).toBe('3');
+    expect((screen.getByRole('combobox', { name: 'Every' }) as HTMLSelectElement).value).toBe('hour');
+    expect((screen.getByLabelText('First video releases') as HTMLInputElement).value).toBe('2030-01-01T08:00');
+    fireEvent.change(screen.getByLabelText('First video releases'), { target: { value: '2031-02-03T04:05' } });
+    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { start: '2031-02-03T04:05' } });
+  });
+
+  it('each quick pick writes its own time', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 9, 17, 50));
+      const api = fakePanel({ data: sched({}) });
+      renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+      const pick = (name: string) => {
+        fireEvent.click(screen.getByRole('button', { name }));
+        return vi.mocked(api.write.settings).mock.calls.at(-1)![0];
+      };
+      expect(pick('Tomorrow 19:00')).toEqual({ schedule: { start: '2026-10-10T19:00' } });
+      expect(pick('Next 18:00')).toEqual({ schedule: { start: '2026-10-10T18:00' } });
+      expect(pick('Next 20:00')).toEqual({ schedule: { start: '2026-10-09T20:00' } });
+      expect(pick('Within 1 hr')).toEqual({ schedule: { start: '2026-10-09T19:00' } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the late note shows the set time and the time the queue will use', () => {
+    const start = Date.now() + 86400e3;
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ start: '2020-01-01T08:00' }), view: lateView(start) }));
+    expect(screen.getByText(`The set time (${fmtWhen(new Date('2020-01-01T08:00').getTime())}) has passed — the queue will start ${fmtWhen(start)} instead`)).toBeTruthy();
+  });
+
+  it('a start cleared while the late note shows: no note, and the panel keeps rendering', () => {
+    // The stored start updates at once; the view's `late` only after the queue:view round trip.
+    const start = Date.now() + 86400e3;
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ start: '' }), view: lateView(start) }));
+    expect(screen.queryByText(/has passed/)).toBe(null);
+    expect(screen.getByText("Pick the first video's release time")).toBeTruthy();
+  });
+
+  it('switched off: no late note while the view still says late', () => {
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ on: false, start: '2020-01-01T08:00' }), view: lateView(Date.now() + 86400e3) }));
+    expect(screen.queryByText(/has passed/)).toBe(null);
+    expect(screen.queryByRole('button', { name: 'Use this time' })).toBe(null);
+  });
+
+  it('no view, or one from before the switch: the summary uses the stored start', () => {
+    const line = `Starts ${fmtWhen(new Date('2030-01-01T08:00').getTime())} · every 2 hours`;
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ every: 2, unit: 'hour' }), view: null }));
+    expect(screen.getByText(line)).toBeTruthy();
+    cleanup();
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({ every: 2, unit: 'hour' }), view: viewWith([]) }));
+    expect(screen.getByText(line)).toBeTruthy();
+  });
+
+  it('a failed save is said, for every control', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const api = fakePanel({ data: sched({ start: '2020-01-01T08:00' }), view: lateView(Date.now() + 86400e3) });
+      vi.mocked(api.write.settings).mockRejectedValue(new Error('gone'));
+      renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText('First video releases'), { target: { value: '2031-02-03T04:05' } });
+        fireEvent.change(screen.getByRole('spinbutton', { name: 'Every' }), { target: { value: '3' } });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Every' }), { target: { value: 'hour' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
+        fireEvent.click(screen.getByRole('switch', { name: 'Schedule releases' }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(api.write.settings).toHaveBeenCalledTimes(6);
+      expect(err.mock.calls.filter(([m]) => m === '[ytup] store write failed')).toHaveLength(6);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('the header folds from the keyboard: a button with aria-expanded, only while on', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    renderPanel(<ScheduleBox open onOpen={onOpen} />, fakePanel({ data: sched({}) }));
+    const head = screen.getByRole('button', { name: /^Schedule releases/ });
+    expect(head.getAttribute('aria-expanded')).toBe('true');
+    head.focus();
+    await user.keyboard('{Enter}');
+    expect(onOpen).toHaveBeenLastCalledWith(false);
+    await user.keyboard(' ');
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole('switch', { name: 'Schedule releases' }));
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    cleanup();
+    renderPanel(<ScheduleBox open={false} onOpen={onOpen} />, fakePanel({ data: sched({}) }));
+    expect(screen.getByRole('button', { name: /^Schedule releases/ }).getAttribute('aria-expanded')).toBe('false');
+    cleanup();
+    renderPanel(<ScheduleBox open onOpen={onOpen} />, fakePanel());
+    expect(screen.queryByRole('button', { name: /^Schedule releases/ })).toBe(null);
   });
 });
 

@@ -20,3 +20,10 @@ export function nextAt(hour: number, now = Date.now()): string {
 // An hour from now, rounded up to the quarter.
 export const withinHour = (now = Date.now()) => toLocalInput(Math.ceil((now + 3600e3) / 900e3) * 900e3);
 export const everyOf = (text: string) => Math.max(1, parseInt(text, 10) || 1);
+
+// The stored start in ms, or null while it is empty or not a date (a cleared datetime-local
+// field saves ''; fmtWhen() throws on NaN).
+export function startAt(start: string | undefined): number | null {
+  const t = new Date(start || '').getTime();
+  return Number.isFinite(t) ? t : null;
+}
