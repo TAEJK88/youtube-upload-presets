@@ -53,6 +53,7 @@ const build = new Function(
   return { pad, parseTracks, buildVars, render, clean, renderTitle, makeTitle,
            unknownVars, renderTags, renderDesc, parseTime, fixTracklist,
            fmtTs, checkTracklist, fixChapters, parseUploadPct, activityFrom,
+           learnTemplate, pickTopVideos, SIX_MONTHS,
            VARS, TITLE_MAX, DESC_MAX };`
 );
 
@@ -152,4 +153,20 @@ export function makeDetails(doc) {
     ${DETAILS_HOST}
     return { getDialog, getDetailsHost, getTitleBox, getDescBox, onEditPage, detailsOpen };`
   )(doc, (el) => !!el && el.isConnected && el.getClientRects().length > 0);
+}
+
+// ----- preset lookup (user presets + templates learned from a video) -----
+// Sliced from the lookup anchor down to the template block; storage is a plain object.
+const LOOKUP = block('// ===== หาพรีเซ็ตตาม id', '// ===== template =====');
+
+export function makeLookup({ presets, store = {}, channelId = 'UCtest' }) {
+  const ch = { id: channelId };
+  const api = new Function(
+    'presets', 'getChannel', 'load', 'save',
+    `'use strict';
+    let activeId = presets[0].id;
+    ${LOOKUP}
+    return { presetById, videoTemplates, saveVideoTemplates, isVideoId, ownId, active };`
+  )(presets, () => ch, (k, d) => (k in store ? store[k] : d), (k, v) => { store[k] = v; });
+  return { ...api, store, ch };
 }

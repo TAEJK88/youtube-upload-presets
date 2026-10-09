@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Upload Presets
 // @namespace    yt-upload-presets
-// @version      4.26.0
+// @version      4.27.0
 // @description  Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments
 // @description:th  อัปโหลดหลายคลิปพร้อมพรีเซ็ต/ตั้งเวลา + สแกนและตัดส่วนที่ติดลิขสิทธิ์ (รวม YT Studio Helper) ใน YouTube Studio
 // @match        https://studio.youtube.com/*
@@ -608,8 +608,21 @@
     saveSettings();
   }
 
-  const presetById = (id) => presets.find((p) => p.id === id) || presets[0];
+  // ===== หาพรีเซ็ตตาม id (พรีเซ็ตของผู้ใช้ หรือ 'v:<videoId>' = รูปแบบที่เรียนรู้จากคลิป) =====
+  // รูปแบบจากคลิปเก็บแยกตามช่อง: videoTemplates:<channelId> -> { 'v:<videoId>': template } · ไม่อยู่ใน presets และไม่ส่งออกในไฟล์สำรอง
+  let vtCache = { ch: null, map: {} };
+  function videoTemplates() {
+    const ch = getChannel().id;
+    if (vtCache.ch !== ch) vtCache = { ch, map: load('videoTemplates:' + ch, {}) };
+    return vtCache.map;
+  }
+  const saveVideoTemplates = () => save('videoTemplates:' + vtCache.ch, vtCache.map);
+  const isVideoId = (id) => String(id || '').startsWith('v:');
+  const presetById = (id) => (isVideoId(id) && videoTemplates()[id]) || presets.find((p) => p.id === id) || presets[0];
   const active = () => presetById(activeId);
+  // แท็บพรีเซ็ตแก้ได้เฉพาะพรีเซ็ตของผู้ใช้ — ถ้าพรีเซ็ตหลักเป็นรูปแบบจากคลิป ให้เปิดพรีเซ็ตแรกแทน
+  const ownId = (id) => (presets.some((p) => p.id === id) ? id : presets[0].id);
+
 
   // ===== template =====
   const pad = (x) => String(x).padStart(2, '0');
@@ -722,6 +735,110 @@
     return clean(d);
   }
   const renderDesc = (p, vars) => renderDescFull(p, vars).slice(0, DESC_MAX);
+
+  // ===== เรียนรู้รูปแบบจากคลิปที่อัปแล้ว (pure) =====
+  // ชื่อ/คำอธิบาย/แท็กของคลิปเดิม -> template: ส่วนที่เปลี่ยนทุกคลิป (tracklist, ศิลปิน, จำนวนเพลง, ปี, BPM, ชื่อบีท)
+  // กลายเป็นตัวแปร ส่วนที่เหลือคงไว้ตามเดิม · ตัวแปรที่อาจว่างจะถูกครอบ [[ ]] พร้อมตัวคั่น (กฎเดียวกับพรีเซ็ตตั้งต้น)
+  const SIX_MONTHS = 183 * 864e5;
+  const TS_LINE = /^\s*(\d{1,2}:)?\d{1,2}:\d{2}(?!\d)/;
+  const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const SEP_BEFORE = /\s*[|\-–—:•·]\s*$/;
+  const SEP_AFTER = /^\s*[|\-–—:•·]\s*/;
+  // แทนทุกจุดที่เจอ run ด้วย {artists} พร้อมดึงตัวคั่นข้าง ๆ เข้า [[ ]] (คลิปไม่มี .txt จะไม่เหลือ " | " ค้าง)
+  function wrapArtists(s, run) {
+    const parts = s.split(run);
+    let out = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      const after = parts[i];
+      const before = (out.match(SEP_BEFORE) || [''])[0];
+      const next = before ? '' : (after.match(SEP_AFTER) || [''])[0];
+      out = out.slice(0, out.length - before.length) + `[[${before}{artists}${next}]]` + after.slice(next.length);
+    }
+    return out;
+  }
+  function learnTemplate({ title = '', description = '', tags = [], publishedYear = '' }) {
+    const warnings = [];
+    const lines = String(description).replace(/\r\n/g, '\n').split('\n');
+    // 1. tracklist = บรรทัดขึ้นต้นด้วยเวลาติดกัน ≥ 3 บรรทัด (เอาช่วงที่ยาวที่สุด)
+    let best = null;
+    for (let i = 0; i < lines.length;) {
+      if (!TS_LINE.test(lines[i])) { i++; continue; }
+      let j = i;
+      while (j < lines.length && TS_LINE.test(lines[j])) j++;
+      if (j - i >= 3 && (!best || j - i > best.n)) best = { at: i, n: j - i };
+      i = j;
+    }
+    let desc = lines.join('\n');
+    let txt = '';
+    let artistList = [];
+    let trackcount = '';
+    if (best) {
+      txt = lines.slice(best.at, best.at + best.n).join('\n');
+      ({ artistList, trackcount } = parseTracks(txt));
+      // หัวข้อที่ลงท้ายด้วย : เหนือ tracklist (เช่น "Tracklist:") ย้ายเข้า [[ ]] ด้วย
+      const head = best.at > 0 && /:\s*$/.test(lines[best.at - 1]) ? best.at - 1 : best.at;
+      const block = head < best.at ? `[[${lines[head]}\n{txt}]]` : '{txt}';
+      desc = [...lines.slice(0, head), block, ...lines.slice(best.at + best.n)].join('\n');
+    } else warnings.push('no-tracklist');
+
+    // 2. ศิลปิน: ชื่อจาก tracklist ที่เรียงติดกันในชื่อคลิป (ยาวที่สุด) -> {artists}
+    let t = String(title);
+    let artistMax = 4;
+    let artistPriority = [];
+    if (artistList.length) {
+      const name = `(?:${[...artistList].sort((a, b) => b.length - a.length).map(escRe).join('|')})`;
+      const runRe = new RegExp(`(?<![\\p{L}\\p{N}])${name}(?:(?:, | x | & )${name})*(?![\\p{L}\\p{N}])`, 'giu');
+      const run = [...t.matchAll(runRe)].sort((a, b) => b[0].length - a[0].length)[0];
+      if (run) {
+        const names = run[0].split(/, | x | & /);
+        artistMax = names.length;
+        artistPriority = names; // ลำดับเดิมของคลิปต้นแบบ -> ศิลปินที่ดึงยอดวิวขึ้นก่อน
+        t = wrapArtists(t, run[0]);
+        desc = wrapArtists(desc, run[0]);
+      }
+    }
+    // 3. จำนวนเพลง เช่น "(12 Songs)" -> [[ ({trackcount} Songs)]]
+    if (trackcount) {
+      const countRe = new RegExp(`(\\s*\\()?(?<!\\d)${trackcount}(\\s*(?:songs?|tracks?|เพลง))(\\))?`, 'gi');
+      const fill = (s) => s.replace(countRe, (_, open = '', unit, close = '') => `[[${open}{trackcount}${unit}${close}]]`);
+      t = fill(t);
+      desc = fill(desc);
+    }
+    // 4. ปี (เฉพาะปีที่เผยแพร่หรือปีนี้)  5. BPM
+    const years = new Set([String(publishedYear), String(new Date().getFullYear())]);
+    const yearize = (s) => s.replace(/(?<!\d)20\d\d(?!\d)/g, (y) => (years.has(y) ? '{year}' : y));
+    const bpmize = (s) => s
+      .replace(/\bBPM:\s*\d{2,3}(?!\d)/gi, '[[BPM: {bpm}]]')
+      .replace(/(\s*[|\-–—:•·]\s*)?(?<![\d{])\d{2,3}\s*BPM\b/gi, (_, sep = '') => `[[${sep}{bpm} BPM]]`);
+    t = bpmize(yearize(t));
+    desc = bpmize(yearize(desc));
+    // 6. ชื่อบีทในเครื่องหมายคำพูด เช่น "Midnight" -> "{name}" (ทั้งชื่อคลิปและคำอธิบาย)
+    const q = t.match(/"([^"\n{}]{1,80})"|“([^”\n{}]{1,80})”/);
+    if (q) {
+      const named = q[0].replace(q[1] || q[2], '{name}');
+      t = t.split(q[0]).join(named);
+      desc = desc.split(q[0]).join(named);
+    }
+    if (!/\{\w+\}/.test(t)) warnings.push('static-title');
+    // 7. แท็กที่เป็นชื่อศิลปิน -> {artists} อันเดียว
+    const known = new Set(artistList.map((a) => a.toLowerCase()));
+    const outTags = [];
+    for (const tag of tags) {
+      if (known.has(String(tag).toLowerCase())) { if (!outTags.includes('{artists}')) outTags.push('{artists}'); }
+      else outTags.push(yearize(String(tag)));
+    }
+    return { title: t, description: desc, tags: outTags, artistPriority, artistMax, txt, warnings };
+  }
+
+  // คลิปสาธารณะใน 6 เดือนล่าสุด เรียงตามยอดวิว (รับรายการจาก list_creator_videos) -> [{ videoId, title, views, at }]
+  function pickTopVideos(videos, now = Date.now(), n = 10) {
+    return (videos || [])
+      .map((v) => ({ videoId: v.videoId, title: v.title || '', views: +((v.metrics || {}).viewCount || 0), at: (+v.timePublishedSeconds || 0) * 1000, privacy: v.privacy }))
+      .filter((v) => v.privacy === 'VIDEO_PRIVACY_PUBLIC' && v.at > 0 && now - v.at <= SIX_MONTHS)
+      .sort((a, b) => b.views - a.views)
+      .slice(0, n)
+      .map(({ privacy, ...v }) => v);
+  }
 
   // ===== ตรวจ tracklist ก่อนอัป (กฎ Chapters ของ YouTube) =====
   // เช็กจากคำอธิบายที่จะอัปจริง: timestamp แรก 0:00, อย่างน้อย 3 ช่วง, เรียงจากน้อยไปมาก, แต่ละช่วง ≥ 10 วินาที,
@@ -2781,6 +2898,10 @@
     #ytp-root .ask.danger h3 .ai{color:var(--err);background:color-mix(in srgb,var(--err) 12%,var(--bg))}
     #ytp-root .ask .ab{font-size:13px;line-height:1.6;color:var(--fg2);white-space:pre-line;word-break:break-word}
     #ytp-root .ask .ab b{color:var(--fg)}
+    #ytp-root .ask .vt{white-space:normal;display:grid;gap:6px}
+    #ytp-root .ask .vt input,#ytp-root .ask .vt textarea{width:100%;box-sizing:border-box}
+    #ytp-root .ask .vt textarea{resize:vertical;font:inherit}
+    #ytp-root .ask .vt-pv{white-space:pre-wrap;border:1px solid var(--line2);border-radius:10px;padding:8px 10px;max-height:180px;overflow:auto}
     #ytp-root .ask .afoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap}
     #ytp-root .ask .afoot .btn.go{flex:0 0 auto;justify-content:center}
     #ytp-root .ask .afoot .btn.go.danger{background:var(--err);box-shadow:none}
@@ -3396,6 +3517,7 @@
     if (tab) showTab(tab);
     updateChannelUI();
     drawer.classList.add('open');
+    loadTopVideos();
   }
   function closeDrawer() {
     drawer.classList.remove('open');
@@ -3476,7 +3598,7 @@
 
   const defaultPresetSel = h('select', {
     title: L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos'),
-    onchange: (e) => { activeId = e.target.value; save('activeId', activeId); refreshLabels(); },
+    onchange: (e) => choosePreset(e.target, activeId, (id) => { activeId = id; save('activeId', activeId); refreshLabels(); }),
   });
   const applyAllBtn = h('button', {
     className: 'btn sm', title: L('เปลี่ยนพรีเซ็ตของทุกคลิปที่ยังไม่ได้อัป', 'Change the preset of all videos not yet uploaded'),
@@ -3650,8 +3772,111 @@
 
   const fmtSize = (b) => (b > 1e9 ? (b / 1e9).toFixed(2) + ' GB' : (b / 1e6).toFixed(1) + ' MB');
 
+  // ----- คัดลอกรูปแบบจากคลิปที่อัปแล้ว -----
+  // รายการคลิปยอดวิวสูงสุด 6 เดือน (โหลดตอนเปิดแผง เก็บไว้ทั้ง session แยกตามช่อง)
+  // state: idle = ยังไม่ได้โหลด / Studio ยังไม่พร้อม · loading · ok · fail
+  const REFRESH_TOP = '__refreshTop';
+  let topVids = { ch: '', state: 'idle', list: [] };
+  const fmtViews = (n) => new Intl.NumberFormat(LOCALE, { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+  const ellipsize = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+  function loadTopVideos(force = false) {
+    const ch = getChannel().id;
+    if (!force && topVids.ch === ch && (topVids.state === 'ok' || topVids.state === 'loading')) return;
+    if (!Claims || !Claims.listTopVideos) return;
+    topVids = { ch, state: 'loading', list: [] };
+    refreshLabels();
+    Claims.listTopVideos()
+      .then((list) => { if (topVids.ch === ch) topVids = { ch, state: list ? 'ok' : 'idle', list: list || [] }; })
+      .catch((e) => { console.warn('[yt-upload-presets] listTopVideos', e); if (topVids.ch === ch) topVids = { ch, state: 'fail', list: [] }; })
+      .finally(refreshLabels);
+  }
+
+  // หน้ารีวิวรูปแบบที่เรียนรู้จากคลิป: แก้ชื่อ/คำอธิบาย/แท็กได้ก่อนใช้ · คืนค่า true เมื่อบันทึกแล้ว
+  // relearn = อ่านคลิปใหม่แล้วเรียนรู้ใหม่ (ไม่ใช้ของที่เก็บไว้)
+  async function reviewVideoTemplate(id, relearn = false) {
+    const store = videoTemplates();
+    let tpl = !relearn && store[id];
+    if (!tpl) {
+      if (!Claims || !Claims.videoText) return false;
+      let src;
+      try { src = await Claims.videoText(id.slice(2)); }
+      catch (e) {
+        await ask({ title: L('อ่านข้อมูลคลิปไม่ได้', 'Couldn\'t read this video'), body: e.message, ok: L('ตกลง', 'OK') });
+        return false;
+      }
+      const { warnings, txt, ...learned } = learnTemplate(src);
+      const top = topVids.list.find((v) => 'v:' + v.videoId === id);
+      tpl = { ...learned, id, label: '📈 ' + ellipsize(src.title, 40), visibility: 'PRIVATE', sampleTxt: txt, warnings,
+        source: { videoId: id.slice(2), title: src.title, views: top ? top.views : 0 } };
+    }
+    const fTitle = h('input', { type: 'text', value: tpl.title });
+    const fDesc = h('textarea', { rows: 6, value: tpl.description });
+    const fTags = h('input', { type: 'text', value: tpl.tags.join(', ') });
+    const pv = h('div', { className: 'vt-pv' });
+    const draft = () => ({ ...tpl, title: fTitle.value, description: fDesc.value, tags: fTags.value.split(',').map((t) => t.trim()).filter(Boolean) });
+    // ตัวอย่าง: ใช้คลิปแรกที่รอคิว ถ้าคิวว่างใช้ tracklist ของคลิปต้นแบบเอง
+    const sample = queue.find((i) => i.status === 'pending');
+    const showPreview = () => {
+      const p = draft();
+      const vars = sample
+        ? buildVars(sample.file.name, sample.n || 1, sample.txt, { preset: p })
+        : buildVars(L('ตัวอย่าง', 'Sample'), 1, tpl.sampleTxt || '', { preset: p });
+      pv.replaceChildren(h('b', {}, makeTitle(p, vars)), '\n\n', renderDesc(p, vars).slice(0, 600), '\n\n', h('small', {}, renderTags(p, vars).join(', ')));
+    };
+    for (const f of [fTitle, fDesc, fTags]) f.addEventListener('input', showPreview);
+    showPreview();
+    const WARN = {
+      'no-tracklist': L('ไม่พบ tracklist ในคำอธิบาย — ชื่อศิลปินยังเป็นข้อความตายตัว', 'No tracklist found in the description — artist names were kept as plain text'),
+      'static-title': L('ชื่อคลิปไม่มีตัวแปร — ทุกคลิปจะได้ชื่อเดียวกัน', 'The title has no variables — every upload would get the same title'),
+    };
+    const body = h('div', { className: 'vt' },
+      h('div', { className: 'mini' }, L(`จาก: ${tpl.source.title}`, `From: ${tpl.source.title}`),
+        tpl.source.views ? ` · ${fmtViews(tpl.source.views)} ${L('วิว', 'views')}` : ''),
+      (tpl.warnings || []).map((w) => h('div', { className: 'hint' }, icon('alert', 13), h('span', {}, WARN[w] || w))),
+      h('div', { className: 'mini' }, L('ชื่อคลิป', 'Title')), fTitle,
+      h('div', { className: 'mini' }, L('คำอธิบาย', 'Description')), fDesc,
+      h('div', { className: 'mini' }, L('แท็ก (คั่นด้วย ,)', 'Tags (comma-separated)')), fTags,
+      h('div', { className: 'mini' }, L('ตัวอย่าง', 'Preview')), pv);
+    const r = await ask({
+      title: L('ใช้รูปแบบจากคลิปนี้', 'Use this video\'s pattern'), body, ic: 'copy',
+      ok: L('ใช้รูปแบบนี้', 'Use this pattern'), no: store[id] ? L('เรียนรู้ใหม่', 'Re-learn') : null,
+    });
+    if (r === false && store[id]) return reviewVideoTemplate(id, true);
+    if (!r) return false;
+    store[id] = draft();
+    saveVideoTemplates();
+    refreshLabels();
+    return true;
+  }
+
+  // onchange ของ select พรีเซ็ต: id พรีเซ็ต / 'v:<videoId>' (ครั้งแรกเปิดหน้ารีวิวก่อน) / ปุ่มโหลดรายการใหม่
+  async function choosePreset(sel, prev, apply) {
+    const id = sel.value;
+    sel.value = prev; // ยังไม่เปลี่ยนจนกว่าจะยืนยัน
+    if (id === REFRESH_TOP) return loadTopVideos(true);
+    if (isVideoId(id) && !videoTemplates()[id] && !(await reviewVideoTemplate(id))) return;
+    apply(id);
+  }
+
   function presetOptions(selected) {
-    return presets.map((p, i) => h('option', { value: p.id, selected: p.id === selected }, `${i + 1}. ${p.label}`));
+    const mine = presets.map((p, i) => h('option', { value: p.id, selected: p.id === selected }, `${i + 1}. ${p.label}`));
+    const vids = topVids.list.map((v, i) => h('option', { value: 'v:' + v.videoId, selected: 'v:' + v.videoId === selected },
+      `${i ? '' : '⭐ '}${ellipsize(v.title, 48)} · ${fmtViews(v.views)}`));
+    // รูปแบบที่เลือกไว้แต่หลุดจากรายการ 10 อันดับแล้ว -> ยังแสดงให้เห็นว่าการ์ดใช้อะไรอยู่
+    const vt = isVideoId(selected) && videoTemplates()[selected];
+    if (vt && !topVids.list.some((v) => 'v:' + v.videoId === selected)) vids.unshift(h('option', { value: selected, selected: true }, vt.label));
+    const status = {
+      loading: L('กำลังโหลด…', 'Loading…'),
+      fail: L('โหลดรายการคลิปไม่ได้', 'Couldn\'t load videos'),
+      ok: topVids.list.length ? '' : L('ไม่มีคลิปสาธารณะใน 6 เดือน', 'No public videos in the last 6 months'),
+      idle: '',
+    }[topVids.state];
+    if (status) vids.push(h('option', { disabled: true }, status));
+    if (topVids.state !== 'loading') vids.push(h('option', { value: REFRESH_TOP }, '↻ ' + (topVids.state === 'idle' ? L('โหลดรายการคลิป', 'Load videos') : L('โหลดใหม่', 'Refresh'))));
+    return [
+      h('optgroup', { label: L('พรีเซ็ต', 'Presets') }, mine),
+      h('optgroup', { label: L('คัดลอกจากคลิป (6 เดือน, ยอดวิว)', 'Copy from video (last 6 mo, by views)') }, vids),
+    ];
   }
 
   function buildCard(it) {
@@ -3689,7 +3914,7 @@
     const artistsMode = h('span', { style: 'font-weight:400' });
     const artistsBox = h('div', {}, h('div', { className: 'mini' }, L('ศิลปิน', 'Artists'), artistsMode), artistsIn);
     const presetSel = h('select', {
-      onchange: (e) => { it.presetId = e.target.value; it.titleEdited = false; renderQueue(); },
+      onchange: (e) => choosePreset(e.target, it.presetId, (id) => { it.presetId = id; it.titleEdited = false; renderQueue(); }),
     }, presetOptions(it.presetId));
     const retryBtn = h('button', { className: 'btn sm', onclick: async () => {
       if (it.draftId && !(await ask({
@@ -3863,6 +4088,15 @@
 
     const rm = (fn) => editable && h('span', { className: 'rm', title: L('เอาออก', 'Remove'), onclick: fn }, icon('x', 11));
     const kids = [];
+    // การ์ดที่ใช้รูปแบบจากคลิป: ชิปบอกที่มา (คลิกเพื่อดู/แก้/เรียนรู้ใหม่) หรือเตือนเมื่อหารูปแบบไม่เจอ (เช่น สลับช่อง)
+    if (isVideoId(it.presetId)) {
+      const vt = videoTemplates()[it.presetId];
+      if (!vt) kids.push(h('span', { className: 'chip bad', title: L('รูปแบบนี้เรียนรู้ไว้ในช่องอื่น หรือถูกลบไปแล้ว', 'This pattern was learned on another channel, or was removed') },
+        icon('alert', 13), h('span', {}, L(`ไม่พบรูปแบบจากคลิป — ใช้ ${presets[0].label}`, `Video pattern missing — using ${presets[0].label}`))));
+      else if (editable) kids.push(h('button', { className: 'chip', title: L('คลิกเพื่อดู/แก้รูปแบบ หรือเรียนรู้ใหม่', 'Click to review, edit or re-learn this pattern'), onclick: () => reviewVideoTemplate(it.presetId) },
+        icon('copy', 13), h('span', {}, L(`รูปแบบจาก: ${ellipsize(vt.source.title, 36)}`, `Pattern from: ${ellipsize(vt.source.title, 36)}`))));
+      else kids.push(h('span', { className: 'chip' }, icon('copy', 13), h('span', {}, ellipsize(vt.source.title, 36))));
+    }
     if (it.txt) {
       const lines = it.txt.trim().split(/\r?\n/).length;
       kids.push(h('span', { className: 'chip', title: it.txt.slice(0, 600) }, icon('file', 13), h('span', {}, L(`${it.txtName} · ${lines} บรรทัด`, `${it.txtName} · ${lines} lines`)),
@@ -4041,7 +4275,7 @@
   }
 
   // ----- แท็บพรีเซ็ต -----
-  let editId = activeId;
+  let editId = ownId(activeId);
   let lastField = null;
   const presetList = h('div', { className: 'plist' });
   const fLabel = h('input', { type: 'text' });
@@ -4155,7 +4389,7 @@
   }
 
   function renderPresetEditor() {
-    if (!presets.some((p) => p.id === editId)) editId = activeId;
+    if (!presets.some((p) => p.id === editId)) editId = ownId(activeId);
     const p = editing();
     renderPresetList();
     fLabel.value = p.label || '';
@@ -4215,7 +4449,7 @@
           save('presets', presets);
           if (!presets.some((p) => p.id === activeId)) { activeId = presets[0].id; save('activeId', activeId); }
           queue.forEach((it) => { if (!presets.some((p) => p.id === it.presetId)) it.presetId = activeId; });
-          editId = activeId; renderPresetEditor(); refreshLabels(); renderQueue();
+          editId = ownId(activeId); renderPresetEditor(); refreshLabels(); renderQueue();
         } }, icon('clear', 13), L('ลบ', 'Delete'))
       )
     ),
@@ -4661,6 +4895,45 @@
         pages++;
       } while (tok && pages < 4);
       return out.sort((a, b) => a.at - b.at);
+    }
+
+    // คลิปยอดวิวสูงสุด 10 คลิปใน 6 เดือนล่าสุด (อ่านอย่างเดียว) -> [{ videoId, title, views, at }] · null = Studio ยังโหลดไม่เสร็จ
+    // ตรวจกับ Studio จริง (ต.ค. 2026): metrics.viewCount, timePublishedSeconds, privacy = VIDEO_PRIVACY_PUBLIC
+    // อ่านใหม่ไปเก่าแล้วหยุดเมื่อเลย 6 เดือน (คลิปร่าง/ตั้งเวลาไม่มีเวลาเผยแพร่ ข้ามไป ไม่ใช่จุดหยุด)
+    async function listTopVideos() {
+      if (!ycfg('INNERTUBE_CONTEXT')) return null;
+      const CH = currentChannel();
+      const vids = [];
+      let tok, pages = 0;
+      do {
+        const body = {
+          filter: { and: { operands: [{ channelIdIs: { value: CH } }, { videoOriginIs: { value: 'VIDEO_ORIGIN_UPLOAD' } }] } },
+          order: 'VIDEO_ORDER_DISPLAY_TIME_DESC', pageSize: 50,
+          mask: { videoId: true, title: true, privacy: true, timePublishedSeconds: true, metrics: { all: true } },
+        };
+        if (tok) body.pageToken = tok;
+        const j = await yti('creator/list_creator_videos', body);
+        const got = j.videos || [];
+        vids.push(...got);
+        tok = j.nextPageToken;
+        pages++;
+        const lastAt = (+((got[got.length - 1] || {}).timePublishedSeconds) || 0) * 1000;
+        if (lastAt && Date.now() - lastAt > SIX_MONTHS) break;
+      } while (tok && pages < 10);
+      return pickTopVideos(vids);
+    }
+
+    // ชื่อ คำอธิบาย และแท็กของคลิปเดียว (อ่านอย่างเดียว) — ใช้เรียนรู้รูปแบบ
+    async function videoText(videoId) {
+      const j = await yti('creator/get_creator_videos', {
+        failOnError: true, videoIds: [videoId],
+        mask: { videoId: true, title: true, description: true, tags: { all: true }, timePublishedSeconds: true },
+      });
+      const v = (j.videos || [])[0];
+      if (!v) throw new Error(L('ไม่พบคลิปนี้ในช่อง', 'This video wasn\'t found on the channel'));
+      const tags = Array.isArray(v.tags) ? v.tags : (v.tags && v.tags.tags) || [];
+      const at = (+v.timePublishedSeconds || 0) * 1000;
+      return { title: v.title || '', description: v.description || '', tags, publishedYear: at ? String(new Date(at).getFullYear()) : '' };
     }
 
     async function scanClaims({ show = true } = {}) {
@@ -6258,7 +6531,7 @@
       renderStatus();
     }
 
-    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus, listScheduled };
+    return { buildPane, tick, claimedSongsIn, fixTracklist, renderStatus, status: computeStatus, listScheduled, listTopVideos, videoText };
   })();
   panes.claims = Claims.buildPane();
   let tickFailed = false;

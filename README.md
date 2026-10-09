@@ -10,6 +10,12 @@ Tampermonkey userscript for YouTube Studio: multi-file upload with presets, sche
 
 After installing, set your producer name in **Settings → General** and your own artist/label names in the **Copyright** tab settings. Use **Settings → Backup / share** to export or import presets as JSON.
 
+**Copy a pattern from a video.** Every preset dropdown also lists your top 10 public videos from the last
+6 months by views (⭐ = most viewed). Picking one learns its title, description and tags as a template:
+the tracklist, artists, track count, year, BPM and quoted beat name become variables, so each new upload
+gets its own values in the same format. You review the learned pattern before it's used; it is stored per
+channel and is not added to your preset list.
+
 ## Running tests
 
 The pure functions (templating, chapter rules, tracklist rewriting, storage migrations,
