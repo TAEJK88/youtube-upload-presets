@@ -247,3 +247,55 @@ describe('createMemoryStore', () => {
     expect(kv.get('a', 'fb')).toBe('fb');
   });
 });
+
+describe('key prefixes', () => {
+  it('reads every stored key under a prefix, and nothing else', async () => {
+    await browser.storage.local.set({ 'claimScan:UC1': { rows: [] }, 'trimRun:UC1': null, other: 1 });
+    const kv = await createSyncStore(['cfg'], ['claimScan:']);
+    expect(kv.get('claimScan:UC1')).toEqual({ rows: [] });
+    expect(kv.get('claimScan:UC2', 'none')).toBe('none'); // known (prefix), not stored
+    expect(() => kv.get('trimRun:UC1')).toThrow('unknown key');
+    expect(() => kv.get('other')).toThrow('unknown key');
+  });
+
+  it('a prefixed key written after start shows up', async () => {
+    const kv = await createSyncStore([], ['claimScan:']);
+    const seen = vi.fn();
+    kv.onChange('claimScan:UC9', seen);
+    external({ 'claimScan:UC9': { date: 'd' } });
+    expect(kv.get('claimScan:UC9')).toEqual({ date: 'd' });
+    expect(seen).toHaveBeenCalledWith({ date: 'd' });
+  });
+});
+
+describe('expect(): a write someone else makes for us', () => {
+  it('shows the value at once and keeps it through an older echo', async () => {
+    await browser.storage.local.set({ cfg: { a: 0 } });
+    const kv = await createSyncStore(['cfg']);
+    let finish!: () => void;
+    const done = new Promise<void>((r) => { finish = r; });
+    kv.expect('cfg', { a: 1 }, done);
+    expect(kv.get('cfg')).toEqual({ a: 1 });
+    external({ cfg: { a: 0 } }); // an event from before our write
+    expect(kv.get('cfg')).toEqual({ a: 1 });
+    await browser.storage.local.set({ cfg: { a: 1, b: 2 } }); // the writer merged with something else
+    finish();
+    await kv.flush();
+    expect(kv.get('cfg')).toEqual({ a: 1, b: 2 }); // read again once the writer is done
+  });
+
+  it('a failed write is reconciled with storage', async () => {
+    await browser.storage.local.set({ cfg: { a: 0 } });
+    const kv = await createSyncStore(['cfg']);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    kv.expect('cfg', { a: 1 }, Promise.reject(new Error('refused')));
+    await kv.flush();
+    expect(kv.get('cfg')).toEqual({ a: 0 });
+  });
+
+  it('the memory store just takes the value', () => {
+    const kv = createMemoryStore();
+    kv.expect('cfg', { a: 1 }, Promise.resolve());
+    expect(kv.get('cfg')).toEqual({ a: 1 });
+  });
+});

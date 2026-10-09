@@ -8,6 +8,9 @@ import { save } from './storage';
 export interface SyncStore {
   get<T>(key: string, fallback?: T): T;
   set(key: string, value: unknown): void;
+  // A write someone else makes for us (the background, D20): the copy shows `value` at once,
+  // events for the key wait until `done` settles, and the key is read again then.
+  expect(key: string, value: unknown, done: Promise<unknown>): void;
   // Called when another context changed the key (never for this store's own writes).
   onChange(key: string, fn: (value: unknown) => void): () => void;
   // Resolves once every write issued so far has reached storage.
@@ -22,8 +25,11 @@ export interface SyncStore {
 const copy = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
+// `prefixes`: every key starting with one of them is kept too (the copyright module's
+// per-channel keys, `claimScan:<channelId>` and the like), also keys first written later.
+export async function createSyncStore(keyList: string[], prefixes: string[] = []): Promise<SyncStore> {
   const keys = new Set(keyList);
+  const isKey = (key: string) => keys.has(key) || prefixes.some((p) => key.startsWith(p));
   const cache = new Map<string, unknown>();
   const listeners = new Map<string, Set<(v: unknown) => void>>();
   const inflight = new Map<string, number>(); // writes of ours not yet confirmed per key
@@ -49,7 +55,7 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
   };
 
   const onEvent = (key: string, newValue: unknown) => {
-    if (!keys.has(key)) return;
+    if (!isKey(key)) return;
     // While our own write is in flight this event may be its echo or an older value;
     // re-read once the write lands instead of guessing.
     if (inflight.get(key)) return void stale.add(key);
@@ -68,8 +74,10 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
   // Listen before the first read so a write from another context during it is not lost.
   browser.storage.onChanged.addListener(onChanged);
   try {
-    const stored = await browser.storage.local.get(keyList);
-    for (const [k, v] of Object.entries(stored)) if (v !== undefined && keys.has(k)) cache.set(k, v);
+    // With prefixes the store can't name its keys up front: it reads everything once (the queue,
+    // presets, the song history…) and keeps only its own. Once per Studio page load; acceptable.
+    const stored = prefixes.length ? await browser.storage.local.get(null) : await browser.storage.local.get(keyList);
+    for (const [k, v] of Object.entries(stored)) if (v !== undefined && isKey(k)) cache.set(k, v);
   } catch (e) {
     browser.storage.onChanged.removeListener(onChanged);
     throw e;
@@ -92,17 +100,17 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
     if (stale.delete(key)) await reread(key);
   };
 
-  const known = (key: string) => {
-    if (!keys.has(key)) throw new Error(`SyncStore: unknown key ${key}`);
+  const check = (key: string) => {
+    if (!isKey(key)) throw new Error(`SyncStore: unknown key ${key}`);
   };
 
   return {
     get: <T>(key: string, fallback?: T): T => {
-      known(key);
+      check(key);
       return cache.has(key) ? copy(cache.get(key) as T) : (fallback as T);
     },
     set(key, value) {
-      known(key);
+      check(key);
       if (!live) throw new Error('SyncStore: disposed');
       if (value === undefined) cache.delete(key);
       else cache.set(key, copy(value));
@@ -118,8 +126,26 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
       writes.add(w);
       void w.finally(() => writes.delete(w));
     },
+    expect(key, value, done) {
+      check(key);
+      if (!live) throw new Error('SyncStore: disposed');
+      if (value === undefined) cache.delete(key);
+      else cache.set(key, copy(value));
+      bump(key);
+      inflight.set(key, (inflight.get(key) ?? 0) + 1);
+      const w = Promise.resolve(done)
+        .catch((e) => console.error(`[ytup] write failed for ${key}`, e))
+        // Always read again: the writer's result is the truth (it may have merged other changes).
+        .then(() => {
+          stale.add(key);
+          return settle(key);
+        })
+        .catch((e) => console.error(`[ytup] storage re-read failed for ${key}`, e));
+      writes.add(w);
+      void w.finally(() => writes.delete(w));
+    },
     onChange(key, fn) {
-      known(key);
+      check(key);
       if (!listeners.has(key)) listeners.set(key, new Set());
       listeners.get(key)!.add(fn);
       return () => listeners.get(key)?.delete(fn);
@@ -129,7 +155,7 @@ export async function createSyncStore(keyList: string[]): Promise<SyncStore> {
       while (writes.size) await Promise.all([...writes]);
     },
     reread(key) {
-      known(key);
+      check(key);
       return reread(key);
     },
     dispose() {
@@ -146,6 +172,7 @@ export function createMemoryStore(initial: Record<string, unknown> = {}): SyncSt
   return {
     get: <T>(key: string, fallback?: T): T => (data.has(key) ? copy(data.get(key) as T) : (fallback as T)),
     set: (key, value) => void (value === undefined ? data.delete(key) : data.set(key, copy(value))),
+    expect: (key, value) => void (value === undefined ? data.delete(key) : data.set(key, copy(value))),
     onChange: () => () => {},
     flush: async () => {},
     reread: async () => {},
