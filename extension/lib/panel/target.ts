@@ -1,0 +1,60 @@
+import { browser } from 'wxt/browser';
+import { isStudioUrl } from '../panel-scope';
+
+// The panel works with the Studio tab active in its own window (the background enables it
+// on Studio tabs only).
+export interface Target { tabId: number; windowId: number; url: string; title: string }
+interface TabLike { id?: number; windowId?: number; url?: string; title?: string }
+
+export const asTarget = (t: TabLike | undefined): Target | null =>
+  t?.id !== undefined && t.windowId !== undefined && isStudioUrl(t.url)
+    ? { tabId: t.id, windowId: t.windowId, url: t.url!, title: t.title ?? '' }
+    : null;
+
+export async function activeStudioTab(windowId: number): Promise<Target | null> {
+  const [tab] = await browser.tabs.query({ active: true, windowId });
+  return asTarget(tab);
+}
+
+export type TabEvent = 'switched' | 'loading' | 'loaded';
+export function watchTabs(windowId: number, fn: (e: TabEvent) => void): () => void {
+  const activated = (info: { windowId: number }) => {
+    if (info.windowId === windowId) fn('switched');
+  };
+  const updated = (_id: number, info: { status?: string; url?: string; title?: string }, tab: { active?: boolean; windowId?: number }) => {
+    if (!tab.active || tab.windowId !== windowId) return;
+    if (info.url) fn('switched');
+    else if (info.status === 'loading') fn('loading');
+    else if (info.status === 'complete' || info.title) fn('loaded');
+  };
+  browser.tabs.onActivated.addListener(activated);
+  browser.tabs.onUpdated.addListener(updated);
+  return () => {
+    browser.tabs.onActivated.removeListener(activated);
+    browser.tabs.onUpdated.removeListener(updated);
+  };
+}
+
+// The tab holding the one-runner lock (lib/runner-lock.ts, storage.session). Stop goes there;
+// the panel says so when it isn't the bound tab. A tab that is gone or left Studio is nobody.
+export interface RunnerTab { tabId: number; windowId: number; title: string }
+
+export async function runnerTab(): Promise<RunnerTab | null> {
+  const id = (await browser.storage.session.get('runnerTabId')).runnerTabId;
+  if (typeof id !== 'number') return null;
+  const t = asTarget(await browser.tabs.get(id).catch(() => undefined));
+  return t && { tabId: t.tabId, windowId: t.windowId, title: t.title };
+}
+
+export function watchRunner(fn: () => void): () => void {
+  const changed = (changes: Record<string, unknown>, area: string) => {
+    if (area === 'session' && 'runnerTabId' in changes) fn();
+  };
+  browser.storage.onChanged.addListener(changed);
+  return () => browser.storage.onChanged.removeListener(changed);
+}
+
+export async function focusTab(t: { tabId: number; windowId: number }): Promise<void> {
+  await browser.tabs.update(t.tabId, { active: true });
+  await browser.windows.update(t.windowId, { focused: true });
+}
