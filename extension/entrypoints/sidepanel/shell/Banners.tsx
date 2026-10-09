@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
+import { needingGrant, queuedFileIds, regrant } from '@/lib/panel/regrant';
 import { focusTab } from '@/lib/panel/target';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
@@ -18,12 +19,26 @@ function Banner({ icon, text, children }: { icon: string; text: string; children
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, refresh } = usePanel();
+  const { link, target, runner, elsewhere, view, refresh } = usePanel();
+  // Queued files whose read permission went back to 'prompt' (a browser restart): D18.
+  const [lost, setLost] = useState<string[]>([]);
+  const ids = view ? queuedFileIds(view.items).join(',') : '';
+  useEffect(() => {
+    let alive = true;
+    void needingGrant(ids ? ids.split(',') : []).then((l) => { if (alive) setLost(l); });
+    return () => { alive = false; };
+  }, [ids]);
+  const regrantAll = () => void regrant(lost).then(() => needingGrant(lost)).then((l) => { setLost(l); refresh(); });
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };
   return (
     <>
+      {lost.length > 0 && (
+        <Banner icon="lock" text={L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่', 'Files in the queue need read access again after a browser restart')}>
+          <Button size="sm" onClick={regrantAll}>{L(`อนุญาตอีกครั้ง (${lost.length} ไฟล์)`, `Re-grant access (${lost.length} files)`)}</Button>
+        </Banner>
+      )}
       {link === 'noScript' && target && (
         <Banner icon="sync" text={L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab')}>
           <Button size="sm" onClick={() => void browser.tabs.reload(target.tabId).catch((e) => console.error('[ytup] reload failed', e))}>{L('โหลดแท็บนี้ใหม่', 'Reload this tab')}</Button>

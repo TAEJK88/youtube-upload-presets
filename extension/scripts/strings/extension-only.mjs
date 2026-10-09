@@ -39,4 +39,7 @@ export default [
   { th: 'อ่านคิวจากแท็บ Studio ไม่สำเร็จ (${})', en: "Couldn't read the queue from the Studio tab (${})", why: 'queue:view is a message to the Studio tab and its handler can fail; the drawer read the queue in the page' },
   // Phase 3a: Presets tab
   { th: 'ใส่ลงหน้าต่างที่เปิดอยู่ไม่สำเร็จ (${})', en: "Couldn't apply to the open window (${})", why: 'fill:apply is a message to the Studio tab and fails when none is bound or connected; the drawer ran it in the page' },
+  // Phase 3b: the Upload tab, FAB, banner
+  { th: 'ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่', en: 'Files in the queue need read access again after a browser restart', why: 'file handles lose permission after a restart (spec: File intake step 4)' },
+  { th: 'อนุญาตอีกครั้ง (${} ไฟล์)', en: 'Re-grant access (${} files)', why: 'one click re-grants every queued file' },
 ];

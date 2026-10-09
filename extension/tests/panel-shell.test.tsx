@@ -11,6 +11,7 @@ import { ActivityBar } from '../entrypoints/sidepanel/shell/ActivityBar';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 import { ChannelBar } from '../entrypoints/sidepanel/shell/ChannelBar';
 import { setLang } from '../lib/i18n';
+import * as fileStore from '../lib/file-store';
 import { toPanelData } from '../lib/panel/data';
 import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
@@ -214,6 +215,28 @@ describe('banners', () => {
     cleanup();
     renderPanel(<Banners />, fakePanel({ runner: { tabId: 1, windowId: 1, title: 'This' }, elsewhere: false }));
     expect(screen.queryByRole('button', { name: 'Go to that tab' })).toBe(null);
+  });
+
+  it('re-grant: counts the queued files that lost read access, asks for all of them in one click', async () => {
+    const perm: Record<string, PermissionState> = { i0: 'prompt', t0: 'prompt', i1: 'granted', i2: 'prompt' };
+    const request = vi.fn(async function (this: { id: string }) { perm[this.id] = 'granted'; return 'granted' as PermissionState; });
+    vi.spyOn(fileStore, 'getHandle').mockImplementation(async (id) => ({
+      id, queryPermission: async () => perm[id]!, requestPermission: request,
+    }) as unknown as FileSystemFileHandle);
+    const view = viewWith([
+      { thumb: { id: 't0', src: 'bridge', name: 'Clip 1.jpg', size: 1, type: 'image/jpeg' } },
+      { status: 'error' },
+      { status: 'done' }, // done: its file is not needed any more
+    ]);
+    const api = fakePanel({ view });
+    renderPanel(<Banners />, api);
+    await flush();
+    expect(screen.getByText('Files in the queue need read access again after a browser restart')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Re-grant access (2 files)' }));
+    await flush();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Files in the queue need read access again after a browser restart')).toBe(null);
+    expect(api.refresh).toHaveBeenCalled();
   });
 });
 
