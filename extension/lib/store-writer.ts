@@ -31,12 +31,12 @@ export async function applyStorePatch(p: StorePatch): Promise<void> {
   await browser.storage.local.set({ [p.key]: next });
 }
 
-// Who may send the two writes. Content scripts on www.youtube.com (the invite page) and the
-// file bridge (an extension page inside a Studio tab) never write settings; an import comes
-// from the side panel only. `ext` is browser.runtime.getURL('/').
+// Who may send the writes. Content scripts on www.youtube.com (the invite page) and the
+// file bridge (an extension page inside a Studio tab) never write settings or forget stored
+// file handles (files:delete); an import comes from the side panel only. `ext` is browser.runtime.getURL('/').
 interface Sender { tab?: unknown; url?: string }
 const extensionPage = (s: Sender, ext: string) => !s.tab && !!s.url?.startsWith(ext);
-export function mayWrite(type: 'store:patch' | 'backup:write', s: Sender, ext: string): boolean {
+export function mayWrite(type: 'store:patch' | 'backup:write' | 'files:delete', s: Sender, ext: string): boolean {
   if (type === 'backup:write') return extensionPage(s, ext);
   return extensionPage(s, ext) || (!!s.tab && isStudioUrl(s.url));
 }

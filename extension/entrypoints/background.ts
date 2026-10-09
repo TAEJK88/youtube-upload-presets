@@ -51,7 +51,8 @@ export default defineBackground(() => {
   });
 
   // The page has no access to the extension's IndexedDB; it asks here to forget handles.
-  onMessage('files:delete', async ({ data: ids }) => {
+  onMessage('files:delete', async ({ data: ids, sender }) => {
+    if (!mayWrite('files:delete', sender, ext)) throw new Error('files:delete: not allowed from this sender');
     for (const id of ids) {
       try {
         await deleteHandle(id);

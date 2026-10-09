@@ -130,6 +130,13 @@ describe('who may write, and what', () => {
     expect(mayWrite('backup:write', bridge, ext)).toBe(false);
   });
 
+  it('files:delete (forget stored file handles): the panel and Studio tabs only', () => {
+    expect(mayWrite('files:delete', panel, ext)).toBe(true);
+    expect(mayWrite('files:delete', studio, ext)).toBe(true);
+    expect(mayWrite('files:delete', www, ext)).toBe(false);
+    expect(mayWrite('files:delete', bridge, ext)).toBe(false);
+  });
+
   it('a settings patch keeps only known keys of the right type', async () => {
     await browser.storage.local.set({ settings: { producer: 'Me' } });
     await patchStore({ key: 'settings', patch: {
