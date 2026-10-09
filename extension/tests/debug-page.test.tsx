@@ -76,15 +76,70 @@ describe('debug page', () => {
     expect(screen.getByRole('status').textContent).toBe('Copied');
   });
 
-  it('Re-run migrations sends ensureMigrated and shows the answer', async () => {
+  it("Overview's Refresh asks the background again and shows the new answer; no Re-run migrations button", async () => {
     vi.spyOn(browser.tabs, 'query').mockResolvedValue([] as never);
     const ping = vi.fn(async () => 5);
     render(<DebugPage ping={ping} files={files} />);
     await settle();
+    expect(screen.queryByRole('button', { name: /Re-run migrations/ })).toBeNull();
     ping.mockClear();
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Re-run migrations (ensureMigrated)' })));
+    ping.mockRejectedValueOnce(new Error('gone'));
+    await act(async () => fireEvent.click(within(section('Overview')).getByRole('button', { name: 'Refresh' })));
     await settle();
     expect(ping).toHaveBeenCalledTimes(1);
-    expect(section('Actions').textContent).toContain('ensureMigrated → 5');
+    expect(section('Overview').textContent).toContain('no answer: Error: gone');
+  });
+
+  it('a repeated entry shows once with ×N', async () => {
+    vi.spyOn(browser.tabs, 'query').mockResolvedValue([] as never);
+    await browser.storage.local.set({ [DEBUG_LOG_KEY]: [{ t: 1, ctx: 'studio', level: 'error', msg: 'storm', count: 42 }, { t: 2, ctx: 'panel', level: 'warn', msg: 'once' }] });
+    render(<DebugPage ping={async () => 5} files={files} />);
+    await settle();
+    const items = [...section('Error log').querySelectorAll('li')].map((li) => li.textContent);
+    expect(items[1]).toContain('×42');
+    expect(items[0]).not.toContain('×');
+  });
+
+  it('an expanded stack stays with its entry when a newer entry arrives', async () => {
+    vi.spyOn(browser.tabs, 'query').mockResolvedValue([] as never);
+    const a = { t: 1, ctx: 'panel', level: 'error', msg: 'expanded one', stack: 'at expanded()' };
+    const b = { t: 2, ctx: 'studio', level: 'error', msg: 'neighbour', stack: 'at neighbour()' };
+    await browser.storage.local.set({ [DEBUG_LOG_KEY]: [a, b] });
+    render(<DebugPage ping={async () => 5} files={files} />);
+    await settle();
+    const log = section('Error log');
+    await act(async () => fireEvent.click(within(log).getByRole('button', { name: /expanded one/ })));
+    expect([...log.querySelectorAll('pre')].map((p) => p.textContent)).toEqual(['at expanded()']);
+    // the background logs something: every position shifts by one
+    await act(async () => browser.storage.local.set({ [DEBUG_LOG_KEY]: [a, b, { t: 3, ctx: 'background', level: 'warn', msg: 'newer', stack: 'at newer()' }] }));
+    await settle();
+    expect(log.querySelectorAll('li').length).toBe(3);
+    expect([...log.querySelectorAll('pre')].map((p) => p.textContent)).toEqual(['at expanded()']);
+    expect(within(log).getByRole('button', { name: /expanded one/ }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('loading the page writes nothing', async () => {
+    vi.spyOn(browser.tabs, 'query').mockResolvedValue([{ id: 1, title: 'S', url: 'https://studio.youtube.com/x' }] as never);
+    await browser.storage.local.set({ schemaVersion: 5, presets: [], [DEBUG_LOG_KEY]: [{ t: 1, ctx: 'panel', level: 'error', msg: 'x' }] });
+    await browser.storage.session.set({ runnerTabId: 1 });
+    const writes = [
+      vi.spyOn(browser.storage.local, 'set'), vi.spyOn(browser.storage.local, 'remove'), vi.spyOn(browser.storage.local, 'clear'),
+      vi.spyOn(browser.storage.session, 'set'), vi.spyOn(browser.storage.session, 'remove'), vi.spyOn(browser.storage.session, 'clear'),
+    ];
+    render(<DebugPage ping={async () => 5} pingTab={async () => ({ items: [] })} files={files} />);
+    await settle();
+    expect(section('Stored data').textContent).toContain('presets');
+    for (const w of writes) expect(w).not.toHaveBeenCalled();
+  });
+
+  it('a failing storage.session read leaves the stored keys listed', async () => {
+    vi.spyOn(browser.tabs, 'query').mockResolvedValue([] as never);
+    await browser.storage.local.set({ presets: [] });
+    vi.spyOn(browser.storage.session, 'get').mockRejectedValue(new Error('session broke'));
+    render(<DebugPage ping={async () => 5} files={files} />);
+    await settle();
+    const stored = section('Stored data');
+    expect(stored.textContent).toContain('presets');
+    expect(stored.textContent).toContain('session broke');
   });
 });

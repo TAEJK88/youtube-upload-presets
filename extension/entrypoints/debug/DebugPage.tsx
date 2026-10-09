@@ -81,9 +81,10 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 
 function OverviewSection({ ping }: { ping?: () => Promise<unknown> }) {
   const load = useCallback(() => overview(ping ?? pingBackground), [ping]);
-  const [s] = useSection(load);
+  const [s, reload] = useSection(load);
+  // Refresh re-checks everything here, the background's answer (ensureMigrated) included.
   return (
-    <Block title={L('ภาพรวม', 'Overview')}>
+    <Block title={L('ภาพรวม', 'Overview')} actions={<Button size="sm" onClick={reload}>{L('รีเฟรช', 'Refresh')}</Button>}>
       <Loaded s={s}>
         {(o) => (
           <>
@@ -104,11 +105,24 @@ function OverviewSection({ ping }: { ping?: () => Promise<unknown> }) {
   );
 }
 
+// A key per entry that stays with it as newer entries arrive (an index would not). The time a
+// collapsed entry keeps is its first occurrence's, so a repeat doesn't change it; the rare
+// exact twin gets a #n suffix.
+function entryKeys(list: LogEntry[]): string[] {
+  const seen = new Map<string, number>();
+  return list.map((e) => {
+    const k = `${e.t}-${e.ctx}-${e.level}-${e.msg}`;
+    const n = seen.get(k) ?? 0;
+    seen.set(k, n + 1);
+    return n ? `${k}#${n}` : k;
+  });
+}
+
 function LogSection() {
   const [s, reload] = useSection(readLog);
   const [ctx, setCtx] = useState<LogCtx | ''>('');
   const [level, setLevel] = useState<LogLevel | ''>('');
-  const [open, setOpen] = useState<Set<number>>(new Set());
+  const [open, setOpen] = useState<Set<string>>(new Set()); // by entry key: positions shift as entries arrive
   useEffect(() => {
     const changed = (changes: Record<string, unknown>, area: string) => {
       if (area === 'local' && DEBUG_LOG_KEY in changes) reload();
@@ -116,7 +130,7 @@ function LogSection() {
     browser.storage.onChanged.addListener(changed);
     return () => browser.storage.onChanged.removeListener(changed);
   }, [reload]);
-  const toggle = (i: number) => setOpen((o) => { const n = new Set(o); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  const toggle = (i: string) => setOpen((o) => { const n = new Set(o); if (n.has(i)) n.delete(i); else n.add(i); return n; });
   return (
     <Block
       title={L('บันทึกข้อผิดพลาด', 'Error log')}
@@ -139,16 +153,18 @@ function LogSection() {
         {(log) => {
           const shown = filterLog(log, { ctx: ctx || undefined, level: level || undefined });
           if (!shown.length) return <p className="text-xs text-fg3">{L('ไม่มีบันทึก', 'No entries')}</p>;
+          const keys = entryKeys(shown);
           return (
             <ul className="divide-y divide-line">
               {shown.map((e: LogEntry, i) => (
-                <li key={`${e.t}-${i}`} className="py-1.5">
-                  <button type="button" className="w-full cursor-pointer text-left" aria-expanded={open.has(i)} onClick={() => toggle(i)}>
+                <li key={keys[i]} className="py-1.5">
+                  <button type="button" className="w-full cursor-pointer text-left" aria-expanded={open.has(keys[i]!)} onClick={() => toggle(keys[i]!)}>
                     <span className={`mr-2 font-mono text-xs ${e.level === 'error' ? 'text-err' : e.level === 'warn' ? 'text-warn' : 'text-info'}`}>{e.level}</span>
                     <Data>{`${new Date(e.t).toLocaleString(locale())} · ${e.ctx}`}</Data>
+                    {(e.count ?? 1) > 1 && <span className="ml-2 font-mono text-xs font-semibold text-fg">{`×${e.count}`}</span>}
                     <span className="block font-mono text-xs break-words whitespace-pre-wrap text-fg">{e.msg}</span>
                   </button>
-                  {open.has(i) && e.stack && <Pre>{e.stack}</Pre>}
+                  {open.has(keys[i]!) && e.stack && <Pre>{e.stack}</Pre>}
                 </li>
               ))}
             </ul>
@@ -183,7 +199,9 @@ function StoredSection() {
                 </li>
               ))}
             </ul>
-            <Row k="storage.session"><Data>{`runnerTabId: ${json(d.session.runnerTabId)}`}</Data></Row>
+            <Row k="storage.session">
+              {'error' in d.session ? <span className="text-xs text-err">{failed(d.session.error)}</span> : <Data>{`runnerTabId: ${json(d.session.runnerTabId)}`}</Data>}
+            </Row>
           </>
         )}
       </Loaded>
@@ -248,7 +266,6 @@ function FilesSection({ files }: { files?: FileStore }) {
 
 function ActionsSection(deps: DebugDeps) {
   const [note, setNote] = useState('');
-  const [migr, setMigr] = useState<string | null>(null);
   const report = async () => JSON.stringify(await buildReport(deps), null, 2);
   const copy = async () => {
     const ok = await copyText(await report());
@@ -262,20 +279,13 @@ function ActionsSection(deps: DebugDeps) {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const migrate = async () => {
-    setMigr(null);
-    const r = await settle(() => (deps.ping ?? pingBackground)());
-    setMigr(r.ok ? `ensureMigrated → ${json(r.value)}` : `ensureMigrated ✗ ${r.error}`);
-  };
   return (
     <Block title={L('การทำงาน', 'Actions')}>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="go" onClick={() => void copy()}>{L('คัดลอกรายงานวินิจฉัย', 'Copy diagnostic report')}</Button>
         <Button size="sm" onClick={() => void download()}>{L('ดาวน์โหลดรายงาน (.json)', 'Download report (.json)')}</Button>
-        <Button size="sm" onClick={() => void migrate()}>{L('รันการย้ายข้อมูลอีกครั้ง (ensureMigrated)', 'Re-run migrations (ensureMigrated)')}</Button>
       </div>
       {note && <p role="status" className="mt-2 text-xs text-fg2">{note}</p>}
-      {migr && <Pre>{migr}</Pre>}
     </Block>
   );
 }

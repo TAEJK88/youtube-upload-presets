@@ -57,16 +57,22 @@ export async function overview(ping: () => Promise<unknown> = pingBackground): P
 }
 
 export interface StoredKey { key: string; bytes: number; value: unknown }
-export interface StoredData { local: StoredKey[]; session: { runnerTabId: unknown } }
+export interface StoredData { local: StoredKey[]; session: { runnerTabId: unknown } | { error: string } }
 export async function storedData(): Promise<StoredData> {
   const all = await browser.storage.local.get(null);
   const local = Object.keys(all).sort().map((key) => ({ key, bytes: (JSON.stringify(all[key]) ?? '').length, value: all[key] }));
-  const session = await browser.storage.session.get('runnerTabId');
-  return { local, session: { runnerTabId: session.runnerTabId } };
+  // On its own: a failing session read must not hide the local keys.
+  const session = await settle(() => browser.storage.session.get('runnerTabId'));
+  return { local, session: session.ok ? { runnerTabId: session.value.runnerTabId } : { error: session.error } };
 }
 
 export interface StudioTab { id: number; title: string; url: string; runner: boolean; answer: Answer<never> | { ok: true; ms: number; items: number } }
 type PingTab = (tabId: number) => Promise<unknown>;
+// queue:view (studio.content.ts → lib/studio/queue-view.ts) builds the tab's queue view for the
+// panel. It writes nothing to storage and doesn't touch the queue, but it is not strictly free:
+// with a schedule set and the 5-minute cache stale it refetches the channel's scheduled videos
+// (youtubei listScheduled) and re-broadcasts the view, exactly as the panel does on every bind.
+// Keep this probe a read: never swap in a message that changes anything.
 export const pingTab: PingTab = (tabId) => sendMessage('queue:view', undefined, tabId);
 export async function studioTabs(ping: PingTab = pingTab): Promise<StudioTab[]> {
   const tabs = await browser.tabs.query({ url: 'https://studio.youtube.com/*' });

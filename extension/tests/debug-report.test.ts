@@ -45,6 +45,14 @@ describe('debug report sections', () => {
     expect(d.session).toEqual({ runnerTabId: 7 });
   });
 
+  it('stored data: a failing storage.session read stays in its own field', async () => {
+    await browser.storage.local.set({ a: 1 });
+    vi.spyOn(browser.storage.session, 'get').mockRejectedValue(new Error('session broke'));
+    const d = await storedData();
+    expect(d.local).toEqual([{ key: 'a', bytes: 1, value: 1 }]);
+    expect(d.session).toEqual({ error: 'Error: session broke' });
+  });
+
   it('studio tabs: which answer, within the timeout, and which holds the lock', async () => {
     vi.spyOn(browser.tabs, 'query').mockResolvedValue([
       { id: 1, title: 'A', url: 'https://studio.youtube.com/a' },
