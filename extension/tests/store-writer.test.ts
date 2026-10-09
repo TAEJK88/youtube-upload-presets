@@ -5,7 +5,7 @@ import { setLang } from '../lib/i18n';
 import { applySettingsPatch, countersDiff, defaultSettings, settingsDiff } from '../lib/settings';
 import { BACKUP_SCHEMA, parseBackup } from '../lib/backup';
 import { SCHEMA_VERSION } from '../lib/migrations';
-import { ensureLang, patchStore, schemaVersionInOrder, writeBackupInOrder } from '../lib/store-writer';
+import { ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '../lib/store-writer';
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -108,5 +108,59 @@ describe('writeBackupInOrder', () => {
     browser.storage.onChanged.removeListener(ask);
     expect(seen.length).toBe(2);
     expect(await Promise.all(seen)).toEqual([SCHEMA_VERSION, SCHEMA_VERSION]);
+  });
+});
+
+describe('who may write, and what', () => {
+  const ext = 'chrome-extension://abc/';
+  const panel = { url: 'chrome-extension://abc/sidepanel.html' };
+  const studio = { tab: { id: 3 }, url: 'https://studio.youtube.com/channel/UC1/videos' };
+  const www = { tab: { id: 4 }, url: 'https://www.youtube.com/watch?v=x' };
+  const bridge = { tab: { id: 3 }, url: 'chrome-extension://abc/file-bridge.html' };
+
+  it('store:patch: the panel and Studio tabs only; backup:write: extension pages only', () => {
+    expect(mayWrite('store:patch', panel, ext)).toBe(true);
+    expect(mayWrite('store:patch', studio, ext)).toBe(true);
+    expect(mayWrite('store:patch', www, ext)).toBe(false);
+    expect(mayWrite('store:patch', bridge, ext)).toBe(false);
+    expect(mayWrite('store:patch', { url: 'chrome-extension://other/x.html' }, ext)).toBe(false);
+    expect(mayWrite('backup:write', panel, ext)).toBe(true);
+    expect(mayWrite('backup:write', studio, ext)).toBe(false);
+    expect(mayWrite('backup:write', www, ext)).toBe(false);
+    expect(mayWrite('backup:write', bridge, ext)).toBe(false);
+  });
+
+  it('a settings patch keeps only known keys of the right type', async () => {
+    await browser.storage.local.set({ settings: { producer: 'Me' } });
+    await patchStore({ key: 'settings', patch: {
+      notify: false, schedule: 'x', autoAcceptInvite: 'yes', bogus: 1, delay: Number.NaN, lang: 'fr',
+      lockChannel: { id: 'UC1' },
+    } } as never);
+    await patchStore({ key: 'settings', patch: { schedule: { on: true, every: '2', unit: 'hour' }, lang: 'th', lockChannel: { id: 'UC1', name: 'Mine' } } } as never);
+    expect((await browser.storage.local.get('settings')).settings).toEqual({
+      producer: 'Me', notify: false, lang: 'th', lockChannel: { id: 'UC1', name: 'Mine' },
+      schedule: { ...defaultSettings().schedule, on: true, unit: 'hour' },
+    });
+    await patchStore({ key: 'settings', patch: { lockChannel: null } });
+    expect((await browser.storage.local.get('settings')).settings).toMatchObject({ lockChannel: null });
+  });
+
+  it('a malformed patch is refused before anything is written', async () => {
+    await browser.storage.local.set({ settings: { producer: 'Me' }, counters: { a: 1 } });
+    await expect(patchStore(null as never)).rejects.toThrow('store:patch');
+    await expect(patchStore({ key: 'settings', patch: 'x' } as never)).rejects.toThrow('store:patch');
+    await expect(patchStore({ key: 'counters', patch: [1] } as never)).rejects.toThrow('store:patch');
+    await patchStore({ key: 'counters', patch: { b: '5', c: 2 } } as never);
+    expect(await browser.storage.local.get(['settings', 'counters'])).toEqual({ settings: { producer: 'Me' }, counters: { a: 1, c: 2 } });
+  });
+
+  it('an import is cleaned again here; one with no usable presets is refused, nothing written', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: [{ id: 'keep', label: 'Keep' }], settings: { lang: 'en' } });
+    await expect(writeBackupInOrder({ data: {}, presets: [], own: true })).rejects.toThrow('backup:write');
+    await expect(writeBackupInOrder({ data: {}, presets: [{ id: 1 }] as never, own: true })).rejects.toThrow('backup:write');
+    await expect(writeBackupInOrder({ data: null, presets: [{ id: 'a', label: 'A' }], own: true } as never)).rejects.toThrow('backup:write');
+    expect((await browser.storage.local.get('presets')).presets).toEqual([{ id: 'keep', label: 'Keep' }]);
+    await writeBackupInOrder({ data: {}, presets: [{ id: 'a', label: 'A', tags: 'x' }] as never, own: true });
+    expect((await browser.storage.local.get('presets')).presets).toMatchObject([{ id: 'a', label: 'A', tags: [], title: '{name}' }]);
   });
 });

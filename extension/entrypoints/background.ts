@@ -6,7 +6,7 @@ import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld } from '@/lib/runner-lock';
 import { deleteHandle } from '@/lib/file-store';
-import { ensureLang, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
+import { ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
 export default defineBackground(() => {
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
@@ -36,11 +36,15 @@ export default defineBackground(() => {
   });
 
   // The one writer of settings and counters (lib/store-writer.ts).
-  onMessage('store:patch', async ({ data }) => {
+  // Only the side panel and Studio tabs patch; only the panel imports (store-writer mayWrite).
+  const ext = browser.runtime.getURL('/');
+  onMessage('store:patch', async ({ data, sender }) => {
+    if (!mayWrite('store:patch', sender, ext)) throw new Error('store:patch: not allowed from this sender');
     await ready;
     await patchStore(data);
   });
-  onMessage('backup:write', async ({ data }) => {
+  onMessage('backup:write', async ({ data, sender }) => {
+    if (!mayWrite('backup:write', sender, ext)) throw new Error('backup:write: not allowed from this sender');
     await ready;
     if (await runnerHeld()) throw new Error(RUNNER_HELD); // the panel checked too; a run may have started since
     await writeBackupInOrder(data);

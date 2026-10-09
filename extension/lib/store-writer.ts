@@ -1,7 +1,8 @@
 import { browser } from 'wxt/browser';
-import { applyBackup, writeBackup, type BackupImport } from './backup';
+import { applyBackup, cleanPresets, writeBackup, type BackupImport } from './backup';
 import { getLang } from './i18n';
-import { applySettingsPatch, loadSettings, type SettingsPatch } from './settings';
+import { isStudioUrl } from './panel-scope';
+import { applySettingsPatch, defaultSettings, loadSettings, type SettingsPatch } from './settings';
 import { load } from './storage';
 
 // settings and counters are written by the side panel and by the Studio page. Each side
@@ -30,15 +31,57 @@ export async function applyStorePatch(p: StorePatch): Promise<void> {
   await browser.storage.local.set({ [p.key]: next });
 }
 
-export const patchStore = (p: StorePatch) => serial(() => applyStorePatch(p));
+// Who may send the two writes. Content scripts on www.youtube.com (the invite page) and the
+// file bridge (an extension page inside a Studio tab) never write settings; an import comes
+// from the side panel only. `ext` is browser.runtime.getURL('/').
+interface Sender { tab?: unknown; url?: string }
+const extensionPage = (s: Sender, ext: string) => !s.tab && !!s.url?.startsWith(ext);
+export function mayWrite(type: 'store:patch' | 'backup:write', s: Sender, ext: string): boolean {
+  if (type === 'backup:write') return extensionPage(s, ext);
+  return extensionPage(s, ext) || (!!s.tab && isStudioUrl(s.url));
+}
+
+// The payload crosses a message boundary: only known settings keys holding the type their
+// default has get through (lockChannel: null or { id, name }; lang: th / en).
+const isLock = (v: unknown) => v === null || (isObj(v) && typeof v.id === 'string' && typeof v.name === 'string');
+const sameType = (v: unknown, d: unknown) => typeof v === typeof d && (typeof v !== 'number' || Number.isFinite(v));
+function cleanSettingsPatch(patch: Record<string, unknown>): SettingsPatch {
+  const defs = defaultSettings() as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'lang') { if (v === 'th' || v === 'en') out.lang = v; }
+    else if (k === 'lockChannel') { if (isLock(v)) out.lockChannel = v; }
+    else if (k === 'schedule') {
+      if (!isObj(v)) continue;
+      const sd = defs.schedule as Record<string, unknown>;
+      const sch = Object.fromEntries(Object.entries(v).filter(([sk, sv]) => sk in sd && sameType(sv, sd[sk]) && (sk !== 'unit' || sv === 'hour' || sv === 'day')));
+      if (Object.keys(sch).length) out.schedule = sch;
+    } else if (k in defs && sameType(v, defs[k])) out[k] = v;
+  }
+  return out as SettingsPatch;
+}
+function cleanStorePatch(p: unknown): StorePatch {
+  if (!isObj(p) || (p.key !== 'settings' && p.key !== 'counters')) throw new Error(`store:patch: ${String(isObj(p) ? p.key : p)} is not patched here`);
+  if (!isObj(p.patch)) throw new Error('store:patch: the patch is not an object');
+  return p.key === 'settings' ? { key: 'settings', patch: cleanSettingsPatch(p.patch) } : { key: 'counters', patch: p.patch as Record<string, number> };
+}
+
+export const patchStore = async (p: StorePatch) => {
+  const clean = cleanStorePatch(p);
+  return serial(() => applyStorePatch(clean));
+};
 
 // Import replaces settings as a whole: built from storage in its turn in the same queue,
-// so a patch queued before it is kept and none can land in between.
-export const writeBackupInOrder = ({ data, presets, own }: BackupImport) =>
-  serial(async () => {
+// so a patch queued before it is kept and none can land in between. The panel parsed and
+// cleaned the file; it is cleaned again here, since the message crossed a boundary.
+export const writeBackupInOrder = async ({ data, presets, own }: BackupImport) => {
+  const list = cleanPresets(presets);
+  if (!isObj(data) || !list) throw new Error('backup:write: not a usable backup');
+  return serial(async () => {
     const cur = { settings: await loadSettings(), cfg: await load<Record<string, unknown>>('cfg', {}) };
-    await writeBackup(applyBackup(data, presets, own, cur));
+    await writeBackup(applyBackup(data, list, own === true, cur));
   });
+};
 
 // The userscript stored the language on its first load; a new install's language must
 // not flip to Thai later just because presets get saved.
