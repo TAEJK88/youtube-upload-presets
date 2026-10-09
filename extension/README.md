@@ -62,6 +62,32 @@ In the userscript: Settings → Backup / share → Export. Import that file in t
 (Settings → Back up / share settings → Import). Upload history and per-channel copyright data
 aren't part of the backup.
 
+## Debugging
+
+When something goes wrong, open the **debug page**. It works without a Studio tab and with a
+broken background:
+
+- from the panel: Settings → Troubleshooting → **Open debug page**;
+- from an error screen: the panel shows the error with **Copy details**, **Open debug page** and
+  **Reload panel** instead of going blank (also when it is still waiting for the background
+  after 8 s), and a tab that fails to render has an **Open debug page** link;
+- or type `chrome-extension://<id>/debug.html` in the address bar (the id is on
+  `chrome://extensions`, or in the debug page's Overview).
+
+What it shows: the version, id, permissions, browser and data schema, and whether the background
+answers (Overview); the error log of every part of the extension (background, panel, Studio and
+youtube.com pages, file bridge, debug page; newest first, filterable, each entry's stack on a
+click; it follows new entries live, and **Clear log** empties it); every stored key with its
+size and value; the open Studio tabs and whether each one's page script answers; the stored file
+handles and whether the queue uses them. It changes nothing except **Clear log**.
+
+To send a report: **Copy diagnostic report** (paste it into a message) or **Download report
+(.json)** (attach the file). The report holds every section above and the last 300 log entries.
+It includes your stored presets and settings (but not your files); look it over before sending
+it outside your team. The log keeps the newest 300 entries in `chrome.storage.local`
+(`debugLog`); it is not part of a settings backup. Errors from Studio's page-world script
+(`studio-main`) reach it only when the page script reports a failed call.
+
 ## Phase 3 exit check (manual, in Chrome)
 
 Needs the logged-in Chrome profile. Run `npm run build`, reload the unpacked extension
@@ -414,6 +440,13 @@ Record what happens; the Phase 0 spike results document
     parent, a port attached): `isBridgeConnect` in `lib/file-bridge.ts`, unit-tested in
     `tests/file-bridge.test.ts`. Items 9 and 37 show it working in real Studio; close the
     ledger item from those.
+
+45. **Debug page and crash guard.** Settings → Troubleshooting → **Open debug page** opens
+    `debug.html` in a tab: Overview shows schemaVersion 5 / 5 and "answered in … ms"; the Studio
+    tab answers; the error log lists recent `[ytup]` errors with their context. **Copy
+    diagnostic report** and paste: it has every section and the log. **Record** anything a
+    section shows as failed. Then, in the service worker console, run `chrome.storage.local.get(
+    'debugLog')` to see the same entries.
 
 ### Known, dev only (note, don't test)
 
