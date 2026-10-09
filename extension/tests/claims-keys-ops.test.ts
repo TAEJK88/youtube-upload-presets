@@ -74,7 +74,10 @@ describe('ops', () => {
     expect(isClaimsOp(rec({ ...row, videoId: '__proto__' }))).toBe(false);
     expect(isClaimsOp(rec({ song: 'S' }))).toBe(false); // no videoId
     expect(isClaimsOp(rec({ ...row, artists: 5 }))).toBe(false);
-    expect(isClaimsOp({ op: 'songs', songs: { fn: 'trimmed', song: 'S', videoId: 'constructor' } })).toBe(false);
+    for (const id of ['constructor', 'toString', 'hasOwnProperty', '__defineGetter__']) { // any name Object.prototype has (re-review)
+      expect(isClaimsOp(rec({ ...row, videoId: id }))).toBe(false);
+      expect(isClaimsOp({ op: 'songs', songs: { fn: 'trimmed', song: 'S', videoId: id } })).toBe(false);
+    }
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'delete', key: '__proto__' } })).toBe(false);
     expect(isClaimsOp({ op: 'set', key: 'cfg' })).toBe(true); // undefined went missing in JSON: a removal (review m1)
   });

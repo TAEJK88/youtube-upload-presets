@@ -27,10 +27,11 @@ const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => t
 const MERGE = new Set(['cfg', 'trimResults', 'adsResults', 'collabResults', 'collabLinks', 'autopilot', 'trimRun', 'adsRun', 'collabRun']);
 const RUNS = new Set(['trimRun', 'adsRun', 'collabRun']);
 const PROTO = new Set(['__proto__', 'constructor', 'prototype']);
-// recordSongs / markSongTrimmed index `e.videos` by videoId: a prototype name there would write
-// onto Object.prototype in the background. (The song keys always hold a '|', so they can't be one.)
+// recordSongs / markSongTrimmed index `e.videos` by videoId: any name Object.prototype has
+// (__proto__, toString, …) would read and write the shared built-ins in the background.
+// (The song keys always hold a '|', so they can't be one.)
 const ROW = ['song', 'artists', 'label', 'claimant', 'type', 'videoId', 'video', 'impact'] as const;
-const okId = (s: unknown) => typeof s === 'string' && !PROTO.has(s);
+const okId = (s: unknown) => typeof s === 'string' && !PROTO.has(s) && !(s in Object.prototype);
 const isRow = (r: unknown) => isObj(r) && ROW.every((f) => r[f] === undefined || typeof r[f] === 'string') && okId(r.videoId);
 const nameOf = (key: string) => splitKey(key)?.name ?? '';
 
