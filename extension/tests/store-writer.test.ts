@@ -81,4 +81,14 @@ describe('writeBackupInOrder', () => {
     const got = (await browser.storage.local.get('settings')).settings;
     expect(got).toMatchObject({ delay: 5, producer: 'Me', lang: 'en', schedule: { on: true, start: 'Z' } });
   });
+
+  it('a file with the old glass / glassV2 settings leaves neither in storage', async () => {
+    await browser.storage.local.set({ schemaVersion: 5, presets: [], settings: { lang: 'en' } });
+    const { data, presets } = file({ glass: 0.8, glassV2: true, delay: 4 });
+    await writeBackupInOrder({ data, presets, own: true });
+    const got = (await browser.storage.local.get('settings')).settings as Record<string, unknown>;
+    expect(got.delay).toBe(4);
+    expect(got).not.toHaveProperty('glass');
+    expect(got).not.toHaveProperty('glassV2');
+  });
 });
