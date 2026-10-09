@@ -658,9 +658,14 @@ const queueRefs = () => queue.flatMap((it) => [{ id: it.id, src: it.src }, ...(i
 // matched no video, a thumbnail another one replaced.
 export async function addQueued(files: QFile[]): Promise<void> {
   const before = queueRefs();
-  await addFiles(files);
-  const kept = new Set(queueRefs().map((r) => r.id));
-  dropFiles([...files.map((f) => ({ id: f.qid, src: f.src })), ...before].filter((r) => !kept.has(r.id)));
+  try {
+    await addFiles(files);
+  } finally {
+    // Also when addFiles fails part way (a .txt that can't be read): the videos it queued
+    // already keep their files.
+    const kept = new Set(queueRefs().map((r) => r.id));
+    dropFiles([...files.map((f) => ({ id: f.qid, src: f.src })), ...before].filter((r) => !kept.has(r.id)));
+  }
 }
 
 // What the userscript's start dialog showed (runQueue's ask()), as data: the side panel

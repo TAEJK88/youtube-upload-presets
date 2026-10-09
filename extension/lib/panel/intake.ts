@@ -49,7 +49,9 @@ export async function storeHandles(files: FileSystemFileHandle[], put: Put = put
 }
 
 // Store, then hand the ids to the Studio tab (queue:add, or a card's attach). If the tab
-// doesn't take them, nothing else will ever ask for these handles: forget them.
+// doesn't take them, nothing else will ever ask for these handles: forget them. A rejection
+// means none were taken: the Studio handlers don't reject once they have taken files, and
+// let go themselves of what they don't keep (lib/studio/queue-edit.ts).
 export async function sendFiles(
   files: FileSystemFileHandle[], deliver: (ids: string[]) => Promise<unknown>,
   put: Put = putHandle, del: Del = deleteHandle,

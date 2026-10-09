@@ -250,6 +250,28 @@ describe('handleQueueAdd', () => {
     expect(drop).toHaveBeenCalledWith([{ id: 'x1', src: 'bridge' }, { id: 'x2', src: 'bridge' }]);
     expect(bridge).not.toHaveBeenCalled();
   });
+
+  it('files the bridge could not read are let go', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    vi.spyOn(files, 'bridgeFiles').mockResolvedValue({ files: [], failed: [{ id: 'x1', reason: 'gone' }] });
+    await handleQueueAdd(['x1'], async () => true);
+    expect(drop).toHaveBeenCalledWith([{ id: 'x1', src: 'bridge' }]);
+    expect(calls).toContain('toast:Could not add 1 file(s): gone');
+  });
+
+  // The panel deletes every handle when queue:add rejects, so the tab must not reject once it
+  // has taken files: what the queue keeps stays, the rest addQueued has let go.
+  it('a failure after videos were queued: no rejection, a toast, the queue shown', async () => {
+    const vid = qfile('Mix 1.mp4', 'v1');
+    const txt = qfile('Mix 1.txt', 't1');
+    vi.spyOn(files, 'bridgeFiles').mockResolvedValue({ files: [vid, txt], failed: [] });
+    vi.spyOn(Q, 'addQueued').mockImplementation(async () => {
+      Q.queue.push(item('v1', 'pending'));
+      throw new Error('boom');
+    });
+    await expect(handleQueueAdd(['v1', 't1'], async () => true)).resolves.toBeUndefined();
+    expect(calls).toEqual(['toast:Could not add 1 file(s): boom', 'queue']);
+  });
 });
 
 describe('followStoredChanges', () => {

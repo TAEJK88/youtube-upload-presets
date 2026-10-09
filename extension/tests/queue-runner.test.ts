@@ -321,6 +321,16 @@ describe('addQueued lets go of the files no item uses', () => {
     expect(send.mock.calls).toEqual([['files:delete', [txt.qid, stray.qid, oldThumb.qid]]]);
     expect(Q.queue.map((i) => [i.id, i.thumb?.id ?? null])).toEqual([[Q.queue[0]!.id, newThumb.qid], [vid.qid, null]]);
   });
+
+  it('a .txt that cannot be read: the video already queued keeps its file, the .txt is let go, the error goes on', async () => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
+    const vid = qfile('Mix 1.mp4');
+    const txt = qfile('Mix 1.txt');
+    txt.arrayBuffer = () => Promise.reject(new DOMException('changed', 'NotReadableError'));
+    await expect(Q.addQueued([vid, txt])).rejects.toThrow('changed');
+    expect(Q.queue.some((i) => i.id === vid.qid)).toBe(true);
+    expect(send.mock.calls).toEqual([['files:delete', [txt.qid]]]);
+  });
 });
 
 describe('minors', () => {

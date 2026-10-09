@@ -192,10 +192,24 @@ export async function handleQueueEdit(data: unknown, mayEdit: () => Promise<bool
   else if (e.op === 'attach') dropFiles(e.fileIds.map((id) => ({ id, src: 'bridge' as const })));
 }
 
-// queue:add, with the same let-go when refused.
+// queue:add, with the same let-go when refused. Files that can't be read are let go too.
+// It never rejects once it has taken files: the panel forgets every handle of a rejected
+// queue:add, and a video queued before a later failure still needs its file (addQueued has
+// already let go of what no item keeps).
 export async function handleQueueAdd(ids: string[], mayEdit: () => Promise<boolean>): Promise<void> {
   if (!(await mayEdit())) return dropFiles(ids.map((id) => ({ id, src: 'bridge' as const })));
   const { files, failed } = await bridgeFiles(ids);
-  if (failed.length) ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
-  if (files.length) await addQueued(files);
+  if (failed.length) {
+    ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
+    dropFiles(failed.map((f) => ({ id: f.id, src: 'bridge' as const })));
+  }
+  if (!files.length) return;
+  try {
+    await addQueued(files);
+  } catch (e) {
+    console.error('[ytup] queue:add', e);
+    const left = files.filter((f) => !queue.some((it) => it.id === f.qid || it.thumb?.id === f.qid)).length;
+    ui.toast(L(`เพิ่มไม่ได้ ${left} ไฟล์: `, `Could not add ${left} file(s): `) + ((e as Error)?.message ?? String(e)));
+    ui.queue(); // what was queued before the failure is saved and shown
+  }
 }
