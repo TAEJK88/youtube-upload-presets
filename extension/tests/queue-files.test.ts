@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
-import { bridgeAnswers, bridgeFiles, dropFiles, getQueueFile, pageFiles, setBridge } from '../lib/studio/queue-files';
+import { bridgeFiles, probeBridge, dropFiles, getQueueFile, pageFiles, setBridge } from '../lib/studio/queue-files';
 
 afterEach(() => { setBridge(null); vi.restoreAllMocks(); });
 
@@ -43,19 +43,24 @@ describe('queue files', () => {
 
   it('the bridge answers when it hands over a file or says what is wrong with it', async () => {
     setBridge({ getFile: async (id) => new File(['v'], id) });
-    expect(await bridgeAnswers('x')).toBe(true);
-    for (const code of ['missing', 'permission', 'read']) {
+    expect(await probeBridge('x')).toBe('answers');
+    for (const code of ['missing', 'read']) {
       setBridge({ getFile: async () => { throw new Error(code); } });
-      expect(await bridgeAnswers('x')).toBe(true);
+      expect(await probeBridge('x')).toBe('answers');
     }
+  });
+
+  it('a file without read permission is told apart: the run must wait for a re-grant', async () => {
+    setBridge({ getFile: async () => { throw new Error('permission'); } });
+    expect(await probeBridge('x')).toBe('permission');
   });
 
   it('the bridge does not answer when absent, broken or silent', async () => {
     setBridge(null);
-    expect(await bridgeAnswers('x')).toBe(false);
+    expect(await probeBridge('x')).toBe('silent');
     setBridge({ getFile: async () => { throw new Error('bridge not ready'); } });
-    expect(await bridgeAnswers('x')).toBe(false);
+    expect(await probeBridge('x')).toBe('silent');
     setBridge({ getFile: () => new Promise<File>(() => {}) });
-    expect(await bridgeAnswers('x', 20)).toBe(false);
+    expect(await probeBridge('x', 20)).toBe('silent');
   });
 });

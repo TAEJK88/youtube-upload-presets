@@ -42,6 +42,7 @@ export default [
   // Phase 3b: the Upload tab, FAB, banner
   { th: 'ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่', en: 'Files in the queue need read access again after a browser restart', why: 'file handles lose permission after a restart (spec: File intake step 4)' },
   { th: 'อนุญาตอีกครั้ง (${} ไฟล์)', en: 'Re-grant access (${} files)', why: 'one click re-grants every queued file' },
+  { th: 'ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง แล้วกดเริ่มอีกครั้ง', en: 'The queued files need read access again — click "Re-grant access" in the side panel, then start again', why: 'Start refused while queued files lost read permission (after a restart): one Re-grant fixes all, a run would fail each item' },
   { th: 'จะหยุดคิวในแท็บ "${}" หลังคลิปปัจจุบันเสร็จ', en: 'Will stop the queue in the tab "${}" after the current video finishes', why: 'Stop is sent to the tab that runs the queue, which may not be this panel\'s tab (D14)' },
   { th: 'แท็บนั้นไม่ได้อัปโหลดคิวอยู่แล้ว', en: 'That tab is no longer running the queue', why: 'a Stop sent to the running tab (D14) can find it closed or navigated away; the reload message would name the wrong tab' },
   { th: 'ส่วนขยายถูกอัปเดตหรือโหลดใหม่ — โหลดแท็บนี้ใหม่เพื่อใช้งานต่อ', en: 'The extension was updated or reloaded — reload this tab to keep using it', why: 'orphaned content script (spec: Error handling)' },

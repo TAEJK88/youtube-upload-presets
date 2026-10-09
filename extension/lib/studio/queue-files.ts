@@ -65,17 +65,23 @@ export async function getThumbFile(ref: FileRef): Promise<File> {
 }
 
 // Before a run: does the bridge answer at all? A file it hands over, or a code about the
-// file itself ('missing', 'permission', 'read'), means yes; no bridge, a bridge error, or
-// silence for `ms` means no. Without this every item would fail after the bridge's own
-// timeouts (30 s, then 30 s more with a fresh frame).
-const FILE_CODES = new Set(['missing', 'permission', 'read']);
-export async function bridgeAnswers(id: string, ms = 10_000): Promise<boolean> {
-  if (!bridge) return false;
+// file itself ('missing', 'read'), means yes; no bridge, a bridge error, or silence for `ms`
+// means no ('silent'). Without this every item would fail after the bridge's own timeouts
+// (30 s, then 30 s more with a fresh frame). 'permission' answers too, but is told apart:
+// after a browser restart every queued file has lost read access, and the run would fail
+// them one by one until the user re-grants in the side panel.
+export type BridgeProbe = 'answers' | 'permission' | 'silent';
+const FILE_CODES = new Set(['missing', 'read']);
+export async function probeBridge(id: string, ms = 10_000): Promise<BridgeProbe> {
+  if (!bridge) return 'silent';
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const silent = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms); });
+  const silent = new Promise<BridgeProbe>((resolve) => { timer = setTimeout(() => resolve('silent'), ms); });
   const answer = bridge.getFile(id).then(
-    () => true,
-    (e: unknown) => FILE_CODES.has(e instanceof Error ? e.message : String(e)),
+    (): BridgeProbe => 'answers',
+    (e: unknown): BridgeProbe => {
+      const code = e instanceof Error ? e.message : String(e);
+      return code === 'permission' ? 'permission' : FILE_CODES.has(code) ? 'answers' : 'silent';
+    },
   );
   try {
     return await Promise.race([answer, silent]);

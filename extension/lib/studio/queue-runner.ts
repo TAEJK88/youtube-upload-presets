@@ -7,7 +7,7 @@ import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../templ
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
 import { ui } from './page-ui';
-import { bridgeAnswers, dropFiles, getQueueFile, getThumbFile, pageFiles } from './queue-files';
+import { dropFiles, probeBridge, getQueueFile, getThumbFile, pageFiles } from './queue-files';
 import { setSchedule } from './schedule';
 import { SEL } from './sel';
 import { activeId, counters, load, presetById, presets, save, saveSettings, settings } from './state';
@@ -633,8 +633,14 @@ export async function startQueue(seen: StartBinding): Promise<void> {
   let problem = bindingProblem(seen);
   if (problem) return ui.toast(problem);
   const next = queue.find((i) => i.status === 'pending' && i.src === 'bridge');
-  if (!channelProblem() && next && !(await bridgeAnswers(next.id))) {
+  const probe = !channelProblem() && next ? await probeBridge(next.id) : 'answers';
+  if (probe === 'silent') {
     return ui.toast(L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again"));
+  }
+  // After a browser restart every queued file lost read access: one Re-grant click fixes all
+  // of them, a run would fail each one in turn.
+  if (probe === 'permission') {
+    return ui.toast(L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง แล้วกดเริ่มอีกครั้ง', 'The queued files need read access again — click "Re-grant access" in the side panel, then start again'));
   }
   // The probe can take seconds: check again right before the run.
   problem = bindingProblem(seen);

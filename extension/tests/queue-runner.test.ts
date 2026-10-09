@@ -257,6 +257,16 @@ describe('startQueue checks the file bridge first (addendum B.3)', () => {
     expect(lockCalls).toEqual(['acquire', 'release']);
     expect(Q.queue[0]).toMatchObject({ status: 'error', msg: 'This file is no longer available — add it again' });
   });
+
+  it('refuses to start while the files lack read permission: Re-grant first, not N failed items', async () => {
+    await Q.addFiles([qfile('A.mp4'), qfile('B.mp4')]);
+    setBridge({ getFile: async () => { throw new Error('permission'); } });
+    calls.length = 0;
+    await Q.startQueue(confirmed());
+    expect(calls).toEqual(['toast:The queued files need read access again — click "Re-grant access" in the side panel, then start again']);
+    expect(lockCalls).toEqual([]);
+    expect(Q.queue.map((i) => i.status)).toEqual(['pending', 'pending']);
+  });
 });
 
 
