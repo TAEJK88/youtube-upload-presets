@@ -2,28 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>YouTube Upload Presets</title>
   </head>
-  <body style="font: 13px system-ui; background: #111; color: #eee; margin: 12px">
-    <h1 style="font-size: 15px">Upload Presets — developer panel</h1>
-    <div id="drop" style="border: 2px dashed #555; border-radius: 10px; padding: 28px; text-align: center">
-      Drop video / image / .txt files here
-    </div>
-    <p>
-      <button id="regrant">Re-grant access</button>
-      <button id="add">Add all to queue</button>
-    </p>
-    <ul id="files"></ul>
-    <h2 style="font-size: 14px">Queue <span id="state" style="font-weight: 400; color: #aaa"></span></h2>
-    <p>
-      <button id="start">Start…</button>
-      <button id="stop">Stop</button>
-      <button id="clear">Clear done</button>
-      <button id="fill">Apply preset to open dialog</button>
-      <button id="diag">Dialog info</button>
-    </p>
-    <ol id="queue"></ol>
-    <pre id="log" style="white-space: pre-wrap; font: 12px ui-monospace, monospace"></pre>
-    <script type="module" src="./main.ts"></script>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
   </body>
 </html>

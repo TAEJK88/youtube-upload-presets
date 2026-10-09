@@ -17,8 +17,11 @@ Ported code is checked against the userscript at the pinned commit:
 `npm run port-check` (configs in `scripts/port/`; `node scripts/port-check.mjs --print <name>`
 prints the code a port starts from).
 
-Until the Phase 3 side panel, the developer panel drives the Studio tab: drop files,
-**Add all to queue**, **Start…**. Console lines from the extension start with `[ytup]`.
+Until the Phase 3 side panel, the developer panel drives the Studio tab: that panel was
+removed in Phase 3a. Its queue controls (drop files, **Add all to queue**, **Start…**,
+**Stop**, **Retry**, **Remove**, **Re-grant access**) return in the side panel's Upload tab
+(Phase 3b); **Dialog info** in the Settings tab (Phase 3a). Console lines from the extension
+start with `[ytup]`.
 
 ## Layout
 
@@ -42,6 +45,14 @@ Needs the logged-in Chrome profile. Run `npm run build`, reload the unpacked ext
 (`.output/chrome-mv3`), and **disable the userscript in Tampermonkey**. Use a test
 channel. In DevTools, filter the console by `[ytup]`. Write down pass or fail for each
 item. Any failure blocks Phase 3.
+
+**Not runnable until Phase 3b.** The developer panel these steps drive was removed in
+Phase 3a; the side panel's Upload tab (Phase 3b) takes over its controls, and 3b rewrites
+this checklist to run from the panel. Until then, items 1–7, 12 and 14–20 can't be run
+(they add, start, stop, retry or remove queue items from the panel), and item 10 needs the
+Settings tab's **Dialog info** (Phase 3a, Task 8). Items 8, 9 and 13 (without a run in
+flight) need no panel; item 11 rides on items 1, 7 and 8. Item 2's way of editing
+`settings` from the side panel's DevTools still works.
 
 1. **Real upload, end to end.**
    - Drop these on the developer panel: `Clip 1.mp4`, `Clip 1.txt` (a 3-line tracklist
