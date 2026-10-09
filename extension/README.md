@@ -83,9 +83,14 @@ handles and whether the queue uses them. It changes nothing except **Clear log**
 
 To send a report: **Copy diagnostic report** (paste it into a message) or **Download report
 (.json)** (attach the file). The report holds every section above and the last 300 log entries.
-It includes your stored presets and settings (but not your files); look it over before sending
-it outside your team. The log keeps the newest 300 entries in `chrome.storage.local`
-(`debugLog`); it is not part of a settings backup. Errors inside Studio's page-world script
+It contains everything the extension stores: your presets and settings, the queue (video
+titles, descriptions, tracklists and file names), the upload history, channel ids, names and
+avatar links, and the stored file names; the open Studio tabs' titles and URLs (with channel and
+video ids); and log messages, which can quote titles. It contains no files and no sign-in data
+(no cookies, tokens or YouTube auth headers: the extension never stores or logs them). Look it
+over before sending it outside your team. The log keeps the newest 300 entries in
+`chrome.storage.local` (`debugLog`), dropping info lines before warnings and errors; a line
+repeated back to back is kept once, shown with ×N. It is not part of a settings backup. Errors inside Studio's page-world script
 (`studio-main`) are not captured (it has no extension APIs): see Studio's DevTools console.
 
 ## Phase 3 exit check (manual, in Chrome)

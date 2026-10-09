@@ -79,6 +79,23 @@ describe('side panel startup', () => {
     expect(fallback()!.textContent).toContain("The panel didn't start: still waiting for the background (ensureMigrated)…");
   });
 
+  it('the watchdog fallback removes itself once a late background answers and the panel comes up', async () => {
+    vi.useFakeTimers();
+    let answer!: (v: unknown) => void;
+    startup.ensureMigrated = () => new Promise((r) => { answer = r; });
+    await import('../entrypoints/sidepanel/main');
+    await vi.advanceTimersByTimeAsync(8100);
+    expect(fallback()).toBeTruthy();
+    expect(screen.queryByText('panel ok')).toBeNull();
+    await act(async () => {
+      answer(5);
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(screen.getByText('panel ok')).toBeTruthy();
+    expect((await guardMod()).currentStage()).toBe('ready');
+    expect(fallback()).toBeNull();
+  });
+
   it('a render throw in the shell shows the RootBoundary fallback', async () => {
     appThrows = true;
     await import('../entrypoints/sidepanel/main');
