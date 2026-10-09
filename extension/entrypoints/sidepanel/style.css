@@ -1,0 +1,60 @@
+/* source(none): classes come only from the @source paths below. Automatic detection
+   scanned the whole extension, tests/ and scripts/ too (ui-check's sub-12px fixtures). */
+@import 'tailwindcss' source(none);
+@import '@fontsource/ibm-plex-sans-thai/400.css';
+@import '@fontsource/ibm-plex-sans-thai/500.css';
+@import '@fontsource/ibm-plex-sans-thai/600.css';
+@import '@fontsource/ibm-plex-sans-thai/700.css';
+
+@source '../../components';
+@source '.';
+
+/* The userscript drawer's look: the black theme + Design B glass (UI CSS 2950–3196).
+   The docked panel is not see-through, so the glass background is its solid colour
+   (rgba(12,12,14,.82) over black). Dark only: the black theme overrode the light one. */
+:root {
+  color-scheme: dark;
+  --bg: #0c0c0e;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface2: rgba(255, 255, 255, 0.09);
+  --line: rgba(255, 255, 255, 0.09);
+  --line2: rgba(255, 255, 255, 0.16);
+  --fg: #f4f4f5;
+  --fg2: #bcbcc4;
+  --fg3: #8a8a94;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --info: #93c5fd;
+  --muted: #66666e;
+  --popover: #151517;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-fg: var(--fg);
+  --color-fg2: var(--fg2);
+  --color-fg3: var(--fg3);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+  --color-info: var(--info);
+  --color-muted: var(--muted);
+  --color-popover: var(--popover);
+  --font-sans: 'IBM Plex Sans Thai', 'Leelawadee UI', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
+
+@layer base {
+  html, body { background: var(--bg); color: var(--fg); }
+  /* 12px is the smallest text anywhere (the drawer's rule); numbers keep their width */
+  body { margin: 0; font: 13.5px/1.5 var(--font-sans); -webkit-font-smoothing: antialiased; font-feature-settings: 'tnum' 1; }
+  input, select, textarea, button { font-family: inherit; }
+  ::placeholder { color: var(--fg3); opacity: 1; }
+  select option { background: var(--popover); color: var(--fg); }
+  :focus-visible { outline: 2px solid var(--fg2); outline-offset: 2px; }
+}
