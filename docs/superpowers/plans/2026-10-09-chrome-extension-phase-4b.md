@@ -753,11 +753,11 @@ The spec's "one `chrome.alarms` alarm per channel, named `ap:<channelId>`" (D25)
 
 **Files:**
 - Create: `extension/lib/claims/alarms.ts`, `extension/tests/claims-alarms.test.ts`
-- Modify: `extension/entrypoints/background.ts`
+- Modify: `extension/entrypoints/background.ts`, `extension/scripts/strings/extension-only.mjs`
 
 **Interfaces:**
 - Consumes: `splitKey` (`keys.ts`), `WORKERS_KEY` (`runner-lock.ts`), `isStudioUrl`, `sendMessage`.
-- Produces: `AP_ALARM = 'ap:'`, `armAutopilot(ch: string, value: unknown, now?: number): Promise<void>`, `syncAutopilotAlarms(now?: number): Promise<void>`, `nudgeAutopilot(alarmName: string, send?): Promise<boolean>`, `registerAutopilotAlarms(): void`.
+- Produces: `AP_ALARM = 'ap:'`, `AP_NOTE = 'apdue:'`, `NOTIFIED_KEY = 'apNotified'`, `notifyAutopilotDue(ch: string, next: number): Promise<boolean>`, `openFromAutopilotNote(id: string): Promise<boolean>`, `armAutopilot(ch: string, value: unknown, now?: number): Promise<void>`, `syncAutopilotAlarms(now?: number): Promise<void>`, `nudgeAutopilot(alarmName: string, send?): Promise<boolean>`, `registerAutopilotAlarms(): void`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -905,12 +905,125 @@ import { registerAutopilotAlarms, syncAutopilotAlarms } from '@/lib/claims/alarm
 Run: `npx vitest run tests/claims-alarms.test.ts`
 Expected: PASS.
 
-- [ ] **Step 3: Verify and commit**
+- [ ] **Step 3: "Auto-pilot is due" on the desktop — the failing tests (user request, call 33)**
+
+When the alarm goes off and no Studio tab can run the cycle (no worker, or the worker has no live script), the user gets one desktop notification for that cycle. It uses the `notifications` permission the extension already has. At most one notification per channel and per due `next`: the notified `next` is kept in `chrome.storage.local` (`apNotified: { [channelId]: next }`), so a service-worker or browser restart doesn't repeat it. A later cycle (a new `next`) can notify again.
+
+Append to `extension/tests/claims-alarms.test.ts` (add `notifyAutopilotDue`, `openFromAutopilotNote` to the import):
+```ts
+describe('"Auto-pilot is due" notification', () => {
+  it('the alarm with no Studio tab to run the cycle notifies once, naming the channel', async () => {
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW }, 'claimScan:UC1': { channelName: 'Lofi Beats' } });
+    const create = vi.spyOn(browser.notifications, 'create');
+    vi.spyOn(browser.tabs, 'get').mockRejectedValue(new Error('No tab'));
+    await browser.alarms.create('ap:UC1', { when: NOW });
+    await fakeBrowser.alarms.onAlarm.trigger({ name: 'ap:UC1', scheduledTime: NOW } as never);
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create).toHaveBeenCalledWith('apdue:UC1', expect.objectContaining({
+      type: 'basic', title: 'Auto-pilot is due',
+      message: 'No YouTube Studio tab for Lofi Beats is open — click to open one and Auto-pilot will scan and trim',
+    }));
+    expect((await browser.storage.local.get('apNotified')).apNotified).toEqual({ UC1: NOW });
+  });
+
+  it('once per due cycle: a second alarm or a service-worker restart for the same next says nothing; a new next may', async () => {
+    const create = vi.spyOn(browser.notifications, 'create');
+    expect(await notifyAutopilotDue('UC1', NOW)).toBe(true);
+    expect(await notifyAutopilotDue('UC1', NOW)).toBe(false); // same cycle (state is in storage.local, not memory)
+    expect(await notifyAutopilotDue('UC1', NOW + 6 * 3600e3)).toBe(true);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('no notification when the worker tab took the nudge', async () => {
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW } });
+    await browser.storage.session.set({ claimsWorkers: { UC1: 3 } });
+    vi.spyOn(browser.tabs, 'get').mockResolvedValue({ id: 3, url: 'https://studio.youtube.com/' } as never);
+    const create = vi.spyOn(browser.notifications, 'create');
+    expect(await nudgeAutopilot('ap:UC1', (async () => undefined) as never)).toBe(true);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("a click opens Studio on that channel's page in a new tab and clears the notification", async () => {
+    const createTab = vi.spyOn(browser.tabs, 'create').mockResolvedValue({ id: 9 } as never);
+    const clear = vi.spyOn(browser.notifications, 'clear');
+    expect(await openFromAutopilotNote('apdue:UC1')).toBe(true);
+    expect(createTab).toHaveBeenCalledWith({ url: 'https://studio.youtube.com/channel/UC1' });
+    expect(clear).toHaveBeenCalledWith('apdue:UC1');
+    expect(await openFromAutopilotNote('apdue:unknown')).toBe(true);
+    expect(createTab).toHaveBeenLastCalledWith({ url: 'https://studio.youtube.com/' });
+    expect(await openFromAutopilotNote('queue:5')).toBe(false); // not ours
+  });
+});
+```
+(If `fakeBrowser.alarms.onAlarm.trigger` isn't wired to `registerAutopilotAlarms()`'s listener in this file, call `registerAutopilotAlarms()` in the test first.)
+
+Run: `npx vitest run tests/claims-alarms.test.ts`
+Expected: FAIL — `notifyAutopilotDue is not a function` (the earlier tests still pass).
+
+- [ ] **Step 4: Implement the notification**
+
+In `lib/claims/alarms.ts` (imports: `L` from `../i18n`, `NOTIFY_ICON` from `../notify`):
+```ts
+// "Auto-pilot is due" (user request, call 33): the alarm went off and no Studio tab could run the
+// cycle. Once per channel and due `next`, kept in storage.local so no restart repeats it.
+export const AP_NOTE = 'apdue:';
+export const NOTIFIED_KEY = 'apNotified';
+
+export async function notifyAutopilotDue(ch: string, next: number): Promise<boolean> {
+  const got = (await browser.storage.local.get([NOTIFIED_KEY, 'claimScan:' + ch]));
+  const seen = isObj(got[NOTIFIED_KEY]) ? (got[NOTIFIED_KEY] as Record<string, number>) : {};
+  if (seen[ch] === next) return false;
+  await browser.storage.local.set({ [NOTIFIED_KEY]: { ...seen, [ch]: next } });
+  const scan = got['claimScan:' + ch];
+  const name = (isObj(scan) && typeof scan.channelName === 'string' && scan.channelName) || ch;
+  await browser.notifications.create(AP_NOTE + ch, {
+    type: 'basic', iconUrl: NOTIFY_ICON, silent: true,
+    title: L('Auto-pilot ถึงรอบแล้ว', 'Auto-pilot is due'),
+    message: L(`ไม่มีแท็บ YouTube Studio ของช่อง ${name} เปิดอยู่ — คลิกเพื่อเปิด แล้ว Auto-pilot จะสแกนและตัดให้`, `No YouTube Studio tab for ${name} is open — click to open one and Auto-pilot will scan and trim`),
+  });
+  return true;
+}
+
+// The click opens Studio on that channel in a new tab: tabs.create needs no `tabs` permission.
+// (No existing tab to focus: the notification only exists when no Studio tab could run the cycle.)
+// The new tab's first tick on that channel starts the due cycle.
+export async function openFromAutopilotNote(id: string): Promise<boolean> {
+  if (!id.startsWith(AP_NOTE)) return false;
+  const ch = id.slice(AP_NOTE.length);
+  const url = /^UC[\w-]{22}$/.test(ch) ? `https://studio.youtube.com/channel/${ch}` : 'https://studio.youtube.com/';
+  await browser.tabs.create({ url }).catch((e) => console.error('[ytup] open Studio from notification', e));
+  await browser.notifications.clear(id).catch(() => {});
+  return true;
+}
+```
+In `registerAutopilotAlarms()`, the alarm listener notifies when the nudge reached no one:
+```ts
+  browser.alarms.onAlarm.addListener((a) => {
+    if (!a.name.startsWith(AP_ALARM)) return;
+    const ch = a.name.slice(AP_ALARM.length);
+    void nudgeAutopilot(a.name)
+      .then((reached) => (reached ? false : notifyAutopilotDue(ch, a.scheduledTime)))
+      .catch((e) => console.error('[ytup] autopilot nudge', e));
+  });
+```
+(`a.scheduledTime` is the cycle's `next`: the alarm was armed at exactly that time.) `background.ts`, next to the queue notification's click handler:
+```ts
+  browser.notifications.onClicked.addListener((id) => void openFromAutopilotNote(id).catch((e) => console.error('[ytup] autopilot note', e)));
+```
+(`openFromNotification` already ignores ids without its `queue:` prefix.) `scripts/strings/extension-only.mjs`:
+```js
+  { th: 'Auto-pilot ถึงรอบแล้ว', en: 'Auto-pilot is due', why: 'user request (Phase 4 Q7): desktop notice when an Auto-pilot cycle is due and no Studio tab can run it' },
+  { th: 'ไม่มีแท็บ YouTube Studio ของช่อง ${} เปิดอยู่ — คลิกเพื่อเปิด แล้ว Auto-pilot จะสแกนและตัดให้', en: 'No YouTube Studio tab for ${} is open — click to open one and Auto-pilot will scan and trim', why: 'user request (Phase 4 Q7)' },
+```
+Run: `npx vitest run tests/claims-alarms.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Verify and commit**
 
 Run: `npm run check && npm run build` (manifest permissions still exactly the five).
 ```bash
-git add extension/lib/claims/alarms.ts extension/entrypoints/background.ts extension/tests/claims-alarms.test.ts
-git commit -m "Auto-pilot on chrome.alarms: one alarm per channel wakes its worker tab, armed once per cycle
+git add extension/lib/claims/alarms.ts extension/entrypoints/background.ts extension/scripts/strings/extension-only.mjs extension/tests/claims-alarms.test.ts
+git commit -m "Auto-pilot on chrome.alarms: one alarm per channel wakes its worker tab, armed once per cycle; a desktop notice when no tab can run it
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1677,6 +1790,11 @@ English. Write down pass or fail; items marked **record** ask for an observation
     (its console shows no `[ytup] autopilot` lines every 30 s). **Record** whether a backgrounded
     Studio tab started its cycle on time (the alarm wakes it); a tab Chrome discarded (Memory Saver)
     has no script and does not wake.
+    - **The "due" notification.** In that same wait, when the cycle's time came with no Studio tab
+      open, one desktop notification "Auto-pilot is due" naming the channel appears (once: restarting
+      Chrome or the extension doesn't show it again for the same cycle). Clicking it opens Studio on
+      that channel in a new tab, and the cycle starts there within a few seconds. With a Studio tab
+      on that channel open, no notification.
 63. **Scheduled slots.** With scheduling on, a channel that already has a video scheduled at the
     queue's first slot: the schedule box skips that slot ("N slots skipped") and the summary's
     release times avoid it.
@@ -1697,6 +1815,7 @@ In `docs/superpowers/specs/2026-10-05-chrome-extension-design.md`:
 - **Modules** table: the row `lib/claims/*, lib/studio/trim.ts, MAIN-world youtubei | 4521–end` → `lib/claims/* (claims.ts: the ported module incl. trim; core.ts, songs.ts: pure; ops.ts / store.ts: data), lib/main-youtubei.ts (MAIN world) | 4587–6357`; `entrypoints/sidepanel/tabs/Copyright.tsx` → `entrypoints/sidepanel/tabs/CopyrightTab.tsx` (+ `tabs/copyright/*`).
 - **Messaging**: replace "Phase 4 adds `claims:scan`, `claims:trim`, `claims:autopilot`" with "Phase 4 adds `claims:view`, `claims:scan`, `claims:trim`, `claims:ads`, `claims:collab`, `claims:stop`"; page → panel: "`claims:state`, `claims:log`, `claims:show`"; page/panel → background: "`claims:op`" (the one writer of the copyright keys, like `store:patch`); background → page: "`claims:autopilot` (an Auto-pilot alarm)". Replace "One runner at a time … `{runnerTabId}`" with the lock with jobs (`runnerTabId` + `runnerJobs`: `queue` / `claims`).
 - **Background → Autopilot**: "one one-shot alarm per channel at its next cycle, armed only for a future cycle and once per cycle; when it fires, the background sends `claims:autopilot` to that channel's worker tab (one Studio tab per channel, the userscript's tab lease, kept in `storage.session`), which runs its cycle; with no such tab, the channel's next cycle stays due and starts when a tab for that channel opens. Follow-up checks run on the worker tab's own timer."
+- **Background → Autopilot (user request)**: "when an alarm fires and no Studio tab can run the cycle, the background shows one 'Auto-pilot is due' notification for that cycle (per channel and `next`, remembered in storage.local); clicking it opens Studio on that channel in a new tab."
 - **Error handling → MAIN world not answering**: "A `getCfg` request times out after 10 s, a `youtubei` request after 30 s (the userscript's fetch had none); a timeout fails that call like any API error."
 - **Side panel UI**: "the copyright pane's modals are views of the Copyright tab; claim and song tables are lists of cards."
 
