@@ -5,7 +5,7 @@ import { setLang } from '../lib/i18n';
 import { applySettingsPatch, countersDiff, defaultSettings, settingsDiff } from '../lib/settings';
 import { BACKUP_SCHEMA, parseBackup } from '../lib/backup';
 import { SCHEMA_VERSION } from '../lib/migrations';
-import { ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '../lib/store-writer';
+import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '../lib/store-writer';
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -180,5 +180,45 @@ describe('who may write, and what', () => {
     expect((await browser.storage.local.get('presets')).presets).toEqual([{ id: 'keep', label: 'Keep' }]);
     await writeBackupInOrder({ data: {}, presets: [{ id: 'a', label: 'A', tags: 'x' }] as never, own: true });
     expect((await browser.storage.local.get('presets')).presets).toMatchObject([{ id: 'a', label: 'A', tags: [], title: '{name}' }]);
+  });
+});
+
+describe('claims:op', () => {
+  it('applies ops one at a time to what storage holds', async () => {
+    await browser.storage.local.set({ 'trimResults:UC1': { a: { state: 'saved' } } });
+    await Promise.all([
+      claimsOpInOrder({ op: 'merge', key: 'trimResults:UC1', entries: { b: { state: 'gone' } } }),
+      claimsOpInOrder({ op: 'merge', key: 'trimResults:UC1', entries: { c: { state: 'failed' } } }),
+    ]);
+    expect(Object.keys((await browser.storage.local.get('trimResults:UC1'))['trimResults:UC1'] as object)).toEqual(['a', 'b', 'c']);
+    await claimsOpInOrder({ op: 'set', key: 'trimRun:UC1', value: undefined });
+    expect(await browser.storage.local.get('trimRun:UC1')).toEqual({});
+  });
+
+  it('refuses malformed ops and keys outside the copyright data', async () => {
+    await expect(claimsOpInOrder({ op: 'set', key: 'settings', value: {} })).rejects.toThrow('claims:op: malformed');
+    await expect(claimsOpInOrder({ op: 'merge', key: 'cfg', entries: JSON.parse('{"__proto__":{}}') })).rejects.toThrow('claims:op: malformed');
+  });
+
+
+  // Review m6: the SyncStore keeps any key under a copyright prefix; the writer is the check.
+  it('refuses keys that only look like copyright keys', async () => {
+    for (const key of ['claimScan:', 'claimScan:../x', 'claimScan:UC1/x', 'claimScan:UC 1', 'claimScan', 'tabLock:UC1', 'cfg:UC1', 'songHistory:x', '__proto__']) {
+      await expect(claimsOpInOrder({ op: 'set', key, value: {} })).rejects.toThrow('claims:op: malformed');
+    }
+    await expect(claimsOpInOrder({ op: 'set', key: 'claimScan:' + 'x'.repeat(65), value: {} })).rejects.toThrow('claims:op: malformed');
+    await expect(claimsOpInOrder({ op: 'list', key: 'trimQueue:../x', add: ['a'] })).rejects.toThrow('claims:op: malformed');
+    await expect(claimsOpInOrder({ op: 'runItem', key: 'trimRun:', by: 'key', id: 'a', state: 's', msg: '' })).rejects.toThrow('claims:op: malformed');
+    expect(await browser.storage.local.get(null)).toEqual({});
+    await claimsOpInOrder({ op: 'set', key: 'claimScan:UCabc_-1', value: { rows: [] } });
+    await claimsOpInOrder({ op: 'set', key: 'logOpen', value: true });
+    expect(await browser.storage.local.get(null)).toEqual({ 'claimScan:UCabc_-1': { rows: [] }, logOpen: true });
+  });
+  it('only the side panel and Studio tabs may send it', () => {
+    const ext = 'chrome-extension://abc/';
+    expect(mayWrite('claims:op', { url: ext + 'sidepanel.html' }, ext)).toBe(true);
+    expect(mayWrite('claims:op', { tab: {}, url: 'https://studio.youtube.com/channel/UC1' }, ext)).toBe(true);
+    expect(mayWrite('claims:op', { tab: {}, url: 'https://www.youtube.com/' }, ext)).toBe(false);
+    expect(mayWrite('claims:op', { url: ext + 'file-bridge.html', tab: {} }, ext)).toBe(false);
   });
 });

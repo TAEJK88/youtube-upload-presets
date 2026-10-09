@@ -7,7 +7,7 @@ import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld } from '@/lib/runner-lock';
 import { deleteFiles, sweepHandles } from '@/lib/file-gc';
-import { ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
+import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
 export default defineBackground(() => {
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
@@ -49,6 +49,11 @@ export default defineBackground(() => {
     await ready;
     if (await runnerHeld()) throw new Error(RUNNER_HELD); // the panel checked too; a run may have started since
     await writeBackupInOrder(data);
+  });
+  onMessage('claims:op', async ({ data, sender }) => {
+    if (!mayWrite('claims:op', sender, ext)) throw new Error('claims:op: not allowed from this sender');
+    await ready;
+    await claimsOpInOrder(data);
   });
 
   // The page has no access to the extension's IndexedDB; it asks here to forget handles.

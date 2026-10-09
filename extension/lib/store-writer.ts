@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { applyBackup, cleanPresets, writeBackup, type BackupImport } from './backup';
+import { applyOp, isClaimsOp, opKey } from './claims/ops';
 import { getLang } from './i18n';
 import { isStudioUrl } from './panel-scope';
 import { applySettingsPatch, defaultSettings, loadSettings, type SettingsPatch } from './settings';
@@ -32,11 +33,12 @@ export async function applyStorePatch(p: StorePatch): Promise<void> {
 }
 
 // Who may send the writes. Content scripts on www.youtube.com (the invite page) and the
-// file bridge (an extension page inside a Studio tab) never write settings or forget stored
-// file handles (files:delete); an import comes from the side panel only. `ext` is browser.runtime.getURL('/').
+// file bridge (an extension page inside a Studio tab) never write settings or the copyright
+// data (claims:op), or forget stored file handles (files:delete); an import comes from the
+// side panel only. `ext` is browser.runtime.getURL('/').
 interface Sender { tab?: unknown; url?: string }
 const extensionPage = (s: Sender, ext: string) => !s.tab && !!s.url?.startsWith(ext);
-export function mayWrite(type: 'store:patch' | 'backup:write' | 'files:delete', s: Sender, ext: string): boolean {
+export function mayWrite(type: 'store:patch' | 'backup:write' | 'files:delete' | 'claims:op', s: Sender, ext: string): boolean {
   if (type === 'backup:write') return extensionPage(s, ext);
   return extensionPage(s, ext) || (!!s.tab && isStudioUrl(s.url));
 }
@@ -81,6 +83,18 @@ export const writeBackupInOrder = async ({ data, presets, own }: BackupImport) =
   return serial(async () => {
     const cur = { settings: await loadSettings(), cfg: await load<Record<string, unknown>>('cfg', {}) };
     await writeBackup(applyBackup(data, list, own === true, cur));
+  });
+};
+
+// The copyright data's one writer (D20): each op reads the key from storage and writes the result,
+// in the same queue as settings patches and imports, so none lands in between.
+export const claimsOpInOrder = async (op: unknown) => {
+  if (!isClaimsOp(op)) throw new Error('claims:op: malformed');
+  return serial(async () => {
+    const key = opKey(op);
+    const next = applyOp((await browser.storage.local.get(key))[key], op);
+    if (next === undefined) await browser.storage.local.remove(key);
+    else await browser.storage.local.set({ [key]: next });
   });
 };
 

@@ -1,5 +1,6 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
 import type { BackupImport } from './backup';
+import type { ClaimsOp } from './claims/ops';
 import type { StorePatch } from './store-writer';
 import type { SwitchRequest } from './studio/channels';
 import type { QueueEdit } from './studio/queue-edit';
@@ -36,6 +37,8 @@ export type ProtocolMap = {
   'store:patch'(p: StorePatch): void;
   // side panel → background: Settings → Import
   'backup:write'(imp: BackupImport): void;
+  // copyright data writes, from Studio tabs and the side panel (lib/claims/ops.ts, D20)
+  'claims:op'(op: ClaimsOp): void;
   // side panel → content (the Studio tab)
   'queue:add'(ids: string[]): void;
   'queue:preflight'(): StartSummary | { error: string };
