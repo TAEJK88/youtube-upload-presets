@@ -409,9 +409,6 @@ The panel's own console: right-click inside the panel → Inspect.
       a release slot with the other run's. No item is uploaded twice.
       **Record** whether the page came back from the cache at all (if Studio reloads instead,
       the item comes back as interrupted, as in item 15).
-    - **Known limitation (Phase 4), don't count as a failure:** two windows editing cards
-      within about 300 ms of each other can lose one of the edits (each idle tab writes its
-      whole queue).
 
 ### Phase 0 spike checks still open (ledger: Task 7)
 

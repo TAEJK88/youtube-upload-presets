@@ -134,6 +134,30 @@ describe('queue store', () => {
     expect(queue.map((i) => i.file.name)).toEqual(['Z.mp4']);
   });
 
+  it('a save from another window while ours waits keeps both edits (3b M3)', async () => {
+    vi.useFakeTimers();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending')] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(true);
+    queue[0] = { ...queue[0]!, title: 'mine' }; // this window's edit, saved 300 ms later
+    persistQueue();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending', { title: 'theirs' })] });
+    await vi.advanceTimersByTimeAsync(0); // the other window's save arrives
+    expect(queue.map((i) => i.title)).toEqual(['mine', 'theirs']);
+    await vi.advanceTimersByTimeAsync(300);
+    await flushState();
+    expect(((await browser.storage.local.get('queue')).queue as QueueItem[]).map((i) => i.title)).toEqual(['mine', 'theirs']);
+  });
+
+  it('with no save of ours waiting, a foreign save replaces the copy as before', async () => {
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending')] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(true);
+    await browser.storage.local.set({ queue: [item('B.mp4', 'pending')] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queue.map((i) => i.file.name)).toEqual(['B.mp4']);
+  });
+
   // The running tab closed mid-run: its items stay 'uploading' in storage, and no tab
   // would ever move them on. The mirror tab cuts them like a reload does.
   describe('the other tab stops running', () => {

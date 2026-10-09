@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { L } from '../i18n';
+import { mergeQueue } from './queue-merge';
 import { otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
 
@@ -7,6 +8,9 @@ import { load, onStored, save } from './state';
 // channel switches; Files are fetched again by id when an item uploads.
 const KEY = 'queue';
 let timer: ReturnType<typeof setTimeout> | undefined;
+// What this tab last read from or wrote to storage: the base the merge compares both copies to.
+let base: QueueItem[] = [];
+const remember = (list: QueueItem[]) => { base = structuredClone(list); };
 
 // Nothing is written while another Studio tab runs the queue: that tab's copy is the one
 // moving items along, and this tab only mirrors it (restoreQueue's onStored). The flag is
@@ -24,7 +28,10 @@ export function flushQueue(): void {
   if (timer === undefined) return;
   clearTimeout(timer);
   timer = undefined;
-  if (!blocked()) save(KEY, queue);
+  if (!blocked()) {
+    save(KEY, queue);
+    remember(queue);
+  }
 }
 
 // A reload ends a run: an item that was uploading or waiting for Save may have left a
@@ -44,12 +51,21 @@ export function restoreQueue(markInterrupted: boolean): void {
   const items = load<QueueItem[]>(KEY, []);
   const cut = (it: QueueItem) => markInterrupted && unfinished(it);
   queue.splice(0, queue.length, ...items.map((it) => (cut(it) ? interrupted(it) : it)));
+  remember(items);
   // Written back at once, so the side panel (which reads storage) shows the error too.
-  if (items.some(cut)) save(KEY, queue);
-  // Another tab (or, in Phase 3, the side panel) changed the queue. The tab that is
-  // running keeps its own copy: it is the one moving items along.
+  if (items.some(cut)) {
+    save(KEY, queue);
+    remember(queue);
+  }
+  // Another tab (or the side panel) changed the queue. The tab that is running keeps its own
+  // copy: it is the one moving items along. While a save of ours waits, the two copies are
+  // merged per item (3b M3); otherwise the stored copy replaces ours.
   onStored(KEY, (v) => {
-    if (!running) queue.splice(0, queue.length, ...((v as QueueItem[] | undefined) ?? []));
+    if (running) return;
+    const foreign = (v as QueueItem[] | undefined) ?? [];
+    const next = timer !== undefined ? mergeQueue(base, queue, foreign) : foreign;
+    queue.splice(0, queue.length, ...next);
+    remember(foreign);
   });
 }
 
@@ -67,7 +83,11 @@ export async function followOtherTab(runs: boolean): Promise<void> {
   const stored = ((await browser.storage.local.get(KEY))[KEY] as QueueItem[] | undefined) ?? [];
   if (running || otherTabRunning()) return;
   queue.splice(0, queue.length, ...stored.map((it) => (unfinished(it) ? interrupted(it) : it)));
-  if (stored.some(unfinished)) save(KEY, queue);
+  remember(stored);
+  if (stored.some(unfinished)) {
+    save(KEY, queue);
+    remember(queue);
+  }
 }
 
 // The userscript asked before leaving whenever the queue had files, because the Files
