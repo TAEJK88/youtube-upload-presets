@@ -8,7 +8,7 @@ import { removeItem } from '../lib/studio/queue-ops';
 import { persistQueue } from '../lib/studio/queue-store';
 import * as Q from '../lib/studio/queue-runner';
 import { SEL } from '../lib/studio/sel';
-import { save, settings } from '../lib/studio/state';
+import { presetById, save, settings } from '../lib/studio/state';
 import * as D from '../lib/studio/upload-dialog';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -169,22 +169,34 @@ describe('queue:start from the panel', () => {
     expect(Q.queue[0]!.status).toBe('error'); // it ran: the bridge said 'missing'
   });
 
-  it('refuses when settings or presets changed in another window after the summary (3b M11)', async () => {
-    await Q.addFiles([qfile('A.mp4')]);
-    const ui = createContentUi();
-    setPageUi(ui);
-    setBridge({ getFile: async (id: string) => new File(['x'], id) });
-    const b = binding(true);
-    const was = settings.thumb;
-    settings.thumb = !was; // the other window's panel changed a setting the summary showed
-    try {
-      await startFromPanel(ui, b);
-    } finally {
-      settings.thumb = was;
-    }
-    expect(send).toHaveBeenCalledWith('queue:toast', 'Settings or presets changed after you confirmed — click Start again to see the new summary');
-    expect(Q.queue[0]!.status).toBe('pending');
-  });
+  // The other window's panel changes something the summary showed: each part of startSig().
+  const changes: [string, () => () => void][] = [
+    ['the schedule', () => { const was = settings.schedule; settings.schedule = { ...was, on: !was.on }; return () => { settings.schedule = was; }; }],
+    ['thumbnails on/off', () => { const was = settings.thumb; settings.thumb = !was; return () => { settings.thumb = was; }; }],
+    ["the pending preset's visibility", () => {
+      const p = presetById('trapsoul');
+      const was = p.visibility;
+      p.visibility = was === 'PUBLIC' ? 'PRIVATE' : 'PUBLIC';
+      return () => { p.visibility = was; };
+    }],
+  ];
+  for (const [what, change] of changes) {
+    it(`refuses when ${what} changed in another window after the summary (3b M11)`, async () => {
+      await Q.addFiles([qfile('A.mp4')]);
+      const ui = createContentUi();
+      setPageUi(ui);
+      setBridge({ getFile: async (id: string) => new File(['x'], id) });
+      const b = binding(true);
+      const undo = change();
+      try {
+        await startFromPanel(ui, b);
+      } finally {
+        undo();
+      }
+      expect(send).toHaveBeenCalledWith('queue:toast', 'Settings or presets changed after you confirmed — click Start again to see the new summary');
+      expect(Q.queue[0]!.status).toBe('pending');
+    });
+  }
 });
 
 // The extension reloads while a run is in flight: the content script's teardown disposes

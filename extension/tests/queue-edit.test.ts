@@ -185,10 +185,13 @@ describe('an edit after the summary refuses the start', () => {
   });
 
   it('no edit: the start gets past the binding', async () => {
+    const probe = vi.spyOn(files, 'probeBridge').mockResolvedValue('silent');
     const seen = await preflight();
     calls.length = 0;
     await Q.startQueue(seen);
     expect(calls).not.toContain(QUEUE_CHANGED);
+    expect(calls).not.toContain('toast:Settings or presets changed after you confirmed — click Start again to see the new summary');
+    expect(probe).toHaveBeenCalled(); // the summary's channel, items, edit count and sig all held
   });
 
   it('a preset deleted after the preflight', async () => {
