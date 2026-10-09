@@ -9,7 +9,7 @@ Replaces the Tampermonkey userscript in the repo root. Design:
 cd extension
 npm install
 npm run dev      # builds, opens Chrome with the extension, reloads on change
-npm run check    # tsc + vitest — run before every commit
+npm run check    # tsc + vitest + port-check + ui-check — run before every commit
 npm run build    # .output/chrome-mv3 → chrome://extensions → Load unpacked
 ```
 
@@ -17,11 +17,13 @@ Ported code is checked against the userscript at the pinned commit:
 `npm run port-check` (configs in `scripts/port/`; `node scripts/port-check.mjs --print <name>`
 prints the code a port starts from).
 
-Until the Phase 3 side panel, the developer panel drives the Studio tab: that panel was
-removed in Phase 3a. Its queue controls (drop files, **Add all to queue**, **Start…**,
-**Stop**, **Retry**, **Remove**, **Re-grant access**) return in the side panel's Upload tab
-(Phase 3b); **Dialog info** in the Settings tab (Phase 3a). Console lines from the extension
-start with `[ytup]`.
+The side panel (`entrypoints/sidepanel/`, React + Tailwind v4 + `components/ui/`) talks to the
+Studio tab active in its window: it asks for a `QueueView` and sends `queue:*` messages; it
+never touches Studio's DOM. Logic the panel needs lives in `lib/panel/` (unit-tested).
+`npm run ui-check` proves every shipped UI string is one of the userscript's `L()` pairs (or
+is listed with a reason in `scripts/strings/extension-only.mjs`) and that no text is below 12px.
+`settings` and `counters` have one writer, the background (`store:patch`, `lib/store-writer.ts`).
+Console lines from the extension start with `[ytup]`.
 
 ## Layout
 
@@ -31,12 +33,14 @@ start with `[ytup]`.
   `page-ui.ts` is the seam between the runner and any UI
 - `entrypoints/invite.content.ts` — www.youtube.com: channel switcher and invite accept
 - `lib/studio/txt.ts`, `lib/studio/sel.ts` — the `TXT` / `SEL` tables (see the root README)
+- `entrypoints/sidepanel/` — the side panel (React); `lib/panel/` — its logic; `components/ui/` — shadcn-style components
+- `scripts/ui-check.mjs`, `scripts/strings/` — strings parity with the userscript, 12px floor
 - `tests/*.test.mjs` — tests ported from `../test/` (bodies unchanged); `tests/*.test.ts` — new tests
 
 ## Moving from the userscript
 
 In the userscript: Settings → Backup / share → Export. Import that file in the extension
-(the Settings tab arrives in Phase 3). Upload history and per-channel copyright data
+(Settings tab → Back up / share settings). Upload history and per-channel copyright data
 aren't part of the backup.
 
 ## Phase 2 exit check (manual, in Chrome)
