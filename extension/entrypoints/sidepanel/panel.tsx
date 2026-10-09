@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { getLang, setLang, watchLang } from '@/lib/i18n';
@@ -19,9 +19,7 @@ export interface PanelApi {
   target: Target | null; // the Studio tab active in this window
   link: LinkStatus;
   view: QueueView | null; // that tab's queue, as its runner sees it
-  state: QueueState | null; // that tab's live state (newer than view.state)
   runner: RunnerTab | null; // the tab holding the runner lock, if any (may be the target)
-  liveState: QueueState | null; // the running tab's live state, else the target's
   elsewhere: boolean; // another tab is running the queue
   send: ToTab; // to the target
   sendTo(tabId: number): ToTab;
@@ -31,10 +29,19 @@ export interface PanelApi {
 
 const noop = () => {};
 export const PanelContext = createContext<PanelApi>({
-  lang: 'en', data: null, target: null, link: 'noTab', view: null, state: null, runner: null, liveState: null, elsewhere: false,
+  lang: 'en', data: null, target: null, link: 'noTab', view: null, runner: null, elsewhere: false,
   send: () => Promise.reject(new Error('no Studio tab')), sendTo: toTab, write: writes, refresh: noop,
 });
 export const usePanel = () => useContext(PanelContext);
+
+// The progress that moves every ~0.8 s lives apart from PanelContext: only what calls
+// useLive() re-renders with it, not every tab's contents.
+export interface LiveApi {
+  state: QueueState | null; // the bound tab's live state (newer than view.state)
+  liveState: QueueState | null; // the running tab's live state, else the bound tab's
+}
+const LiveContext = createContext<LiveApi>({ state: null, liveState: null });
+export const useLive = () => useContext(LiveContext);
 
 export function PanelProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<PanelData | null>(null);
@@ -43,17 +50,21 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<QueueView | null>(null);
   const [states, setStates] = useState<ReadonlyMap<number, QueueState>>(new Map());
   const [runner, setRunner] = useState<RunnerTab | null>(null);
+  const runnerId = runner?.tabId;
+  const targetId = target?.tabId;
   const [lang, setLangState] = useState(getLang());
   const targetRef = useRef<Target | null>(null);
+  const runnerRef = useRef<number | undefined>(undefined);
+  useEffect(() => { runnerRef.current = runnerId; }, [runnerId]);
   const seen = useRef(new Map<number, string>()); // rev + channel per tab: re-read the view when it moves
   const sync = useMemo(
-    () => createViewSync({ fetch: (id) => sendMessage('queue:view', undefined, id), onView: setView, onStatus: setLink }),
+    () => createViewSync({ fetch: (id) => sendMessage('queue:view', undefined, id), onView: setView, onStatus: setLink, onError: (e) => toast(`queue:view: ${(e as Error)?.message ?? e}`) }),
     [],
   );
 
   // Stored data, and the language with it.
   useEffect(() => {
-    void readPanelData().then(setData);
+    void readPanelData().then(setData).catch((e) => console.error('[ytup] read panel data failed', e));
     const offData = watchPanelData(setData);
     // L() reads the module's language: watchLang switches it the moment settings change,
     // and the new `lang` re-renders every usePanel() consumer.
@@ -75,6 +86,10 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     if (data) sync.poke(); // titles, numbers and times depend on presets / counters / settings
   }, [data, sync]);
 
+  const updateRunner = useCallback(() => {
+    void runnerTab().then(setRunner).catch((e) => console.error('[ytup] runner tab failed', e));
+  }, []);
+
   // Which tab.
   useEffect(() => {
     let alive = true;
@@ -82,12 +97,15 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     let off = noop;
     const rebind = async () => {
       if (windowId === undefined) return;
-      const t = await activeStudioTab(windowId);
+      const t = await activeStudioTab(windowId).catch((e) => (console.error('[ytup] active Studio tab failed', e), null));
       if (!alive) return;
       const changed = t?.tabId !== targetRef.current?.tabId;
       targetRef.current = t;
       setTarget(t);
-      if (changed) sync.bind(t?.tabId ?? null);
+      if (changed) {
+        sync.bind(t?.tabId ?? null);
+        updateRunner();
+      }
     };
     void browser.windows.getCurrent().then((w) => {
       if (!alive || w.id === undefined) return;
@@ -96,28 +114,29 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       off = watchTabs(w.id, (e) => {
         if (e === 'loading') return sync.loading();
         void rebind();
-        if (e === 'loaded') sync.poke();
+        if (e === 'loaded') sync.loaded();
       });
     });
     return () => {
       alive = false;
       off();
       sync.dispose();
+      targetRef.current = null;
     };
-  }, [sync]);
+  }, [sync, updateRunner]);
 
-  // The runner lock.
+  // The runner lock, re-checked when its tab navigates away or closes.
   useEffect(() => {
-    const update = () => void runnerTab().then(setRunner);
-    update();
-    return watchRunner(update);
-  }, []);
+    updateRunner();
+    return watchRunner(updateRunner);
+  }, [updateRunner]);
 
   // Live state and toasts from the Studio tabs.
   useEffect(() => {
     installBus();
     const offState = onQueueState((s, tabId) => {
       if (tabId === undefined) return;
+      if (tabId !== targetRef.current?.tabId && tabId !== runnerRef.current) return;
       setStates((m) => new Map(m).set(tabId, s));
       const sig = `${s.rev}|${JSON.stringify(s.channel)}`;
       if (tabId === targetRef.current?.tabId && seen.current.get(tabId) !== sig) sync.poke();
@@ -137,19 +156,34 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     };
   }, [sync]);
 
+  // Only the bound tab's and the runner's states are kept (closed or other tabs are pruned).
+  useEffect(() => {
+    setStates((m) => {
+      const keep = [...m.keys()].filter((id) => id === targetId || id === runnerId);
+      return keep.length === m.size ? m : new Map(keep.map((id) => [id, m.get(id)!]));
+    });
+  }, [targetId, runnerId]);
+
+  const live = useMemo<LiveApi>(() => {
+    const state = targetId !== undefined ? states.get(targetId) ?? view?.state ?? null : null;
+    const runnerState = runnerId !== undefined ? states.get(runnerId) ?? null : null;
+    return { state, liveState: runnerState ?? state };
+  }, [states, targetId, runnerId, view]);
+
   const api = useMemo<PanelApi>(() => {
-    const state = target ? states.get(target.tabId) ?? view?.state ?? null : null;
-    const runnerState = runner ? states.get(runner.tabId) ?? null : null;
     return {
-      lang, data, target, link, view, state, runner,
-      liveState: runnerState ?? state,
+      lang, data, target, link, view, runner,
       elsewhere: !!runner && runner.tabId !== target?.tabId,
       send: target ? toTab(target.tabId) : () => Promise.reject(new Error('no Studio tab')),
       sendTo: toTab,
       write: writes,
-      refresh: () => sync.poke(),
+      refresh: () => { sync.poke(); updateRunner(); },
     };
-  }, [lang, data, target, link, view, states, runner, sync]);
+  }, [lang, data, target, link, view, runner, sync, updateRunner]);
 
-  return <PanelContext.Provider value={api}>{children}</PanelContext.Provider>;
+  return (
+    <PanelContext.Provider value={api}>
+      <LiveContext.Provider value={live}>{children}</LiveContext.Provider>
+    </PanelContext.Provider>
+  );
 }

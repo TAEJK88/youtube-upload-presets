@@ -46,12 +46,23 @@ export async function runnerTab(): Promise<RunnerTab | null> {
   return t && { tabId: t.tabId, windowId: t.windowId, title: t.title };
 }
 
+// fn runs when the lock moves, and when any tab navigates (a new URL) or closes: the runner
+// tab may have left Studio or be gone, and runnerTab() re-checks it.
 export function watchRunner(fn: () => void): () => void {
   const changed = (changes: Record<string, unknown>, area: string) => {
     if (area === 'session' && 'runnerTabId' in changes) fn();
   };
+  const updated = (_id: number, info: { url?: string }) => {
+    if (info.url) fn();
+  };
   browser.storage.onChanged.addListener(changed);
-  return () => browser.storage.onChanged.removeListener(changed);
+  browser.tabs.onUpdated.addListener(updated);
+  browser.tabs.onRemoved.addListener(fn);
+  return () => {
+    browser.storage.onChanged.removeListener(changed);
+    browser.tabs.onUpdated.removeListener(updated);
+    browser.tabs.onRemoved.removeListener(fn);
+  };
 }
 
 export async function focusTab(t: { tabId: number; windowId: number }): Promise<void> {

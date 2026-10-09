@@ -70,4 +70,66 @@ describe('createViewSync', () => {
     expect(views.at(-1)).toBe(null);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  describe('grace period', () => {
+    const noReceiver = () => new Error('Could not establish connection. Receiving end does not exist.');
+    const mk = (fetch: (id: number) => Promise<QueueView>, errors: unknown[] = []) =>
+      createViewSync({ fetch, onView: (v) => views.push(v), onStatus: (s) => statuses.push(s), onError: (e) => errors.push(e), delayMs: 100, graceMs: 2000, retryMs: 300 });
+
+    it('a fetch failing during the grace is loading and retried, then ok', async () => {
+      let n = 0;
+      const s = mk(async () => {
+        if (++n < 3) throw noReceiver();
+        return view(1);
+      });
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(statuses).toEqual(['loading', 'ok']);
+    });
+
+    it('failing beyond the grace is noScript', async () => {
+      const s = mk(async () => { throw noReceiver(); });
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(statuses).toEqual(['loading']);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(statuses).toEqual(['loading', 'noScript']);
+    });
+
+    it('a load-complete opens a new grace', async () => {
+      let up = false;
+      const s = mk(async () => { if (!up) throw noReceiver(); return view(1); });
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(statuses).toEqual(['loading', 'noScript']);
+      s.loading();
+      s.loaded();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(statuses).toEqual(['loading', 'noScript', 'loading']);
+      up = true;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(statuses.at(-1)).toBe('ok');
+    });
+
+    it('loading() clears a pending poke', async () => {
+      const fetch = vi.fn(async () => view(1));
+      const s = mk(fetch);
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(10);
+      fetch.mockClear();
+      s.poke();
+      s.loading();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('a handler error is not noScript: reported, never "reload this tab"', async () => {
+      const errors: unknown[] = [];
+      const s = mk(async () => { throw new Error('boom'); }, errors);
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(statuses).not.toContain('noScript');
+      expect(errors).toHaveLength(1);
+    });
+  });
 });
