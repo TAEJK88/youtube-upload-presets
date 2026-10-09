@@ -21,7 +21,7 @@ export async function startFlow(d: {
       return 'error';
     }
     if (s.needsConfirm && !(await d.confirm(s))) return 'cancelled';
-    await d.start({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev, asked: s.needsConfirm });
+    await d.start({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev, sig: s.sig, asked: s.needsConfirm });
     return 'started';
   } catch (e) {
     console.error('[ytup] start failed', e);

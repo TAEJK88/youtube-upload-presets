@@ -30,7 +30,7 @@ let n = 0;
 const qfile = (name: string, body = 'x', type = '') =>
   Object.assign(new File([body], name, { type }), { qid: `id-${++n}`, src: 'bridge' as const });
 // What the panel sends with queue:start: the channel and the pending items its summary showed.
-const confirmed = (channelId = 'UCabcdefghijklmn') => ({ channelId, ids: Q.queue.filter((i) => i.status === 'pending').map((i) => i.id), editRev: Q.getEditRev(), asked: true });
+const confirmed = (channelId = 'UCabcdefghijklmn') => ({ channelId, ids: Q.queue.filter((i) => i.status === 'pending').map((i) => i.id), editRev: Q.getEditRev(), sig: Q.startSig(), asked: true });
 
 beforeEach(() => {
   vi.stubGlobal('document', makeDocument());
@@ -272,9 +272,10 @@ describe('startQueue checks the file bridge first (addendum B.3)', () => {
 
 describe('queue:start payload', () => {
   it('only a well-formed binding gets through', () => {
-    expect(Q.isStartBinding({ channelId: 'UC1', ids: ['a'], editRev: 0, asked: true })).toBe(true);
-    for (const bad of [null, 'x', {}, { channelId: 'UC1', ids: 'a', editRev: 0, asked: true }, { channelId: 'UC1', ids: [1], editRev: 0, asked: true },
-      { channelId: 1, ids: [], editRev: 0, asked: true }, { channelId: 'UC1', ids: [], editRev: '0', asked: true }, { channelId: 'UC1', ids: [], editRev: 0 }]) {
+    expect(Q.isStartBinding({ channelId: 'UC1', ids: ['a'], editRev: 0, sig: 's', asked: true })).toBe(true);
+    for (const bad of [null, 'x', {}, { channelId: 'UC1', ids: 'a', editRev: 0, sig: 's', asked: true }, { channelId: 'UC1', ids: [1], editRev: 0, sig: 's', asked: true },
+      { channelId: 1, ids: [], editRev: 0, sig: 's', asked: true }, { channelId: 'UC1', ids: [], editRev: '0', sig: 's', asked: true }, { channelId: 'UC1', ids: [], editRev: 0, sig: 's' },
+      { channelId: 'UC1', ids: [], editRev: 0, asked: true }, { channelId: 'UC1', ids: [], editRev: 0, sig: 1, asked: true }]) {
       expect(Q.isStartBinding(bad)).toBe(false);
     }
   });

@@ -162,7 +162,7 @@ describe('the panel in Thai', () => {
     vi.mocked(api.send).mockImplementation((async (type: string) =>
       type === 'queue:preflight'
         ? {
-          pendingN: 6, channel: { id: 'UC1', name: 'ช่องฉัน', avatar: '' }, ids: ['i0'], editRev: 1, times: [AT, AT + 864e5], vis: 'PRIVATE',
+          pendingN: 6, channel: { id: 'UC1', name: 'ช่องฉัน', avatar: '' }, ids: ['i0'], editRev: 1, sig: 's', times: [AT, AT + 864e5], vis: 'PRIVATE',
           noTxt: 1, noThumb: 2, needsConfirm: true,
           badTime: Array.from({ length: 6 }, (_, i) => ({ name: `คลิป ${i}.mp4`, at: AT })),
           prevUp: [{ name: 'คลิป 1.mp4', title: 'ชื่อเก่า' }],

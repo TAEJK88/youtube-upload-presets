@@ -611,13 +611,13 @@ export function installIntercept(): () => void {
 // starts only if both are still what they were.
 // `asked`: the panel showed the summary and the user said yes. Without it, runQueue's own
 // re-check (the clock moved, a .txt arrived) refuses rather than start past a new warning.
-export interface StartBinding { channelId: string; ids: string[]; editRev: number; asked: boolean }
+export interface StartBinding { channelId: string; ids: string[]; editRev: number; sig: string; asked: boolean }
 // The payload crosses a message boundary (queue:start): only a well-formed one is used.
 export function isStartBinding(d: unknown): d is StartBinding {
   if (!d || typeof d !== 'object') return false;
   const b = d as Record<string, unknown>;
   return typeof b.channelId === 'string' && Array.isArray(b.ids) && b.ids.every((x) => typeof x === 'string')
-    && typeof b.editRev === 'number' && typeof b.asked === 'boolean';
+    && typeof b.editRev === 'number' && typeof b.sig === 'string' && typeof b.asked === 'boolean';
 }
 // Bumped by every edit the side panel makes to an item (queue-edit.ts, followStoredChanges):
 // a release time or preset changed after the summary must not start with the old summary's OK.
@@ -628,10 +628,22 @@ export const bumpEditRev = () => {
   editRev++;
 };
 const pendingIds = () => queue.filter((i) => i.status === 'pending').map((i) => i.id);
+// What the summary showed that settings and presets decide, apart from the queue itself: the
+// schedule, thumbnails on/off and the pending items' presets' visibility. A change made in
+// another window between the summary and the confirm refuses the start (3b review M11).
+export function startSig(): string {
+  const pending = queue.filter((i) => i.status === 'pending');
+  return JSON.stringify([
+    settings.schedule,
+    settings.thumb,
+    pending.map((i) => presetById(i.presetId).visibility || 'PRIVATE'),
+  ]);
+}
 function bindingProblem(seen: StartBinding): string {
   if (getChannel().id !== seen.channelId) return L('ช่องเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The channel changed after you confirmed — click Start again to see the new summary');
   if (pendingIds().join('\n') !== seen.ids.join('\n')) return L('คิวเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The queue changed after you confirmed — click Start again to see the new summary');
   if (seen.editRev !== editRev) return L('คิวเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The queue changed after you confirmed — click Start again to see the new summary');
+  if (seen.sig !== startSig()) return L('การตั้งค่าหรือพรีเซ็ตเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'Settings or presets changed after you confirmed — click Start again to see the new summary');
   return '';
 }
 export async function startQueue(seen: StartBinding): Promise<void> {
@@ -690,6 +702,7 @@ export interface StartSummary {
   channel: { id: string; name: string; avatar: string };
   ids: string[]; // the pending items, in queue order; queue:start sends them back
   editRev: number; // edits so far; queue:start sends it back
+  sig: string; // startSig() when the summary was made; queue:start sends it back
   times: number[]; // release times, earliest first; empty = released per preset
   vis: string; // the presets' visibilities
   noTxt: number;
@@ -719,6 +732,7 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
     channel: { id: ch.id, name: chanLabel(ch), avatar: ch.avatar },
     ids: pendingItems.map((i) => i.id),
     editRev,
+    sig: startSig(),
     times: pendingItems.map(itemPublishAt).filter((t): t is number => !!t).sort((a, b) => a - b),
     vis: [...new Set(pendingItems.map((i) => presetById(i.presetId).visibility || 'PRIVATE'))].join(', '),
     noTxt: pendingItems.filter((i) => !i.txt).length,

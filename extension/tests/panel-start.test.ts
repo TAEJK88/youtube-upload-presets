@@ -3,7 +3,7 @@ import { startFlow, stopFlow } from '../lib/panel/start';
 import type { StartSummary } from '../lib/studio/queue-runner';
 
 const summary = (over: Partial<StartSummary> = {}): StartSummary => ({
-  pendingN: 2, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['a', 'b'], editRev: 4, times: [], vis: 'PRIVATE',
+  pendingN: 2, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['a', 'b'], editRev: 4, sig: 's1', times: [], vis: 'PRIVATE',
   noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm: true, ...over,
 });
 const RELOAD = 'This tab is not connected to the extension yet — reload this tab';
@@ -19,7 +19,7 @@ describe('startFlow (the drawer\'s Start button, confirmed in the panel)', () =>
   it('confirmed → starts with exactly the channel, items and edit count the user saw', async () => {
     const d = { preflight: async () => summary(), confirm: vi.fn(async () => true), start: vi.fn(async () => {}), toast: vi.fn() };
     expect(await startFlow(d)).toBe('started');
-    expect(d.start).toHaveBeenCalledWith({ channelId: 'UC1', ids: ['a', 'b'], editRev: 4, asked: true });
+    expect(d.start).toHaveBeenCalledWith({ channelId: 'UC1', ids: ['a', 'b'], editRev: 4, sig: 's1', asked: true });
   });
 
   it('cancelled → nothing starts; no confirmation needed → starts directly', async () => {
@@ -30,7 +30,7 @@ describe('startFlow (the drawer\'s Start button, confirmed in the panel)', () =>
     expect(await startFlow(quiet)).toBe('started');
     expect(quiet.confirm).not.toHaveBeenCalled();
     // Nothing was asked: the page's own re-check may still refuse (content-ui confirmStart).
-    expect(quiet.start).toHaveBeenCalledWith({ channelId: 'UC1', ids: ['a', 'b'], editRev: 4, asked: false });
+    expect(quiet.start).toHaveBeenCalledWith({ channelId: 'UC1', ids: ['a', 'b'], editRev: 4, sig: 's1', asked: false });
   });
 
   it('a tab that does not answer → says so instead of an unhandled rejection', async () => {

@@ -90,5 +90,6 @@ export default [
   { th: 'หน้าดีบัก', en: 'Debug page', why: 'debug page (user request)' },
   // Dark/light theme toggle (user request: "add dark/light theme switching icon")
   { th: 'สลับเป็นธีมสว่าง', en: 'Switch to light theme', why: "theme toggle's name in dark (user request); the drawer followed Studio's theme and had no toggle" },
-  { th: 'สลับเป็นธีมมืด', en: 'Switch to dark theme', why: "theme toggle's name in light (user request); the drawer followed Studio's theme and had no toggle" },
+  { th: 'สลับเป็นธีมมืด', en: 'Switch to dark theme', why: "theme toggle's name in light (user request); the drawer followed Studio's theme and had no toggle" },  // Phase 4a
+  { th: 'การตั้งค่าหรือพรีเซ็ตเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', en: 'Settings or presets changed after you confirmed — click Start again to see the new summary', why: 'the panel confirms the start; a settings / preset change from another window between summary and confirm refuses it (3b M11)' },
 ];

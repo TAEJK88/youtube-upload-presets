@@ -143,7 +143,7 @@ describe('a draft id the run picked up', () => {
 // that counts as a yes only when the panel really asked the user.
 describe('queue:start from the panel', () => {
   const CONFIRM = 'Confirm the upload in the side panel first';
-  const binding = (asked: boolean) => ({ channelId: 'UCabcdefghijklmn', ids: Q.queue.map((i) => i.id), editRev: Q.getEditRev(), asked });
+  const binding = (asked: boolean) => ({ channelId: 'UCabcdefghijklmn', ids: Q.queue.map((i) => i.id), editRev: Q.getEditRev(), sig: Q.startSig(), asked });
   let was: boolean;
   beforeEach(() => { was = settings.confirmStart; settings.confirmStart = true; });
   afterEach(() => { settings.confirmStart = was; });
@@ -167,6 +167,23 @@ describe('queue:start from the panel', () => {
     await startFromPanel(ui, binding(true));
     expect(send).not.toHaveBeenCalledWith('queue:toast', CONFIRM);
     expect(Q.queue[0]!.status).toBe('error'); // it ran: the bridge said 'missing'
+  });
+
+  it('refuses when settings or presets changed in another window after the summary (3b M11)', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    const ui = createContentUi();
+    setPageUi(ui);
+    setBridge({ getFile: async (id: string) => new File(['x'], id) });
+    const b = binding(true);
+    const was = settings.thumb;
+    settings.thumb = !was; // the other window's panel changed a setting the summary showed
+    try {
+      await startFromPanel(ui, b);
+    } finally {
+      settings.thumb = was;
+    }
+    expect(send).toHaveBeenCalledWith('queue:toast', 'Settings or presets changed after you confirmed — click Start again to see the new summary');
+    expect(Q.queue[0]!.status).toBe('pending');
   });
 });
 

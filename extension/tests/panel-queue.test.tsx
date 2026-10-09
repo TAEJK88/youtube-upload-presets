@@ -584,7 +584,7 @@ describe('upload footer', () => {
     const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
     vi.mocked(api.send).mockImplementation((async (type: string) =>
       type === 'queue:preflight'
-        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 2, times: [], vis: 'PRIVATE', noTxt: 1, noThumb: 0, badTime: [], prevUp: [{ name: 'Clip 1.mp4', title: 'Old' }], badTl: [], needsConfirm: true }
+        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 2, sig: 's', times: [], vis: 'PRIVATE', noTxt: 1, noThumb: 0, badTime: [], prevUp: [{ name: 'Clip 1.mp4', title: 'Old' }], badTl: [], needsConfirm: true }
         : undefined) as never);
     renderPanel(<QueueFooter />, api);
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /Upload 1 video\(s\)/ })));
@@ -593,14 +593,14 @@ describe('upload footer', () => {
     expect(screen.getByText('Per preset (PRIVATE)')).toBeTruthy();
     expect(screen.getByText('1 video(s)')).toBeTruthy(); // no .txt
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Upload 1 video(s)' }).at(-1)!));
-    expect(api.send).toHaveBeenCalledWith('queue:start', { channelId: 'UC1', ids: ['i0'], editRev: 2, asked: true });
+    expect(api.send).toHaveBeenCalledWith('queue:start', { channelId: 'UC1', ids: ['i0'], editRev: 2, sig: 's', asked: true });
   });
 
   it('Cancel in the summary starts nothing', async () => {
     const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
     vi.mocked(api.send).mockImplementation((async (type: string) =>
       type === 'queue:preflight'
-        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 0, times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm: true }
+        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 0, sig: 's', times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm: true }
         : undefined) as never);
     renderPanel(<QueueFooter />, api);
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /Upload 1 video\(s\)/ })));
@@ -623,7 +623,7 @@ describe('upload footer', () => {
   const summaryReply = (api: ReturnType<typeof fakePanel>, needsConfirm = true) =>
     vi.mocked(api.send).mockImplementation((async (type: string) =>
       type === 'queue:preflight'
-        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 0, times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm }
+        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 0, sig: 's', times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm }
         : undefined) as never);
 
   // ask() resolves null when its question is replaced by another: null is not a yes.
