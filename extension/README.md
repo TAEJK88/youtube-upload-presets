@@ -23,8 +23,12 @@ never touches Studio's DOM. Logic the panel needs lives in `lib/panel/` (unit-te
 `npm run ui-check` proves every shipped UI string is one of the userscript's `L()` pairs (or
 is listed with a reason in `scripts/strings/extension-only.mjs`) and that no text is below 12px;
 with `--coverage` (as in `npm run check`), also that every pair of the userscript's drawer is
-in the panel or listed with a reason in `scripts/strings/dropped.mjs`.
-`tests/panel-i18n.test.tsx` renders the whole panel in Thai and fails on any English pair.
+used by some `L()` call in the extension's shipping code or listed with a reason in
+`scripts/strings/dropped.mjs`. "Used" is not "shown in the panel": a pair kept alive only by
+page-side code (the FAB, page toasts) or by dead code passes too.
+`tests/panel-i18n.test.tsx` renders the whole panel (every tab, card state, question and banner),
+the FAB and the reload banner in Thai, and fails on any English pair and on any Latin word
+outside its short, commented allowlist.
 `settings` and `counters` have one writer, the background (`store:patch`, `lib/store-writer.ts`).
 Console lines from the extension start with `[ytup]`.
 
@@ -42,9 +46,14 @@ Console lines from the extension start with `[ytup]`.
 
 ## Licences
 
-The bundled IBM Plex Sans Thai font (SIL OFL 1.1) and the embedded Material Symbols Rounded
-icon paths (Apache 2.0): `public/THIRD-PARTY-NOTICES.txt`, packaged as
-`THIRD-PARTY-NOTICES.txt` in the build.
+`public/THIRD-PARTY-NOTICES.txt`, packaged as `THIRD-PARTY-NOTICES.txt` in the build, has the
+bundled IBM Plex Sans Thai font (SIL OFL 1.1), the embedded Material Symbols Rounded icon paths
+(Apache 2.0) and the npm packages in the bundle (React, Radix, Sonner, Tailwind's CSS and the
+rest, mostly MIT), each with its licence text taken from its `node_modules` package.
+
+The package list is kept by hand. It was taken from the build's source maps; after adding or
+upgrading a runtime dependency, build with `build.sourcemap` on and list the `node_modules`
+packages in the maps' `sources` (Vite strips the licence comments from the minified scripts).
 
 ## Moving from the userscript
 

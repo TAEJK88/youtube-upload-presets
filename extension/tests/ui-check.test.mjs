@@ -52,7 +52,7 @@ describe('check', () => {
   it('with coverage, every drawer pair is used or dropped with a reason', () => {
     const files = [file("L('ตกลง', 'OK'); L('ไฟล์\\'s', \"File's\"); L(`ลบ ${x} รายการ`, `Delete ${x} items`)")];
     expect(check({ coverage: true, files, us, extOnly: [], dropped: [] })).toEqual([
-      'userscript:3000 drawer pair not in the panel: L("ลาก", "Drag") — use it, or add it to scripts/strings/dropped.mjs with a reason',
+      'userscript:3000 drawer pair not used in the extension: L("ลาก", "Drag") — use it, or add it to scripts/strings/dropped.mjs with a reason',
     ]);
     expect(check({ coverage: true, files, us, extOnly: [], dropped: [{ th: 'ลาก', en: 'Drag', why: 'test' }] })).toEqual([]);
   });

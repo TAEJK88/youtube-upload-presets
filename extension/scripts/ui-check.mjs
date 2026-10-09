@@ -3,7 +3,9 @@
 //    the pinned commit, or is listed in scripts/strings/extension-only.mjs with the reason it
 //    is new. With --coverage, every pair of the userscript's drawer UI (lines DRAWER) is used
 //    somewhere in the extension, or is listed in scripts/strings/dropped.mjs with the reason
-//    the panel no longer shows it.
+//    the panel no longer shows it. "Used" means some L() call in any shipping file has the
+//    pair, not that the panel shows it: page-side code (the FAB, page toasts) and code that
+//    never runs count too, and one use covers every drawer line with the same pair.
 // 2. No style in the extension sets text below 12px: CSS font-size / font shorthand in any unit,
 //    Tailwind text-[…] / font-[…] / text-(length:…) and --text-* theme tokens, inline JS and JSX
 //    fontSize (quoted keys and brackets too). Comments are ignored. Sizes it can't resolve (calc,
@@ -445,7 +447,7 @@ export function check({ coverage = false, files, us, extOnly, dropped, allow = {
       if (p.line < DRAWER[0] || p.line > DRAWER[1] || seen.has(pairKey(p))) continue;
       seen.add(pairKey(p));
       if (!used.has(pairKey(p)) && !gone.has(pairKey(p))) {
-        errors.push(`userscript:${p.line} drawer pair not in the panel: ${show(p)} — use it, or add it to scripts/strings/dropped.mjs with a reason`);
+        errors.push(`userscript:${p.line} drawer pair not used in the extension: ${show(p)} — use it, or add it to scripts/strings/dropped.mjs with a reason`);
       }
     }
     for (const p of dropped) if (used.has(pairKey(p))) errors.push(`scripts/strings/dropped.mjs lists a pair the extension uses: ${show(p)}`);
