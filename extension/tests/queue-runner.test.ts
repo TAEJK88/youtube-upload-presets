@@ -270,6 +270,16 @@ describe('startQueue checks the file bridge first (addendum B.3)', () => {
 });
 
 
+describe('queue:start payload', () => {
+  it('only a well-formed binding gets through', () => {
+    expect(Q.isStartBinding({ channelId: 'UC1', ids: ['a'], editRev: 0, asked: true })).toBe(true);
+    for (const bad of [null, 'x', {}, { channelId: 'UC1', ids: 'a', editRev: 0, asked: true }, { channelId: 'UC1', ids: [1], editRev: 0, asked: true },
+      { channelId: 1, ids: [], editRev: 0, asked: true }, { channelId: 'UC1', ids: [], editRev: '0', asked: true }, { channelId: 'UC1', ids: [], editRev: 0 }]) {
+      expect(Q.isStartBinding(bad)).toBe(false);
+    }
+  });
+});
+
 describe('start is bound to what the user confirmed', () => {
   const lockCalls: string[] = [];
   beforeEach(() => {

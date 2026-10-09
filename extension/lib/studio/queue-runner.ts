@@ -612,6 +612,13 @@ export function installIntercept(): () => void {
 // `asked`: the panel showed the summary and the user said yes. Without it, runQueue's own
 // re-check (the clock moved, a .txt arrived) refuses rather than start past a new warning.
 export interface StartBinding { channelId: string; ids: string[]; editRev: number; asked: boolean }
+// The payload crosses a message boundary (queue:start): only a well-formed one is used.
+export function isStartBinding(d: unknown): d is StartBinding {
+  if (!d || typeof d !== 'object') return false;
+  const b = d as Record<string, unknown>;
+  return typeof b.channelId === 'string' && Array.isArray(b.ids) && b.ids.every((x) => typeof x === 'string')
+    && typeof b.editRev === 'number' && typeof b.asked === 'boolean';
+}
 // Bumped by every edit the side panel makes to an item (queue-edit.ts, followStoredChanges):
 // a release time or preset changed after the summary must not start with the old summary's OK.
 // Not content-ui's `rev`: duration reads and progress bump that one too.

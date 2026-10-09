@@ -19,7 +19,7 @@ import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
-import { installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
+import { installIntercept, isStartBinding, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
@@ -124,6 +124,7 @@ export default defineContentScript({
     onMessage('queue:add', ({ data: ids }) => handleQueueAdd(ids, mayEdit));
     onMessage('queue:preflight', () => startSummary());
     onMessage('queue:start', ({ data: seen }) => {
+      if (!isStartBinding(seen)) return;
       // A run can take hours: answer now, report through queue:state.
       void startFromPanel(ui, seen)
         .catch((e) => console.error('[ytup] run', e))
@@ -134,10 +135,10 @@ export default defineContentScript({
       void elsewhere();
     });
     onMessage('queue:retry', async ({ data: id }) => {
-      if (await mayEdit()) retryItem(id);
+      if (typeof id === 'string' && await mayEdit()) retryItem(id);
     });
     onMessage('queue:remove', async ({ data: id }) => {
-      if (await mayEdit()) removeItem(id);
+      if (typeof id === 'string' && await mayEdit()) removeItem(id);
     });
     onMessage('queue:clearDone', async () => {
       if (await mayEdit()) clearDone();

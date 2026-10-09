@@ -276,6 +276,12 @@ describe('handleQueueAdd', () => {
     expect(bridge).not.toHaveBeenCalled();
   });
 
+  it('a payload that is not a list of ids is ignored', async () => {
+    const bridge = vi.spyOn(files, 'bridgeFiles');
+    for (const bad of ['x', null, {}, [1], undefined]) await expect(handleQueueAdd(bad, async () => true)).resolves.toBeUndefined();
+    expect(bridge).not.toHaveBeenCalled();
+  });
+
   it('files the bridge could not read are let go', async () => {
     const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
     vi.spyOn(files, 'bridgeFiles').mockResolvedValue({ files: [], failed: [{ id: 'x1', reason: 'gone' }] });

@@ -214,7 +214,9 @@ export async function handleQueueEdit(data: unknown, mayEdit: () => Promise<bool
 // It never rejects once it has taken files: the panel forgets every handle of a rejected
 // queue:add, and a video queued before a later failure still needs its file (addQueued has
 // already let go of what no item keeps).
-export async function handleQueueAdd(ids: string[], mayEdit: () => Promise<boolean>): Promise<void> {
+// A payload that isn't a list of ids is ignored, as asEdit does for queue:edit.
+export async function handleQueueAdd(ids: unknown, mayEdit: () => Promise<boolean>): Promise<void> {
+  if (!isIds(ids)) return;
   if (!(await mayEdit())) return dropFiles(ids.map((id) => ({ id, src: 'bridge' as const })));
   const { files: got, failed } = await bridgeFiles(ids);
   // A .txt is read now: one that can't be read is a failed file like the bridge's, and the
