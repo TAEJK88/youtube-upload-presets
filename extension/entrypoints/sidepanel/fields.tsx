@@ -7,42 +7,63 @@ import { Icon } from './Icon';
 
 // The drawer saved on every keystroke and never overwrote a field while the user typed in
 // it (`if (document.activeElement !== el) el.value = …`). These fields keep their own text
-// while focused and follow the stored value otherwise.
+// while focused and follow the stored value otherwise. A stored value that moved while the
+// field was focused, from elsewhere (the run advancing the schedule start, another window),
+// shows once the field is left, unless the user typed since; the echoes of the field's own
+// writes are not such a change (one arriving late must not flash an older text).
 function useFollow(value: string) {
   const [text, setText] = useState(value);
   const focused = useRef(false);
+  const sent = useRef(new Set<string>()); // written while focused
+  const moved = useRef(false); // changed elsewhere while focused, not typed over since
   useEffect(() => {
     if (!focused.current) setText(value);
+    else if (!sent.current.has(value)) moved.current = true;
   }, [value]);
-  return { text, setText, focused };
+  const focus = () => {
+    focused.current = true;
+    moved.current = false;
+    sent.current.clear();
+  };
+  const blur = () => {
+    focused.current = false;
+    if (moved.current) setText(value);
+    moved.current = false;
+  };
+  const typed = (v: string) => {
+    moved.current = false;
+    sent.current.add(v);
+    setText(v);
+  };
+  return { text, setText, focused, focus, blur, typed };
 }
 
 type InputProps = Omit<ComponentProps<'input'>, 'value' | 'onChange'> & { value: string; onValue(v: string): void };
 
 // `ref` is a plain prop in React 19 (the Presets tab inserts variables at the cursor).
 export function TextField({ value, onValue, onFocus, onBlur, ref, ...rest }: InputProps) {
-  const { text, setText, focused } = useFollow(value);
+  const f = useFollow(value);
   return (
     <Input
       {...rest}
       ref={ref}
-      value={text}
-      onFocus={(e) => { focused.current = true; onFocus?.(e); }}
-      onBlur={(e) => { focused.current = false; onBlur?.(e); }}
-      onChange={(e) => { setText(e.target.value); onValue(e.target.value); }}
+      value={f.text}
+      onFocus={(e) => { f.focus(); onFocus?.(e); }}
+      onBlur={(e) => { f.blur(); onBlur?.(e); }}
+      onChange={(e) => { f.typed(e.target.value); onValue(e.target.value); }}
     />
   );
 }
 
 export function AreaField({ value, onValue, onFocus, onBlur, ...rest }: Omit<ComponentProps<'textarea'>, 'value' | 'onChange'> & { value: string; onValue(v: string): void }) {
-  const { text, setText, focused } = useFollow(value);
+  const f = useFollow(value);
   return (
     <Textarea
       {...rest}
-      value={text}
-      onFocus={(e) => { focused.current = true; onFocus?.(e); }}
-      onBlur={(e) => { focused.current = false; onBlur?.(e); }}
-      onChange={(e) => { setText(e.target.value); onValue(e.target.value); }}
+      value={f.text}
+      onFocus={(e) => { f.focus(); onFocus?.(e); }}
+      onBlur={(e) => { f.blur(); onBlur?.(e); }}
+      onChange={(e) => { f.typed(e.target.value); onValue(e.target.value); }}
     />
   );
 }

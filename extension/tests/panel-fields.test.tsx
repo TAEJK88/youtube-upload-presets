@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NumberField } from '../entrypoints/sidepanel/fields';
+import { AreaField, NumberField, TextField } from '../entrypoints/sidepanel/fields';
 
 afterEach(cleanup);
 
@@ -52,5 +52,56 @@ describe('NumberField', () => {
     fireEvent.blur(el); // the parent keeps value "5"
     expect(onValue).toHaveBeenCalledWith('99');
     expect(el.value).toBe('5');
+  });
+});
+
+// The run moves the schedule start after each upload (queue-runner: settings.schedule.start =
+// next slot); a field focused at that moment must show the new start once it is left, or a
+// nudge of its minutes writes the old day back (final review I2).
+describe('TextField / AreaField follow the stored value', () => {
+  const day1 = '2026-10-10T08:00';
+  const day2 = '2026-10-11T08:00';
+  it('a value changed elsewhere while focused shows on blur (the schedule start during a run)', () => {
+    const onValue = vi.fn();
+    const { rerender } = render(<TextField type="datetime-local" aria-label="start" value={day1} onValue={onValue} />);
+    const el = screen.getByLabelText('start') as HTMLInputElement;
+    fireEvent.focus(el);
+    rerender(<TextField type="datetime-local" aria-label="start" value={day2} onValue={onValue} />);
+    expect(el.value).toBe(day1); // not while the user is in it
+    fireEvent.blur(el);
+    expect(el.value).toBe(day2);
+    expect(onValue).not.toHaveBeenCalled();
+  });
+
+  it('the same for AreaField', () => {
+    const { rerender } = render(<AreaField aria-label="a" value="old" onValue={() => {}} />);
+    const el = screen.getByLabelText('a') as HTMLTextAreaElement;
+    fireEvent.focus(el);
+    rerender(<AreaField aria-label="a" value="new" onValue={() => {}} />);
+    fireEvent.blur(el);
+    expect(el.value).toBe('new');
+  });
+
+  it('a late echo of the user\'s own typing does not flash an older text on blur', () => {
+    const { rerender } = render(<TextField aria-label="t" value="" onValue={() => {}} />);
+    const el = screen.getByLabelText('t') as HTMLInputElement;
+    fireEvent.focus(el);
+    fireEvent.change(el, { target: { value: 'a' } });
+    fireEvent.change(el, { target: { value: 'ab' } });
+    rerender(<TextField aria-label="t" value="a" onValue={() => {}} />); // the first keystroke, stored
+    fireEvent.blur(el);
+    expect(el.value).toBe('ab');
+  });
+
+  it('typing after a change from elsewhere keeps what the user typed', () => {
+    const onValue = vi.fn();
+    const { rerender } = render(<TextField aria-label="t" value="x" onValue={onValue} />);
+    const el = screen.getByLabelText('t') as HTMLInputElement;
+    fireEvent.focus(el);
+    rerender(<TextField aria-label="t" value="y" onValue={onValue} />);
+    fireEvent.change(el, { target: { value: 'xz' } });
+    fireEvent.blur(el);
+    expect(el.value).toBe('xz');
+    expect(onValue).toHaveBeenCalledWith('xz');
   });
 });
