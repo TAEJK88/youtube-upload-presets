@@ -63,7 +63,7 @@ describe('channel bar', () => {
     fireEvent.click(screen.getByRole('button', { name: /Lock channel/ }));
     await flush();
     expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' });
     expect(err).toHaveBeenCalled();
     cleanup();
     vi.mocked(toast).mockClear();
@@ -73,7 +73,7 @@ describe('channel bar', () => {
     fireEvent.click(screen.getByRole('button', { name: /Locked/ }));
     await flush();
     expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' });
   });
 
   it('channel add clears the input only on success; add and remove failures toast', async () => {
@@ -88,7 +88,7 @@ describe('channel bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await flush();
     expect(input.value).toBe(id);
-    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' });
     expect(err).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await flush();
@@ -97,7 +97,7 @@ describe('channel bar', () => {
     vi.mocked(api.write.channels).mockRejectedValueOnce(new Error('nope'));
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove from list' })[0]!);
     await flush();
-    expect(toast).toHaveBeenCalledWith("Couldn't save (nope)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (nope)", { id: 'save-failed' });
   });
 
   it('cannot lock without a channel id', () => {

@@ -7,6 +7,7 @@ import { setLang } from '../lib/i18n';
 import { importBackup } from '../lib/panel/backup-io';
 import { toPanelData } from '../lib/panel/data';
 import { runnerTab } from '../lib/panel/target';
+import { RUNNER_HELD } from '../lib/runner-lock';
 import { fakeLive, fakePanel, renderPanel, state } from './panel-fake';
 
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
@@ -38,7 +39,7 @@ describe('settings tab', () => {
     renderPanel(<SettingsTab />, api);
     fireEvent.click(screen.getByRole('switch', { name: /Notify when the queue finishes/ }));
     await flush();
-    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' });
   });
 
   it('language changes at once', () => {
@@ -77,7 +78,7 @@ describe('settings tab', () => {
     vi.mocked(api.write.settings).mockRejectedValueOnce(new Error('boom'));
     fireEvent.change(screen.getByRole('combobox', { name: /Pace/ }), { target: { value: 'normal' } });
     await flush();
-    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' });
     expect(toast).not.toHaveBeenCalledWith('Pace: Normal (x1)');
   });
 
@@ -140,6 +141,15 @@ describe('settings tab: import', () => {
     await pick();
     expect(toast).toHaveBeenCalledWith('Stop the queue before importing');
     expect(importBackup).not.toHaveBeenCalled();
+  });
+
+  it('the background refusing it (a run holds the lock) says so', async () => {
+    vi.mocked(importBackup).mockRejectedValueOnce(new Error(RUNNER_HELD));
+    renderPanel(<SettingsTab />, fakePanel());
+    await pick();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'My file' })));
+    expect(toast).toHaveBeenCalledWith('Stop the queue before importing');
+    expect(toast).not.toHaveBeenCalledWith(expect.stringContaining("Couldn't import"));
   });
 
   it('a run that started while asking still refuses it', async () => {

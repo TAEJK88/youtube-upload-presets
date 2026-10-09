@@ -4,7 +4,7 @@ import { isStudioUrl } from '@/lib/panel-scope';
 import { initI18n, watchLang } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
-import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere } from '@/lib/runner-lock';
+import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld } from '@/lib/runner-lock';
 import { deleteHandle } from '@/lib/file-store';
 import { ensureLang, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
@@ -42,6 +42,7 @@ export default defineBackground(() => {
   });
   onMessage('backup:write', async ({ data }) => {
     await ready;
+    if (await runnerHeld()) throw new Error(RUNNER_HELD); // the panel checked too; a run may have started since
     await writeBackupInOrder(data);
   });
 

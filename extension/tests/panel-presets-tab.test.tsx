@@ -75,7 +75,7 @@ describe('presets tab', () => {
     vi.mocked(api.write.activeId).mockRejectedValueOnce(new Error('quota'));
     renderPanel(<PresetsTab />, api);
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Set as default' })));
-    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
     expect(toast).not.toHaveBeenCalledWith(expect.stringMatching(/^Set /));
   });
 
@@ -89,7 +89,7 @@ describe('presets tab', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Delete' })));
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!));
     expect(api.write.presets).not.toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)");
+    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
   });
 
   it('a new preset is edited once its write comes back', () => {

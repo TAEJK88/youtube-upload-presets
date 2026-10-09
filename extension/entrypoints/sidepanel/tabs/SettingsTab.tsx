@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { L, type Lang } from '@/lib/i18n';
 import { exportBackup, importBackup, readImport } from '@/lib/panel/backup-io';
 import { runnerTab } from '@/lib/panel/target';
+import { RUNNER_HELD } from '@/lib/runner-lock';
 import type { Settings, SettingsPatch } from '@/lib/settings';
 import { useAsk } from '../ask';
 import { Hint, Kv, NumberField, Section, TextField } from '../fields';
@@ -117,7 +118,7 @@ export function SettingsTab() {
             <div><b>{step.presets.map((p) => p.label).join(', ')}</b></div>
             <div className="mt-2">{L('พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน)', 'Existing presets and settings on this device will be replaced (locked channel and language stay unchanged).')}</div>
             <div className="mt-2.5"><b>{L('เป็นไฟล์สำรองของช่องคุณเองไหม?', 'Is this a backup of your own channel?')}</b></div>
-            <div className="text-fg3">{L('ของฉัน = นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nของคนอื่น = นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน', 'Mine = also import personal values (producer name, schedule, your own artist names, EP numbers)\nSomeone else\'s = only presets and general settings; your personal values stay unchanged')}</div>
+            <div className="text-xs text-fg3">{L('ของฉัน = นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nของคนอื่น = นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน', 'Mine = also import personal values (producer name, schedule, your own artist names, EP numbers)\nSomeone else\'s = only presets and general settings; your personal values stay unchanged')}</div>
           </div>
         ),
         ok: L('ไฟล์ของฉัน', 'My file'),
@@ -128,6 +129,7 @@ export function SettingsTab() {
       await importBackup(step.data, step.presets, own);
       toast(L(`นำเข้าพรีเซ็ต ${n} รายการแล้ว`, `Imported ${n} presets`));
     } catch (e) {
+      if (msg(e) === RUNNER_HELD) return stopFirst();
       console.error('[ytup] import failed', e);
       toast(L(`นำเข้าไม่สำเร็จ (${msg(e)})`, `Couldn't import (${msg(e)})`));
     }

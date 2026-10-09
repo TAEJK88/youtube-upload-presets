@@ -45,6 +45,11 @@ export const runnerElsewhere = (tabId: number) =>
     return h !== null && h !== tabId;
   });
 
+// Any live holder at all: the background refuses a backup import while a run is going.
+export const runnerHeld = () => serial(async () => (await holder()) !== null);
+// The error message backup:write rejects with then; the panel says "stop the queue first".
+export const RUNNER_HELD = 'runner-held';
+
 // Called once from the background: a closed holder tab frees the lock right away.
 export function registerRunnerLock() {
   browser.tabs.onRemoved.addListener((tabId) => {
