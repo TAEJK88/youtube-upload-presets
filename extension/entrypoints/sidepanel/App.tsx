@@ -8,6 +8,7 @@ import { ActivityBar } from './shell/ActivityBar';
 import { Banners } from './shell/Banners';
 import { ChannelBar } from './shell/ChannelBar';
 import { CopyrightTab } from './tabs/CopyrightTab';
+import { PresetsFooter, PresetsTab } from './tabs/PresetsTab';
 import { QueueTab } from './tabs/QueueTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
@@ -22,11 +23,11 @@ export const tabDefs = (): [TabKey, string, string][] => [
 
 const panes: Record<TabKey, () => ReactNode> = {
   queue: () => <QueueTab />,
-  presets: () => null, // Task 9
+  presets: () => <PresetsTab />,
   claims: () => <CopyrightTab />,
   settings: () => <SettingsTab />,
 };
-const footers: Partial<Record<TabKey, () => ReactNode>> = {};
+const footers: Partial<Record<TabKey, () => ReactNode>> = { presets: () => <PresetsFooter /> };
 
 export function App() {
   const [tab, setTab] = useState<TabKey>('queue');
