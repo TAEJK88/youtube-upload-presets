@@ -16,7 +16,7 @@ export async function activeStudioTab(windowId: number): Promise<Target | null> 
   return asTarget(tab);
 }
 
-export type TabEvent = 'switched' | 'loading' | 'loaded';
+export type TabEvent = 'switched' | 'loading' | 'loaded' | 'titled'; // titled: only the title changed
 export function watchTabs(windowId: number, fn: (e: TabEvent) => void): () => void {
   const activated = (info: { windowId: number }) => {
     if (info.windowId === windowId) fn('switched');
@@ -25,7 +25,8 @@ export function watchTabs(windowId: number, fn: (e: TabEvent) => void): () => vo
     if (!tab.active || tab.windowId !== windowId) return;
     if (info.url) fn('switched');
     else if (info.status === 'loading') fn('loading');
-    else if (info.status === 'complete' || info.title) fn('loaded');
+    else if (info.status === 'complete') fn('loaded');
+    else if (info.title) fn('titled');
   };
   browser.tabs.onActivated.addListener(activated);
   browser.tabs.onUpdated.addListener(updated);

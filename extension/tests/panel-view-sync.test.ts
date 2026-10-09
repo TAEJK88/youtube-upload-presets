@@ -131,5 +131,53 @@ describe('createViewSync', () => {
       expect(statuses).not.toContain('noScript');
       expect(errors).toHaveLength(1);
     });
+
+    it('a persistent handler error toasts once until a fetch succeeds or the message changes', async () => {
+      const errors: unknown[] = [];
+      let msg: string | null = 'boom';
+      const s = mk(async () => { if (msg) throw new Error(msg); return view(1); }, errors);
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(10);
+      for (let i = 0; i < 3; i++) { s.poke(); await vi.advanceTimersByTimeAsync(150); }
+      expect(errors).toHaveLength(1);
+      msg = 'other';
+      s.poke();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(errors).toHaveLength(2);
+      msg = null;
+      s.poke();
+      await vi.advanceTimersByTimeAsync(150);
+      msg = 'other';
+      s.poke();
+      await vi.advanceTimersByTimeAsync(150);
+      expect(errors).toHaveLength(3);
+    });
+
+    it.each(['The message port closed before a response was received.', 'No tab with id: 7.'])(
+      'transient navigation error "%s" is quiet and retried within the grace',
+      async (m) => {
+        const errors: unknown[] = [];
+        let n = 0;
+        const s = mk(async () => { if (++n < 3) throw new Error(m); return view(1); }, errors);
+        s.bind(7);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(errors).toHaveLength(0);
+        expect(statuses).toEqual(['loading', 'ok']);
+      },
+    );
+
+    it('loaded() alone after the grace expired reopens it', async () => {
+      let up = false;
+      const s = mk(async () => { if (!up) throw noReceiver(); return view(1); });
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(statuses).toEqual(['loading', 'noScript']);
+      s.loaded();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(statuses).toEqual(['loading', 'noScript', 'loading']);
+      up = true;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(statuses.at(-1)).toBe('ok');
+    });
   });
 });

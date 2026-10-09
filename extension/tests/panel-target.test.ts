@@ -33,10 +33,11 @@ describe('target', () => {
     await fakeBrowser.tabs.onActivated.trigger({ tabId: 4, windowId: 1 });
     await fakeBrowser.tabs.onUpdated.trigger(4, { status: 'loading' }, { active: true, windowId: 1 } as never);
     await fakeBrowser.tabs.onUpdated.trigger(4, { status: 'complete' }, { active: true, windowId: 1 } as never);
+    await fakeBrowser.tabs.onUpdated.trigger(4, { title: 'New title' }, { active: true, windowId: 1 } as never);
     await fakeBrowser.tabs.onUpdated.trigger(5, { status: 'complete' }, { active: false, windowId: 1 } as never);
     await fakeBrowser.tabs.onUpdated.trigger(4, { url: 'https://www.youtube.com/' }, { active: true, windowId: 1 } as never);
     off();
     await fakeBrowser.tabs.onActivated.trigger({ tabId: 4, windowId: 1 });
-    expect(seen).toEqual(['switched', 'loading', 'loaded', 'switched']);
+    expect(seen).toEqual(['switched', 'loading', 'loaded', 'titled', 'switched']);
   });
 });

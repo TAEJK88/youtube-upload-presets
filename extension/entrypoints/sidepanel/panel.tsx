@@ -43,6 +43,9 @@ export interface LiveApi {
 export const LiveContext = createContext<LiveApi>({ state: null, liveState: null });
 export const useLive = () => useContext(LiveContext);
 
+const sameRunner = (a: RunnerTab | null, b: RunnerTab | null) =>
+  a === b || (!!a && !!b && a.tabId === b.tabId && a.windowId === b.windowId && a.title === b.title);
+
 export function PanelProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<PanelData | null>(null);
   const [target, setTarget] = useState<Target | null>(null);
@@ -86,8 +89,13 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     if (data) sync.poke(); // titles, numbers and times depend on presets / counters / settings
   }, [data, sync]);
 
+  const runnerSeq = useRef(0);
   const updateRunner = useCallback(() => {
-    void runnerTab().then(setRunner).catch((e) => console.error('[ytup] runner tab failed', e));
+    const seq = ++runnerSeq.current;
+    void runnerTab().then((next) => {
+      if (seq !== runnerSeq.current) return; // a newer check started: this answer is stale
+      setRunner((prev) => (sameRunner(prev, next) ? prev : next));
+    }).catch((e) => console.error('[ytup] runner tab failed', e));
   }, []);
 
   // Which tab.
@@ -114,7 +122,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       off = watchTabs(w.id, (e) => {
         if (e === 'loading') return sync.loading();
         void rebind();
-        if (e === 'loaded') sync.loaded();
+        if (e === 'loaded') sync.loaded(); // not 'titled': a title change is no new document
       });
     });
     return () => {

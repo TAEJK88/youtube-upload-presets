@@ -31,6 +31,7 @@ export function createViewSync(o: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let status: LinkStatus = 'noTab';
   let graceUntil = 0;
+  let lastError: string | null = null; // the handler error already reported, until a fetch succeeds
   const grace = () => { graceUntil = Date.now() + (o.graceMs ?? 2000); };
   const set = (s: LinkStatus) => {
     if (s === status) return;
@@ -44,13 +45,19 @@ export function createViewSync(o: {
     try {
       const v = await o.fetch(tabId);
       if (g !== gen) return;
+      lastError = null;
       set('ok');
       o.onView(v);
     } catch (e) {
       if (g !== gen) return;
-      if (!/Receiving end does not exist|Could not establish connection/i.test(String((e as Error)?.message ?? e))) {
-        console.error('[ytup] queue:view failed', e);
-        o.onError?.(e);
+      const msg = String((e as Error)?.message ?? e);
+      // No receiver, or a navigation tearing the tab down under the request: all "no script (yet)".
+      if (!/Receiving end does not exist|Could not establish connection|message port closed before a response|No tab with id/i.test(msg)) {
+        if (msg !== lastError) {
+          lastError = msg;
+          console.error('[ytup] queue:view failed', e);
+          o.onError?.(e);
+        }
       } else if (Date.now() < graceUntil) {
         set('loading');
         timer = setTimeout(() => void run(), o.retryMs ?? 300);

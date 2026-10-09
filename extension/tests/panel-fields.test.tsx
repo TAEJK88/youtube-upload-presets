@@ -18,14 +18,39 @@ describe('NumberField', () => {
     expect(onValue).toHaveBeenCalledWith('7');
   });
 
-  it('on blur shows the stored value again when it was normalised back', () => {
+  it('a committed value that the parent normalises shows the stored value once `value` changes', () => {
+    const onValue = vi.fn();
+    const { rerender } = render(<NumberField aria-label="n" value="5" onValue={onValue} />);
+    const el = screen.getByLabelText('n') as HTMLInputElement;
+    fireEvent.focus(el);
+    fireEvent.change(el, { target: { value: '99' } });
+    fireEvent.blur(el);
+    expect(onValue).toHaveBeenCalledWith('99');
+    rerender(<NumberField aria-label="n" value="10" onValue={onValue} />); // clamped
+    expect(el.value).toBe('10');
+  });
+
+  it('retyping the same value after the parent rejected it commits again', () => {
     const onValue = vi.fn();
     render(<NumberField aria-label="n" value="5" onValue={onValue} />);
     const el = screen.getByLabelText('n') as HTMLInputElement;
     fireEvent.focus(el);
     fireEvent.change(el, { target: { value: '99' } });
-    fireEvent.blur(el); // the parent normalises it back to "5": value never changes
-    expect(onValue).toHaveBeenCalledWith('99');
-    expect(el.value).toBe('5');
+    fireEvent.keyDown(el, { key: 'Enter' }); // rejected: value stays "5"
+    fireEvent.change(el, { target: { value: '5' } });
+    fireEvent.change(el, { target: { value: '99' } });
+    fireEvent.keyDown(el, { key: 'Enter' });
+    expect(onValue).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not flash the stale value on blur while an async parent has not updated yet', () => {
+    const onValue = vi.fn();
+    render(<NumberField aria-label="n" value="5" onValue={onValue} />);
+    const el = screen.getByLabelText('n') as HTMLInputElement;
+    fireEvent.focus(el);
+    fireEvent.change(el, { target: { value: '7' } });
+    fireEvent.blur(el); // the parent will update `value` later
+    expect(onValue).toHaveBeenCalledWith('7');
+    expect(el.value).toBe('7');
   });
 });

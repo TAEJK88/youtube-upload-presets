@@ -48,6 +48,24 @@ describe('runner elsewhere', () => {
     expect(screen.getByTestId('p').textContent).toBe('3|-|false');
   });
 
+  it('ignores an out-of-order runnerTab() answer', async () => {
+    render(<PanelProvider><Probe /></PanelProvider>);
+    await flush();
+    expect(screen.getByTestId('p').textContent).toBe('3|9|true');
+    const old = tabs[9];
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    vi.spyOn(browser.tabs, 'get').mockImplementationOnce((async () => { await slow; return old; }) as never); // first check: slow, sees the old tab
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(9, { url: 'https://studio.youtube.com/x' }, tabs[9] as never); });
+    tabs[9] = undefined; // the runner is gone before the second (fast) check
+    await act(async () => { await fakeBrowser.tabs.onRemoved.trigger(9, { windowId: 2, isWindowClosing: false }); });
+    await flush();
+    expect(screen.getByTestId('p').textContent).toBe('3|-|false');
+    release();
+    await flush();
+    expect(screen.getByTestId('p').textContent).toBe('3|-|false');
+  });
+
   it('"Go to that tab" on a missing tab clears the banner', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<PanelProvider><Banners /></PanelProvider>);
