@@ -27,4 +27,5 @@ export default [
   { th: 'ไปที่แท็บนั้น', en: 'Go to that tab', why: 'the run is in another Studio tab' },
   { th: 'การสแกนและตัดส่วนที่ติดลิขสิทธิ์จะมาในเวอร์ชันถัดไปของส่วนขยาย', en: 'Copyright scan and trim arrive in a later version of the extension', why: 'placeholder tab until Phase 4' },
   { th: 'สลับช่องไม่สำเร็จ (${})', en: "Couldn't switch channels (${})", why: 'channel:switch is a message to the Studio tab and can fail; the drawer called the switcher directly' },
+  { th: 'บันทึกไม่สำเร็จ (${})', en: "Couldn't save (${})", why: 'store writes are messages to the background and can reject; the drawer wrote synchronously' },
 ];

@@ -28,18 +28,76 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const twoChannels = () => toPanelData({ channels: [{ id: 'UC1', name: 'Mine', avatar: '', handle: '@mine' }, { id: 'UC2', name: 'Two', avatar: '', handle: '@two' }] });
 
 describe('channel bar', () => {
-  it('locks to the current channel, and unlocks', () => {
+  it('locks to the current channel, and unlocks', async () => {
     const api = fakePanel();
     renderPanel(<ChannelBar />, api);
     expect(screen.getByText('Mine')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Lock channel/ }));
     expect(api.write.settings).toHaveBeenCalledWith({ lockChannel: { id: 'UC1', name: 'Mine' } });
+    await flush();
     expect(toast).toHaveBeenCalledWith('Locked to channel "Mine". Uploads will be blocked on other channels');
     cleanup();
     const locked = fakePanel({ data: toPanelData({ settings: { lockChannel: { id: 'UC1', name: 'Mine' } } }) });
     renderPanel(<ChannelBar />, locked);
     fireEvent.click(screen.getByRole('button', { name: /Locked/ }));
     expect(locked.write.settings).toHaveBeenCalledWith({ lockChannel: null });
+  });
+
+  it('toasts the lock only after the write resolves', async () => {
+    let done!: () => void;
+    const api = fakePanel();
+    vi.mocked(api.write.settings).mockImplementation(() => new Promise<void>((r) => { done = r; }));
+    renderPanel(<ChannelBar />, api);
+    fireEvent.click(screen.getByRole('button', { name: /Lock channel/ }));
+    expect(toast).not.toHaveBeenCalled();
+    done();
+    await flush();
+    expect(toast).toHaveBeenCalledWith('Locked to channel "Mine". Uploads will be blocked on other channels');
+  });
+
+  it('a rejected lock or unlock write shows a failure toast, not the success one', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const api = fakePanel();
+    vi.mocked(api.write.settings).mockRejectedValue(new Error('boom'));
+    renderPanel(<ChannelBar />, api);
+    fireEvent.click(screen.getByRole('button', { name: /Lock channel/ }));
+    await flush();
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+    expect(err).toHaveBeenCalled();
+    cleanup();
+    vi.mocked(toast).mockClear();
+    const locked = fakePanel({ data: toPanelData({ settings: { lockChannel: { id: 'UC1', name: 'Mine' } } }) });
+    vi.mocked(locked.write.settings).mockRejectedValue(new Error('boom'));
+    renderPanel(<ChannelBar />, locked);
+    fireEvent.click(screen.getByRole('button', { name: /Locked/ }));
+    await flush();
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+  });
+
+  it('channel add clears the input only on success; add and remove failures toast', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const api = fakePanel({ data: twoChannels() });
+    renderPanel(<ChannelBar />, api);
+    fireEvent.click(screen.getByRole('button', { name: 'Other channels · open in a new tab' }));
+    const input = screen.getByPlaceholderText('Channel ID UC… or channel link') as HTMLInputElement;
+    const id = 'UCbbbbbbbbbbbbbbbbbbbbbb';
+    vi.mocked(api.write.channels).mockRejectedValueOnce(new Error('boom'));
+    fireEvent.change(input, { target: { value: id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await flush();
+    expect(input.value).toBe(id);
+    expect(toast).toHaveBeenCalledWith("Couldn't save (boom)");
+    expect(err).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await flush();
+    expect(input.value).toBe('');
+    vi.mocked(toast).mockClear();
+    vi.mocked(api.write.channels).mockRejectedValueOnce(new Error('nope'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove from list' })[0]!);
+    await flush();
+    expect(toast).toHaveBeenCalledWith("Couldn't save (nope)");
   });
 
   it('cannot lock without a channel id', () => {

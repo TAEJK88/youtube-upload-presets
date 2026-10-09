@@ -43,14 +43,14 @@ describe('NumberField', () => {
     expect(onValue).toHaveBeenCalledTimes(2);
   });
 
-  it('does not flash the stale value on blur while an async parent has not updated yet', () => {
+  it('blur shows the stored value when the parent rejects/normalises it back', () => {
     const onValue = vi.fn();
     render(<NumberField aria-label="n" value="5" onValue={onValue} />);
     const el = screen.getByLabelText('n') as HTMLInputElement;
     fireEvent.focus(el);
-    fireEvent.change(el, { target: { value: '7' } });
-    fireEvent.blur(el); // the parent will update `value` later
-    expect(onValue).toHaveBeenCalledWith('7');
-    expect(el.value).toBe('7');
+    fireEvent.change(el, { target: { value: '99' } });
+    fireEvent.blur(el); // the parent keeps value "5"
+    expect(onValue).toHaveBeenCalledWith('99');
+    expect(el.value).toBe('5');
   });
 });

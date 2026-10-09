@@ -13,6 +13,13 @@ import { useLive, usePanel } from '../panel';
 
 // The drawer's channel bar (3326–3350, 3418–3440): where the queue uploads to, whether that
 // is the locked channel, the lock button and the list of other channels.
+// A store write that failed: logged, and said in the panel (the write is a message to the
+// background, which can reject; the drawer wrote synchronously).
+const saveFailed = (e: unknown) => {
+  console.error('[ytup] store write failed', e);
+  toast(L(`บันทึกไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't save (${(e as Error)?.message ?? e})`));
+};
+
 export function ChannelBar() {
   const { data, view, write } = usePanel();
   const [listOpen, setListOpen] = useState(false);
@@ -21,12 +28,14 @@ export function ChannelBar() {
   const problem = c?.problem ?? '';
   const toggleLock = () => {
     if (lock) {
-      void write.settings({ lockChannel: null });
-      return void toast(L('ปลดล็อกช่องแล้ว', 'Channel unlocked'));
+      return void write.settings({ lockChannel: null }).then(() => toast(L('ปลดล็อกช่องแล้ว', 'Channel unlocked')), saveFailed);
     }
     if (!c?.id) return void toast(L('ตรวจไม่พบรหัสช่อง ลองเข้าหน้า Dashboard หรือ Content ก่อน', 'Could not detect the channel ID. Open the Dashboard or Content page first'));
-    void write.settings({ lockChannel: { id: c.id, name: c.label } });
-    toast(L(`ล็อกไว้ที่ช่อง "${c.label}" แล้ว ถ้าสลับไปช่องอื่นจะอัปไม่ได้`, `Locked to channel "${c.label}". Uploads will be blocked on other channels`));
+    const label = c.label;
+    void write.settings({ lockChannel: { id: c.id, name: label } }).then(
+      () => toast(L(`ล็อกไว้ที่ช่อง "${label}" แล้ว ถ้าสลับไปช่องอื่นจะอัปไม่ได้`, `Locked to channel "${label}". Uploads will be blocked on other channels`)),
+      saveFailed,
+    );
   };
   return (
     <>
@@ -72,8 +81,7 @@ function ChannelList() {
   const add = () => {
     const id = parseChannelId(text);
     if (!id) return void toast(L('ไม่พบรหัสช่อง (ขึ้นต้นด้วย UC และยาว 24 ตัว)', 'No channel ID found (starts with UC, 24 characters)'));
-    void write.channels((list) => withChannel(list, id));
-    setText('');
+    void write.channels((list) => withChannel(list, id)).then(() => setText(''), saveFailed);
   };
   // The tab refuses too (its own toast shows in the page); asking here first says so in the
   // panel. Files waiting in the queue survive a switch, so only a run (in any tab) blocks it.
@@ -105,7 +113,7 @@ function ChannelList() {
               <Icon name="swap" size={13} />{L('สลับไปช่องนี้', 'Switch')}
             </Button>
           )}
-          <IconButton icon="x" title={L('เอาออกจากรายการ', 'Remove from list')} onClick={() => void write.channels((list) => list.filter((x) => x.id !== c.id))} />
+          <IconButton icon="x" title={L('เอาออกจากรายการ', 'Remove from list')} onClick={() => void write.channels((list) => list.filter((x) => x.id !== c.id)).catch(saveFailed)} />
         </div>
       )) : (
         <small className="text-fg3">{L('ยังไม่มีช่องในรายการ — เข้า Studio ของแต่ละช่องครั้งหนึ่ง สคริปต์จะจำให้เอง หรือใส่รหัสช่องด้านล่าง', 'No channels yet — open each channel in Studio once and the script remembers it, or add a channel ID below')}</small>

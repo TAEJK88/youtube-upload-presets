@@ -63,9 +63,9 @@ export function NumberField({ value, onValue, ...rest }: Omit<ComponentProps<'in
       className={cn('w-24', rest.className)}
       value={text}
       onFocus={() => { focused.current = true; committed.current = null; }}
-      // A committed text stays on screen until `value` follows (an async parent has not
-      // updated yet: no flash of the stale value); anything else shows what is stored.
-      onBlur={() => { focused.current = false; commit(); if (text !== committed.current) setText(value); }}
+      // Blur shows what is stored: a value the parent rejected or normalised must not stay
+      // on screen (an async parent may flash the old value until `value` follows).
+      onBlur={() => { focused.current = false; commit(); setText(value); }}
       onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
       onChange={(e) => { committed.current = null; setText(e.target.value); }}
     />
