@@ -4,7 +4,7 @@ import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
 import { dropFiles } from './queue-files';
-import { pollUploadProgress, queue, running, setTornDown, stopReq, tornDown, tornError, uploadProg } from './queue-runner';
+import { assignNumbers, pollUploadProgress, queue, running, setTornDown, stopReq, tornDown, tornError, uploadProg } from './queue-runner';
 import { persistQueue } from './queue-store';
 import { settings } from './state';
 import { channelView } from './queue-view';
@@ -19,6 +19,8 @@ export function createContentUi() {
   const released = new Set<string>();
   // uploadOne() reads the draft id while waiting for Save without a ui call; the tick
   // saves it, so a reload in that wait still finds it (the interrupted-item message).
+  // Only while this tab runs the queue: an idle tab sees new draft ids when it adopts
+  // another tab's write, and saving its copy then could land over that tab's next edit.
   let drafts: string | undefined;
   // Torn down (extension reloaded): a run still in flight must not put a mark back on the
   // tab title after the teardown cleared it, nor show its toasts.
@@ -56,8 +58,18 @@ export function createContentUi() {
       if (running) mark(`(${Math.min(count('done') + count('error') + 1, total)}/${total}) ⬆`);
       changed();
     },
-    queue: changed,
-    schedule: changed,
+    // renderQueue() ran assignNumbers() first (4026): a new, removed or cleared item moves
+    // the titles and EP numbers of the ones after it.
+    queue() {
+      assignNumbers();
+      changed();
+    },
+    // The channel's scheduled list changed, or an item finished (setItem saved it): no
+    // item changed here, so nothing to save over another tab's edit.
+    schedule() {
+      rev++;
+      broadcast();
+    },
     presetPreview: changed,
     toast(msg) {
       console.info('[ytup]', msg);
@@ -93,7 +105,7 @@ export function createContentUi() {
     tick() {
       pollUploadProgress();
       const d = queue.map((i) => i.draftId || '').join('\n');
-      if (drafts !== undefined && d !== drafts) persistQueue();
+      if (running && drafts !== undefined && d !== drafts) persistQueue();
       drafts = d;
       broadcast();
     },

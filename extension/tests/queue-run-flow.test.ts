@@ -5,6 +5,7 @@ import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { setBridge } from '../lib/studio/queue-files';
 import { removeItem } from '../lib/studio/queue-ops';
+import { persistQueue } from '../lib/studio/queue-store';
 import * as Q from '../lib/studio/queue-runner';
 import { SEL } from '../lib/studio/sel';
 import { save } from '../lib/studio/state';
@@ -112,6 +113,29 @@ describe('the item being processed', () => {
     await run;
     expect(Q.queue[0]!.status).toBe('done');
     expect(Q.currentItemId()).toBe(null);
+  });
+});
+
+// uploadOne() reads the draft id while waiting for Save without telling the UI; a reload
+// in that wait must still find it in storage. The running tab's tick saves it.
+describe('a draft id the run picked up', () => {
+  it('is saved by the tick while this tab runs the queue', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    const ui = createContentUi();
+    setPageUi(ui);
+    ui.setConfirmed(true);
+    const file = deferred<File>(new File(['x'], 'A.mp4'));
+    const asked = deferred<void>();
+    setBridge({ getFile: () => (asked.resolve(), file.promise) });
+    const run = Q.runQueue();
+    await asked.promise; // running
+    ui.tick();
+    vi.mocked(persistQueue).mockClear();
+    Q.queue[0]!.draftId = 'abcdefghijk';
+    ui.tick();
+    expect(persistQueue).toHaveBeenCalledTimes(1);
+    file.resolve(new File(['x'], 'A.mp4'));
+    await run;
   });
 });
 

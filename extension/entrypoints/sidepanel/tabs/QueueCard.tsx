@@ -26,6 +26,13 @@ import { useLive, usePanel } from '../panel';
 const MSG_ICON: Record<ItemStatus, string> = { pending: 'alert', uploading: 'upload', review: 'alert', done: 'check', error: 'alert' };
 const TONE: Record<string, string> = { muted: 'text-fg3', info: 'text-info', warn: 'text-warn', ok: 'text-ok', err: 'text-err' };
 const waiting = (x?: ViewItem) => !!x && (x.status === 'pending' || x.status === 'error');
+// The tab's message channel failed or nobody answered: the change never reached the queue.
+const notConnected = (e: unknown) => {
+  console.error('[ytup] queue card', e);
+  toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
+};
+// .card.error / .done / .review .msg (2733–2735)
+const MSG_TONE: Partial<Record<ItemStatus, string>> = { error: 'bg-err/[0.09] text-err', done: 'bg-ok/[0.09] text-ok', review: 'bg-warn/10 text-warn' };
 type Edit = QueueEdit extends infer E ? (E extends { id: string } ? Omit<E, 'id'> : never) : never;
 
 // The thumbnail dropped on the panel, shown on the card (only while read access holds).
@@ -75,7 +82,9 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
   const thumbUrl = useThumbUrl(it.thumb);
   const current = it.id === view?.current;
   const editable = waiting(it) && !current;
-  const edit = (e: Edit) => void send('queue:edit', { ...e, id: it.id } as QueueEdit);
+  // The tab's move refuses a neighbour that can't change (queue-edit canEdit).
+  const movable = (x?: ViewItem) => waiting(x) && x!.id !== view?.current;
+  const edit = (e: Edit) => void send('queue:edit', { ...e, id: it.id } as QueueEdit).catch(notConnected);
   // A card opened by a click gets its title focused, as the drawer did (not on Expand all).
   useEffect(() => {
     if (open && focusTitle.current) titleEl.current?.focus({ preventScroll: true });
@@ -121,7 +130,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
       body: L(`อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ถ้าลองใหม่จะได้คลิปซ้ำ\nลบฉบับร่างในหน้า Content ก่อน แล้วค่อยอัปใหม่`, `It was already uploaded as a draft (${it.draftId}). Retrying will create a duplicate.\nDelete the draft in Content first, then upload again.`),
       ok: L('ลบแล้ว อัปใหม่', 'Deleted it, upload again'), icon: 'refresh',
     }))) return;
-    void send('queue:retry', it.id);
+    void send('queue:retry', it.id).catch(notConnected);
   };
 
   // renderAttachments()
@@ -232,9 +241,9 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
           <div className="flex items-center gap-1">
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={it.file.name}>{it.file.name}</span>
-            <IconButton data-exp icon="chev" className={cn('size-7 transition-transform', open && 'rotate-180')}
+            <IconButton data-exp aria-expanded={open} icon="chev" className={cn('size-7 transition-transform', open && 'rotate-180')}
               title={open ? L('ย่อ', 'Collapse') : editable ? L('แก้ไขรายละเอียด', 'Edit details') : L('ดูรายละเอียด', 'Show details')} />
-            {removable && <IconButton icon="x" className="size-7 hover:text-err" title={L('เอาออกจากคิว', 'Remove from queue')} onClick={() => void send('queue:remove', it.id)} />}
+            {removable && <IconButton icon="x" className="size-7 hover:text-err" title={L('เอาออกจากคิว', 'Remove from queue')} onClick={() => void send('queue:remove', it.id).catch(notConnected)} />}
           </div>
           {!open && <div className={cn('truncate text-xs text-white/60', it.title.length > TITLE_MAX && 'text-err')} title={it.title}>{it.title || '—'}</div>}
           <div className="flex flex-wrap items-center gap-1.5">
@@ -256,8 +265,8 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         </div>
         {editable && (
           <div className="flex flex-col">
-            <IconButton icon="up" className="size-7" title={L('เลื่อนขึ้น', 'Move up')} disabled={!waiting(prev)} onClick={() => edit({ op: 'move', by: -1 })} />
-            <IconButton icon="down" className="size-7" title={L('เลื่อนลง', 'Move down')} disabled={!waiting(next)} onClick={() => edit({ op: 'move', by: 1 })} />
+            <IconButton icon="up" className="size-7" title={L('เลื่อนขึ้น', 'Move up')} disabled={!movable(prev)} onClick={() => edit({ op: 'move', by: -1 })} />
+            <IconButton icon="down" className="size-7" title={L('เลื่อนลง', 'Move down')} disabled={!movable(next)} onClick={() => edit({ op: 'move', by: 1 })} />
           </div>
         )}
       </div>
@@ -312,7 +321,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
       {chips.length > 0 && <div className="mt-2.5 flex flex-wrap gap-1.5">{chips}</div>}
       {pct !== null && <Progress value={pct} className="mt-2.5" />}
       {it.msg && (
-        <div className="mt-2.5 flex gap-2 rounded-[12px] bg-white/5 px-2.5 py-2 text-xs text-fg2">
+        <div className={cn('mt-2.5 flex gap-2 rounded-[12px] bg-white/5 px-2.5 py-2 text-xs text-fg2', MSG_TONE[it.status])}>
           <Icon name={MSG_ICON[it.status]} size={14} className="mt-px shrink-0" />
           <span>{it.msg}</span>
         </div>

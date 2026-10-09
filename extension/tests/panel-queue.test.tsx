@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as intake from '../lib/panel/intake';
 import { QueueCard } from '../entrypoints/sidepanel/tabs/QueueCard';
@@ -13,7 +14,9 @@ import { fmtWhen, toLocalInput } from '../lib/panel/format';
 import type { QueueView, ViewItem } from '../lib/studio/queue-view';
 import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
-vi.mock('../lib/panel/intake', async (orig) => ({ ...(await orig<typeof import('../lib/panel/intake')>()), sendFiles: vi.fn(), dropHandles: vi.fn() }));
+vi.mock('../lib/panel/intake', async (orig) => ({ ...(await orig<typeof import('../lib/panel/intake')>()), sendFiles: vi.fn(), dropHandles: vi.fn(), pickFiles: vi.fn(async () => []), pickFolder: vi.fn(async () => []) }));
+vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
+const RELOAD = 'This tab is not connected to the extension yet — reload this tab';
 
 afterEach(() => {
   cleanup();
@@ -104,6 +107,64 @@ describe('queue card', () => {
   });
 });
 
+describe('queue card: move, failures, accessibility', () => {
+  const cards = (items: Partial<ViewItem>[], over: Partial<QueueView> = {}) => {
+    const view = viewWith(items, over);
+    const api = fakePanel({ view });
+    renderPanel(<>{view.items.map((it, i) => <QueueCard key={it.id} it={it} prev={view.items[i - 1]} next={view.items[i + 1]} open={false} onOpen={() => {}} />)}</>, api);
+    const btn = (name: string) => screen.getAllByRole('button', { name }) as HTMLButtonElement[];
+    return { api, up: btn('Move up'), down: btn('Move down') };
+  };
+
+  it('Move up / down send the move, and are off at the ends', () => {
+    const { api, up, down } = cards([{ status: 'pending' }, { status: 'pending' }, { status: 'error' }]);
+    expect(up.map((b) => b.disabled)).toEqual([true, false, false]);
+    expect(down.map((b) => b.disabled)).toEqual([false, false, true]);
+    fireEvent.click(up[1]!);
+    expect(api.send).toHaveBeenCalledWith('queue:edit', { op: 'move', id: 'i1', by: -1 });
+    fireEvent.click(down[1]!);
+    expect(api.send).toHaveBeenCalledWith('queue:edit', { op: 'move', id: 'i1', by: 1 });
+  });
+
+  it('no move across the item whose file is being fetched, nor across a finished one', () => {
+    const { up, down } = cards([{ status: 'pending' }, { status: 'pending' }, { status: 'pending' }, { status: 'done' }], { current: 'i1' });
+    // i1 is the run's: no arrows on it; i0 can't go down past it, i2 can't go up past it nor down past done
+    expect(up.map((b) => b.disabled)).toEqual([true, true]);
+    expect(down.map((b) => b.disabled)).toEqual([true, true]);
+  });
+
+  it('an edit the tab does not take says so', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const view = viewWith([{ status: 'pending' }]);
+      const api = fakePanel({ view });
+      vi.mocked(api.send).mockRejectedValue(new Error('no receiver'));
+      renderPanel(<QueueCard it={view.items[0]!} open onOpen={() => {}} />, api);
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'Mine' } });
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(toast).toHaveBeenCalledWith(RELOAD);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('the expand button says whether the card is open', () => {
+    const view = viewWith([{ status: 'pending' }]);
+    renderPanel(<QueueCard it={view.items[0]!} open={false} onOpen={() => {}} />, fakePanel({ view }));
+    expect(screen.getByRole('button', { name: 'Edit details' }).getAttribute('aria-expanded')).toBe('false');
+    cleanup();
+    renderPanel(<QueueCard it={view.items[0]!} open onOpen={() => {}} />, fakePanel({ view }));
+    expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('an error message is tinted like the error card (.card.error .msg)', () => {
+    one({ status: 'error', msg: 'boom' });
+    expect(screen.getByText('boom').parentElement!.className).toContain('text-err');
+  });
+});
+
 describe('upload tab', () => {
   it('stats, apply-to-all with the default preset, and the empty state', () => {
     const api = fakePanel({ view: viewWith([{ status: 'pending' }, { status: 'done' }, { status: 'error' }]) });
@@ -115,6 +176,39 @@ describe('upload tab', () => {
     cleanup();
     renderPanel(<QueueTab />, fakePanel({ view: viewWith([]) }));
     expect(screen.getByText('No videos in the queue yet')).toBeTruthy();
+  });
+
+  it('stats and progress: Queued counts waiting videos only; % is (done + errors) / total', () => {
+    renderPanel(<QueueTab />, fakePanel({ view: viewWith([{ status: 'done' }, { status: 'done' }, { status: 'error' }, { status: 'pending' }]) }));
+    const stats = screen.getByTestId('stats');
+    expect(within(stats).getByText('Queued').previousSibling?.textContent).toBe('1');
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('75');
+    expect(screen.getByText('75%')).toBeTruthy();
+  });
+
+  it('no progress bar while nothing is done and nothing runs; shown once running', () => {
+    renderPanel(<QueueTab />, fakePanel({ view: viewWith([{ status: 'pending' }, { status: 'error' }]) }));
+    expect(screen.queryByRole('progressbar')).toBe(null);
+    cleanup();
+    renderPanel(<QueueTab />, fakePanel({ view: viewWith([{ status: 'uploading' }, { status: 'pending' }]) }), fakeLive({ liveState: state({ running: true }) }));
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('0');
+  });
+
+  it('the drop zone: Space picks files; the folder button is not inside another control', async () => {
+    const user = userEvent.setup();
+    renderPanel(<QueueTab />, fakePanel({ view: viewWith([]) }));
+    const files = screen.getByRole('button', { name: /or click to select files/ });
+    files.focus();
+    await user.keyboard(' ');
+    expect(intake.pickFiles).toHaveBeenCalledTimes(1);
+    await user.keyboard('{Enter}');
+    expect(intake.pickFiles).toHaveBeenCalledTimes(2);
+    const folder = screen.getByRole('button', { name: 'pick a whole folder' });
+    expect(folder.parentElement!.closest('button,[role=button]')).toBe(null);
+    expect(files.parentElement!.closest('button,[role=button]')).toBe(null);
+    await user.click(folder);
+    expect(intake.pickFolder).toHaveBeenCalledTimes(1);
+    expect(intake.pickFiles).toHaveBeenCalledTimes(2);
   });
 
   it('Apply to all is off while the queue runs', () => {

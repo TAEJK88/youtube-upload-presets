@@ -2,7 +2,7 @@ import { fixChapters } from '../chapters';
 import { L } from '../i18n';
 import { ui } from './page-ui';
 import { bridgeFiles, dropFiles } from './queue-files';
-import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, type FileSrc, type QueueItem } from './queue-runner';
+import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, type FileSrc, type QFile, type QueueItem } from './queue-runner';
 import { activeId, onStored, presets } from './state';
 
 // The drawer's queue-card controls (UI section 3752–4024) and its "Apply to all" button,
@@ -103,7 +103,10 @@ export async function editQueue(e: QueueEdit): Promise<void> {
 async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
   if (!canEdit(it)) return dropFiles(ids.map((id) => ({ id, src: 'bridge' })));
   const { files, failed } = await bridgeFiles(ids);
-  if (failed.length) ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
+  if (failed.length) {
+    ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
+    dropFiles(failed.map((f) => ({ id: f.id, src: 'bridge' as const })));
+  }
   if (!canEdit(it)) return dropFiles(files.map((f) => ({ id: f.qid, src: f.src })));
   // Read every .txt before touching the item: the run can take it during an await.
   const texts = new Map<string, string>();
@@ -198,7 +201,23 @@ export async function handleQueueEdit(data: unknown, mayEdit: () => Promise<bool
 // already let go of what no item keeps).
 export async function handleQueueAdd(ids: string[], mayEdit: () => Promise<boolean>): Promise<void> {
   if (!(await mayEdit())) return dropFiles(ids.map((id) => ({ id, src: 'bridge' as const })));
-  const { files, failed } = await bridgeFiles(ids);
+  const { files: got, failed } = await bridgeFiles(ids);
+  // A .txt is read now: one that can't be read is a failed file like the bridge's, and the
+  // rest of the drop is still added with its summary and remembered edits (addFiles stops
+  // at the first .txt it can't read).
+  const files: QFile[] = [];
+  for (const f of got) {
+    if (!isTxt(f)) {
+      files.push(f);
+      continue;
+    }
+    try {
+      const copy = new File([await f.arrayBuffer()], f.name, { type: f.type, lastModified: f.lastModified });
+      files.push(Object.assign(copy, { qid: f.qid, src: f.src }));
+    } catch (e) {
+      failed.push({ id: f.qid, reason: (e as Error)?.message ?? String(e) });
+    }
+  }
   if (failed.length) {
     ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
     dropFiles(failed.map((f) => ({ id: f.id, src: 'bridge' as const })));

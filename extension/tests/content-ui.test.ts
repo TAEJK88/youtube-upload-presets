@@ -3,6 +3,7 @@ import * as messages from '../lib/messages';
 import { createContentUi } from '../lib/studio/content-ui';
 import { setTitleMark } from '../lib/studio/page-notify';
 import { setPageUi } from '../lib/studio/page-ui';
+import { clearDone, removeItem } from '../lib/studio/queue-ops';
 import { setBridge } from '../lib/studio/queue-files';
 import { settings } from '../lib/studio/state';
 import * as Q from '../lib/studio/queue-runner';
@@ -11,6 +12,8 @@ import { persistQueue } from '../lib/studio/queue-store';
 import { makeDocument } from './fake-dom.mjs';
 
 vi.mock('../lib/studio/queue-store', () => ({ persistQueue: vi.fn() }));
+vi.mock('../lib/studio/page-toast', () => ({ pageToast: vi.fn() }));
+vi.mock('../lib/studio/video-duration', () => ({ videoDuration: async () => 0 }));
 
 const item = (id: string, extra: Partial<Q.QueueItem> = {}): Q.QueueItem => ({
   id, src: 'bridge', file: { name: id + '.mp4', size: 1, type: '' }, presetId: 'trapsoul', n: 0, title: '',
@@ -45,17 +48,28 @@ describe('content ui', () => {
   });
 
   // uploadOne() reads the draft id while waiting for Save without telling the UI; a reload
-  // in that wait must still find it in storage.
-  it('saves the queue when the tick sees a new draft id', () => {
+  // in that wait must still find it in storage (the running case: queue-run-flow.test.ts).
+  // An idle tab that adopts another tab's draft ids (its Clear done, say) keeps them to
+  // itself: writing its copy could land over that tab's next edit.
+  it('an idle tab does not save the queue when the tick sees new draft ids', () => {
     Q.queue.push(item('a'));
     const ui = createContentUi();
     ui.tick();
     vi.mocked(persistQueue).mockClear();
-    ui.tick();
-    expect(persistQueue).not.toHaveBeenCalled();
     Q.queue[0]!.draftId = 'abcdefghijk';
     ui.tick();
-    expect(persistQueue).toHaveBeenCalledTimes(1);
+    expect(persistQueue).not.toHaveBeenCalled();
+  });
+
+  // The channel's scheduled list changed; no item did (queue-runner refreshChanSched).
+  it('ui.schedule() tells the panel without saving the queue', () => {
+    const send = vi.mocked(messages.sendMessage);
+    const ui = createContentUi();
+    const before = ui.state().rev;
+    ui.schedule();
+    expect(persistQueue).not.toHaveBeenCalled();
+    expect(ui.state().rev).toBe(before + 1);
+    expect(send).toHaveBeenCalledWith('queue:state', ui.state());
   });
 
   // A run still in flight when the extension reloads ends later: its finally must not put
@@ -110,5 +124,40 @@ describe('content ui', () => {
     ui.item(it);
     ui.item(it);
     expect(send.mock.calls.filter(([type]) => type === 'files:delete')).toEqual([['files:delete', ['a', 't']]]);
+  });
+});
+
+// renderQueue() ran assignNumbers() (4026): every add, Remove and Clear done showed fresh
+// titles and EP numbers.
+describe('ui.queue() works titles and numbers out again', () => {
+  let ui: ReturnType<typeof createContentUi>;
+  beforeEach(() => {
+    ui = createContentUi();
+    setPageUi(ui);
+  });
+  const pending = (id: string, extra: Partial<Q.QueueItem> = {}) => item(id, { status: 'pending', ...extra });
+
+  it('after an add', async () => {
+    await Q.addQueued([Object.assign(new File(['x'], 'Mix 1.mp4'), { qid: 'v1', src: 'bridge' as const })]);
+    expect(Q.queue[0]!.n).toBeGreaterThan(0);
+    expect(Q.queue[0]!.title).not.toBe('');
+  });
+
+  it('after a remove', () => {
+    Q.queue.push(pending('a'), pending('b'));
+    Q.assignNumbers();
+    const { n } = Q.queue[1]!;
+    Q.queue[1]!.title = 'stale';
+    removeItem('a');
+    expect(Q.queue[0]!.n).toBe(n - 1);
+    expect(Q.queue[0]!.title).not.toBe('stale');
+  });
+
+  it('after Clear done', () => {
+    Q.queue.push(item('a', { status: 'done' }), pending('b', { n: 9, title: 'stale' }));
+    clearDone();
+    expect(Q.queue.map((i) => i.id)).toEqual(['b']);
+    expect(Q.queue[0]!.n).not.toBe(9);
+    expect(Q.queue[0]!.title).not.toBe('stale');
   });
 });

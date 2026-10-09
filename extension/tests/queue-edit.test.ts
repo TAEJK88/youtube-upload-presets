@@ -14,6 +14,9 @@ import { restoreQueue } from '../lib/studio/queue-store';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
 
+// Duration probing needs a real <video>; it is not what these tests are about.
+vi.mock('../lib/studio/video-duration', () => ({ videoDuration: async () => 0 }));
+
 const calls: string[] = [];
 const ui = {
   item() {}, run() {}, queue: () => void calls.push('queue'), schedule() {}, presetPreview() {},
@@ -98,6 +101,16 @@ describe('editQueue', () => {
     await editQueue({ op: 'attach', id: 'a', fileIds: ['t1', 'i1'] });
     expect(Q.queue[0]).toMatchObject({ txt: '0:00 X - Y', txtName: 'a.txt', titleEdited: false, thumb: { id: 'i1', name: 'a.jpg' } });
     expect(drop.mock.calls.flat(2).map((r) => r.id).sort()).toEqual(['old', 't1']);
+  });
+
+  it('attach lets go of the files the bridge could not read', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    vi.spyOn(files, 'bridgeFiles').mockResolvedValue({ files: [qfile('a.jpg', 'i1')], failed: [{ id: 't1', reason: 'gone' }] });
+    Q.queue.push(item('a', 'pending'));
+    await editQueue({ op: 'attach', id: 'a', fileIds: ['t1', 'i1'] });
+    expect(calls).toContain('toast:Could not add 1 file(s): gone');
+    expect(drop.mock.calls.flat(2).map((r) => r.id)).toEqual(['t1']);
+    expect(Q.queue[0]!.thumb?.id).toBe('i1');
   });
 
   it('attach to an item that started uploading meanwhile lets every file go', async () => {
@@ -271,6 +284,22 @@ describe('handleQueueAdd', () => {
     });
     await expect(handleQueueAdd(['v1', 't1'], async () => true)).resolves.toBeUndefined();
     expect(calls).toEqual(['toast:Could not add 1 file(s): boom', 'queue']);
+  });
+});
+
+// A .txt that can't be read is one failed file: the rest of the drop is added as usual,
+// with its summary (and the remembered edits restored), and the count is that one file.
+describe('handleQueueAdd with a .txt that cannot be read', () => {
+  it('says so for that file only; the videos and the other .txt are added with the summary', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    const a = qfile('A.mp4', 'va'), at = qfile('A.txt', 'ta', '00:00 X - Y'), b = qfile('B.mp4', 'vb'), bt = qfile('B.txt', 'tb');
+    bt.arrayBuffer = () => Promise.reject(new DOMException('changed', 'NotReadableError'));
+    vi.spyOn(files, 'bridgeFiles').mockResolvedValue({ files: [a, at, b, bt], failed: [] });
+    await expect(handleQueueAdd(['va', 'ta', 'vb', 'tb'], async () => true)).resolves.toBeUndefined();
+    expect(calls).toContain('toast:Could not add 1 file(s): changed');
+    expect(calls).toContain('toast:Added 2 video(s) · 1 .txt description file(s)');
+    expect(Q.queue.map((i) => [i.id, i.txt])).toEqual([['va', '00:00 X - Y'], ['vb', '']]);
+    expect(drop.mock.calls.flat(2).map((r) => r.id).sort()).toEqual(['ta', 'tb']);
   });
 });
 

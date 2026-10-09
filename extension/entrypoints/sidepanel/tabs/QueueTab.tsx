@@ -85,20 +85,20 @@ export function QueueTab() {
 
   return (
     <div>
-      {/* The drop zone; compact once the queue has videos (.drop.mini). */}
+      {/* The drop zone; compact once the queue has videos (.drop.mini). A click anywhere picks
+          files, as in the drawer; from the keyboard its two buttons do (no control inside another). */}
       <div
-        role="button"
-        tabIndex={0}
         onClick={() => pick(pickFiles)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) pick(pickFiles); }}
         className={cn('flex cursor-pointer items-center rounded-[14px] border border-dashed border-white/[0.22] hover:border-fg3 hover:bg-surface', has ? 'gap-2.5 px-3 py-2' : 'gap-3 px-3.5 py-3')}
       >
         <div className={cn('grid shrink-0 place-items-center bg-white/10', has ? 'size-[30px] rounded-[9px]' : 'size-8 rounded-[10px]')}><Icon name="upload" size={16} /></div>
         <div className="min-w-0">
           <b className="block text-[13px] font-medium">{L('ลากไฟล์หรือโฟลเดอร์มาวางตรงไหนของแผงก็ได้', 'Drop files or a folder anywhere on this panel')}</b>
           <span className="text-xs text-white/60">
-            {L('หรือคลิกเพื่อเลือกไฟล์ · ', 'or click to select files · ')}
-            <button type="button" className="cursor-pointer text-white underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(pickFolder); }}>
+            <button type="button" className="cursor-pointer rounded-sm" onClick={(e) => { e.stopPropagation(); pick(pickFiles); }}>
+              {L('หรือคลิกเพื่อเลือกไฟล์ · ', 'or click to select files · ')}
+            </button>
+            <button type="button" className="cursor-pointer rounded-sm text-white underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(pickFolder); }}>
               {L('เลือกทั้งโฟลเดอร์', 'pick a whole folder')}
             </button>
           </span>
