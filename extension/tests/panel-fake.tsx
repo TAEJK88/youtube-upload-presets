@@ -40,7 +40,7 @@ export function fakePanel(over: Partial<PanelApi> = {}): PanelApi {
     sendTo: () => send,
     write: {
       settings: vi.fn(async () => {}), counter: vi.fn(async () => {}), activeId: vi.fn(async () => {}),
-      presets: vi.fn(async () => {}), channels: vi.fn(async () => {}),
+      presets: vi.fn(async () => {}), presetsAndActive: vi.fn(async () => {}), channels: vi.fn(async () => {}),
     },
     refresh: vi.fn(),
     ...over,

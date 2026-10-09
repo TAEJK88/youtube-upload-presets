@@ -13,6 +13,9 @@ export interface Writes {
   counter(presetId: string, value: number): Promise<void>;
   activeId(id: string): Promise<void>;
   presets(list: Preset[]): Promise<void>;
+  // Both in one storage write (delete, reset): the default never names a preset that is
+  // gone, not even between two writes, and Studio tabs see one change.
+  presetsAndActive(list: Preset[], id: string): Promise<void>;
   channels(fn: (list: StoredChannel[]) => StoredChannel[]): Promise<void>;
 }
 
@@ -21,6 +24,7 @@ export const writes: Writes = {
   counter: (presetId, value) => sendMessage('store:patch', { key: 'counters', patch: { [presetId]: value } }),
   activeId: (id) => save('activeId', id),
   presets: (list) => save('presets', list),
+  presetsAndActive: (list, id) => browser.storage.local.set({ presets: list, activeId: id }),
   async channels(fn) {
     const cur = (await browser.storage.local.get('channels')).channels;
     await save('channels', fn(Array.isArray(cur) ? (cur as StoredChannel[]) : []));

@@ -84,10 +84,10 @@ export function PresetsTab() {
   }, [p?.id]);
   if (!data || !p) return null;
 
-  const writePresets = (next: Preset[]) => {
+  const writePresets = (next: Preset[], active?: string) => {
     latest.current = next;
     inFlight.current++;
-    return write.presets(next).finally(() => { inFlight.current--; });
+    return (active === undefined ? write.presets(next) : write.presetsAndActive(next, active)).finally(() => { inFlight.current--; });
   };
   const update = (patch: Partial<Preset>) => void writePresets(latest.current.map((x) => (x.id === p.id ? { ...x, ...patch } : x))).catch(saveFailed);
   const add = (np: Preset, focus = false) => {
@@ -157,9 +157,8 @@ export function PresetsTab() {
     const next = deletePreset(latest.current, id, cur);
     if (!next) return;
     try {
-      // The new default first: the stored default never points at a deleted preset.
-      if (next.activeId !== cur) await write.activeId(next.activeId);
-      await writePresets(next.presets);
+      // A new default goes in the same write: the stored default never points at a deleted preset.
+      await writePresets(next.presets, next.activeId !== cur ? next.activeId : undefined);
     } catch (e) {
       return saveFailed(e);
     }
@@ -291,10 +290,7 @@ export function PresetsFooter() {
     if (go !== true) return; // null: replaced or dismissed
     const r = resetPresets();
     try {
-      await write.presets(r.presets);
-      // If this write fails, the stored default may name a custom preset that is gone: the
-      // panel falls back to the first preset and the failure toast shows.
-      await write.activeId(r.activeId);
+      await write.presetsAndActive(r.presets, r.activeId);
     } catch (e) {
       return saveFailed(e);
     }

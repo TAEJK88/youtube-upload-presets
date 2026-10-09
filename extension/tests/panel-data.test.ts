@@ -3,6 +3,7 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { readPanelData, toPanelData, watchPanelData } from '../lib/panel/data';
 import { defaultPresets } from '../lib/presets';
+import { writes } from '../lib/panel/writes';
 
 beforeEach(() => fakeBrowser.reset());
 
@@ -28,5 +29,17 @@ describe('panel data', () => {
     off();
     expect(seen).toEqual([5]);
     expect((await readPanelData()).settings.delay).toBe(5);
+  });
+});
+
+describe('writes.presetsAndActive', () => {
+  it('stores the list and the default in one change', async () => {
+    const seen: string[][] = [];
+    const fn = (changes: Record<string, unknown>) => void seen.push(Object.keys(changes).sort());
+    browser.storage.onChanged.addListener(fn);
+    await writes.presetsAndActive([{ id: 'a', label: 'A' } as never], 'a');
+    browser.storage.onChanged.removeListener(fn);
+    expect(seen).toEqual([['activeId', 'presets']]);
+    expect(await browser.storage.local.get(['presets', 'activeId'])).toEqual({ presets: [{ id: 'a', label: 'A' }], activeId: 'a' });
   });
 });

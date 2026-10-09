@@ -76,8 +76,12 @@ describe('presets tab', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Delete' })));
     expect(screen.getByText('Delete preset "🌑 TrapSoul Mix"?')).toBeTruthy();
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!));
-    expect(vi.mocked(api.write.presets).mock.calls[0]![0].some((p) => p.id === 'trapsoul')).toBe(false);
-    expect(api.write.activeId).toHaveBeenCalledWith('playlist');
+    // one write: the stored default never names a preset that is gone, and Studio tabs see one change
+    const [list, id] = vi.mocked(api.write.presetsAndActive).mock.calls[0]!;
+    expect(list.some((p) => p.id === 'trapsoul')).toBe(false);
+    expect(id).toBe('playlist');
+    expect(api.write.activeId).not.toHaveBeenCalled();
+    expect(api.write.presets).not.toHaveBeenCalled();
   });
 
   it('footer: apply to the open dialog, reset after asking', async () => {
@@ -88,8 +92,9 @@ describe('presets tab', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' })));
     expect(screen.getByText('Reset all presets?')).toBeTruthy();
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Reset to defaults' }).at(-1)!));
-    expect(api.write.presets).toHaveBeenCalled();
-    expect(api.write.activeId).toHaveBeenCalledWith('trapsoul');
+    expect(api.write.presetsAndActive).toHaveBeenCalledWith(expect.any(Array), 'trapsoul');
+    expect(api.write.presets).not.toHaveBeenCalled();
+    expect(api.write.activeId).not.toHaveBeenCalled();
   });
 
   it('a failed write says so instead of the success toast', async () => {
@@ -101,17 +106,19 @@ describe('presets tab', () => {
     expect(toast).not.toHaveBeenCalledWith(expect.stringMatching(/^Set /));
   });
 
-  it('delete answered "no" (or replaced) writes nothing; a failed default write stops the delete', async () => {
+  it('delete answered "no" (or replaced) writes nothing; a failed write says so', async () => {
     const api = fakePanel();
     renderPanel(<PresetsTab />, api);
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Delete' })));
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })));
-    expect(api.write.presets).not.toHaveBeenCalled();
-    vi.mocked(api.write.activeId).mockRejectedValueOnce(new Error('quota'));
+    expect(api.write.presetsAndActive).not.toHaveBeenCalled();
+    vi.mocked(api.write.presetsAndActive).mockRejectedValueOnce(new Error('quota'));
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Delete' })));
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!));
     expect(api.write.presets).not.toHaveBeenCalled();
+    expect(api.write.activeId).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
+    expect((screen.getByLabelText('Preset name') as HTMLInputElement).value).toBe('🌑 TrapSoul Mix');
   });
 
   it('a new preset is edited once its write comes back', () => {
@@ -216,12 +223,10 @@ describe('presets tab', () => {
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Reset to defaults' }).at(-1)!));
     expect((screen.getByLabelText('Preset name') as HTMLInputElement).value).toBe('🌑 TrapSoul Mix');
     fireEvent.click(item('🎧 Playlist + Tracklist'));
-    vi.mocked(api.write.presets).mockRejectedValueOnce(new Error('quota'));
-    vi.mocked(api.write.activeId).mockClear();
+    vi.mocked(api.write.presetsAndActive).mockRejectedValueOnce(new Error('quota'));
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' })));
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Reset to defaults' }).at(-1)!));
     expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
-    expect(api.write.activeId).not.toHaveBeenCalled();
     expect((screen.getByLabelText('Preset name') as HTMLInputElement).value).toBe('🎧 Playlist + Tracklist');
   });
 
@@ -286,6 +291,7 @@ describe('presets tab', () => {
     expect(screen.getByText('Delete preset "🎧 Playlist + Tracklist"?')).toBeTruthy();
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!));
     expect(api.write.activeId).not.toHaveBeenCalled();
+    expect(api.write.presetsAndActive).not.toHaveBeenCalled();
     const saved = vi.mocked(api.write.presets).mock.calls.at(-1)![0];
     expect(saved.map((x) => x.id)).toEqual(api.data!.presets.map((x) => x.id).filter((id) => id !== 'playlist'));
     expect(item('🌑 TrapSoul Mix').getAttribute('aria-current')).toBe('true');
