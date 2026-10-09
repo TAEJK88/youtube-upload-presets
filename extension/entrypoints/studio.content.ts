@@ -23,7 +23,7 @@ import { installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunner
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
-import { showReloadBanner } from '@/lib/studio/reload-banner';
+import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
 
@@ -34,11 +34,8 @@ export default defineContentScript({
     // Everything below that outlives a reload of the extension is stopped through `stop`.
     const stop = stopOnInvalidated(ctx);
     // Orphaned by an extension update / reload: tell the user to reload the tab. Added first,
-    // so it runs last (teardowns run in reverse), after the FAB is gone. WXT also invalidates
-    // this instance when a newer one starts in the page (dev reloads); that one works, so no banner.
-    stop.add(() => {
-      if (browser.runtime?.id == null) showReloadBanner();
-    });
+    // so it runs last (teardowns run in reverse), after the FAB is gone.
+    stop.add(() => showIfOrphaned(browser.runtime));
     stop.add(disposeState);
     if (ctx.isInvalid) return;
 
@@ -88,6 +85,8 @@ export default defineContentScript({
     // The userscript's FAB: opens the side panel (needs the click's user gesture — see README).
     const fab = mountFab(() => ui.openDrawer());
     stop.add(() => fab.remove());
+    // Filled now, not at the first tick: the first clamp to the window needs its real width.
+    fab.update(fabModel());
     setPatchFailed(storeWriteFailed);
     stop.add(() => setPatchFailed(null));
     const releaseLock = () => void sendMessage('runner:release', undefined).catch(() => {});
@@ -167,9 +166,14 @@ export default defineContentScript({
       }
       try {
         ui.tick();
-        fab.update(fabModel());
       } catch (e) {
         console.error('[ytup] progress', e);
+      }
+      // Its own try too: a failing tick must not freeze the FAB, nor the FAB the tick.
+      try {
+        fab.update(fabModel());
+      } catch (e) {
+        console.error('[ytup] fab', e);
       }
     }, 800);
   },

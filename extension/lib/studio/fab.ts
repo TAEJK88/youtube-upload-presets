@@ -64,7 +64,9 @@ export function mountFab(open: () => void): { update(m: FabModel): void; remove(
   let dragged = false;
   const fab = h('button', {
     className: 'fab',
-    'aria-label': L('คลิกเพื่อเปิดแผง · ลากเพื่อย้ายตำแหน่ง', 'Click to open · drag to move'),
+    // As in the userscript: the hint is the first title, until update() puts the channel
+    // there. The accessible name is the content: channel, preset and progress.
+    title: L('คลิกเพื่อเปิดแผง · ลากเพื่อย้ายตำแหน่ง', 'Click to open · drag to move'),
     onclick: () => { if (!dragged) open(); },
   }, h('span', { className: 'logo' }, icon('cloud', 18)), h('span', { className: 'fcol' }, chan, label), badge);
 

@@ -77,7 +77,8 @@ export function createContentUi() {
       sendMessage('queue:toast', msg).catch(() => {});
     },
     openDrawer() {
-      sendMessage('openPanel', undefined).catch(() => {}); // needs a user gesture; best effort
+      // Needs a user gesture; best effort, but logged: the evidence for D16's manual check.
+      sendMessage('openPanel', undefined).catch((e) => console.warn('[ytup] openPanel failed', e));
     },
     notifyDone(title, text, ok = true) {
       if (!settings.notify) return;

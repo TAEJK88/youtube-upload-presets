@@ -23,3 +23,9 @@ export function showReloadBanner(reload: () => void = () => location.reload()): 
   document.documentElement.append(host);
   return host;
 }
+
+// Only when the extension context is gone (runtime.id unset). WXT also invalidates this
+// instance when a newer one starts in the page (dev reloads); that one works, so no banner.
+export function showIfOrphaned(runtime: { id?: string } | undefined): void {
+  if (runtime?.id == null) showReloadBanner();
+}

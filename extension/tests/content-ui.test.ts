@@ -35,6 +35,15 @@ afterEach(() => {
 });
 
 describe('content ui', () => {
+  // D16's manual check needs the evidence when Chrome refuses the gesture.
+  it('a failed openPanel is logged, not swallowed', async () => {
+    const err = new Error('may only be called in response to a user gesture');
+    vi.mocked(messages.sendMessage).mockRejectedValueOnce(err);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    createContentUi().openDrawer();
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('[ytup] openPanel failed', err));
+  });
+
   it('the broadcast state carries the channel; a channel change is sent again', () => {
     const send = vi.mocked(messages.sendMessage);
     const ui = createContentUi();
