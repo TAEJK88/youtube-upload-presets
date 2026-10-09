@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type DragEvent } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -25,7 +25,11 @@ const SAMPLE_TXT = [
 ].join('\n');
 
 type Field = HTMLInputElement | HTMLTextAreaElement;
+type Slot = 'title' | 'description' | 'tags'; // the fields a variable chip inserts into
 const stopDrag = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); };
+// Reset is in the footer; the editor follows it to the default preset (the drawer's
+// `activeId = editId = presets[0].id`, 4353).
+const resetListeners = new Set<(id: string) => void>();
 
 export function PresetsTab() {
   const { data, view, write } = usePanel();
@@ -37,17 +41,32 @@ export function PresetsTab() {
   const [sampleTxt, setSampleTxt] = useState(SAMPLE_TXT);
   const [sampleLbl, setSampleLbl] = useState<string | null>(null);
   const [focusLabel, setFocusLabel] = useState(false);
-  const lastField = useRef<Field | null>(null);
-  const titleEl = useRef<HTMLInputElement>(null);
+  // By kind, not element: the editor's fields remount for each preset (key below).
+  const lastField = useRef<Slot>('title');
+  const fieldEls = useRef<Partial<Record<Slot, Field | null>>>({});
   const labelEl = useRef<HTMLInputElement>(null);
   const listEl = useRef<HTMLDivElement>(null);
-  // Writes build on the last list written, not on a render that may not have caught up.
+  // Writes build on the last list written, not on a render that may not have caught up. While
+  // a write of ours is in flight, a re-read of storage can only be older than it: ignore it.
   const latest = useRef(presets);
-  useEffect(() => { latest.current = presets; }, [presets]);
+  const inFlight = useRef(0);
+  useEffect(() => { if (!inFlight.current) latest.current = presets; }, [presets]);
   const latestActive = useRef(activeId);
   useEffect(() => { latestActive.current = activeId; }, [activeId]);
-  // renderPresetEditor(): a preset that is gone falls back to the default one. editId itself
-  // is kept: a preset just added is only in the list once the stored write comes back.
+  // A preset just added is only in the list once the stored write comes back.
+  const pending = useRef<string | null>(null);
+  // renderPresetEditor(): a preset that is gone (another window, an import) moves the editor
+  // to the default one.
+  useEffect(() => {
+    if (presets.some((x) => x.id === editId)) {
+      if (pending.current === editId) pending.current = null;
+    } else if (editId !== pending.current) setEditId(activeId);
+  }, [presets]);
+  useEffect(() => {
+    const follow = (id: string) => setEditId(id);
+    resetListeners.add(follow);
+    return () => void resetListeners.delete(follow);
+  }, []);
   const p = presets.find((x) => x.id === editId) ?? presets.find((x) => x.id === activeId) ?? presets[0];
   useEffect(() => {
     if (!focusLabel || p?.id !== editId) return; // wait for the new preset to arrive
@@ -55,22 +74,47 @@ export function PresetsTab() {
     labelEl.current?.focus();
     labelEl.current?.select();
   }, [focusLabel, p?.id]);
-  useEffect(() => { listEl.current?.querySelector('[data-on="true"]')?.scrollIntoView({ block: 'nearest' }); }, [editId]);
+  // The list scrolls in its box: keep the selected one in view without scrolling the panel (4245–4249).
+  useEffect(() => {
+    const box = listEl.current;
+    const on = box?.querySelector<HTMLElement>('[data-on="true"]');
+    if (!box || !on) return;
+    const top = on.offsetTop - box.offsetTop;
+    if (top < box.scrollTop || top + on.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = top - 4;
+  }, [p?.id]);
   if (!data || !p) return null;
 
-  const savePresets = (next: Preset[]) => { latest.current = next; return write.presets(next).catch(saveFailed); };
-  const update = (patch: Partial<Preset>) => void savePresets(latest.current.map((x) => (x.id === p.id ? { ...x, ...patch } : x)));
-  const add = (np: Preset) => { void savePresets([...latest.current, np]); setEditId(np.id); };
+  const writePresets = (next: Preset[]) => {
+    latest.current = next;
+    inFlight.current++;
+    return write.presets(next).finally(() => { inFlight.current--; });
+  };
+  const update = (patch: Partial<Preset>) => void writePresets(latest.current.map((x) => (x.id === p.id ? { ...x, ...patch } : x))).catch(saveFailed);
+  const add = (np: Preset, focus = false) => {
+    const back = p.id;
+    pending.current = np.id;
+    setEditId(np.id);
+    setFocusLabel(focus);
+    writePresets([...latest.current, np]).catch((e: unknown) => {
+      saveFailed(e);
+      latest.current = latest.current.filter((x) => x.id !== np.id);
+      if (pending.current !== np.id) return;
+      pending.current = null;
+      setFocusLabel(false);
+      setEditId((id) => (id === np.id ? back : id));
+    });
+  };
 
   // insertVar(): put text at the cursor of the field last edited (title by default)
   const insert = (text: string) => {
-    const f = lastField.current ?? titleEl.current;
+    const f = fieldEls.current[lastField.current] ?? fieldEls.current.title;
     if (!f) return;
     f.focus();
     f.setRangeText(text, f.selectionStart ?? f.value.length, f.selectionEnd ?? f.value.length, 'end');
     f.dispatchEvent(new Event('input', { bubbles: true }));
   };
-  const remember = (e: { currentTarget: Field }) => { lastField.current = e.currentTarget; };
+  const remember = (slot: Slot) => () => { lastField.current = slot; };
+  const fieldRef = (slot: Slot) => (el: Field | null) => { fieldEls.current[slot] = el; };
 
   const n = (data.counters[p.id] || 0) + 1;
   const vars = buildVars(sampleName, n, sampleTxt, { preset: p }, { year: data.settings.year, producer: data.settings.producer, channelName: view?.channel.name ?? '' });
@@ -82,7 +126,7 @@ export function PresetsTab() {
     const f = [...(e.dataTransfer?.files ?? [])].find(isTxt);
     if (!f) return;
     stopDrag(e);
-    lastField.current = e.currentTarget;
+    lastField.current = 'description';
     insert((await readText(f)).replace(/\r\n/g, '\n').trim());
     toast(L(`แทรกเนื้อหาจาก ${f.name} แล้ว`, `Inserted content from ${f.name}`));
   };
@@ -115,8 +159,7 @@ export function PresetsTab() {
     try {
       // The new default first: the stored default never points at a deleted preset.
       if (next.activeId !== cur) await write.activeId(next.activeId);
-      latest.current = next.presets;
-      await write.presets(next.presets);
+      await writePresets(next.presets);
     } catch (e) {
       return saveFailed(e);
     }
@@ -137,9 +180,10 @@ export function PresetsTab() {
               role="button"
               tabIndex={0}
               data-on={x.id === p.id}
+              aria-current={x.id === p.id || undefined}
               title={L(`Alt+${i + 1} = ตั้งเป็นพรีเซ็ตหลัก`, `Alt+${i + 1} = set as default preset`)}
               onClick={() => setEditId(x.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter') setEditId(x.id); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditId(x.id); } }}
               className={cn('flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-transparent px-2 py-1.5 hover:bg-surface', x.id === p.id && 'border-line2 bg-surface')}
             >
               <span className="grid size-5 shrink-0 place-items-center rounded-md bg-surface2 text-xs text-fg2">{i + 1}</span>
@@ -154,7 +198,7 @@ export function PresetsTab() {
           ))}
         </div>
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => { add(newPreset()); setFocusLabel(true); }}><Icon name="plus" size={13} />{L('ใหม่', 'New')}</Button>
+          <Button size="sm" onClick={() => add(newPreset(), true)}><Icon name="plus" size={13} />{L('ใหม่', 'New')}</Button>
           <Button size="sm" onClick={() => add(duplicatePreset(p))}><Icon name="copy" size={13} />{L('ทำสำเนา', 'Duplicate')}</Button>
           <Button size="sm" onClick={setDefault}><Icon name="star" size={13} />{L('ตั้งเป็นหลัก', 'Set as default')}</Button>
           <span className="flex-1" />
@@ -162,15 +206,18 @@ export function PresetsTab() {
         </div>
       </Section>
 
+      {/* One set of fields per preset: a focused field keeps its own text, so it must not
+          outlive the preset it shows (a keystroke would write it into another one). */}
+      <Fragment key={p.id}>
       <Section title={L('ข้อมูลคลิป', 'Video details')} icon="film">
         <Label>{L('ชื่อพรีเซ็ต', 'Preset name')}</Label>
         <TextField ref={labelEl} aria-label={L('ชื่อพรีเซ็ต', 'Preset name')} value={p.label || ''} onValue={(v) => update({ label: v })} />
         <Label><span>{L('ชื่อคลิป', 'Video title')}</span><span className={cn(t.length > TITLE_MAX && 'text-err')}>{`${t.length}/${TITLE_MAX}`}</span></Label>
-        <TextField ref={titleEl} aria-label={L('ชื่อคลิป', 'Video title')} value={p.title || ''} onFocus={remember} onValue={(v) => update({ title: v })} />
+        <TextField ref={fieldRef('title')} aria-label={L('ชื่อคลิป', 'Video title')} value={p.title || ''} onFocus={remember('title')} onValue={(v) => update({ title: v })} />
         <Label><span>{L('คำอธิบาย', 'Description')}</span><span>{L('ลาก .txt มาวางเพื่อแทรกข้อความ', 'Drop a .txt here to insert its text')}</span></Label>
-        <AreaField aria-label={L('คำอธิบาย', 'Description')} value={p.description || ''} onFocus={remember} onDragOver={stopDrag} onDrop={(e) => void onDescDrop(e)} onValue={(v) => update({ description: v })} />
+        <AreaField ref={fieldRef('description')} aria-label={L('คำอธิบาย', 'Description')} value={p.description || ''} onFocus={remember('description')} onDragOver={stopDrag} onDrop={(e) => void onDescDrop(e)} onValue={(v) => update({ description: v })} />
         <Label>{L('แท็ก', 'Tags')}</Label>
-        <TextField aria-label={L('แท็ก', 'Tags')} placeholder={L('คั่นด้วยเครื่องหมายจุลภาค ,', 'Separate with commas ,')} value={(p.tags || []).join(', ')} onFocus={remember} onValue={(v) => update({ tags: splitList(v) })} />
+        <TextField ref={fieldRef('tags')} aria-label={L('แท็ก', 'Tags')} placeholder={L('คั่นด้วยเครื่องหมายจุลภาค ,', 'Separate with commas ,')} value={(p.tags || []).join(', ')} onFocus={remember('tags')} onValue={(v) => update({ tags: splitList(v) })} />
         <Label><span>{L('ตัวแปร', 'Variables')}</span><span>{L('คลิกเพื่อแทรกในช่องที่กำลังแก้', 'Click to insert into the field being edited')}</span></Label>
         <div className="flex flex-wrap gap-1.5">
           {VARS.map((v) => (
@@ -218,7 +265,7 @@ export function PresetsTab() {
       <Section title={L('การเผยแพร่', 'Publishing')} icon="send">
         <div className="grid grid-cols-3 gap-1 rounded-[12px] border border-line bg-surface p-1">
           {(Object.entries(VIS) as [Visibility, string][]).map(([k, label]) => (
-            <button key={k} type="button" onClick={() => update({ visibility: k })}
+            <button key={k} type="button" aria-pressed={(p.visibility || 'PRIVATE') === k} onClick={() => update({ visibility: k })}
               className={cn('cursor-pointer rounded-[9px] py-1.5 text-xs text-fg2 hover:text-fg', (p.visibility || 'PRIVATE') === k && 'bg-surface2 text-fg')}>{label}</button>
           ))}
         </div>
@@ -226,6 +273,7 @@ export function PresetsTab() {
           <NumberField aria-label={L('EP ถัดไป', 'Next EP')} min={1} value={String(n)} onValue={(v) => void write.counter(p.id, epCounter(v)).catch(saveFailed)} />
         </Kv>
       </Section>
+      </Fragment>
     </div>
   );
 }
@@ -244,14 +292,21 @@ export function PresetsFooter() {
     const r = resetPresets();
     try {
       await write.presets(r.presets);
+      // If this write fails, the stored default may name a custom preset that is gone: the
+      // panel falls back to the first preset and the failure toast shows.
       await write.activeId(r.activeId);
     } catch (e) {
-      saveFailed(e);
+      return saveFailed(e);
     }
+    resetListeners.forEach((f) => f(r.activeId));
   };
+  const apply = () => send('fill:apply', undefined).catch((e: unknown) => {
+    console.error('[ytup] fill:apply failed', e);
+    toast(L(`ใส่ลงหน้าต่างที่เปิดอยู่ไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't apply to the open window (${(e as Error)?.message ?? e})`));
+  });
   return (
     <div className="flex gap-2 border-t border-line px-[18px] py-3.5">
-      <Button className="flex-1" title={L('ใส่พรีเซ็ตหลักลงหน้าต่างอัปโหลดที่เปิดอยู่', 'Apply the default preset to the open upload dialog')} onClick={() => void send('fill:apply', undefined)}>
+      <Button className="flex-1" title={L('ใส่พรีเซ็ตหลักลงหน้าต่างอัปโหลดที่เปิดอยู่', 'Apply the default preset to the open upload dialog')} onClick={() => void apply()}>
         <Icon name="send" size={14} />{L('ใส่ลงหน้าต่างที่เปิดอยู่', 'Apply to open window')}
       </Button>
       <Button variant="ghostDanger" onClick={() => void reset()}><Icon name="refresh" size={14} />{L('คืนค่าเริ่มต้น', 'Reset to defaults')}</Button>
