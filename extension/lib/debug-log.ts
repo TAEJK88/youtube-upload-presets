@@ -99,7 +99,11 @@ export function errorText(e: unknown): { msg: string; stack?: string } {
     if (typeof e === 'string') return { msg: e };
     return { msg: JSON.stringify(e) ?? String(e) };
   } catch {
-    return { msg: String(e) };
+    try {
+      return { msg: String(e) };
+    } catch {
+      return { msg: Object.prototype.toString.call(e) }; // no toString, a revoked Proxy, …
+    }
   }
 }
 
@@ -130,6 +134,8 @@ export function installDebugCapture(ctx: LogCtx, opts: CaptureOpts = {}): void {
         try {
           const err = args.find((a) => a instanceof Error) as Error | undefined;
           appendLog(ctx, level, args.map(argText).join(' '), err?.stack);
+        } catch {
+          // never let the log break the console: the line below still prints
         } finally {
           busy = false;
         }

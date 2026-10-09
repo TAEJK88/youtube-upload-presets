@@ -97,6 +97,24 @@ describe('installDebugCapture', () => {
     expect(log.every((e) => e.ctx === 'background')).toBe(true);
   });
 
+  it('never makes the console throw, whatever it is given, and still prints it', () => {
+    const orig = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), log: vi.fn() };
+    const con = { ...orig } as unknown as Console;
+    installDebugCapture('panel', { target: new EventTarget(), console: con });
+    const cyclic = Object.create(null) as Record<string, unknown>;
+    cyclic.self = cyclic; // JSON.stringify throws, and String() has no toString to call
+    const badName = new Error('x');
+    Object.defineProperty(badName, 'name', { get() { throw new Error('getter'); } });
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    for (const a of [cyclic, badName, proxy]) {
+      expect(() => con.error('[ytup] odd', a)).not.toThrow();
+      const last = orig.error.mock.lastCall!; // by identity: matchers would touch the revoked Proxy
+      expect(last[0]).toBe('[ytup] odd');
+      expect(last[1] === a).toBe(true);
+    }
+  });
+
   it('logs error and unhandledrejection events', async () => {
     const target = new EventTarget();
     installDebugCapture('panel', { target, console: { error() {}, warn() {}, info() {}, log() {} } as unknown as Console });
