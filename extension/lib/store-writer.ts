@@ -48,3 +48,7 @@ export const ensureLang = () =>
     if (isObj(s) && (s.lang === 'th' || s.lang === 'en')) return;
     await applyStorePatch({ key: 'settings', patch: { lang: getLang() } });
   });
+
+// What ensureMigrated answers. An import stores BACKUP_SCHEMA and then migrates it up, so
+// the version is read in the queue: after any import written so far, never in between.
+export const schemaVersionInOrder = () => serial(() => load('schemaVersion', 0));

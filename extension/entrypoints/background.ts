@@ -5,9 +5,8 @@ import { initI18n } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, registerRunnerLock, releaseRunner, runnerElsewhere } from '@/lib/runner-lock';
-import { load } from '@/lib/storage';
 import { deleteHandle } from '@/lib/file-store';
-import { ensureLang, patchStore, writeBackupInOrder } from '@/lib/store-writer';
+import { ensureLang, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
 export default defineBackground(() => {
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
@@ -32,7 +31,7 @@ export default defineBackground(() => {
   // Content scripts read stored data only once it is in this build's shape.
   onMessage('ensureMigrated', async () => {
     await ready;
-    return load('schemaVersion', 0);
+    return schemaVersionInOrder();
   });
 
   // The one writer of settings and counters (lib/store-writer.ts).

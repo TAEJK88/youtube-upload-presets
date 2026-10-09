@@ -3,8 +3,9 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { setLang } from '../lib/i18n';
 import { applySettingsPatch, countersDiff, defaultSettings, settingsDiff } from '../lib/settings';
-import { parseBackup } from '../lib/backup';
-import { ensureLang, patchStore, writeBackupInOrder } from '../lib/store-writer';
+import { BACKUP_SCHEMA, parseBackup } from '../lib/backup';
+import { SCHEMA_VERSION } from '../lib/migrations';
+import { ensureLang, patchStore, schemaVersionInOrder, writeBackupInOrder } from '../lib/store-writer';
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -90,5 +91,22 @@ describe('writeBackupInOrder', () => {
     expect(got.delay).toBe(4);
     expect(got).not.toHaveProperty('glass');
     expect(got).not.toHaveProperty('glassV2');
+  });
+
+  it('ensureMigrated never sees the backup\'s schemaVersion while an import is being written', async () => {
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: [], settings: { lang: 'en' } });
+    const seen: Promise<number>[] = [];
+    // asked at the worst moment: right as the import has stored BACKUP_SCHEMA
+    const ask = (changes: Record<string, { newValue?: unknown }>) => {
+      if (changes.schemaVersion?.newValue === BACKUP_SCHEMA) seen.push(schemaVersionInOrder());
+    };
+    browser.storage.onChanged.addListener(ask);
+    const { data, presets } = file({ delay: 4 });
+    const imported = writeBackupInOrder({ data, presets, own: true });
+    seen.push(schemaVersionInOrder());
+    await imported;
+    browser.storage.onChanged.removeListener(ask);
+    expect(seen.length).toBe(2);
+    expect(await Promise.all(seen)).toEqual([SCHEMA_VERSION, SCHEMA_VERSION]);
   });
 });
