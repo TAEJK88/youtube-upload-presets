@@ -62,4 +62,4 @@ const EMOJI_ICON: Record<string, string> = {
   '🔍': 'search', '🔄': 'sync', '▶': 'play', '⏭': 'next', '⚙': 'gear', '⚡': 'bolt', '👀': 'eye', 'ℹ': 'info', '🔒': 'lock',
   '⬇': 'download', '📋': 'queue',
 };
-export const emojiIconName = (e: string): string | null => EMOJI_ICON[e.replace(/️/g, '').trim()] ?? null;
+export const emojiIconName = (e: string): string | null => EMOJI_ICON[e.replace(/\uFE0F/g, '').trim()] ?? null;
