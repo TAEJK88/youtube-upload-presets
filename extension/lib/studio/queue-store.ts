@@ -88,12 +88,20 @@ export function restoreQueue(markInterrupted: boolean): void {
 export async function followOtherTab(runs: boolean): Promise<void> {
   // An aborted run still on its way out stays a mirror: the read-back below waits for it.
   if (!runs && running && abortedRun()) return;
-  const ended = otherTabRunning() && !runs;
+  // A read-back an aborted run still waits for counts as ended too: the next tick retries one
+  // whose storage read failed (the mirror flag is already off by then).
+  const ended = (otherTabRunning() || (abortedRun() !== null && !running)) && !runs;
   setOtherTabRuns(runs);
   if (!ended || running) return;
   // The running tab saved its last statuses before releasing the lock, but this tab's
   // copy may not have heard yet: cut what storage holds now.
-  const stored = ((await browser.storage.local.get(KEY))[KEY] as QueueItem[] | undefined) ?? [];
+  let stored: QueueItem[];
+  try {
+    stored = ((await browser.storage.local.get(KEY))[KEY] as QueueItem[] | undefined) ?? [];
+  } catch (e) {
+    console.error('[ytup] queue read-back', e);
+    return;
+  }
   if (running || otherTabRunning()) return;
   queue.splice(0, queue.length, ...stored.map((it) => (unfinished(it) ? interrupted(it) : it)));
   remember(stored);

@@ -136,6 +136,21 @@ describe('a run aborted coming back from the back/forward cache', () => {
     expect(Q.abortedRun()).toBe(null);
   });
 
+  // Re-review r1: a failed read in the read-back must not leave the abort set until a reload.
+  it('a storage read that fails during the read-back is logged; the next tick reads again and clears the abort', async () => {
+    const { run, file, other } = await abortedMidItem();
+    file.resolve(new File(['x'], 'A.mp4'));
+    await expect(run).rejects.toThrow(MSG);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(browser.storage.local, 'get').mockRejectedValueOnce(new Error('storage gone'));
+    await followOtherTab(false); // the read fails: logged, not thrown
+    expect(err).toHaveBeenCalled();
+    expect(Q.abortedRun()).not.toBe(null);
+    await followOtherTab(false); // the next tick
+    expect(Q.abortedRun()).toBe(null);
+    expect(Q.queue.map((i) => i.status)).toEqual(other.map((i) => i.status));
+  });
+
   it("a draft id the aborted run's tick picks up is not saved", async () => {
     const { ui, run, file, other } = await abortedMidItem();
     ui.tick();
