@@ -1,0 +1,45 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+// The side panel must not load the Studio page's modules: lib/studio/state.ts there holds
+// defaults that never sync, so panel code reading it would get silent wrong values.
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const FORBIDDEN = ['lib/studio/state.ts', 'lib/studio/queue-runner.ts'];
+
+function resolveImport(from: string, spec: string): string | null {
+  const base = spec.startsWith('@/') ? join(ROOT, spec.slice(2)) : spec.startsWith('.') ? resolve(dirname(from), spec) : null;
+  if (!base) return null; // a package
+  for (const ext of ['', '.ts', '.tsx', '/index.ts']) if (existsSync(base + ext) && statSync(base + ext).isFile()) return base + ext;
+  return null;
+}
+
+// Value imports and re-exports only: `import type` is erased from the bundle.
+function reachable(entry: string): Map<string, string[]> {
+  const paths = new Map<string, string[]>();
+  const walk = (file: string, path: string[]) => {
+    if (paths.has(file)) return;
+    paths.set(file, path);
+    const src = readFileSync(file, 'utf8');
+    const specs = [
+      ...src.matchAll(/^\s*(?:import|export)\s+(?!type\b)[^'";]*?from\s+['"]([^'"]+)['"]/gm),
+      ...src.matchAll(/^\s*import\s+['"]([^'"]+)['"]/gm), // side-effect imports
+    ];
+    for (const m of specs) {
+      const next = resolveImport(file, m[1]!);
+      if (next) walk(next, [...path, relative(ROOT, file)]);
+    }
+  };
+  walk(entry, []);
+  return paths;
+}
+
+describe('side panel bundle', () => {
+  it('does not import the Studio state or the queue runner', () => {
+    const paths = reachable(join(ROOT, 'entrypoints/sidepanel/main.tsx'));
+    const hits = [...paths].filter(([f]) => FORBIDDEN.includes(relative(ROOT, f))).map(([f, p]) => [...p, relative(ROOT, f)].join(' → '));
+    expect(paths.size).toBeGreaterThan(10); // the walk did find the panel's modules
+    expect(hits).toEqual([]);
+  });
+});
