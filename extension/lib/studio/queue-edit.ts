@@ -2,7 +2,7 @@ import { fixChapters } from '../chapters';
 import { L } from '../i18n';
 import { ui } from './page-ui';
 import { bridgeFiles, dropFiles } from './queue-files';
-import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, saveMemo, type FileSrc, type QueueItem } from './queue-runner';
+import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, type FileSrc, type QueueItem } from './queue-runner';
 import { activeId, onStored, presets } from './state';
 
 // The drawer's queue-card controls (UI section 3752–4024) and its "Apply to all" button,
@@ -129,25 +129,29 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
 // Presets, the default preset, EP counters and settings are changed in the side panel.
 // The drawer re-rendered the queue after each (refreshLabels / renderQueue): titles and
 // numbers follow, and items whose preset was deleted move to the default preset.
-// Coalesced: one write from the panel can change several keys. Saved only when something
-// moved: every Studio tab hears every change, and an idle tab rewriting its unchanged copy
-// could land after another tab's edit and undo it (the panel re-reads the view on any
-// stored change itself).
+// Coalesced: one write from the panel can change several keys. Every Studio tab hears
+// every change, and an idle tab writing its whole copy could land after another tab's card
+// edit and undo it. So titles and numbers, which every tab works out again from the stored
+// presets / counters / settings (here, and at load), stay in memory unless this tab runs the
+// queue; only a move to the default preset is saved. The panel re-reads the view on any
+// stored change itself.
 export function followStoredChanges(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const requeue = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       const before = JSON.stringify(queue);
+      let moved = false;
       // Not an item the run is working on: its upload keeps the preset it started with.
       const owned = (it: QueueItem) => it.status === 'uploading' || it.status === 'review' || it.id === currentItemId();
       for (const it of queue) {
         if (owned(it) || presets.some((p) => p.id === it.presetId)) continue;
         it.presetId = activeId;
         bumpEditRev();
+        moved = true;
       }
       assignNumbers();
-      if (JSON.stringify(queue) !== before) ui.queue();
+      if ((moved || running) && JSON.stringify(queue) !== before) ui.queue();
     }, 0);
   };
   const offs = ['presets', 'activeId', 'counters', 'settings'].map((k) => onStored(k, requeue));

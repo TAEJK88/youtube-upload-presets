@@ -8,7 +8,9 @@ import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as files from '../lib/studio/queue-files';
 import * as Q from '../lib/studio/queue-runner';
 import { editQueue, followStoredChanges, handleQueueAdd, handleQueueEdit } from '../lib/studio/queue-edit';
-import { activeId, disposeState, initState } from '../lib/studio/state';
+import { activeId, disposeState, flushState, initState } from '../lib/studio/state';
+import { createContentUi } from '../lib/studio/content-ui';
+import { restoreQueue } from '../lib/studio/queue-store';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
 
@@ -293,5 +295,41 @@ describe('followStoredChanges', () => {
     await new Promise((r) => setTimeout(r, 10));
     off();
     expect(calls).not.toContain('queue');
+  });
+
+  // Two idle Studio tabs: B (this module) hears a title-template keystroke while A has a
+  // card edit on its way to storage. B works the new titles out in memory and writes
+  // nothing, so it cannot land its copy over A's edit.
+  it('a title-template change in an idle tab: titles follow in memory, the queue is not written', async () => {
+    disposeState();
+    fakeBrowser.reset();
+    const stored = item('a', 'pending', { n: 1, title: 'old' });
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, queue: [stored] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(true);
+    setPageUi(createContentUi());
+    const off = followStoredChanges();
+    await new Promise((r) => setTimeout(r, 400)); // the load-time requeue, and any save it makes
+    await flushState();
+    const writes: unknown[] = [];
+    const spy = (ch: Record<string, { newValue?: unknown }>) => { if (ch.queue) writes.push(ch.queue.newValue); };
+    browser.storage.onChanged.addListener(spy);
+    try {
+      const presets = defaultPresets().map((p) => (p.id === 'trapsoul' ? { ...p, title: 'NEW {n}' } : p));
+      await browser.storage.local.set({ presets });
+      await vi.waitFor(() => expect(Q.queue[0]!.title).toBe('NEW 1'));
+      // Tab A's card edit reaches storage; B mirrors it.
+      const edited = { ...stored, title: 'Mine', titleEdited: true };
+      await browser.storage.local.set({ queue: [edited] });
+      await new Promise((r) => setTimeout(r, 400)); // past B's 300 ms save, had it scheduled one
+      await flushState();
+      expect(writes).toEqual([[edited]]); // A's write only
+      expect((await browser.storage.local.get('queue')).queue).toEqual([edited]);
+      expect(Q.queue[0]!.title).toBe('Mine');
+    } finally {
+      browser.storage.onChanged.removeListener(spy);
+      off();
+      setPageUi(ui);
+    }
   });
 });
