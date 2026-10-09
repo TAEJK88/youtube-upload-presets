@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
+vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
 const handlers = vi.hoisted(() => new Map<string, (m: unknown) => void>());
 vi.mock('../lib/messages', async (orig) => ({
   ...(await orig<object>()),
@@ -11,6 +12,8 @@ vi.mock('../lib/messages', async (orig) => ({
   onMessage: (type: string, fn: (m: unknown) => void) => { handlers.set(type, fn); return () => {}; },
 }));
 
+import { toast } from 'sonner';
+import { setLang } from '../lib/i18n';
 import { sendMessage } from '../lib/messages';
 import { PanelProvider, usePanel } from '../entrypoints/sidepanel/panel';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
@@ -115,5 +118,22 @@ describe('the "reload this tab" banner', () => {
     await act(async () => onState({ data: s, sender: { tab: { id: 3 } } }));
     await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     expect(screen.getByTestId('link').textContent).toBe('ok');
+  });
+});
+
+describe('a failing queue:view', () => {
+  it('says so in the panel\'s language', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => {
+      if (type === 'queue:view') throw new Error('boom');
+      return { items: [] };
+    }) as never);
+    setLang('th');
+    render(<PanelProvider><Probe /></PanelProvider>);
+    await flush();
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(toast).toHaveBeenCalledWith('อ่านคิวจากแท็บ Studio ไม่สำเร็จ (boom)');
+    setLang('en');
+    err.mockRestore();
   });
 });

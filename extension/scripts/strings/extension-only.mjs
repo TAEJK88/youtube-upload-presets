@@ -36,6 +36,7 @@ export default [
   { th: 'นำเข้าไม่สำเร็จ (${})', en: "Couldn't import (${})", why: 'backup:write is a message to the background and can reject; the drawer wrote synchronously' },
   { th: 'ส่งออกไม่สำเร็จ (${})', en: "Couldn't export (${})", why: 'export reads extension storage asynchronously and can fail; the drawer read in memory' },
   { th: 'คัดลอกข้อมูลหน้าต่างอัปโหลดไม่สำเร็จ (${})', en: "Couldn't copy the upload dialog info (${})", why: 'diag:dialogInfo is a message to the Studio tab (and clipboard writes) that can fail; the drawer ran it in the page' },
+  { th: 'อ่านคิวจากแท็บ Studio ไม่สำเร็จ (${})', en: "Couldn't read the queue from the Studio tab (${})", why: 'queue:view is a message to the Studio tab and its handler can fail; the drawer read the queue in the page' },
   // Phase 3a: Presets tab
   { th: 'ใส่ลงหน้าต่างที่เปิดอยู่ไม่สำเร็จ (${})', en: "Couldn't apply to the open window (${})", why: 'fill:apply is a message to the Studio tab and fails when none is bound or connected; the drawer ran it in the page' },
 ];

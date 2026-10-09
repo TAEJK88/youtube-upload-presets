@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
-import { getLang, setLang, watchLang } from '@/lib/i18n';
+import { getLang, L, setLang, watchLang } from '@/lib/i18n';
 import { sendMessage, type ProtocolMap, type QueueState } from '@/lib/messages';
 import { installBus, onQueueState, onQueueToast } from '@/lib/panel/bus';
 import { readPanelData, watchPanelData, type PanelData } from '@/lib/panel/data';
@@ -66,7 +66,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       fetch: (id) => sendMessage('queue:view', undefined, id),
       onView: setView,
       onStatus: (s) => { linkRef.current = s; setLink(s); },
-      onError: (e) => toast(`queue:view: ${(e as Error)?.message ?? e}`),
+      onError: (e) => toast(L(`อ่านคิวจากแท็บ Studio ไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't read the queue from the Studio tab (${(e as Error)?.message ?? e})`)),
     }),
     [],
   );
