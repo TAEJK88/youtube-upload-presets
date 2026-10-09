@@ -4,7 +4,7 @@ import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
 import { dropFiles } from './queue-files';
-import { assignNumbers, pollUploadProgress, queue, running, setTornDown, stopReq, tornDown, tornError, uploadProg } from './queue-runner';
+import { assignNumbers, pollUploadProgress, queue, running, setTornDown, startQueue, stopReq, tornDown, tornError, uploadProg, type StartBinding } from './queue-runner';
 import { persistQueue } from './queue-store';
 import { settings } from './state';
 import { channelView } from './queue-view';
@@ -112,6 +112,14 @@ export function createContentUi() {
     state,
   };
   return ui;
+}
+
+// queue:start. runQueue() checks the warnings again and asks (confirmStart) when it finds
+// one; that is a yes only if the panel really asked the user, so a warning that appeared
+// after the summary (the clock, a .txt added since) stops the run instead of passing.
+export function startFromPanel(ui: { setConfirmed(v: boolean): void }, seen: StartBinding): Promise<void> {
+  ui.setConfirmed(seen.asked === true);
+  return startQueue(seen);
 }
 
 // A settings / counters change the background could not store (state.ts setPatchFailed).

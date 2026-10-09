@@ -159,7 +159,7 @@ describe('an edit after the summary refuses the start', () => {
     Q.queue.push(item('a', 'pending'));
     const s = await Q.startSummary();
     if ('error' in s) throw new Error(s.error);
-    return { channelId: s.channel.id, ids: s.ids, editRev: s.editRev };
+    return { channelId: s.channel.id, ids: s.ids, editRev: s.editRev, asked: true };
   };
   beforeEach(() => vi.stubGlobal('location', { pathname: '/channel/UCabcdefghijklmn/videos' }));
 
@@ -192,7 +192,7 @@ describe('an edit after the summary refuses the start', () => {
     await vi.waitFor(() => expect(Q.queue[0]!.presetId).toBe(activeId));
     off();
     calls.length = 0;
-    await Q.startQueue({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev });
+    await Q.startQueue({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev, asked: true });
     expect(calls).toContain(QUEUE_CHANGED);
     disposeState();
   });

@@ -609,7 +609,9 @@ export function installIntercept(): () => void {
 // A wrong channel is left to runQueue(), which says so first.
 // `seen` is what the user confirmed (startSummary's channel and pending items): the run
 // starts only if both are still what they were.
-export interface StartBinding { channelId: string; ids: string[]; editRev: number }
+// `asked`: the panel showed the summary and the user said yes. Without it, runQueue's own
+// re-check (the clock moved, a .txt arrived) refuses rather than start past a new warning.
+export interface StartBinding { channelId: string; ids: string[]; editRev: number; asked: boolean }
 // Bumped by every edit the side panel makes to an item (queue-edit.ts, followStoredChanges):
 // a release time or preset changed after the summary must not start with the old summary's OK.
 // Not content-ui's `rev`: duration reads and progress bump that one too.

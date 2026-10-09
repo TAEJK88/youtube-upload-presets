@@ -8,6 +8,7 @@ import { QueueCard } from '../entrypoints/sidepanel/tabs/QueueCard';
 import { QueueFooter } from '../entrypoints/sidepanel/tabs/QueueFooter';
 import { QueueTab, usePanelDrop } from '../entrypoints/sidepanel/tabs/QueueTab';
 import { ScheduleBox } from '../entrypoints/sidepanel/tabs/ScheduleBox';
+import { useAsk } from '../entrypoints/sidepanel/ask';
 import { PanelContext } from '../entrypoints/sidepanel/panel';
 import { toPanelData } from '../lib/panel/data';
 import { fmtWhen, toLocalInput } from '../lib/panel/format';
@@ -473,7 +474,7 @@ describe('upload footer', () => {
     expect(screen.getByText('Per preset (PRIVATE)')).toBeTruthy();
     expect(screen.getByText('1 video(s)')).toBeTruthy(); // no .txt
     await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Upload 1 video(s)' }).at(-1)!));
-    expect(api.send).toHaveBeenCalledWith('queue:start', { channelId: 'UC1', ids: ['i0'], editRev: 2 });
+    expect(api.send).toHaveBeenCalledWith('queue:start', { channelId: 'UC1', ids: ['i0'], editRev: 2, asked: true });
   });
 
   it('Cancel in the summary starts nothing', async () => {
@@ -498,6 +499,80 @@ describe('upload footer', () => {
     expect(sendTo).toHaveBeenCalledWith(7);
     expect(other).toHaveBeenCalledWith('queue:stop', undefined);
     expect(api.send).not.toHaveBeenCalledWith('queue:stop', undefined);
+  });
+
+  const summaryReply = (api: ReturnType<typeof fakePanel>, needsConfirm = true) =>
+    vi.mocked(api.send).mockImplementation((async (type: string) =>
+      type === 'queue:preflight'
+        ? { pendingN: 1, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0'], editRev: 0, times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm }
+        : undefined) as never);
+
+  // ask() resolves null when its question is replaced by another: null is not a yes.
+  it('a summary replaced by another question (null) starts nothing', async () => {
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
+    summaryReply(api);
+    const Other = () => {
+      const ask = useAsk();
+      return <button type="button" onClick={() => void ask({ title: 'Other question' })}>other</button>;
+    };
+    renderPanel(<><QueueFooter /><Other /></>, api);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /Upload 1 video\(s\)/ })));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByText('other')));
+    await act(async () => new Promise((r) => setTimeout(r, 0)));
+    expect(screen.getByText('Other question')).toBeTruthy();
+    expect(api.send).not.toHaveBeenCalledWith('queue:start', expect.anything());
+  });
+
+  it('Start is off while the tab is not linked', () => {
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }]), link: 'none' as never }));
+    expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('the running title counts errors too', () => {
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'done' }, { status: 'error' }, { status: 'uploading' }]) }), fakeLive({ state: state({ running: true }), liveState: state({ running: true }) }));
+    expect(screen.getByText('Uploading 3/3')).toBeTruthy();
+  });
+
+  it('a second click while the summary is being fetched is ignored', async () => {
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
+    let reply!: (v: unknown) => void;
+    vi.mocked(api.send).mockImplementation(((type: string) => (type === 'queue:preflight' ? new Promise((r) => { reply = r; }) : Promise.resolve())) as never);
+    renderPanel(<QueueFooter />, api);
+    const start = screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement;
+    await act(async () => { fireEvent.click(start); fireEvent.click(start); });
+    expect(vi.mocked(api.send).mock.calls.filter(([t]) => t === 'queue:preflight')).toHaveLength(1);
+    expect(start.disabled).toBe(true);
+    await act(async () => reply({ error: 'No videos waiting in the queue' }));
+    expect(start.disabled).toBe(false);
+  });
+
+  it('Stop is on while another tab holds the run, before its state arrives', () => {
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }]), runner: { tabId: 7, windowId: 2, title: 'Other' }, elsewhere: true }), fakeLive({ state: state(), liveState: state() }));
+    expect((screen.getByRole('button', { name: 'Stop after the current video' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('the Start button has the play icon, which spins while running', () => {
+    const { container } = renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'uploading' }]) }), fakeLive({ state: state({ running: true }), liveState: state({ running: true }) }));
+    const gi = container.querySelector('[data-go-icon]')!;
+    expect(gi).toBeTruthy();
+    expect(gi.className).toContain('animate-');
+    cleanup();
+    const idle = renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }]) }));
+    expect(idle.container.querySelector('[data-go-icon]')!.className).not.toContain('animate-');
+  });
+
+  it('a Clear the tab does not take says so', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const api = fakePanel({ view: viewWith([{ status: 'done' }]) });
+    vi.mocked(api.send).mockRejectedValue(new Error('gone'));
+    renderPanel(<QueueFooter />, api);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Clear finished videos from the list' }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(toast).toHaveBeenCalledWith(RELOAD);
+    err.mockRestore();
   });
 
   it('Clear sends queue:clearDone once a video is done', () => {

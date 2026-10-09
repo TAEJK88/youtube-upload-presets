@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
-import { createContentUi, storeWriteFailed } from '../lib/studio/content-ui';
+import { createContentUi, startFromPanel, storeWriteFailed } from '../lib/studio/content-ui';
 import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { setBridge } from '../lib/studio/queue-files';
@@ -8,7 +8,7 @@ import { removeItem } from '../lib/studio/queue-ops';
 import { persistQueue } from '../lib/studio/queue-store';
 import * as Q from '../lib/studio/queue-runner';
 import { SEL } from '../lib/studio/sel';
-import { save } from '../lib/studio/state';
+import { save, settings } from '../lib/studio/state';
 import * as D from '../lib/studio/upload-dialog';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -136,6 +136,37 @@ describe('a draft id the run picked up', () => {
     expect(persistQueue).toHaveBeenCalledTimes(1);
     file.resolve(new File(['x'], 'A.mp4'));
     await run;
+  });
+});
+
+// queue:start: the page's own re-check (runQueue) asks again when it finds a reason to;
+// that counts as a yes only when the panel really asked the user.
+describe('queue:start from the panel', () => {
+  const CONFIRM = 'Confirm the upload in the side panel first';
+  const binding = (asked: boolean) => ({ channelId: 'UCabcdefghijklmn', ids: Q.queue.map((i) => i.id), editRev: Q.getEditRev(), asked });
+  let was: boolean;
+  beforeEach(() => { was = settings.confirmStart; settings.confirmStart = true; });
+  afterEach(() => { settings.confirmStart = was; });
+
+  it('nothing was asked: the run that needs a confirmation refuses', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    const ui = createContentUi();
+    setPageUi(ui);
+    const getFile = vi.fn(async (id: string) => new File(['x'], id));
+    setBridge({ getFile });
+    await startFromPanel(ui, binding(false));
+    expect(send).toHaveBeenCalledWith('queue:toast', CONFIRM);
+    expect(Q.queue[0]!.status).toBe('pending');
+  });
+
+  it('asked and confirmed: the run starts', async () => {
+    await Q.addFiles([qfile('A.mp4')]);
+    const ui = createContentUi();
+    setPageUi(ui);
+    setBridge({ getFile: async () => { throw new Error('missing'); } });
+    await startFromPanel(ui, binding(true));
+    expect(send).not.toHaveBeenCalledWith('queue:toast', CONFIRM);
+    expect(Q.queue[0]!.status).toBe('error'); // it ran: the bridge said 'missing'
   });
 });
 

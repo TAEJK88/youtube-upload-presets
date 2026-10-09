@@ -1,7 +1,9 @@
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
 import { fmtWhen } from '@/lib/panel/format';
+import { cn } from '@/lib/utils';
 import { startFlow, stopFlow } from '@/lib/panel/start';
 import type { StartSummary } from '@/lib/studio/queue-runner';
 import { useAsk } from '../ask';
@@ -67,6 +69,9 @@ export function QueueFooter() {
   const { view, runner, elsewhere, link, target, send, sendTo } = usePanel();
   const { state, liveState } = useLive();
   const ask = useAsk();
+  // A preflight can take a second or more (fresh config, the channel's schedule): one at a time.
+  const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const items = view?.items ?? [];
   const count = (s: string) => items.filter((i) => i.status === s).length;
   const pending = count('pending');
@@ -84,7 +89,11 @@ export function QueueFooter() {
     : L('เริ่มอัปโหลด', 'Start upload');
   const sub = blocked ? L('ปลดล็อกหรือสลับกลับไปช่องที่ล็อกไว้', 'Unlock, or switch back to the locked channel') : L(`ไปที่ช่อง ${ch}`, `To channel ${ch}`);
 
-  const start = () => void startFlow({
+  const start = () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    void startFlow({
     preflight: () => send('queue:preflight', undefined),
     // null (dismissed, or replaced by another question) is a no, like false.
     confirm: async (s) => (await ask({
@@ -95,7 +104,11 @@ export function QueueFooter() {
     })) === true,
     start: (b) => send('queue:start', b),
     toast: (m) => void toast(m),
+  }).finally(() => {
+    inFlight.current = false;
+    setBusy(false);
   });
+  };
   const stop = () => void stopFlow({
     bound: target?.tabId ?? null,
     runner,
@@ -109,14 +122,20 @@ export function QueueFooter() {
 
   return (
     <div className="flex gap-2 border-t border-white/[0.08] px-[18px] py-3.5">
-      <Button variant="go" size="lg" className="group min-w-0 flex-1 flex-col items-start gap-0 text-left leading-[1.25]"
-        disabled={running || !pending || blocked || elsewhere || link !== 'ok'} onClick={start}>
-        <b className="max-w-full truncate text-[13.5px] font-semibold">{title}</b>
-        <small className="max-w-full truncate text-xs font-medium text-[#55555c] group-disabled:text-fg3">{sub}</small>
+      <Button variant="go" size="lg" className="group min-w-0 flex-1 justify-start gap-3 text-left"
+        disabled={running || !pending || blocked || elsewhere || link !== 'ok' || busy} onClick={start}>
+        {/* .btn.go .gi: the play icon, spinning while the run goes (.btn.go.running .gi) */}
+        <span data-go-icon className={cn('grid size-[30px] shrink-0 place-items-center rounded-full bg-black/10 group-disabled:bg-white/10', running && 'animate-[spin_1.2s_linear_infinite]')}>
+          <Icon name="play" size={14} />
+        </span>
+        <span className="flex min-w-0 flex-col items-start leading-[1.25]">
+          <b className="max-w-full truncate text-[13.5px] font-semibold">{title}</b>
+          <small className="max-w-full truncate text-xs font-medium text-[#55555c] group-disabled:text-fg3">{sub}</small>
+        </span>
       </Button>
       <IconButton icon="stop" title={L('หยุดหลังคลิปปัจจุบันเสร็จ', 'Stop after the current video')}
         className="h-auto w-12 self-stretch rounded-[14px] border border-white/[0.16] bg-white/[0.06] text-white hover:text-err disabled:opacity-35"
-        disabled={!liveState?.running} onClick={stop} />
+        disabled={!(liveState?.running || elsewhere)} onClick={stop} />
       <IconButton icon="clear" title={L('ล้างคลิปที่อัปเสร็จออกจากรายการ', 'Clear finished videos from the list')}
         className="h-auto w-12 self-stretch rounded-[14px] border border-white/[0.16] bg-white/[0.06] text-white disabled:opacity-35"
         disabled={!done} onClick={clear} />

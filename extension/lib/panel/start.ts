@@ -21,7 +21,7 @@ export async function startFlow(d: {
       return 'error';
     }
     if (s.needsConfirm && !(await d.confirm(s))) return 'cancelled';
-    await d.start({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev });
+    await d.start({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev, asked: s.needsConfirm });
     return 'started';
   } catch (e) {
     console.error('[ytup] start failed', e);
@@ -29,6 +29,10 @@ export async function startFlow(d: {
     return 'error';
   }
 }
+
+// The run marks its tab's title ("(2/5) ⬆", then ✅ / ⚠️: page-notify TITLE_TAG); the tab is
+// named without it.
+const TITLE_MARK = /^(\(\d+\/\d+\) ⬆|✅|⚠️)(\s+|$)/;
 
 // Stop goes to the tab that holds the runner lock (D14). When that is this panel's tab its
 // page announces the stop itself (queue-ops stopQueue); when it is another tab, whose toasts
@@ -44,9 +48,14 @@ export async function stopFlow(d: {
     try {
       await d.stop(r.tabId);
     } catch (e) {
-      return console.error('[ytup] stop failed', e); // the runner's page is gone: nothing to stop
+      // The runner's page is gone (closed, navigated): nothing to stop there. The reload
+      // message would name this panel's tab, not that one.
+      console.error('[ytup] stop failed', e);
+      d.toast(L('แท็บนั้นไม่ได้อัปโหลดคิวอยู่แล้ว', 'That tab is no longer running the queue'));
+      return;
     }
-    d.toast(L(`จะหยุดคิวในแท็บ "${r.title}" หลังคลิปปัจจุบันเสร็จ`, `Will stop the queue in the tab "${r.title}" after the current video finishes`));
+    const name = r.title.replace(TITLE_MARK, '');
+    d.toast(L(`จะหยุดคิวในแท็บ "${name}" หลังคลิปปัจจุบันเสร็จ`, `Will stop the queue in the tab "${name}" after the current video finishes`));
     return;
   }
   if (d.bound === null) return;

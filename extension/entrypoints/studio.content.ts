@@ -9,7 +9,7 @@ import { rpcClient, windowEndpoint } from '@/lib/rpc';
 import { createSyncStore } from '@/lib/sync-store';
 import { getChannel, refreshCfg } from '@/lib/studio/channel';
 import { rememberChannel, switchChannel } from '@/lib/studio/channels';
-import { createContentUi, storeWriteFailed } from '@/lib/studio/content-ui';
+import { createContentUi, startFromPanel, storeWriteFailed } from '@/lib/studio/content-ui';
 import { fabModel, mountFab } from '@/lib/studio/fab';
 import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
@@ -19,7 +19,7 @@ import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
-import { installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
+import { installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
@@ -125,9 +125,8 @@ export default defineContentScript({
     onMessage('queue:add', ({ data: ids }) => handleQueueAdd(ids, mayEdit));
     onMessage('queue:preflight', () => startSummary());
     onMessage('queue:start', ({ data: seen }) => {
-      ui.setConfirmed(true); // the panel sends this once the user confirmed the summary
       // A run can take hours: answer now, report through queue:state.
-      void startQueue(seen)
+      void startFromPanel(ui, seen)
         .catch((e) => console.error('[ytup] run', e))
         .finally(elsewhere);
     });
