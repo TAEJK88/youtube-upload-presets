@@ -12,6 +12,8 @@ export type SongsOp =
   | { fn: 'delete'; key: string }
   | { fn: 'clear' };
 export type ClaimsOp =
+  // undefined removes the key, like the userscript's save(k, undefined) then load(k, d) giving d;
+  // over the message boundary (JSON) it arrives as no `value` at all, which means the same.
   | { op: 'set'; key: string; value: unknown }
   | { op: 'merge'; key: string; entries: Record<string, unknown> } // a null entry removes it
   | { op: 'list'; key: string; add?: string[]; del?: string[] }
@@ -25,6 +27,11 @@ const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => t
 const MERGE = new Set(['cfg', 'trimResults', 'adsResults', 'collabResults', 'collabLinks', 'autopilot', 'trimRun', 'adsRun', 'collabRun']);
 const RUNS = new Set(['trimRun', 'adsRun', 'collabRun']);
 const PROTO = new Set(['__proto__', 'constructor', 'prototype']);
+// recordSongs / markSongTrimmed index `e.videos` by videoId: a prototype name there would write
+// onto Object.prototype in the background. (The song keys always hold a '|', so they can't be one.)
+const ROW = ['song', 'artists', 'label', 'claimant', 'type', 'videoId', 'video', 'impact'] as const;
+const okId = (s: unknown) => typeof s === 'string' && !PROTO.has(s);
+const isRow = (r: unknown) => isObj(r) && ROW.every((f) => r[f] === undefined || typeof r[f] === 'string') && okId(r.videoId);
 const nameOf = (key: string) => splitKey(key)?.name ?? '';
 
 // The key's next value (undefined: remove it).
@@ -67,8 +74,8 @@ export function applyOp(cur: unknown, op: ClaimsOp): unknown {
 function isSongsOp(v: unknown): v is SongsOp {
   if (!isObj(v)) return false;
   switch (v.fn) {
-    case 'record': return Array.isArray(v.rows) && v.rows.every(isObj) && typeof v.chName === 'string' && typeof v.now === 'string';
-    case 'trimmed': return typeof v.song === 'string' && typeof v.videoId === 'string';
+    case 'record': return Array.isArray(v.rows) && v.rows.every(isRow) && typeof v.chName === 'string' && typeof v.now === 'string';
+    case 'trimmed': return typeof v.song === 'string' && okId(v.videoId);
     case 'import': return typeof v.text === 'string' && typeof v.now === 'string';
     case 'delete': return typeof v.key === 'string' && !PROTO.has(v.key);
     case 'clear': return true;
@@ -83,7 +90,7 @@ export function isClaimsOp(v: unknown): v is ClaimsOp {
   if (!isClaimsKey(v.key)) return false;
   const name = nameOf(v.key);
   switch (v.op) {
-    case 'set': return 'value' in v;
+    case 'set': return true; // no value: it was undefined before JSON, a removal
     case 'merge': return MERGE.has(name) && isObj(v.entries) && Object.keys(v.entries).every((k) => !PROTO.has(k));
     case 'list': return name === 'trimQueue' && (v.add === undefined || strs(v.add)) && (v.del === undefined || strs(v.del));
     case 'runItem': return RUNS.has(name) && (v.by === 'key' || v.by === 'videoId') && typeof v.id === 'string'

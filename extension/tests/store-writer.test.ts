@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { setLang } from '../lib/i18n';
@@ -191,15 +191,44 @@ describe('claims:op', () => {
       claimsOpInOrder({ op: 'merge', key: 'trimResults:UC1', entries: { c: { state: 'failed' } } }),
     ]);
     expect(Object.keys((await browser.storage.local.get('trimResults:UC1'))['trimResults:UC1'] as object)).toEqual(['a', 'b', 'c']);
-    await claimsOpInOrder({ op: 'set', key: 'trimRun:UC1', value: undefined });
+  });
+
+  // Review m1: chrome.runtime messages are JSON, so `value: undefined` arrives as no `value`.
+  // Like the userscript's save(k, undefined) (a later load(k, d) gives d), it removes the key.
+  it('set without a value, after the message boundary, removes the key; null is stored', async () => {
+    const wire = <T>(v: T): T => JSON.parse(JSON.stringify(v));
+    await browser.storage.local.set({ 'trimRun:UC1': { active: true, items: [] }, logOpen: true });
+    await claimsOpInOrder(wire({ op: 'set', key: 'trimRun:UC1', value: undefined }));
     expect(await browser.storage.local.get('trimRun:UC1')).toEqual({});
+    const set = vi.spyOn(browser.storage.local, 'set'); // fakeBrowser reads a stored null back as undefined
+    await claimsOpInOrder(wire({ op: 'set', key: 'logOpen', value: null }));
+    expect(set).toHaveBeenCalledWith({ logOpen: null });
+    set.mockRestore();
+  });
+
+  // Review I1: the song reducers index objects by videoId; '__proto__' would reach Object.prototype.
+  it('a songs op cannot reach Object.prototype, and row fields must be strings', async () => {
+    const wire = (v: unknown): unknown => JSON.parse(JSON.stringify(v));
+    const row = { song: 'S', artists: 'A', label: '', claimant: 'Co', type: 'audio', videoId: 'v1', video: 'PWN', impact: 'x' };
+    for (const videoId of ['__proto__', 'constructor', 'prototype']) {
+      await expect(claimsOpInOrder(wire({ op: 'songs', songs: { fn: 'record', rows: [{ ...row, videoId }], chName: 'C', now: 'n' } })))
+        .rejects.toThrow('claims:op: malformed');
+      await expect(claimsOpInOrder(wire({ op: 'songs', songs: { fn: 'trimmed', song: 'S', videoId } }))).rejects.toThrow('claims:op: malformed');
+    }
+    await claimsOpInOrder(wire({ op: 'songs', songs: { fn: 'record', rows: [row], chName: 'C', now: 'n' } }));
+    await claimsOpInOrder(wire({ op: 'songs', songs: { fn: 'trimmed', song: 'S', videoId: 'v1' } }));
+    const probe = {} as Record<string, unknown>;
+    expect([probe.video, probe.impact, probe.status]).toEqual([undefined, undefined, undefined]);
+    for (const bad of [{ artists: 5 }, { claimant: { x: 1 } }, { videoId: 7 }, { song: null }]) {
+      await expect(claimsOpInOrder(wire({ op: 'songs', songs: { fn: 'record', rows: [{ ...row, ...bad }], chName: 'C', now: 'n' } })))
+        .rejects.toThrow('claims:op: malformed');
+    }
   });
 
   it('refuses malformed ops and keys outside the copyright data', async () => {
     await expect(claimsOpInOrder({ op: 'set', key: 'settings', value: {} })).rejects.toThrow('claims:op: malformed');
     await expect(claimsOpInOrder({ op: 'merge', key: 'cfg', entries: JSON.parse('{"__proto__":{}}') })).rejects.toThrow('claims:op: malformed');
   });
-
 
   // Review m6: the SyncStore keeps any key under a copyright prefix; the writer is the check.
   it('refuses keys that only look like copyright keys', async () => {
@@ -214,6 +243,7 @@ describe('claims:op', () => {
     await claimsOpInOrder({ op: 'set', key: 'logOpen', value: true });
     expect(await browser.storage.local.get(null)).toEqual({ 'claimScan:UCabc_-1': { rows: [] }, logOpen: true });
   });
+
   it('only the side panel and Studio tabs may send it', () => {
     const ext = 'chrome-extension://abc/';
     expect(mayWrite('claims:op', { url: ext + 'sidepanel.html' }, ext)).toBe(true);

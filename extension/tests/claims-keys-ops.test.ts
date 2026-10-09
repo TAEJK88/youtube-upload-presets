@@ -58,4 +58,24 @@ describe('ops', () => {
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'eval' } })).toBe(false);
     expect(isClaimsOp(null)).toBe(false);
   });
+
+  it('isClaimsOp checks the runItem fields (review m2)', () => {
+    const ok = { op: 'runItem', key: 'trimRun:UC1', by: 'key', id: 'x', state: 's', msg: '' };
+    expect(isClaimsOp(ok)).toBe(true);
+    expect(isClaimsOp({ ...ok, onlyActive: true })).toBe(true);
+    for (const bad of [{ id: 1 }, { state: 1 }, { msg: null }, { onlyActive: 'yes' }, { key: 'trimQueue:UC1' }]) expect(isClaimsOp({ ...ok, ...bad })).toBe(false);
+  });
+
+  it('isClaimsOp keeps prototype names out of every key the song reducers use (review I1)', () => {
+    const row = { song: 'S', artists: 'A', label: '', claimant: '', type: '', videoId: 'v', video: 'M', impact: '' };
+    const rec = (r: object) => ({ op: 'songs', songs: { fn: 'record', rows: [r], chName: 'C', now: 'n' } });
+    expect(isClaimsOp(rec(row))).toBe(true);
+    expect(isClaimsOp(rec({ song: 'S', videoId: 'v' }))).toBe(true); // missing fields: the reducers read '' (|| '')
+    expect(isClaimsOp(rec({ ...row, videoId: '__proto__' }))).toBe(false);
+    expect(isClaimsOp(rec({ song: 'S' }))).toBe(false); // no videoId
+    expect(isClaimsOp(rec({ ...row, artists: 5 }))).toBe(false);
+    expect(isClaimsOp({ op: 'songs', songs: { fn: 'trimmed', song: 'S', videoId: 'constructor' } })).toBe(false);
+    expect(isClaimsOp({ op: 'songs', songs: { fn: 'delete', key: '__proto__' } })).toBe(false);
+    expect(isClaimsOp({ op: 'set', key: 'cfg' })).toBe(true); // undefined went missing in JSON: a removal (review m1)
+  });
 });
