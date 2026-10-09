@@ -98,7 +98,7 @@ $('#start').addEventListener('click', () =>
     ].filter(Boolean).join('\n');
     if (s.needsConfirm && !confirm(text)) return 'cancelled';
     log(text);
-    await sendMessage('queue:start', { channelId: s.channel.id, ids: s.ids }, t);
+    await sendMessage('queue:start', { channelId: s.channel.id, ids: s.ids, editRev: s.editRev }, t);
     return 'started';
   }),
 );

@@ -30,7 +30,7 @@ let n = 0;
 const qfile = (name: string, body = 'x', type = '') =>
   Object.assign(new File([body], name, { type }), { qid: `id-${++n}`, src: 'bridge' as const });
 // What the panel sends with queue:start: the channel and the pending items its summary showed.
-const confirmed = (channelId = 'UCabcdefghijklmn') => ({ channelId, ids: Q.queue.filter((i) => i.status === 'pending').map((i) => i.id) });
+const confirmed = (channelId = 'UCabcdefghijklmn') => ({ channelId, ids: Q.queue.filter((i) => i.status === 'pending').map((i) => i.id), editRev: Q.getEditRev() });
 
 beforeEach(() => {
   vi.stubGlobal('document', makeDocument());

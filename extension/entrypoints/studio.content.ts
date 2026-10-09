@@ -1,7 +1,7 @@
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
 import { createFileBridge } from '@/lib/file-bridge-client';
-import { initI18n, L } from '@/lib/i18n';
+import { initI18n } from '@/lib/i18n';
 import { browserEnv, createInviteWatcher, INVITE_KEYS } from '@/lib/invite';
 import { MAIN_CH, type MainOps } from '@/lib/main-ops';
 import { onMessage, sendMessage } from '@/lib/messages';
@@ -13,10 +13,10 @@ import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
 import { installQuickActions } from '@/lib/studio/quick-actions';
-import { bridgeFiles, dropFiles, setBridge } from '@/lib/studio/queue-files';
-import { editQueue, followStoredChanges } from '@/lib/studio/queue-edit';
+import { setBridge } from '@/lib/studio/queue-files';
+import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
-import { addQueued, installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
+import { installIntercept, requestStop, setCfgReader, setOtherTabRuns, setRunnerLock, startQueue, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { elsewhere, mayEdit, resumeQueue } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
@@ -132,12 +132,7 @@ export default defineContentScript({
     });
     await resumeQueue();
 
-    onMessage('queue:add', async ({ data: ids }) => {
-      if (!(await mayEdit())) return;
-      const { files, failed } = await bridgeFiles(ids);
-      if (failed.length) ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
-      if (files.length) await addQueued(files);
-    });
+    onMessage('queue:add', ({ data: ids }) => handleQueueAdd(ids, mayEdit));
     onMessage('queue:preflight', () => startSummary());
     onMessage('queue:start', ({ data: seen }) => {
       ui.setConfirmed(true); // the panel sends this once the user confirmed the summary
@@ -160,11 +155,7 @@ export default defineContentScript({
       if (await mayEdit()) clearDone();
     });
     onMessage('queue:view', () => queueView(ui.state()));
-    onMessage('queue:edit', async ({ data }) => {
-      if (await mayEdit()) await editQueue(data);
-      // Refused: the files the panel stored for this item are not needed.
-      else if (data.op === 'attach') dropFiles(data.fileIds.map((id) => ({ id, src: 'bridge' as const })));
-    });
+    onMessage('queue:edit', ({ data }) => handleQueueEdit(data, mayEdit));
     stop.add(followStoredChanges());
     onMessage('fill:apply', () => applyToOpenDialog());
     onMessage('diag:dialogInfo', () => diagnoseUploadDialog());

@@ -7,7 +7,7 @@ import { defaultPresets } from '../lib/presets';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as files from '../lib/studio/queue-files';
 import * as Q from '../lib/studio/queue-runner';
-import { editQueue, followStoredChanges } from '../lib/studio/queue-edit';
+import { editQueue, followStoredChanges, handleQueueAdd, handleQueueEdit } from '../lib/studio/queue-edit';
 import { activeId, disposeState, initState } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -135,6 +135,118 @@ describe('editQueue', () => {
     expect(Q.queue.map((i) => i.presetId)).toEqual(['trapsoul', 'lofi']);
     await editQueue({ op: 'move', id: 'b', by: -1 });
     expect(Q.queue.map((i) => i.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('an edit after the summary refuses the start', () => {
+  const QUEUE_CHANGED = 'toast:The queue changed after you confirmed — click Start again to see the new summary';
+  const preflight = async () => {
+    Q.queue.push(item('a', 'pending'));
+    const s = await Q.startSummary();
+    if ('error' in s) throw new Error(s.error);
+    return { channelId: s.channel.id, ids: s.ids, editRev: s.editRev };
+  };
+  beforeEach(() => vi.stubGlobal('location', { pathname: '/channel/UCabcdefghijklmn/videos' }));
+
+  it('a release time changed after the preflight', async () => {
+    const seen = await preflight();
+    await editQueue({ op: 'publishAt', id: 'a', at: 1_900_000_000_000 });
+    calls.length = 0;
+    await Q.startQueue(seen);
+    expect(calls).toEqual([QUEUE_CHANGED]);
+    expect(Q.queue[0]!.status).toBe('pending');
+  });
+
+  it('no edit: the start gets past the binding', async () => {
+    const seen = await preflight();
+    calls.length = 0;
+    await Q.startQueue(seen);
+    expect(calls).not.toContain(QUEUE_CHANGED);
+  });
+
+  it('a preset deleted after the preflight', async () => {
+    disposeState();
+    fakeBrowser.reset();
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION });
+    await initState(async () => SCHEMA_VERSION);
+    Q.queue.push(item('a', 'pending', { presetId: 'lofi' }));
+    const s = await Q.startSummary();
+    if ('error' in s) throw new Error(s.error);
+    const off = followStoredChanges();
+    await browser.storage.local.set({ presets: defaultPresets().filter((p) => p.id !== 'lofi') });
+    await vi.waitFor(() => expect(Q.queue[0]!.presetId).toBe(activeId));
+    off();
+    calls.length = 0;
+    await Q.startQueue({ channelId: s.channel.id, ids: s.ids, editRev: s.editRev });
+    expect(calls).toContain(QUEUE_CHANGED);
+    disposeState();
+  });
+});
+
+describe('edit guards', () => {
+  it('an unknown preset id changes nothing', async () => {
+    Q.queue.push(item('a', 'pending'), item('b', 'pending'));
+    await editQueue({ op: 'preset', id: 'a', presetId: 'nope' });
+    await editQueue({ op: 'presetAll', presetId: 'nope' });
+    expect(Q.queue.map((i) => i.presetId)).toEqual(['trapsoul', 'trapsoul']);
+    expect(calls).toEqual([]);
+  });
+
+  it('attach reads every .txt before it changes the item: a run that takes it mid-read leaves it alone', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    vi.spyOn(files, 'bridgeFiles').mockResolvedValue({ files: [qfile('a.txt', 't1'), qfile('a.jpg', 'i1')], failed: [] });
+    vi.spyOn(Q, 'readText').mockImplementation(async () => {
+      Q.queue[0]!.status = 'uploading';
+      return 'text';
+    });
+    Q.queue.push(item('a', 'pending', { titleEdited: true }));
+    await editQueue({ op: 'attach', id: 'a', fileIds: ['t1', 'i1'] });
+    expect(Q.queue[0]).toMatchObject({ txt: '', txtName: '', thumb: null, titleEdited: true });
+    expect(drop.mock.calls.flat(2).map((r) => r.id).sort()).toEqual(['i1', 't1']);
+  });
+});
+
+describe('handleQueueEdit', () => {
+  const yes = async () => true;
+  const no = async () => false;
+
+  it('refused: the files the panel stored for an attach are let go, nothing is edited', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    Q.queue.push(item('a', 'pending'));
+    await handleQueueEdit({ op: 'attach', id: 'a', fileIds: ['t1', 'i1'] }, no);
+    expect(drop).toHaveBeenCalledWith([{ id: 't1', src: 'bridge' }, { id: 'i1', src: 'bridge' }]);
+    await handleQueueEdit({ op: 'title', id: 'a', title: 'X' }, no);
+    expect(Q.queue[0]!.title).toBe('');
+  });
+
+  it('applies when allowed', async () => {
+    Q.queue.push(item('a', 'pending'));
+    await handleQueueEdit({ op: 'title', id: 'a', title: 'X' }, yes);
+    expect(Q.queue[0]!.title).toBe('X');
+  });
+
+  it('malformed payloads are dropped', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    Q.queue.push(item('a', 'pending'));
+    for (const bad of [null, 'x', {}, { op: 'nope', id: 'a' }, { op: 'title', id: 1, title: 'X' }, { op: 'title', id: 'a' },
+      { op: 'move', id: 'a', by: 2 }, { op: 'attach', id: 'a', fileIds: 'x' }, { op: 'attach', id: 'a', fileIds: [1] },
+      { op: 'publishAt', id: 'a', at: 'soon' }, { op: 'presetAll' }]) {
+      await handleQueueEdit(bad, yes);
+    }
+    expect(Q.queue[0]).toMatchObject({ title: '' });
+    expect(Q.queue[0]!.publishAt).toBeFalsy();
+    expect(drop).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('handleQueueAdd', () => {
+  it('refused: the files the panel stored are let go', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    const bridge = vi.spyOn(files, 'bridgeFiles');
+    await handleQueueAdd(['x1', 'x2'], async () => false);
+    expect(drop).toHaveBeenCalledWith([{ id: 'x1', src: 'bridge' }, { id: 'x2', src: 'bridge' }]);
+    expect(bridge).not.toHaveBeenCalled();
   });
 });
 

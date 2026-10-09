@@ -2,7 +2,7 @@ import { fixChapters } from '../chapters';
 import { L } from '../i18n';
 import { ui } from './page-ui';
 import { bridgeFiles, dropFiles } from './queue-files';
-import { assignNumbers, currentItemId, fileMeta, isImg, isTxt, queue, readText, saveMemo, type FileSrc, type QueueItem } from './queue-runner';
+import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, saveMemo, type FileSrc, type QueueItem } from './queue-runner';
 import { activeId, onStored, presets } from './state';
 
 // The drawer's queue-card controls (UI section 3752–4024) and its "Apply to all" button,
@@ -27,6 +27,7 @@ export type QueueEdit =
 const canEdit = (it: QueueItem | undefined): it is QueueItem =>
   !!it && (it.status === 'pending' || it.status === 'error') && it.id !== currentItemId();
 const done = () => {
+  bumpEditRev();
   saveMemo();
   ui.queue();
 };
@@ -34,6 +35,7 @@ const done = () => {
 export async function editQueue(e: QueueEdit): Promise<void> {
   if (e.op === 'presetAll') {
     // Not the item the run is fetching a file for (Phase 2: the run owns it from then on).
+    if (!presets.some((p) => p.id === e.presetId)) return;
     for (const it of queue) if (canEdit(it)) { it.presetId = e.presetId; it.titleEdited = false; }
     assignNumbers();
     return done();
@@ -60,6 +62,7 @@ export async function editQueue(e: QueueEdit): Promise<void> {
       it.publishAt = e.at || null;
       break;
     case 'preset':
+      if (!presets.some((p) => p.id === e.presetId)) return;
       it.presetId = e.presetId;
       it.titleEdited = false;
       assignNumbers();
@@ -102,10 +105,14 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
   const { files, failed } = await bridgeFiles(ids);
   if (failed.length) ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
   if (!canEdit(it)) return dropFiles(files.map((f) => ({ id: f.qid, src: f.src })));
+  // Read every .txt before touching the item: the run can take it during an await.
+  const texts = new Map<string, string>();
+  for (const f of files) if (isTxt(f)) texts.set(f.qid, await readText(f));
+  if (!canEdit(it)) return dropFiles(files.map((f) => ({ id: f.qid, src: f.src })));
   const unused: { qid: string; src: FileSrc }[] = [];
   for (const f of files) {
     if (isTxt(f)) {
-      it.txt = await readText(f);
+      it.txt = texts.get(f.qid) ?? '';
       it.txtName = f.name;
       unused.push(f); // read: the file itself is no longer needed
     } else if (isImg(f)) {
@@ -130,7 +137,11 @@ export function followStoredChanges(): () => void {
     timer = setTimeout(() => {
       // Not an item the run is working on: its upload keeps the preset it started with.
       const owned = (it: QueueItem) => it.status === 'uploading' || it.status === 'review' || it.id === currentItemId();
-      for (const it of queue) if (!owned(it) && !presets.some((p) => p.id === it.presetId)) it.presetId = activeId;
+      for (const it of queue) {
+        if (owned(it) || presets.some((p) => p.id === it.presetId)) continue;
+        it.presetId = activeId;
+        bumpEditRev();
+      }
       assignNumbers();
       ui.queue();
     }, 0);
@@ -140,4 +151,40 @@ export function followStoredChanges(): () => void {
     clearTimeout(timer);
     for (const off of offs) off();
   };
+}
+
+const isStr = (v: unknown): v is string => typeof v === 'string';
+const isIds = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+// Only a well-formed edit gets through: the payload crosses a message boundary.
+function asEdit(d: unknown): QueueEdit | null {
+  if (!d || typeof d !== 'object') return null;
+  const e = d as Record<string, unknown>;
+  switch (e.op) {
+    case 'title': return isStr(e.id) && isStr(e.title) ? (e as QueueEdit) : null;
+    case 'artists': return isStr(e.id) && isStr(e.artists) ? (e as QueueEdit) : null;
+    case 'publishAt': return isStr(e.id) && (e.at === null || typeof e.at === 'number') ? (e as QueueEdit) : null;
+    case 'preset': return isStr(e.id) && isStr(e.presetId) ? (e as QueueEdit) : null;
+    case 'presetAll': return isStr(e.presetId) ? (e as QueueEdit) : null;
+    case 'move': return isStr(e.id) && (e.by === -1 || e.by === 1) ? (e as QueueEdit) : null;
+    case 'attach': return isStr(e.id) && isIds(e.fileIds) ? (e as QueueEdit) : null;
+    case 'resetTitle': case 'dropTxt': case 'dropThumb': case 'fixTracklist': return isStr(e.id) ? (e as QueueEdit) : null;
+    default: return null;
+  }
+}
+
+// queue:edit. Refused (another tab runs the queue): the files the panel stored for an
+// attach are not needed.
+export async function handleQueueEdit(data: unknown, mayEdit: () => Promise<boolean>): Promise<void> {
+  const e = asEdit(data);
+  if (!e) return;
+  if (await mayEdit()) await editQueue(e);
+  else if (e.op === 'attach') dropFiles(e.fileIds.map((id) => ({ id, src: 'bridge' as const })));
+}
+
+// queue:add, with the same let-go when refused.
+export async function handleQueueAdd(ids: string[], mayEdit: () => Promise<boolean>): Promise<void> {
+  if (!(await mayEdit())) return dropFiles(ids.map((id) => ({ id, src: 'bridge' as const })));
+  const { files, failed } = await bridgeFiles(ids);
+  if (failed.length) ui.toast(L(`เพิ่มไม่ได้ ${failed.length} ไฟล์: `, `Could not add ${failed.length} file(s): `) + failed[0]!.reason);
+  if (files.length) await addQueued(files);
 }
