@@ -497,7 +497,7 @@ async function runQueue() {
     if (!go) return;
     if (running) return;
   }
-  if (!(await lock.acquire())) return ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่', 'Another Studio tab is already running the queue'));
+  if (!(await lock.acquire())) return ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', 'Another Studio tab is already running the queue or copyright work'));
   if (running) return;
   running = true;
   stopReq = false;
@@ -556,10 +556,12 @@ export const tornDown = () => torn;
 export const tornError = () => new Error(L('ส่วนขยายถูกโหลดใหม่ — หยุดคิวในหน้านี้แล้ว', 'The extension was reloaded — the queue stopped in this page'));
 // Back from the back/forward cache while another tab took the runner lock (queue-sync
 // watchLockLifecycle): this run must not go on beside that one. Like a teardown, the next
-// status change throws (content-ui item()); this tab's saves stop, as for any mirror tab.
+// status change throws (content-ui item()). This tab's copy is stale from then on: its saves
+// stop (queue-store blocked) and Start is refused until it has read the queue back from
+// storage once the aborted run is gone (queue-store followOtherTab clears it).
 let aborted: Error | null = null;
 export const abortedRun = () => aborted;
-// null clears it (a later Start in this tab is a fresh run; tests).
+// null clears it.
 export function abortRun(err: Error | null): void {
   aborted = err;
   if (!err) return;
@@ -662,8 +664,7 @@ function bindingProblem(seen: StartBinding): string {
 export async function startQueue(seen: StartBinding): Promise<void> {
   await freshCfg();
   if (running) return runQueue();
-  // Not while the aborted run is still on its way out: that would let it go on.
-  aborted = null;
+  if (aborted) return ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', 'Another Studio tab is already running the queue or copyright work'));
   let problem = bindingProblem(seen);
   if (problem) return ui.toast(problem);
   const next = queue.find((i) => i.status === 'pending' && i.src === 'bridge');

@@ -165,7 +165,7 @@ describe('runner lock', () => {
     calls.length = 0;
     await Q.runQueue();
     expect(Q.running).toBe(false);
-    expect(calls).toEqual(['toast:Another Studio tab is already running the queue']);
+    expect(calls).toEqual(['toast:Another Studio tab is already running the queue or copyright work']);
   });
 });
 

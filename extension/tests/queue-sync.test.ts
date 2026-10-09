@@ -87,7 +87,7 @@ describe('mayEdit', () => {
 describe('the runner lock across the back/forward cache', () => {
   const setup = (running: boolean, acquired: boolean) => {
     const win = new EventTarget();
-    const d = { release: vi.fn(), acquire: vi.fn(async () => acquired), running: () => running, abort: vi.fn(), toast: vi.fn() };
+    const d = { release: vi.fn(), acquire: vi.fn(async () => acquired), running: () => running, abort: vi.fn(), stop: vi.fn(), toast: vi.fn() };
     const off = watchLockLifecycle(win, d);
     const show = async (persisted: boolean) => {
       win.dispatchEvent(Object.assign(new Event('pageshow'), { persisted }));
@@ -113,7 +113,19 @@ describe('the runner lock across the back/forward cache', () => {
     const { d, show } = setup(true, false);
     await show(true);
     expect(d.abort).toHaveBeenCalledTimes(1);
-    expect(d.toast).toHaveBeenCalledWith('Another Studio tab is already running the queue');
+    expect(d.toast).toHaveBeenCalledWith('Another Studio tab is already running the queue or copyright work');
+  });
+
+  // Review m4: no answer from the background is not "another tab holds it".
+  it('back from the cache mid-run, the lock message fails: stops after the current video, no abort', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { d, show } = setup(true, true);
+    d.acquire.mockRejectedValueOnce(new Error('Extension context invalidated.'));
+    await show(true);
+    expect(d.stop).toHaveBeenCalledTimes(1);
+    expect(d.abort).not.toHaveBeenCalled();
+    expect(d.toast).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalled();
   });
 
   it('nothing to do for a fresh load or an idle page; off removes the listeners', async () => {
@@ -136,13 +148,13 @@ describe('back from the back/forward cache', () => {
     const target = new EventTarget();
     const abort = vi.fn();
     const stop = watchLockLifecycle(target, {
-      release: () => {}, acquire: async () => false, running: () => true, abort, toast: (m) => void toasts.push(m),
+      release: () => {}, acquire: async () => false, running: () => true, abort, stop: () => {}, toast: (m) => void toasts.push(m),
     });
     const show = new Event('pageshow') as PageTransitionEvent;
     Object.defineProperty(show, 'persisted', { value: true });
     target.dispatchEvent(show);
     await vi.waitFor(() => expect(abort).toHaveBeenCalled());
-    expect(toasts).toEqual(['Another Studio tab is already running the queue']);
+    expect(toasts).toEqual(['Another Studio tab is already running the queue or copyright work']);
     stop();
   });
 });

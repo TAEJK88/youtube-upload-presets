@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 import { L } from '../i18n';
 import { mergeQueue } from './queue-merge';
-import { bumpEditRev, otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
+import { abortedRun, abortRun, bumpEditRev, otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
 
 // The queue's items live in chrome.storage.local ('queue') so they survive reloads and
@@ -14,8 +14,11 @@ const remember = (list: QueueItem[]) => { base = structuredClone(list); };
 
 // Nothing is written while another Studio tab runs the queue: that tab's copy is the one
 // moving items along, and this tab only mirrors it (restoreQueue's onStored). The flag is
-// cached, so it can be stale when this tab wins the lock: a running tab always saves.
-const blocked = () => otherTabRunning() && !running;
+// cached, so it can be stale when this tab wins the lock: a running tab always saves —
+// except a run aborted because another tab took the lock (abortRun): its copy is stale from
+// then on, and nothing of it is written until this tab has read the queue back
+// (followOtherTab).
+const blocked = () => abortedRun() !== null || (otherTabRunning() && !running);
 export function persistQueue(): void {
   clearTimeout(timer);
   timer = undefined; // no save of ours waits (onStored merges only while one does)
@@ -83,6 +86,8 @@ export function restoreQueue(markInterrupted: boolean): void {
 // ends normally saved its last statuses before letting the lock go: see the lock's
 // release in studio.content.ts.)
 export async function followOtherTab(runs: boolean): Promise<void> {
+  // An aborted run still on its way out stays a mirror: the read-back below waits for it.
+  if (!runs && running && abortedRun()) return;
   const ended = otherTabRunning() && !runs;
   setOtherTabRuns(runs);
   if (!ended || running) return;
@@ -92,6 +97,7 @@ export async function followOtherTab(runs: boolean): Promise<void> {
   if (running || otherTabRunning()) return;
   queue.splice(0, queue.length, ...stored.map((it) => (unfinished(it) ? interrupted(it) : it)));
   remember(stored);
+  abortRun(null); // this tab's copy is the stored one again: it may save and start
   if (stored.some(unfinished)) {
     save(KEY, queue);
     remember(queue);

@@ -91,10 +91,10 @@ export default defineContentScript({
     setPatchFailed(storeWriteFailed);
     stop.add(() => setPatchFailed(null));
     const releaseLock = () => void sendMessage('runner:release', 'queue').catch(() => {});
-    // The lock is ours: whatever the cached flag says, no other tab runs.
-    const acquireLock = () => sendMessage('runner:acquire', 'queue')
-      .then((ok) => (ok && setOtherTabRuns(false), ok))
-      .catch((e) => (console.error('[ytup] runner lock', e), false));
+    // The lock is ours: whatever the cached flag says, no other tab runs. askLock rejects when
+    // the message fails (watchLockLifecycle tells that from a refusal); acquireLock says no.
+    const askLock = () => sendMessage('runner:acquire', 'queue').then((ok) => (ok && setOtherTabRuns(false), ok));
+    const acquireLock = () => askLock().catch((e) => (console.error('[ytup] runner lock', e), false));
     setRunnerLock({
       acquire: acquireLock,
       // The run's last statuses are saved before the lock goes: a mirror tab that sees it
@@ -110,9 +110,10 @@ export default defineContentScript({
     // tab took it meanwhile (queue-sync watchLockLifecycle).
     const offLock = watchLockLifecycle(window, {
       release: releaseLock,
-      acquire: acquireLock,
+      acquire: askLock,
       running: () => running,
-      abort: () => abortRun(new Error(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่', 'Another Studio tab is already running the queue'))),
+      abort: () => abortRun(new Error(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', 'Another Studio tab is already running the queue or copyright work'))),
+      stop: requestStop,
       toast: (m) => ui.toast(m),
     });
     stop.add(() => {

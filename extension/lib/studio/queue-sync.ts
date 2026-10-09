@@ -35,10 +35,12 @@ export async function mayEdit(): Promise<boolean> {
 // from it (pageshow, persisted) with its run still going, it takes the lock again, or, when
 // another tab took it meanwhile, aborts the run at once: the other tab already cut this tab's
 // in-flight item to 'interrupted' (its upload stays a draft in Studio), so nothing is uploaded
-// twice and no release slot is shared (closes 3b R-M3).
+// twice and no release slot is shared (closes 3b R-M3). A lock message that fails (no answer
+// from the background) proves nothing about another tab: the run stops after its current
+// video, as before.
 export function watchLockLifecycle(
   win: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>,
-  d: { release(): void; acquire(): Promise<boolean>; running(): boolean; abort(): void; toast(msg: string): void },
+  d: { release(): void; acquire(): Promise<boolean>; running(): boolean; abort(): void; stop(): void; toast(msg: string): void },
 ): () => void {
   const hide = () => d.release();
   const show = (e: Event) => {
@@ -46,7 +48,10 @@ export function watchLockLifecycle(
     void d.acquire().then((ok) => {
       if (ok) return;
       d.abort();
-      d.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่', 'Another Studio tab is already running the queue'));
+      d.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', 'Another Studio tab is already running the queue or copyright work'));
+    }, (e) => {
+      console.error('[ytup] runner lock', e);
+      d.stop();
     });
   };
   win.addEventListener('pagehide', hide);

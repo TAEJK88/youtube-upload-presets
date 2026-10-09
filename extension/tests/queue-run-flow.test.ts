@@ -253,8 +253,8 @@ describe('a run that lost the lock', () => {
     setBridge({ getFile: async (id: string) => new File(['x'], id) });
     const click = vi.fn();
     studio.click = click;
-    studio.onVisibility = () => Q.abortRun(new Error('Another Studio tab is already running the queue'));
-    await expect(Q.runQueue()).rejects.toThrow('Another Studio tab is already running the queue');
+    studio.onVisibility = () => Q.abortRun(new Error('Another Studio tab is already running the queue or copyright work'));
+    await expect(Q.runQueue()).rejects.toThrow('Another Studio tab is already running the queue or copyright work');
     expect(click).not.toHaveBeenCalled();
     expect(D.closeStudioUploadDialog).not.toHaveBeenCalled(); // its upload stays a draft in Studio
     expect(Q.queue[1]!.status).toBe('pending');

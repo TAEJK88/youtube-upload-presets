@@ -28,7 +28,7 @@ export default {
     ['VIS[vis]', 'visLabels()[vis]', 1],
     ['openDrawer(', 'ui.openDrawer(', 3],
     ['    running = true;\n    stopReq = false;',
-      "    if (!(await lock.acquire())) return ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่', 'Another Studio tab is already running the queue'));\n    if (running) return;\n    running = true;\n    stopReq = false;", 1],
+      "    if (!(await lock.acquire())) return ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', 'Another Studio tab is already running the queue or copyright work'));\n    if (running) return;\n    running = true;\n    stopReq = false;", 1],
     ['      running = false;\n      assignNumbers();', '      running = false;\n      lock.release();\n      assignNumbers();', 1],
     ['notifyDone(', 'ui.notifyDone(', 1],
     ['setTitleMark(', 'ui.setTitleMark(', 1],

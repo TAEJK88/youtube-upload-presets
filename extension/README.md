@@ -402,9 +402,10 @@ The panel's own console: right-click inside the panel → Inspect.
       back/forward cache with the run still going: the run carries on and keeps the lock (in
       another Studio tab the panel shows "Another Studio tab is running the queue — change
       the queue there"). If another tab started a run meanwhile, the restored page toasts
-      "Another Studio tab is already running the queue" and stops at once: its video stays
-      a draft in Studio (the other tab shows it as interrupted), and only the other tab
-      uploads.
+      "Another Studio tab is already running the queue or copyright work" and stops at once:
+      its video stays a draft in Studio (the other tab shows it as interrupted), and only
+      the other tab uploads. Start in the restored tab works again once it has read the
+      other tab's results (within a second of that run ending).
       **Record** whether the page came back from the cache at all (if Studio reloads instead,
       the item comes back as interrupted, as in item 15).
 

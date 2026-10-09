@@ -11,7 +11,7 @@ export default [
   { th: 'ภาพปก "${}": ', en: 'Thumbnail "${}": ', why: 'prefix for a thumbnail file error' },
   { th: 'แท็บ Studio นี้ไม่ได้อัปโหลดคิวอยู่', en: 'Nothing is running in this Studio tab', why: 'Stop sent to a tab that is not running' },
   { th: 'ลบวิดีโอที่กำลังอัปโหลดไม่ได้', en: "Can't remove the video that is being uploaded", why: 'Remove on the item the run is fetching' },
-  { th: 'มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่', en: 'Another Studio tab is already running the queue', why: 'one runner across tabs' },
+  { th: 'มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', en: 'Another Studio tab is already running the queue or copyright work', why: 'one automation lock across tabs, shared by the queue and the copyright jobs (D21)' },
   { th: 'ส่วนขยายถูกโหลดใหม่ — หยุดคิวในหน้านี้แล้ว', en: 'The extension was reloaded — the queue stopped in this page', why: 'orphaned run' },
   { th: 'ช่องเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', en: 'The channel changed after you confirmed — click Start again to see the new summary', why: 'confirmation and start are two messages' },
   { th: 'คิวเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', en: 'The queue changed after you confirmed — click Start again to see the new summary', why: 'confirmation and start are two messages' },
