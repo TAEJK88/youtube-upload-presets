@@ -57,6 +57,8 @@ describe('runner lock', () => {
     await claimWorker(b, 'UC2', false); // b's page is on UC2 now
     expect(await claimWorker(a, 'UC1', false)).toBe(true);
     registerRunnerLock();
+    // fakeBrowser's onRemoved.trigger only fires the event: tab a stays in the fake (tabs.get
+    // still answers with Studio), so here only dropWorker can free UC1 for b.
     await fakeBrowser.tabs.onRemoved.trigger(a, { windowId: 1, isWindowClosing: false });
     await vi.waitFor(async () => expect(await claimWorker(b, 'UC1', false)).toBe(true));
   });
@@ -114,6 +116,20 @@ describe('runner lock', () => {
     await fakeBrowser.tabs.onRemoved.trigger(a, { windowId: 0, isWindowClosing: false });
     await vi.waitFor(async () =>
       expect(await browser.storage.session.get('runnerTabId')).toEqual({}),
+    );
+  });
+
+  it('closing the worker tab removes its lease entry without any read', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_000_000);
+    registerRunnerLock();
+    const a = await tab();
+    const b = await tab();
+    await claimWorker(a, 'UC1', false);
+    await claimWorker(b, 'UC2', false);
+    await fakeBrowser.tabs.onRemoved.trigger(a, { windowId: 0, isWindowClosing: false });
+    await vi.waitFor(async () =>
+      expect((await browser.storage.session.get('claimsWorkers')).claimsWorkers).toEqual({ UC2: { tabId: b, at: 1_000_000 } }),
     );
   });
 
