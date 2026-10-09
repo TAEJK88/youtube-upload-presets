@@ -1,6 +1,9 @@
+import { installDebugCapture } from '@/lib/debug-log';
 import { FILE_CH, isBridgeConnect, readHandle, type FileOps } from '@/lib/file-bridge';
 import { getHandle } from '@/lib/file-store';
 import { portEndpoint, rpcServe } from '@/lib/rpc';
+
+installDebugCapture('bridge', { target: window });
 
 // Anything running on Studio's origin in the parent frame can connect here; that's not
 // a secret. What actually protects file access is that queue item ids are unguessable

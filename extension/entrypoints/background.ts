@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { installDebugCapture } from '@/lib/debug-log';
 import { onMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
 import { initI18n, watchLang } from '@/lib/i18n';
@@ -9,6 +10,7 @@ import { deleteFiles, sweepHandles } from '@/lib/file-gc';
 import { ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 
 export default defineBackground(() => {
+  installDebugCapture('background', { target: self }); // first: the debug page shows what goes wrong below
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
   const ready = initI18n().then(runMigrations).then(ensureLang).catch((e) => console.error('[ytup] startup', e));
   watchLang();

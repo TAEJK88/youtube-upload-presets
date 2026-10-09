@@ -1,5 +1,6 @@
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
+import { installDebugCapture } from '@/lib/debug-log';
 import { initI18n, watchLang } from '@/lib/i18n';
 import { browserEnv, createInviteWatcher, INVITE_KEYS } from '@/lib/invite';
 import { createSyncStore } from '@/lib/sync-store';
@@ -9,6 +10,7 @@ import { createSyncStore } from '@/lib/sync-store';
 export default defineContentScript({
   matches: ['https://www.youtube.com/*'],
   async main(ctx) {
+    installDebugCapture('invite', { target: window, ownFilesOnly: true });
     await initI18n();
     const stop = stopOnInvalidated(ctx);
     stop.add(watchLang());

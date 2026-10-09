@@ -115,6 +115,9 @@ interface CaptureOpts {
 
 // Wraps console.error / warn (and console.info / log lines starting with "[ytup]"), and
 // listens to error / unhandledrejection, appending each to the log. The console still prints.
+// Installed first in: background, side panel and debug page (crash guard), studio.content,
+// invite.content and the file bridge. Not in studio-main.content.ts: the MAIN world has no
+// extension APIs, so its errors reach the log only when the isolated world logs an rpc failure.
 export function installDebugCapture(ctx: LogCtx, opts: CaptureOpts = {}): void {
   const con = opts.console ?? console;
   const target = opts.target ?? globalThis;
