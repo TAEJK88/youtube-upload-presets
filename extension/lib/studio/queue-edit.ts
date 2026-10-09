@@ -151,6 +151,9 @@ export function followStoredChanges(): () => void {
     }, 0);
   };
   const offs = ['presets', 'activeId', 'counters', 'settings'].map((k) => onStored(k, requeue));
+  // Once at load too: a preset deleted while no Studio tab was open left its items on a
+  // missing id (the drawer's queue lived in the page, so it never saw that case).
+  requeue();
   return () => {
     clearTimeout(timer);
     for (const off of offs) off();

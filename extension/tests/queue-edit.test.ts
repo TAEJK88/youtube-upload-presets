@@ -267,6 +267,18 @@ describe('followStoredChanges', () => {
     expect(Q.queue[0]!.title).not.toBe('');
   });
 
+  it('at load: items whose preset was deleted while no Studio tab was open move to the default preset', async () => {
+    disposeState();
+    fakeBrowser.reset();
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: defaultPresets().filter((p) => p.id !== 'lofi') });
+    await initState(async () => SCHEMA_VERSION);
+    Q.queue.push(item('a', 'pending', { presetId: 'lofi' }), item('b', 'done', { presetId: 'lofi' }));
+    const off = followStoredChanges();
+    await vi.waitFor(() => expect(calls).toContain('queue'));
+    off();
+    expect(Q.queue.map((i) => i.presetId)).toEqual([activeId, activeId]);
+  });
+
   it('a change that leaves the queue as it is writes nothing (an idle tab keeps its copy to itself)', async () => {
     disposeState();
     fakeBrowser.reset();
