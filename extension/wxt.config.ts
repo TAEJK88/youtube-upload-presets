@@ -10,6 +10,8 @@ export default defineConfig({
     permissions: ['sidePanel', 'storage', 'unlimitedStorage', 'alarms', 'notifications'],
     host_permissions: ['https://studio.youtube.com/*', 'https://www.youtube.com/*', 'https://api.github.com/*'],
     action: { default_title: 'YouTube Upload Presets' },
+    // Alt+P opens the side panel from anywhere in Chrome (the userscript's Alt+P; it can't close it).
+    commands: { _execute_action: { suggested_key: { default: 'Alt+P' } } },
     web_accessible_resources: [{ resources: ['file-bridge.html'], matches: ['https://studio.youtube.com/*'] }],
   },
 });
