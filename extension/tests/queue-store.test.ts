@@ -242,4 +242,24 @@ describe('queue store', () => {
       expect(queue.map((i) => i.status)).toEqual(['done', 'done', 'done', 'pending']);
     });
   });
+
+  // followOtherTab read storage before this tab heard the run's last save: what it read is
+  // the base a later merge compares to (review m-b).
+  it('what the stopped run left in storage is the base of the next merge', async () => {
+    vi.useFakeTimers();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'pending'), item('B.mp4', 'pending')] });
+    await initState(async () => SCHEMA_VERSION);
+    restoreQueue(false);
+    await followOtherTab(true);
+    // The run's final save, not yet heard here.
+    const get = vi.spyOn(browser.storage.local, 'get').mockResolvedValueOnce({ queue: [item('A.mp4', 'done'), item('B.mp4', 'pending')] } as never);
+    await followOtherTab(false);
+    get.mockRestore();
+    expect(queue.map((i) => i.status)).toEqual(['done', 'pending']);
+    queue[1] = { ...queue[1]!, title: 'mine', titleEdited: true }; // our edit waits
+    persistQueue();
+    await browser.storage.local.set({ queue: [item('A.mp4', 'done', { title: 'theirs', titleEdited: true }), item('B.mp4', 'pending')] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queue.map((i) => i.title)).toEqual(['theirs', 'mine']);
+  });
 });

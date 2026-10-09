@@ -236,15 +236,34 @@ describe('an edit after the summary refuses the start', () => {
       expect(Q.queue[0]!.status).toBe('pending');
     });
 
+    // The rest of what the summary shows of a pending item.
+    const edits: [string, Partial<Q.QueueItem>][] = [
+      ['a thumbnail', { thumb: { id: 'i', src: 'bridge', name: 'a.jpg', size: 1, type: '' } }],
+      ['a .txt', { txt: '0:00 A - One', txtName: 'a.txt' }],
+      ['another preset (same visibility)', { presetId: 'lofi' }],
+    ];
+    for (const [what, extra] of edits) {
+      it(`${what} set there after the summary refuses the start`, async () => {
+        const seen = await summaryAfterRestore([item('a', 'pending')]);
+        await browser.storage.local.set({ queue: [item('a', 'pending', extra)] });
+        await vi.waitFor(() => expect(Q.queue[0]).toMatchObject(extra));
+        calls.length = 0;
+        await Q.startQueue(seen);
+        expect(calls).toEqual([QUEUE_CHANGED]);
+      });
+    }
+
     it('a change the summary does not show (a finished item, a duration) does not', async () => {
       const seen = await summaryAfterRestore([item('a', 'pending'), item('b', 'done')]);
-      await browser.storage.local.set({ queue: [item('a', 'pending', { duration: 42 }), item('b', 'done', { msg: 'x' })] });
+      await browser.storage.local.set({ queue: [item('a', 'pending', { duration: 42 }), item('b', 'done', { txt: 'x', msg: 'x' })] });
       await vi.waitFor(() => expect(Q.queue[0]!.duration).toBe(42));
       calls.length = 0;
       await Q.startQueue(seen);
       expect(calls).not.toContain(QUEUE_CHANGED);
     });
 
+    // Pins sync-store's rule that a tab's own writes never reach onStored (sync-store.ts
+    // onEvent / reread: the echo is dropped or equals the cache), so it can't bump editRev.
     it("this tab's own save coming back does not", async () => {
       const seen = await summaryAfterRestore([item('a', 'pending')]);
       persistQueue();
