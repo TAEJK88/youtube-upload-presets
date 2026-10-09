@@ -102,13 +102,8 @@ export function QueueTab() {
               {L('เลือกทั้งโฟลเดอร์', 'pick a whole folder')}
             </button>
           </span>
-          {!has && (
-            <div>
-              {[L('.mp4 คลิป', '.mp4 video'), L('.txt คำอธิบาย', '.txt description'), L('.jpg ภาพปก', '.jpg thumbnail')].map((k) => (
-                <span key={k} className="mt-1 mr-1 inline-block rounded-[6px] border border-line2 px-[7px] text-xs text-fg2">{k}</span>
-              ))}
-            </div>
-          )}
+          {/* The drawer's ".mp4 video / .txt description / .jpg thumbnail" hints are hidden in
+              Design B (userscript 3125, .drop .kbd{display:none}); see scripts/strings/dropped.mjs. */}
         </div>
       </div>
 
