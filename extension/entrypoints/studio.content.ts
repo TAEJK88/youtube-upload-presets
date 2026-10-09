@@ -1,6 +1,6 @@
+import '@/lib/debug-capture/studio'; // FIRST: the debug page shows what goes wrong below
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
-import { installDebugCapture } from '@/lib/debug-log';
 import { createFileBridge } from '@/lib/file-bridge-client';
 import { initI18n } from '@/lib/i18n';
 import { browserEnv, createInviteWatcher, INVITE_KEYS } from '@/lib/invite';
@@ -31,7 +31,6 @@ import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
 export default defineContentScript({
   matches: ['https://studio.youtube.com/*'],
   async main(ctx) {
-    installDebugCapture('studio', { target: window, ownFilesOnly: true });
     await initI18n();
     // Everything below that outlives a reload of the extension is stopped through `stop`.
     const stop = stopOnInvalidated(ctx);

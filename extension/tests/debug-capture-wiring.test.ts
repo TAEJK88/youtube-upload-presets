@@ -5,16 +5,21 @@ import { describe, expect, it } from 'vitest';
 // Every context with extension APIs logs into the debug log from its first line; the
 // MAIN-world script has no extension APIs and can't.
 const src = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
-// The first statement of the entrypoint's main(): installDebugCapture('<ctx>'…
-const firstInMain = (text: string) => text.match(/main\([^)]*\)\s*\{\s*([^\n]*)/)?.[1] ?? '';
+// The entrypoint's first import (comments before it allowed).
+const firstImport = (text: string) => text.match(/^(?:\/\/[^\n]*\n|\s)*(import [^\n]*)/)?.[1] ?? '';
 
 describe('debug capture is installed first in each context', () => {
-  it('background (on self)', () => {
-    expect(src('entrypoints/background.ts')).toMatch(/defineBackground\(\(\) => \{\s*installDebugCapture\('background', \{ target: self \}\);/);
-  });
-  it('Studio and www.youtube.com content scripts (their own files only)', () => {
-    expect(firstInMain(src('entrypoints/studio.content.ts'))).toBe("installDebugCapture('studio', { target: window, ownFilesOnly: true });");
-    expect(firstInMain(src('entrypoints/invite.content.ts'))).toBe("installDebugCapture('invite', { target: window, ownFilesOnly: true });");
+  // Background and content scripts: a side-effect-only module imported first installs the capture
+  // at the top level, before the other imports evaluate, so their evaluation errors are logged too.
+  // (WXT strips side-effect-only imports when it loads an entrypoint at build time for its options.)
+  it.each([
+    ['entrypoints/background.ts', 'background', "installDebugCapture('background', { target: self });"],
+    ['entrypoints/studio.content.ts', 'studio', "installDebugCapture('studio', { target: window, ownFilesOnly: true });"],
+    ['entrypoints/invite.content.ts', 'invite', "installDebugCapture('invite', { target: window, ownFilesOnly: true });"],
+  ])('%s: through lib/debug-capture/%s.ts, imported first', (entry, ctx, call) => {
+    expect(firstImport(src(entry)).startsWith(`import '@/lib/debug-capture/${ctx}';`)).toBe(true);
+    expect(src(`lib/debug-capture/${ctx}.ts`)).toContain(call);
+    expect(src(entry)).not.toContain('installDebugCapture');
   });
   it('the file bridge', () => {
     expect(src('entrypoints/file-bridge/main.ts')).toMatch(/^(import [^\n]*\n)+\ninstallDebugCapture\('bridge', \{ target: window \}\);/);
