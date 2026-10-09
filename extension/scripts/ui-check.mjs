@@ -8,84 +8,145 @@
 //    Tailwind text-[…] / font-[…] / text-(length:…) and --text-* theme tokens, inline JS and JSX
 //    fontSize (quoted keys and brackets too). Comments are ignored. Sizes it can't resolve (calc,
 //    var, vw, small keywords…) fail unless scripts/ui-allow.mjs lists them by file and line.
+// Only the L helper of lib/i18n.ts is checked; any other L-style helper is out of scope.
 // Every L( call in shipping code must be two string literals, or be listed in scripts/ui-allow.mjs.
-// L itself may only be called directly: an alias, a member access (i18n.L), a tagged template or
-// any other use of the name fails, so no string can reach the UI around the check. A script with
-// a syntax error fails. Scripts are parsed in process with TypeScript 5.9 (the typescript5
-// devDependency; the userscript as JS), so comments and strings are never mistaken for calls.
+// L itself may only be called directly: an alias, a member access (i18n.L, i18n['L'], i18n[`L`]),
+// a tagged template or any other use of the name fails, and so does importing lib/i18n as a
+// namespace (import * as / export * as), importing it dynamically (import(), require()) or
+// indexing one of its bindings with a computed key, so no string can reach the UI around the
+// check. A script with a syntax error fails. Scripts are parsed in process with @babel/parser
+// (TypeScript and JSX by extension; the userscript as plain JS), so comments and strings are
+// never mistaken for calls. CSS and HTML comments are found by a small tokenizer that skips
+// strings, url() and attribute values.
+// Scanned: every top-level directory except node_modules, scripts, tests and dot-directories
+// (.output, .wxt…); below the top, node_modules and *.test.* files are skipped anywhere.
 //
 //   node scripts/ui-check.mjs [--coverage]
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, extname, join, relative } from 'node:path';
+import { basename, dirname, join, posix, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript5';
+import { parse as babelParse } from '@babel/parser';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PIN = 'd15ef87caaddb7a6d3187d2851b83a484c4bb9e7'; // userscript v4.27.1, as scripts/port-check.mjs
 export const DRAWER = [2428, 4586]; // "===== UI =====" up to the copyright module (Phase 4)
-const US_PAIRS = { total: 790, unique: 725 }; // what the userscript at PIN yields; anything else means the parser drifted
-const SOURCE_DIRS = ['lib', 'entrypoints', 'components', 'assets', 'public'];
-const SKIP_DIRS = new Set(['scripts', 'tests', '__tests__', 'node_modules']);
-const SCRIPT = /\.(ts|tsx|js|mjs|jsx)$/;
+// What the userscript at PIN yields, and the sha256 of its sorted unique pair keys (pairsHash);
+// anything else means the parser drifted.
+const US_PAIRS = { total: 790, unique: 725, sha256: 'c5530d297425bac68c55da196d8430ae84e2205183a0dc0db0c32a66a82094ff' };
+const SKIP_TOP = new Set(['node_modules', 'scripts', 'tests']); // and every dot-directory
+const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|css|html|svg)$/;
+const SCRIPT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const I18N = 'lib/i18n.ts'; // where L is defined
 const MIN_PX = 12;
-const { SyntaxKind } = ts;
 
-const KIND = { '.ts': ts.ScriptKind.TS, '.tsx': ts.ScriptKind.TSX, '.jsx': ts.ScriptKind.JSX };
-const parse = (path, text) => ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true, KIND[extname(path)] ?? ts.ScriptKind.JS);
+const slash = (p) => p.replaceAll('\\', '/'); // Windows separators
 
-const isL = (n) => (n.kind === SyntaxKind.Identifier || n.kind === SyntaxKind.StringLiteral) && n.text === 'L';
-
-// Is this mention of the name L allowed? Only as the callee of a call, in an unaliased import
-// specifier, or as the declaration in lib/i18n.ts. String 'L' counts where it names a binding.
-function allowedRef(n, path) {
-  const p = n.parent;
-  if (n.kind === SyntaxKind.StringLiteral) {
-    if (p.kind === SyntaxKind.ElementAccessExpression) return p.argumentExpression !== n;
-    return ![SyntaxKind.BindingElement, SyntaxKind.ImportSpecifier, SyntaxKind.ExportSpecifier].includes(p.kind) || p.propertyName !== n;
-  }
-  if (p.kind === SyntaxKind.CallExpression && p.expression === n) return true;
-  if (p.kind === SyntaxKind.ImportSpecifier && !p.propertyName) return true;
-  return path === I18N && p.kind === SyntaxKind.VariableDeclaration && p.name === n;
+// JSX only in .jsx/.tsx; .cjs is a script, .js a script or a module by its content.
+function parse(path, text) {
+  const plugins = /\.tsx$/.test(path) ? ['typescript', 'jsx'] : /\.[mc]?ts$/.test(path) ? ['typescript'] : /\.jsx$/.test(path) ? ['jsx'] : [];
+  const sourceType = path.endsWith('.cjs') ? 'script' : path.endsWith('.js') ? 'unambiguous' : 'module';
+  return babelParse(text, { sourceType, plugins, errorRecovery: false, createParenthesizedExpressions: true });
 }
 
+// Visit every AST node with its ancestors (nearest first), in source order.
+const NOT_CHILDREN = new Set(['loc', 'extra', 'comments', 'leadingComments', 'trailingComments', 'innerComments', 'tokens']);
+function walk(node, visit, parents = []) {
+  visit(node, parents);
+  const next = [node, ...parents];
+  for (const k of Object.keys(node)) {
+    if (NOT_CHILDREN.has(k)) continue;
+    const v = node[k];
+    if (Array.isArray(v)) { for (const c of v) if (c && typeof c.type === 'string') walk(c, visit, next); }
+    else if (v && typeof v.type === 'string') walk(v, visit, next);
+  }
+}
+
+// A string literal, or a template literal without ${}: its value; otherwise null.
+const plain = (n) => n?.type === 'StringLiteral' ? n.value
+  : n?.type === 'TemplateLiteral' && !n.expressions.length ? n.quasis[0].value.cooked : null;
+
+// Does an import specifier name lib/i18n? @/ ~/ @@/ ~~/ are the extension root (WXT's aliases).
+function isI18n(spec, from) {
+  if (typeof spec !== 'string') return false;
+  const alias = /^(@@|~~|@|~)\//.exec(spec);
+  let p;
+  if (alias) p = spec.slice(alias[0].length);
+  else if (spec.startsWith('.')) p = posix.join(posix.dirname(from), spec);
+  else return false;
+  return posix.normalize(p).replace(/\.[mc]?[jt]s$/, '').replace(/\/index$/, '') === 'lib/i18n';
+}
+
+const namesL = (n) => ((n.type === 'Identifier' || n.type === 'JSXIdentifier') && n.name === 'L') || plain(n) === 'L';
+
+// Is this mention of the name L allowed? Only as the callee of a call, in an unaliased import
+// specifier, or as the declaration in lib/i18n.ts. A string 'L' (or `L`) counts where it names a
+// binding: a computed member, a destructuring key, an import/export name.
+function allowedRef(n, [p, gp], path) {
+  if (n.type === 'Identifier') {
+    if ((p.type === 'CallExpression' || p.type === 'OptionalCallExpression') && p.callee === n) return true;
+    if (p.type === 'ImportSpecifier' && p.imported.type === 'Identifier' && p.imported.name === 'L' && p.local.name === 'L') return true;
+    return path === I18N && p.type === 'VariableDeclarator' && p.id === n;
+  }
+  if (n.type === 'JSXIdentifier') return p.type === 'JSXAttribute' && p.name === n;
+  if ((p.type === 'MemberExpression' || p.type === 'OptionalMemberExpression') && p.property === n) return false;
+  if (p.type === 'ObjectProperty' && p.key === n && gp?.type === 'ObjectPattern') return false;
+  return !/^(Import|Export)\w*Specifier$/.test(p.type);
+}
+
+const REF = "L is used other than as a direct call L('…', '…')";
+const NAMESPACE = 'lib/i18n may only be imported by name (import { L } from …), not as a namespace or dynamically';
+const INDEXED = 'a binding imported from lib/i18n is indexed with a computed key';
+
 // Every L( call (callee the identifier L) in each file: pairs of two literals, and the calls that
-// aren't; every other mention of L (refs); and the first syntax error. Template literals compare
-// with every ${…} replaced by ${}, so a variable renamed in the rebuild still matches.
+// aren't; every other mention of L, and every namespace or dynamic import or computed index of
+// lib/i18n (refs); and the syntax error. Template literals compare with every ${…} replaced by
+// ${}, so a variable renamed in the rebuild still matches.
 export function parseCalls(files) {
   const out = new Map();
   for (const f of files) {
-    const sf = parse(f.path, f.text);
-    const lineOf = (pos) => sf.getLineAndCharacterOfPosition(pos).line + 1;
+    const path = slash(f.path);
     const res = { pairs: [], dynamic: [], refs: [], syntax: [] };
     out.set(f.path, res);
-    const d = sf.parseDiagnostics[0];
-    if (d) { res.syntax.push({ line: lineOf(d.start), message: ts.flattenDiagnosticMessageText(d.messageText, ' ') }); continue; }
+    let ast;
+    try { ast = parse(path, f.text); } catch (e) {
+      if (!e.loc) throw e;
+      res.syntax.push({ line: e.loc.line, message: e.message.replace(/\s*\(\d+:\d+\)$/, '') });
+      continue;
+    }
     const lines = f.text.split('\n');
-    const visit = (n) => {
-      if (n.kind === SyntaxKind.CallExpression && n.expression.kind === SyntaxKind.Identifier && n.expression.text === 'L') {
-        const line = lineOf(n.getStart(sf));
+    const ref = (n, why) => {
+      const line = n.loc.start.line;
+      if (!res.refs.some((r) => r.line === line && r.why === why)) res.refs.push({ line, why, text: lines[line - 1].trim().replace(/\s+/g, ' ') });
+    };
+    const bound = new Set(); // the local names of everything imported from lib/i18n
+    for (const s of ast.program.body) if (s.type === 'ImportDeclaration' && isI18n(s.source.value, path)) for (const sp of s.specifiers) bound.add(sp.local.name);
+    walk(ast.program, (n, parents) => {
+      const p = parents[0];
+      if ((n.type === 'CallExpression' || n.type === 'OptionalCallExpression') && n.callee.type === 'Identifier' && n.callee.name === 'L') {
+        const line = n.loc.start.line;
         const [a, b] = n.arguments.map(literal);
         if (n.arguments.length === 2 && a !== null && b !== null) res.pairs.push({ th: a, en: b, line });
-        else res.dynamic.push({ line, text: n.getText(sf).replace(/\s+/g, ' ') });
+        else res.dynamic.push({ line, text: f.text.slice(n.start, n.end).replace(/\s+/g, ' ') });
       }
-      if (isL(n) && !allowedRef(n, f.path)) {
-        const line = lineOf(n.getStart(sf));
-        if (!res.refs.some((r) => r.line === line)) res.refs.push({ line, text: lines[line - 1].trim().replace(/\s+/g, ' ') });
-      }
-      n.forEachChild(visit);
-    };
-    visit(sf);
+      if (p && namesL(n) && !allowedRef(n, parents, path)) ref(n, REF);
+      // import * as I / export * as I from lib/i18n; import('…/i18n'), require('…/i18n')
+      if ((n.type === 'ImportNamespaceSpecifier' || n.type === 'ExportNamespaceSpecifier') && isI18n(p.source?.value, path)) ref(n, NAMESPACE);
+      if (n.type === 'ImportExpression' && isI18n(plain(n.source), path)) ref(n, NAMESPACE);
+      if (n.type === 'CallExpression' && (n.callee.type === 'Import' || (n.callee.type === 'Identifier' && n.callee.name === 'require'))
+        && isI18n(plain(n.arguments[0]), path)) ref(n, NAMESPACE);
+      // x[k] on a binding from lib/i18n: only a plain literal key is known not to reach L
+      if ((n.type === 'MemberExpression' || n.type === 'OptionalMemberExpression') && n.computed && n.object.type === 'Identifier'
+        && bound.has(n.object.name) && plain(n.property) === null && n.property.type !== 'NumericLiteral') ref(n, INDEXED);
+    });
+    res.refs.sort((x, y) => x.line - y.line);
   }
   return out;
 }
 
-function literal(n) {
-  if (n.kind === SyntaxKind.StringLiteral || n.kind === SyntaxKind.NoSubstitutionTemplateLiteral) return n.text;
-  if (n.kind === SyntaxKind.TemplateExpression) return n.head.text + n.templateSpans.map((s) => '${}' + s.literal.text).join('');
-  return null;
-}
+const literal = (n) => n.type === 'StringLiteral' ? n.value
+  : n.type === 'TemplateLiteral' ? n.quasis.map((q) => q.value.cooked).join('${}') : null;
 
 function lineFinder(text) {
   const starts = [0];
@@ -110,23 +171,31 @@ export function userscriptPairs() {
   return res.pairs;
 }
 
-// The userscript must yield exactly the pairs it always has; a parser change that loses or
-// invents pairs would otherwise pass every check silently.
+// sha256 of the sorted unique pair keys, one per line.
+export const pairsHash = (pairs) => createHash('sha256').update([...new Set(pairs.map(pairKey))].sort().join('\n')).digest('hex');
+
+// The userscript must yield exactly the pairs it always has; a parser change that loses, invents
+// or alters pairs would otherwise pass every check silently.
 export function canary(pairs) {
   const unique = new Set(pairs.map(pairKey)).size;
-  if (pairs.length === US_PAIRS.total && unique === US_PAIRS.unique) return [];
-  return [`userscript canary: expected ${US_PAIRS.total} L() pairs (${US_PAIRS.unique} unique) at the pinned commit, got ${pairs.length} (${unique} unique) — the parser or the pin changed`];
+  if (pairs.length !== US_PAIRS.total || unique !== US_PAIRS.unique) {
+    return [`userscript canary: expected ${US_PAIRS.total} L() pairs (${US_PAIRS.unique} unique) at the pinned commit, got ${pairs.length} (${unique} unique) — the parser or the pin changed`];
+  }
+  const hash = pairsHash(pairs);
+  if (hash === US_PAIRS.sha256) return [];
+  return [`userscript canary: the ${unique} unique L() pairs at the pinned commit hash to ${hash}, expected ${US_PAIRS.sha256} — the parser or the pin changed`];
 }
 
-const walk = (d) => readdirSync(d).flatMap((f) => {
+const walkDir = (d) => readdirSync(d).flatMap((f) => {
   const p = join(d, f);
   if (!statSync(p).isDirectory()) return [p];
-  return SKIP_DIRS.has(f) ? [] : walk(p);
+  return f === 'node_modules' ? [] : walkDir(p);
 });
 export const sourceFiles = (root = ROOT) =>
-  SOURCE_DIRS.flatMap((d) => { try { return walk(join(root, d)); } catch { return []; } })
-    .filter((p) => /\.(ts|tsx|js|mjs|jsx|css|html|svg)$/.test(p) && !p.endsWith('.d.ts'))
-    .map((p) => ({ path: relative(root, p), text: readFileSync(p, 'utf8') }));
+  readdirSync(root).filter((d) => !d.startsWith('.') && !SKIP_TOP.has(d) && statSync(join(root, d)).isDirectory())
+    .flatMap((d) => walkDir(join(root, d)))
+    .filter((p) => SOURCE.test(p) && !/\.d\.[mc]?ts$/.test(p) && !/\.test\./.test(basename(p)))
+    .map((p) => ({ path: relative(root, p).split(sep).join('/'), text: readFileSync(p, 'utf8') }));
 
 // ---- font sizes ----
 const UNITS = { px: 1, rem: 16, em: 16, '%': 0.16, pt: 4 / 3, pc: 16 }; // rem/em/% resolved at 16px
@@ -190,26 +259,67 @@ function shorthandSize(v) {
   return v;
 }
 
-// The text with its comments blanked out (newlines kept, so offsets and lines still match):
-// scripts by the TypeScript parser, CSS /* */, HTML/SVG <!-- --> and /* */.
-export function stripComments(text, name = 'source.css') {
-  const blank = (s) => s.replace(/[^\n]/g, ' ');
-  if (!SCRIPT.test(name)) {
-    const out = text.replace(/\/\*[\s\S]*?\*\//g, blank);
-    return /\.(html|svg)$/.test(name) ? out.replace(/<!--[\s\S]*?-->/g, blank) : out;
+// CSS /* */ comments between `from` and `to`, skipping strings and unquoted url(…).
+function cssComments(t, from, to, blank) {
+  let i = from;
+  while (i < to) {
+    const c = t[i];
+    if (c === '"' || c === "'") { // a string ends at its quote or an unescaped newline
+      for (i++; i < to && t[i] !== c && t[i] !== '\n'; i++) if (t[i] === '\\') i++;
+      i++;
+    } else if (c === '/' && t[i + 1] === '*') {
+      const e = t.indexOf('*/', i + 2);
+      const stop = e < 0 || e + 2 > to ? to : e + 2;
+      blank(i, stop);
+      i = stop;
+    } else if (/^url\(\s*[^\s"']/i.test(t.slice(i, i + 64)) && !/[\w-]/.test(t[i - 1] ?? '')) {
+      const e = t.indexOf(')', i);
+      i = e < 0 || e > to ? to : e + 1;
+    } else i++;
   }
-  const sf = parse(name, text);
-  const ranges = new Map();
-  const visit = (n) => {
-    if (n.kind === SyntaxKind.JsxText) return; // its text is content, not trivia
-    // the trivia before each token: comments on the token's own line first, then the rest
-    for (const r of [...ts.getTrailingCommentRanges(text, n.pos) ?? [], ...ts.getLeadingCommentRanges(text, n.pos) ?? []]) ranges.set(r.pos, r.end);
-    for (const c of n.getChildren(sf)) visit(c);
-  };
-  visit(sf);
-  let out = text;
-  for (const [pos, end] of ranges) out = out.slice(0, pos) + blank(out.slice(pos, end)) + out.slice(end);
-  return out;
+}
+
+// HTML/SVG <!-- --> comments outside tags; inside a tag, quoted attribute values are skipped; a
+// <style> element's text is CSS, a <script> element's is left alone.
+function htmlComments(t, blank) {
+  const lower = t.toLowerCase();
+  let i = 0;
+  while (i < t.length) {
+    if (t.startsWith('<!--', i)) {
+      const e = t.indexOf('-->', i + 4);
+      const stop = e < 0 ? t.length : e + 3;
+      blank(i, stop);
+      i = stop;
+    } else if (t[i] === '<' && /[a-z]/i.test(t[i + 1] ?? '')) {
+      const name = /^[a-z][^\s/>]*/i.exec(t.slice(i + 1, i + 64))[0].toLowerCase();
+      let j = i + 1;
+      while (j < t.length && t[j] !== '>') {
+        if (t[j] === '"' || t[j] === "'") { const e = t.indexOf(t[j], j + 1); j = e < 0 ? t.length : e + 1; } else j++;
+      }
+      i = j + 1;
+      if (name === 'style' || name === 'script') {
+        const close = lower.indexOf('</' + name, i);
+        const stop = close < 0 ? t.length : close;
+        if (name === 'style') cssComments(t, i, stop, blank);
+        i = stop;
+      }
+    } else i++;
+  }
+}
+
+// The text with its comments blanked out (newlines kept, so offsets and lines still match):
+// scripts by @babel/parser (a script that doesn't parse is read whole; parseCalls reports it),
+// CSS and HTML/SVG by the tokenizers above.
+export function stripComments(text, name = 'source.css') {
+  const out = text.split('');
+  const blank = (a, b) => { for (let k = a; k < b; k++) if (out[k] !== '\n') out[k] = ' '; };
+  if (SCRIPT.test(name)) {
+    let ast = null;
+    try { ast = parse(slash(name), text); } catch {}
+    for (const c of ast?.comments ?? []) blank(c.start, c.end);
+  } else if (/\.(html|svg)$/.test(name)) htmlComments(text, blank);
+  else cssComments(text, 0, text.length, blank);
+  return out.join('');
 }
 
 // Text below 12px, or whose size can't be resolved (px absent then): { line, value, px?, token? }.
@@ -291,7 +401,7 @@ export function check({ coverage = false, files, us, extOnly, dropped, allow = {
     const c = calls.get(f.path);
     if (c) {
       for (const e of c.syntax) errors.push(`${f.path}:${e.line} syntax error: ${e.message}`);
-      for (const r of c.refs) errors.push(`${f.path}:${r.line} L is used other than as a direct call L('…', '…'): ${r.text}`);
+      for (const r of c.refs) errors.push(`${f.path}:${r.line} ${r.why}: ${r.text}`);
       for (const p of c.pairs) {
         used.add(pairKey(p));
         if (!known.has(pairKey(p)) && !listed.has(pairKey(p))) {

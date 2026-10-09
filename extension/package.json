@@ -8,12 +8,13 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "test": "vitest run",
-    "check": "node node_modules/typescript/bin/tsc --noEmit && vitest run && node scripts/port-check.mjs && node scripts/ui-check.mjs",
+    "check": "tsc --noEmit && vitest run && node scripts/port-check.mjs && node scripts/ui-check.mjs",
     "port-check": "node scripts/port-check.mjs",
     "ui-check": "node scripts/ui-check.mjs",
     "postinstall": "wxt prepare"
   },
   "devDependencies": {
+    "@babel/parser": "7.29.9",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
@@ -25,7 +26,6 @@
     "happy-dom": "20.14.5",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
-    "typescript5": "npm:typescript@5.9.3",
     "vitest": "5.0.3",
     "wxt": "0.21.4"
   },

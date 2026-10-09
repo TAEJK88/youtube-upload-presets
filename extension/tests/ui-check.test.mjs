@@ -240,13 +240,13 @@ describe('check: sizes', () => {
 });
 
 describe('sourceFiles', () => {
-  it('scans scripts in .ts/.tsx/.js/.mjs/.jsx and sizes in assets/ and public/, skipping scripts/ and tests/', () => {
+  it('scans scripts in .ts/.tsx/.js/.mjs/.jsx and sizes in assets/ and public/, skipping scripts/ and tests/ at the top', () => {
     const root = mkdtempSync(join(tmpdir(), 'ui-check-'));
     const put = (p) => { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), ''); };
     ['lib/a.ts', 'lib/b.js', 'lib/c.mjs', 'lib/d.jsx', 'lib/e.d.ts', 'lib/tests/f.ts', 'entrypoints/x/g.tsx', 'entrypoints/x/h.css',
       'assets/i.css', 'public/j.svg', 'public/k.html', 'scripts/l.mjs', 'tests/m.ts', 'lib/n.png'].forEach(put);
     expect(sourceFiles(root).map((f) => f.path).sort()).toEqual([
-      'assets/i.css', 'entrypoints/x/g.tsx', 'entrypoints/x/h.css', 'lib/a.ts', 'lib/b.js', 'lib/c.mjs', 'lib/d.jsx', 'public/j.svg', 'public/k.html',
+      'assets/i.css', 'entrypoints/x/g.tsx', 'entrypoints/x/h.css', 'lib/a.ts', 'lib/b.js', 'lib/c.mjs', 'lib/d.jsx', 'lib/tests/f.ts', 'public/j.svg', 'public/k.html',
     ]);
   });
 });
@@ -284,8 +284,9 @@ describe('check: L is only ever called directly', () => {
   });
 
   it('fails a file with a syntax error', () => {
-    expect(run("const a = 1;\nL('ตกลง', 'OK'")).toEqual(["entrypoints/sidepanel/X.tsx:2 syntax error: ')' expected."]);
-    expect(run('var x = ;', 'lib/a.js')).toEqual(['lib/a.js:1 syntax error: Expression expected.']);
+    expect(run("const a = 1;\nL('ตกลง', 'OK'")).toEqual(['entrypoints/sidepanel/X.tsx:2 syntax error: Unexpected token, expected ","']);
+    expect(run('var x = ;', 'lib/a.js')).toEqual(['lib/a.js:1 syntax error: Unexpected token']);
+    expect(run('const x = <p>a</p>;', 'lib/a.ts')).toEqual(['lib/a.ts:1 syntax error: Unterminated regular expression.']); // no JSX in .ts
   });
 });
 
@@ -326,5 +327,104 @@ describe('smallText: round 2', () => {
   it('only length-valued --text-* tokens are sizes', () => {
     expect(sizes('@theme { --text-muted: #666; --text-fg: rgb(0 0 0); --text-ink: var(--x); --text-tiny: 10px; --text-c: calc(1rem - 6px); --text-ok: 0.75rem }'))
       .toEqual([[1, '10px', 10], [1, 'calc(1rem - 6px)', undefined]]);
+  });
+});
+
+// Round 3: holes a third review found.
+describe('round 3: L through a namespace, a computed key or a dynamic import', () => {
+  const run = (text, path = 'entrypoints/sidepanel/X.tsx') => check({ files: [{ path, text }], us, extOnly: [], dropped: [] });
+  const flagged = (text, path) => run(text, path).filter((e) => !/ not in the userscript: /.test(e)).map((e) => e.split(' ')[0]);
+  const at = 'entrypoints/sidepanel/X.tsx:2';
+
+  it('flags a template-literal or computed key that names L', () => {
+    for (const src of [
+      "I[`L`]('ก', 'A')",
+      'I?.[`L`]("ก", "A")',
+      'const { [`L`]: T } = i18n',
+      "const { ['L']: T } = i18n",
+    ]) expect(flagged('const a = 1;\n' + src), src).toEqual([at]);
+  });
+
+  it('flags namespace imports, namespace re-exports and dynamic imports of lib/i18n', () => {
+    for (const src of [
+      "import * as I from '@/lib/i18n'",
+      "import * as I from '~/lib/i18n'",
+      "import * as I from '../../lib/i18n'",
+      "import * as I from '@/lib/i18n.ts'",
+      "export * as I from '@/lib/i18n'",
+      "const I = await import('@/lib/i18n')",
+      'import(`@/lib/i18n`).then((m) => m)',
+      "const I = require('@/lib/i18n')",
+    ]) expect(flagged('const a = 1;\n' + src), src).toEqual([at]);
+    // relative to the importing file
+    expect(flagged("const a = 1;\nimport * as I from './i18n'", 'lib/x.ts')).toEqual(['lib/x.ts:2']);
+    expect(flagged("const a = 1;\nimport * as I from './i18n'", 'components/x.ts')).toEqual([]);
+    expect(flagged("const a = 1;\nimport * as I from '@/lib/other'")).toEqual([]);
+  });
+
+  it('flags element access with a non-literal key on any binding imported from lib/i18n', () => {
+    expect(flagged("import { getLang } from '@/lib/i18n';\ngetLang[k]")).toEqual([at]);
+    expect(flagged("import def from '@/lib/i18n';\ndef['L' + '']")).toEqual([at]);
+    expect(flagged("import { getLang } from '@/lib/i18n';\ngetLang['x']; other[k]")).toEqual([]);
+  });
+
+  it('reads optional calls and keeps JSX text that looks like a comment', () => {
+    expect(extractPairs("L?.('ก', 'A')", 'x.ts')).toEqual([{ th: 'ก', en: 'A', line: 1 }]);
+    expect(smallText('const x = <p>a /* b <i style={{ fontSize: 9 }} /> c */ d</p>', 'a.tsx').map((s) => s.px)).toEqual([9]);
+    expect(smallText('const x = <p>see // here <i style={{ fontSize: 10 }} /></p>', 'a.tsx').map((s) => s.px)).toEqual([10]);
+  });
+
+  it('parses .mts/.cts/.cjs files', () => {
+    for (const path of ['lib/a.mts', 'lib/a.cts', 'lib/a.cjs']) {
+      expect(check({ files: [{ path, text: 'L(msg, "A")' }], us, extOnly: [], dropped: [] })).toEqual([`${path}:1 L() needs two string literals: L(msg, "A")`]);
+    }
+  });
+
+  it('normalises Windows path separators before comparing with lib/i18n.ts', () => {
+    const def = 'export const L = (th: string, en: string): string => en;';
+    expect(check({ files: [{ path: 'lib\\i18n.ts', text: def }], us, extOnly: [], dropped: [] })).toEqual([]);
+    expect(flagged("const a = 1;\nimport * as I from './i18n'", 'lib\\x.ts')).toEqual(['lib\\x.ts:2']);
+  });
+});
+
+describe('round 3: sourceFiles', () => {
+  it('skips scripts/ and tests/ only at the top, *.test.* and node_modules anywhere, dot-dirs; scans every other top-level dir', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ui-check-'));
+    const put = (p) => { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), ''); };
+    ['components/scripts/x.ts', 'lib/tests/y.ts', 'lib/__tests__/z.ts', 'lib/a.test.ts', 'lib/node_modules/n.ts', 'hooks/h.ts', 'utils/u.mts',
+      'utils/v.cts', 'utils/w.cjs', 'utils/d.d.mts', 'assets/a.css', 'public/p.html', 'scripts/s.mjs', 'tests/t.ts', 'node_modules/m.js',
+      '.output/o.js', '.wxt/w.ts', 'top.ts'].forEach(put);
+    expect(sourceFiles(root).map((f) => f.path).sort()).toEqual([
+      'assets/a.css', 'components/scripts/x.ts', 'hooks/h.ts', 'lib/__tests__/z.ts', 'lib/tests/y.ts', 'public/p.html', 'utils/u.mts', 'utils/v.cts', 'utils/w.cjs',
+    ]);
+  });
+});
+
+describe('round 3: comments in CSS and HTML are found by a tokenizer', () => {
+  const px = (t, name) => smallText(t, name).map((s) => s.px);
+
+  it('a comment opener inside a CSS string or url() is not a comment', () => {
+    expect(px('a::before{content:"/*"} b{font-size:9px} c::after{content:"*/"}', 'a.css')).toEqual([9]);
+    expect(px("a::before{content:'/*'} b{font-size:9px} c::after{content:'*/'}", 'a.css')).toEqual([9]);
+    expect(px('a{background:url(/*x.png)} b{font-size:9px} c{background:url(*/y.png)}', 'a.css')).toEqual([9]);
+    expect(px('a{content:"\\"/*"} b{font-size:9px} /* c{font-size:8px} */', 'a.css')).toEqual([9]);
+  });
+
+  it('a comment opener inside an HTML attribute is not a comment', () => {
+    expect(px('<p title="<!--">x</p><p style="font-size:9px">y</p><p title="-->">z</p>', 'a.html')).toEqual([9]);
+    expect(px("<p title='<!--'>x</p><p style=\"font-size:9px\">y</p><!-- <p style=\"font-size:8px\"> -->", 'a.svg')).toEqual([9]);
+    expect(px('<style>a::before{content:"/*"} b{font-size:9px} /* c{font-size:8px} */</style>', 'a.html')).toEqual([9]);
+  });
+});
+
+describe('round 3: the canary hashes the pairs', () => {
+  it('fails when one pair changes but the counts do not', () => {
+    const pairs = userscriptPairs();
+    const counts = new Map();
+    for (const p of pairs) counts.set(pairKey(p), (counts.get(pairKey(p)) ?? 0) + 1);
+    const i = pairs.findIndex((p) => counts.get(pairKey(p)) === 1);
+    const changed = pairs.map((p, k) => (k === i ? { ...p, en: p.en + ' (changed)' } : p));
+    expect(canary(changed)).toHaveLength(1);
+    expect(canary(changed)[0]).toMatch(/^userscript canary: the 725 unique L\(\) pairs at the pinned commit hash to [0-9a-f]{64}, expected [0-9a-f]{64} — the parser or the pin changed$/);
   });
 });
