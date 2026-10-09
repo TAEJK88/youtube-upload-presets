@@ -376,6 +376,57 @@ describe('presets tab', () => {
     expect(label.selectionEnd).toBe(label.value.length);
   });
 
+  it('a failed delete of the default keeps it in the list the next keystroke writes', async () => {
+    const api = fakePanel();
+    vi.mocked(api.write.presetsAndActive).mockRejectedValueOnce(new Error('quota'));
+    renderPanel(<PresetsTab />, api);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Delete' })));
+    await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!));
+    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'typed' } });
+    const last = vi.mocked(api.write.presets).mock.calls.at(-1)![0];
+    expect(last.map((x) => x.id)).toEqual(api.data!.presets.map((x) => x.id));
+    expect(last.find((x) => x.id === 'trapsoul')!.title).toBe('typed');
+  });
+
+  it('our own older echo, read while two writes were in flight, is not adopted once both land', async () => {
+    const api = fakePanel();
+    let first: Preset[] = [];
+    const done: (() => void)[] = [];
+    vi.mocked(api.write.presets)
+      .mockImplementationOnce((l) => new Promise<void>((r) => { first = l; done.push(r); }))
+      .mockImplementationOnce(() => new Promise<void>((r) => { done.push(r); }));
+    const view = renderPanel(<PresetsTab />, api);
+    fireEvent.click(screen.getByRole('button', { name: '🌐 Public' })); // W1
+    fireEvent.change(screen.getByLabelText('Tags'), { target: { value: 'a, b' } }); // W2
+    echo(view, api, first); // E1 read while both are in flight
+    await act(async () => done.forEach((r) => r())); // both land before E2 is read
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'x' } });
+    const last = vi.mocked(api.write.presets).mock.calls.at(-1)![0][0]!;
+    expect(last).toMatchObject({ visibility: 'PUBLIC', tags: ['a', 'b'], title: 'x' });
+  });
+
+  it('a later write of ours fails: the echo of the earlier one that landed is what the next edit builds on', async () => {
+    const api = fakePanel();
+    let first: Preset[] = [];
+    let ok!: () => void;
+    let fail!: (e: Error) => void;
+    vi.mocked(api.write.presets)
+      .mockImplementationOnce((l) => new Promise<void>((r) => { first = l; ok = r; }))
+      .mockImplementationOnce(() => new Promise<void>((_, r) => { fail = r; }));
+    const view = renderPanel(<PresetsTab />, api);
+    const tags = api.data!.presets[0]!.tags;
+    fireEvent.click(screen.getByRole('button', { name: '🌐 Public' })); // W1
+    fireEvent.change(screen.getByLabelText('Tags'), { target: { value: 'a, b' } }); // W2
+    await act(async () => ok());
+    echo(view, api, first); // E1, while W2 is still in flight
+    await act(async () => fail(new Error('quota')));
+    expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
+    fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'x' } });
+    const last = vi.mocked(api.write.presets).mock.calls.at(-1)![0][0]!;
+    expect(last).toMatchObject({ visibility: 'PUBLIC', tags, title: 'x' });
+  });
+
   it('a failed New started from another preset goes back to that preset', async () => {
     const api = fakePanel();
     vi.mocked(api.write.presets).mockRejectedValueOnce(new Error('quota'));

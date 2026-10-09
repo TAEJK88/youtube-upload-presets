@@ -180,13 +180,18 @@ export function PresetsTab() {
     if (go !== true) return; // null: replaced or dismissed
     // Built after the answer: the list or the default may have changed while the box was open.
     const cur = latestActive.current;
+    const at = latest.current.findIndex((x) => x.id === id);
+    const gone = latest.current[at];
     const next = deletePreset(latest.current, id, cur);
     if (!next) return;
     try {
       // A new default goes in the same write: the stored default never points at a deleted preset.
       await writePresets(next.presets, next.activeId !== cur ? next.activeId : undefined);
     } catch (e) {
-      return saveFailed(e);
+      saveFailed(e);
+      // As add's failure handler: the next write builds on what storage still holds.
+      if (gone && !latest.current.some((x) => x.id === id)) latest.current = [...latest.current.slice(0, at), gone, ...latest.current.slice(at)];
+      return;
     }
     setEditId(next.activeId);
   };
