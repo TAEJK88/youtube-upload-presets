@@ -42,7 +42,8 @@ export function mayWrite(type: 'store:patch' | 'backup:write', s: Sender, ext: s
 }
 
 // The payload crosses a message boundary: only known settings keys holding the type their
-// default has get through (lockChannel: null or { id, name }; lang: th / en).
+// default has get through (lockChannel: null or { id, name }; lang: th / en). Own keys only:
+// `in` would let __proto__, constructor and the like through.
 const isLock = (v: unknown) => v === null || (isObj(v) && typeof v.id === 'string' && typeof v.name === 'string');
 const sameType = (v: unknown, d: unknown) => typeof v === typeof d && (typeof v !== 'number' || Number.isFinite(v));
 function cleanSettingsPatch(patch: Record<string, unknown>): SettingsPatch {
@@ -54,9 +55,9 @@ function cleanSettingsPatch(patch: Record<string, unknown>): SettingsPatch {
     else if (k === 'schedule') {
       if (!isObj(v)) continue;
       const sd = defs.schedule as Record<string, unknown>;
-      const sch = Object.fromEntries(Object.entries(v).filter(([sk, sv]) => sk in sd && sameType(sv, sd[sk]) && (sk !== 'unit' || sv === 'hour' || sv === 'day')));
+      const sch = Object.fromEntries(Object.entries(v).filter(([sk, sv]) => Object.hasOwn(sd, sk) && sameType(sv, sd[sk]) && (sk !== 'unit' || sv === 'hour' || sv === 'day')));
       if (Object.keys(sch).length) out.schedule = sch;
-    } else if (k in defs && sameType(v, defs[k])) out[k] = v;
+    } else if (Object.hasOwn(defs, k) && sameType(v, defs[k])) out[k] = v;
   }
   return out as SettingsPatch;
 }

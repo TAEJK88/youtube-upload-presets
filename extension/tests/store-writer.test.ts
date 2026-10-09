@@ -145,6 +145,17 @@ describe('who may write, and what', () => {
     expect((await browser.storage.local.get('settings')).settings).toMatchObject({ lockChannel: null });
   });
 
+  it('a settings patch keeps only known own keys: __proto__ and junk schedule keys are dropped', async () => {
+    await browser.storage.local.set({ settings: { producer: 'Me' } });
+    // as the message arrives: JSON gives "__proto__" an own key
+    const patch = JSON.parse('{"__proto__":{"schedule":"x"},"constructor":{},"toString":"x","schedule":{"0":"x","__proto__":{"on":true},"toString":"x"}}');
+    await patchStore({ key: 'settings', patch } as never);
+    await patchStore({ key: 'settings', patch: { schedule: { '0': 'x' } } } as never);
+    const got = (await browser.storage.local.get('settings')).settings as Record<string, unknown>;
+    expect(Object.keys(got)).toEqual(['producer']);
+    expect(got).toEqual({ producer: 'Me' });
+  });
+
   it('a malformed patch is refused before anything is written', async () => {
     await browser.storage.local.set({ settings: { producer: 'Me' }, counters: { a: 1 } });
     await expect(patchStore(null as never)).rejects.toThrow('store:patch');
