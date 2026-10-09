@@ -9,7 +9,7 @@ import { Banners } from './shell/Banners';
 import { ChannelBar } from './shell/ChannelBar';
 import { CopyrightTab } from './tabs/CopyrightTab';
 import { PresetsFooter, PresetsTab } from './tabs/PresetsTab';
-import { QueueTab } from './tabs/QueueTab';
+import { QueueTab, usePanelDrop } from './tabs/QueueTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
 export type TabKey = 'queue' | 'presets' | 'claims' | 'settings';
@@ -38,8 +38,9 @@ export function App() {
     if (body.current) body.current.scrollTop = 0; // showTab(): each tab opens at its top
   }, [tab]);
   const total = view?.items.length ?? 0;
+  const drop = usePanelDrop(() => setTab('queue')); // onPanelDrop(): showTab('queue')
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh flex-col" {...drop.handlers}>
       <ChannelBar />
       <Banners />
       <ActivityBar onGo={setTab} />
@@ -66,6 +67,11 @@ export function App() {
         {footers[tab]?.()}
       </Tabs>
       <Toaster />
+      {drop.dropping && (
+        <div className="pointer-events-none fixed inset-2 z-40 grid place-items-center rounded-[16px] border-2 border-dashed border-fg2 bg-[rgba(12,12,14,.6)] text-[15px] font-semibold text-fg">
+          {L('วางเพื่อเพิ่มเข้าคิว', 'Drop to add to the queue')}
+        </div>
+      )}
     </div>
   );
 }
