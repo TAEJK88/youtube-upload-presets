@@ -47,4 +47,5 @@ export default [
   { th: 'แท็บนั้นไม่ได้อัปโหลดคิวอยู่แล้ว', en: 'That tab is no longer running the queue', why: 'a Stop sent to the running tab (D14) can find it closed or navigated away; the reload message would name the wrong tab' },
   { th: 'ส่วนขยายถูกอัปเดตหรือโหลดใหม่ — โหลดแท็บนี้ใหม่เพื่อใช้งานต่อ', en: 'The extension was updated or reloaded — reload this tab to keep using it', why: 'orphaned content script (spec: Error handling)' },
   { th: 'แท็บนี้เกิดข้อผิดพลาด — ปิดแล้วเปิดแผงด้านข้างใหม่', en: 'This tab hit an error — close and reopen the side panel', why: 'a render error in one tab is caught by its error boundary; the drawer had no React tree to unmount' },
+  { th: 'การแจ้งเตือน', en: 'Notifications', why: "the panel's toast region (Sonner) names itself for screen readers, in English unless given a label; the drawer's toast had no region" },
 ];
