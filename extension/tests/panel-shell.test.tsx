@@ -247,6 +247,19 @@ describe('banners', () => {
     expect(api.setLost).toHaveBeenCalledWith([], true);
   });
 
+  it('re-grant: a blocked (denied) file stays in the banner but does not hold Start back', async () => {
+    const perm: Record<string, PermissionState> = { i0: 'denied', i1: 'prompt' };
+    vi.spyOn(fileStore, 'getHandle').mockImplementation(async (id) => ({
+      id, queryPermission: async () => perm[id]!, requestPermission: async () => perm[id]!,
+    }) as unknown as FileSystemFileHandle);
+    const api = fakePanel({ view: viewWith([{}, { status: 'error' }]) });
+    renderPanel(<Banners />, api);
+    await flush();
+    expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
+    // Only 'prompt' files are shared: a denied one fails its own item when it uploads.
+    expect(api.setLost).toHaveBeenLastCalledWith(['i1']);
+  });
+
   it('banners are announced to screen readers', () => {
     renderPanel(<Banners />, fakePanel({ link: 'noScript' }));
     expect(screen.getByRole('status').textContent).toContain('This tab is not connected to the extension yet');

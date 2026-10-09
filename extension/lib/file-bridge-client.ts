@@ -13,7 +13,7 @@ import { portEndpoint, rpcClient } from './rpc';
 const log = (msg: string) => console.info('[ytup] file bridge: ' + msg);
 
 // Errors meaning the bridge itself is unusable (worth one fresh frame), as opposed to the
-// bridge's own answers ('missing', 'permission', 'read'), which a new frame won't change.
+// bridge's own answers ('missing', 'permission', 'denied', 'read'), which a new frame won't change.
 const BRIDGE_DOWN = /^(bridge not ready|bridge removed|getFile: timed out)/;
 
 interface Mount {

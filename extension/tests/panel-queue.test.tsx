@@ -548,6 +548,25 @@ describe('upload footer', () => {
     expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it('Start waits only on files the run will read: not an error item\'s, nor a thumbnail with thumbnails off', () => {
+    const thumb = { id: 't0', src: 'bridge' as const, name: 'Clip 1.jpg', size: 1, type: 'image/jpeg' };
+    const view = viewWith([{ status: 'pending', thumb }, { status: 'error' }]);
+    const startOn = (api: Parameters<typeof renderPanel>[1]) => {
+      renderPanel(<QueueFooter />, api);
+      const off = (screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled;
+      cleanup();
+      return !off;
+    };
+    // The error card waits for Retry: its file is not read by this run.
+    expect(startOn(fakePanel({ view, lost: ['i1'] }))).toBe(true);
+    // A pending video's file is.
+    expect(startOn(fakePanel({ view, lost: ['i0'] }))).toBe(false);
+    // Its thumbnail only when thumbnails are on.
+    const thumbs = (on: boolean) => toPanelData({ settings: { thumb: on } });
+    expect(startOn(fakePanel({ view, lost: ['t0'], data: thumbs(false) }))).toBe(true);
+    expect(startOn(fakePanel({ view, lost: ['t0'], data: thumbs(true) }))).toBe(false);
+  });
+
   it('a channel that is not the locked one blocks Start', () => {
     const view = viewWith([{ status: 'pending' }], { channel: { ...state().channel, problem: 'Currently on channel "Mine" but locked to "Other"' } });
     renderPanel(<QueueFooter />, fakePanel({ view }));

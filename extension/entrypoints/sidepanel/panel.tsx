@@ -26,7 +26,8 @@ export interface PanelApi {
   write: Writes;
   refresh(): void;
   // Queued files whose read permission went back to 'prompt' (Banners finds them, as it is
-  // always mounted): Start waits for the Re-grant, and cards read their previews again
+  // always mounted): Start waits for the Re-grant when the run would read one of them
+  // (QueueFooter, runReads), and cards read their previews again
   // once `grantRev` moves (bumped after each re-grant).
   lost: string[];
   grantRev: number;

@@ -9,15 +9,23 @@ export const queuedFileIds = (items: QueueItem[]): string[] =>
     .filter((it) => it.status === 'pending' || it.status === 'error')
     .flatMap((it) => [...(it.src === 'bridge' ? [it.id] : []), ...(it.thumb?.src === 'bridge' ? [it.thumb.id] : [])]);
 
+// What a run reads (runQueue uploads pending items only; a thumbnail only with Settings →
+// thumbnails on): Start waits on these alone, so an error card's file never blocks it.
+export const runReads = (items: QueueItem[], thumbs: boolean): string[] =>
+  items
+    .filter((it) => it.status === 'pending')
+    .flatMap((it) => [...(it.src === 'bridge' ? [it.id] : []), ...(thumbs && it.thumb?.src === 'bridge' ? [it.thumb.id] : [])]);
+
 type Get = (id: string) => Promise<FileSystemFileHandle | undefined>;
+export interface Lost { id: string; state: PermissionState }
 
 // A handle that is gone or can't be asked about is not something a re-grant fixes: the
 // queue reports it when the item uploads.
-export async function needingGrant(ids: string[], get: Get = getHandle): Promise<string[]> {
-  const out: string[] = [];
+export async function needingGrant(ids: string[], get: Get = getHandle): Promise<Lost[]> {
+  const out: Lost[] = [];
   for (const id of ids) {
     const state = await get(id).then((h) => h?.queryPermission({ mode: 'read' })).catch(() => undefined);
-    if (state && state !== 'granted') out.push(id);
+    if (state && state !== 'granted') out.push({ id, state });
   }
   return out;
 }

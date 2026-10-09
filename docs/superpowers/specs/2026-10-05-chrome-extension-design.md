@@ -119,8 +119,9 @@ needs a real `File` inside the Studio tab (`DataTransfer` injection, current lin
    then shows one **Re-grant access (N files)** button. One click calls
    `requestPermission()` on each such handle in turn (Chrome may prompt per handle; the
    manual check records how many prompts one click shows), and the queue resumes. Start
-   waits until no queued file needs a grant; the Studio tab refuses a start that slips
-   through.
+   waits until no file the run will read needs a grant (pending items' videos, and their
+   thumbnails when thumbnails are on; a file the user blocked, 'denied', fails its own
+   item instead); the Studio tab refuses a start that slips through.
 5. **Cleanup.** A handle is deleted when its item is done or removed from the queue.
 
 The rule "don't change pages or channels while the queue has files" goes away once

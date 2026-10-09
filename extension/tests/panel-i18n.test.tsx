@@ -213,7 +213,7 @@ describe('the panel in Thai', () => {
   });
 
   it('…nor with the Re-grant banner (queued files lost read permission)', async () => {
-    vi.mocked(needingGrant).mockResolvedValue(['i0', 'i1']);
+    vi.mocked(needingGrant).mockResolvedValue([{ id: 'i0', state: 'prompt' }, { id: 'i1', state: 'prompt' }]);
     const root = await renderThai(fakePanel({ data: thData(), view: thView() }));
     expect(root.textContent).toContain('อนุญาตอีกครั้ง (2 ไฟล์)');
     clean(document.body);

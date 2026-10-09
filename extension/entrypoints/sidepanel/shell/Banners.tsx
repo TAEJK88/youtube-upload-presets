@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
-import { needingGrant, queuedFileIds, regrant } from '@/lib/panel/regrant';
+import { needingGrant, queuedFileIds, regrant, type Lost } from '@/lib/panel/regrant';
 import { focusTab } from '@/lib/panel/target';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
@@ -20,16 +20,22 @@ function Banner({ icon, text, children }: { icon: string; text: string; children
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
   const { link, target, runner, elsewhere, view, refresh, setLost: share } = usePanel();
-  // Queued files whose read permission went back to 'prompt' (a browser restart): D18.
-  const [lost, setLost] = useState<string[]>([]);
+  // Queued files without read permission: back to 'prompt' after a browser restart (D18),
+  // or 'denied' (a blocked prompt). The banner offers a re-grant for all of them; only the
+  // 'prompt' ones are shared with Start (a denied file fails its own item when it uploads).
+  const [lost, setLost] = useState<Lost[]>([]);
   const ids = view ? queuedFileIds(view.items).join(',') : '';
   useEffect(() => {
     let alive = true;
     void needingGrant(ids ? ids.split(',') : []).then((l) => { if (alive) setLost(l); });
     return () => { alive = false; };
   }, [ids]);
-  useEffect(() => { share(lost); }, [lost, share]);
-  const regrantAll = () => void regrant(lost).then(() => needingGrant(lost)).then((l) => { setLost(l); share(l, true); refresh(); });
+  const asked = (l: Lost[]) => l.filter((x) => x.state === 'prompt').map((x) => x.id);
+  useEffect(() => { share(asked(lost)); }, [lost, share]);
+  const regrantAll = () => {
+    const ids = lost.map((x) => x.id);
+    void regrant(ids).then(() => needingGrant(ids)).then((l) => { setLost(l); share(asked(l), true); refresh(); });
+  };
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };

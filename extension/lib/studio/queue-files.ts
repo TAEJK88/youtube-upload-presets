@@ -36,7 +36,7 @@ export async function bridgeFiles(ids: string[]): Promise<{ files: QFile[]; fail
 // The bridge answers with codes (lib/file-bridge.ts readHandle); the queue shows sentences.
 function reason(code: string): string {
   if (code === 'missing') return L('ไม่พบไฟล์นี้แล้ว — เพิ่มไฟล์อีกครั้ง', 'This file is no longer available — add it again');
-  if (code === 'permission') return L('ยังไม่ได้อนุญาตให้อ่านไฟล์ — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง', 'No permission to read this file — click "Re-grant access" in the side panel');
+  if (code === 'permission' || code === 'denied') return L('ยังไม่ได้อนุญาตให้อ่านไฟล์ — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง', 'No permission to read this file — click "Re-grant access" in the side panel');
   if (code === 'read') return L('อ่านไฟล์ไม่ได้ (ถูกย้ายหรือเปลี่ยนชื่อ?) — เพิ่มไฟล์อีกครั้ง', 'Could not read this file (moved or renamed?) — add it again');
   return L(`ดึงไฟล์จากแผงด้านข้างไม่ได้ (${code})`, `Could not get the file from the side panel (${code})`);
 }
@@ -69,9 +69,10 @@ export async function getThumbFile(ref: FileRef): Promise<File> {
 // means no ('silent'). Without this every item would fail after the bridge's own timeouts
 // (30 s, then 30 s more with a fresh frame). 'permission' answers too, but is told apart:
 // after a browser restart every queued file has lost read access, and the run would fail
-// them one by one until the user re-grants in the side panel.
+// them one by one until the user re-grants in the side panel. 'denied' (a blocked prompt)
+// is about that file only: it fails its own item, as the panel's Start gate expects.
 export type BridgeProbe = 'answers' | 'permission' | 'silent';
-const FILE_CODES = new Set(['missing', 'read']);
+const FILE_CODES = new Set(['missing', 'read', 'denied']);
 export async function probeBridge(id: string, ms = 10_000): Promise<BridgeProbe> {
   if (!bridge) return 'silent';
   let timer: ReturnType<typeof setTimeout> | undefined;

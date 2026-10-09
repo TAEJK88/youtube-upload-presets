@@ -201,9 +201,16 @@ The panel's own console: right-click inside the panel → Inspect.
       click granted all files (if the banner stays with fewer files, click again).
     - Afterwards the banner is gone, Start is enabled again, and the card's thumbnail preview
       is back without closing or reopening the panel. Start: they upload.
-    - Repeat with 3+ files from a dropped folder. **Record** what happens when you block one
-      prompt ('denied'): whether the banner's button then does nothing (the item then fails
-      with the "No permission to read this file" error).
+    - Repeat with 3+ files from a dropped folder and block one prompt ('denied'). The banner
+      stays with that one file (**Record** whether its button then does nothing), but Start is
+      enabled: Start waits only on files the run will read whose access went back to
+      'prompt'. Start: the blocked file's item fails with the "No permission to read this
+      file" error, the others upload.
+    - Start ignores files the run won't read. With one error card left from an earlier run
+      (its file still needs a grant) and the waiting clips granted, Start is enabled while
+      the banner still counts the error card's file. With Settings → thumbnails off, a
+      waiting clip's thumbnail that needs a grant doesn't disable Start; with thumbnails on
+      it does.
 17. **Start, confirm and refuse.**
     - Settings → **Confirm channel name before starting the queue** on: the summary dialog
       shows; Enter or "Upload N video(s)" starts; Esc, a click outside or Cancel starts nothing.

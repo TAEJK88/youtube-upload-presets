@@ -26,6 +26,7 @@ describe('queue files', () => {
   it('turns bridge codes into sentences', async () => {
     setBridge({ getFile: async (id) => { throw new Error(id); } });
     await expect(getQueueFile('permission', 'bridge')).rejects.toThrow('Re-grant access');
+    await expect(getQueueFile('denied', 'bridge')).rejects.toThrow('No permission to read this file');
     await expect(getQueueFile('missing', 'bridge')).rejects.toThrow('no longer available');
     await expect(getQueueFile('read', 'bridge')).rejects.toThrow('moved or renamed');
     await expect(getQueueFile('bridge not ready', 'bridge')).rejects.toThrow('(bridge not ready)');
@@ -44,7 +45,8 @@ describe('queue files', () => {
   it('the bridge answers when it hands over a file or says what is wrong with it', async () => {
     setBridge({ getFile: async (id) => new File(['v'], id) });
     expect(await probeBridge('x')).toBe('answers');
-    for (const code of ['missing', 'read']) {
+    // 'denied' (a blocked prompt) fails that item only, as the panel lets Start through.
+    for (const code of ['missing', 'read', 'denied']) {
       setBridge({ getFile: async () => { throw new Error(code); } });
       expect(await probeBridge('x')).toBe('answers');
     }

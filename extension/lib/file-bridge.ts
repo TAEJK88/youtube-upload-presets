@@ -21,7 +21,11 @@ export function isBridgeConnect(e: MessageEvent, parent: Window | null): boolean
 // Error messages are codes the queue turns into user-facing text.
 export async function readHandle(h: FileSystemFileHandle | undefined): Promise<File> {
   if (!h) throw new Error('missing');
-  if ((await h.queryPermission({ mode: 'read' })) !== 'granted') throw new Error('permission');
+  const perm = await h.queryPermission({ mode: 'read' });
+  // 'denied' (a blocked prompt) is told apart: it fails its own item, it doesn't hold the
+  // queue back (the panel's Start gate and startQueue wait on 'prompt' only).
+  if (perm === 'denied') throw new Error('denied');
+  if (perm !== 'granted') throw new Error('permission');
   try {
     return await h.getFile();
   } catch {

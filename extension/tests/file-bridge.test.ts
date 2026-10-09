@@ -13,6 +13,10 @@ describe('readHandle', () => {
     await expect(readHandle(handle('prompt', async () => new File([], 'x')))).rejects.toThrow('permission');
   });
 
+  it('rejects with "denied" when the user blocked read access', async () => {
+    await expect(readHandle(handle('denied', async () => new File([], 'x')))).rejects.toThrow('denied');
+  });
+
   it('rejects with "read" when the file is gone or unreadable', async () => {
     const gone = handle('granted', async () => { throw new DOMException('A requested file could not be found', 'NotFoundError'); });
     await expect(readHandle(gone)).rejects.toThrow('read');
