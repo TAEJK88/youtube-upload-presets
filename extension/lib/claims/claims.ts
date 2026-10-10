@@ -117,18 +117,26 @@ function askWorker(ch: string, force: boolean): Promise<boolean> {
     () => false,
   );
 }
+// A tick that found its answer too old ticks again when the new one is "yes": a hidden tab's
+// timers run once a minute (Chrome, after five minutes), so every tick there finds an old answer,
+// and would never work on one (Auto-pilot, follow-up checks). The userscript read and took its
+// lease inside the tick.
+const workerTrusted = () => workerMine && Date.now() - workerAnswerAt <= WORKER_RENEW;
 function isWorker(force = false): boolean {
   const ch = currentChannel();
   if (ch === 'unknown') return false;
   if (ch !== workerCh) workerMine = false;
   if (force || ch !== workerCh || Date.now() - workerAt > WORKER_ASK) {
-    void askWorker(ch, force);
+    const late = !force && !workerTrusted();
+    void askWorker(ch, force)
+      .then((mine) => { if (mine && late) claimsTick(); })
+      .catch((e) => console.error('[ytup] copyright tick', e));
     if (force) {
       workerMine = true;
       workerAnswerAt = Date.now();
     }
   }
-  return workerMine && Date.now() - workerAnswerAt <= WORKER_RENEW;
+  return workerTrusted();
 }
 // Right before a step changes pages (trimStep / adsStep / collabStep): the automation lock, so two
 // tabs never drive Studio at once (4a D21). Refused: the step waits, and its card says why.

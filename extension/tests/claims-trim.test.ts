@@ -195,6 +195,24 @@ describe('stop and the lock', () => {
     vi.useRealTimers();
   });
 
+  // Chrome runs a hidden tab's timers once a minute after five minutes: every tick would find its
+  // last answer too old, ask, and be gone before the answer came. The userscript's lease was
+  // read and taken in the tick itself.
+  it('a tab that ticks once a minute still works: it ticks again when the fresh answer comes', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    const worker = vi.fn(async () => true);
+    C.setClaimsLock({ worker, acquire: async () => false, release: vi.fn(), holds: async () => false });
+    await C.initClaimsLock();
+    await vi.advanceTimersByTimeAsync(60_000);
+    C.claimsTick(); // the answer is a minute old: asked again, nothing started on the old one
+    expect(ops).toEqual([]);
+    await vi.advanceTimersByTimeAsync(0); // the answer: yes
+    expect(ops[0]).toMatchObject({ op: 'merge', key: `autopilot:${CH}` });
+    expect(worker).toHaveBeenCalledTimes(2); // and that tick asked nothing more
+    vi.useRealTimers();
+  });
+
   it("no lease is asked while the channel is 'unknown'", async () => {
     resetCfg();
     history.replaceState(null, '', '/video/v1/claims'); // no channel in the address, none from ytcfg
