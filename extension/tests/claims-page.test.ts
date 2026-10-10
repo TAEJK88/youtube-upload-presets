@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as C from '../lib/claims/claims';
 import type { ClaimsOp } from '../lib/claims/ops';
 import { createClaimsPage } from '../lib/claims/page';
-import { save, useMemoryClaims } from '../lib/claims/store';
+import { flushClaims, save, useMemoryClaims, write } from '../lib/claims/store';
 import { setYoutubei } from '../lib/claims/youtubei';
 import { refreshCfg, resetCfg } from '../lib/studio/channel';
 
@@ -37,6 +37,22 @@ describe('the copyright module in the Studio tab', () => {
     expect(send).toHaveBeenCalledWith('claims:show', 'claims');
     page.dispose();
     C.setClaimsUi(null);
+  });
+
+  // Port review I2: with broadcast() here instead, nothing of the copyright module would ever run.
+  it('the tick is the ported tick: a due Auto-pilot cycle starts from it', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const ops: ClaimsOp[] = [];
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    await refreshCfg(async () => ({ CHANNEL_ID: CH, INNERTUBE_CONTEXT: {} }));
+    const lock = (mine: boolean) => ({ worker: async () => mine, acquire: async () => false, release() {}, holds: async () => false });
+    C.setClaimsLock(lock(true));
+    await C.initClaimsLock();
+    const page = createClaimsPage({ send: (async () => undefined) as never, toast: () => {}, refreshCfg: async () => {} });
+    page.tick();
+    expect(ops[0]).toMatchObject({ op: 'merge', key: `autopilot:${CH}` });
+    page.dispose();
+    C.setClaimsLock(lock(false));
   });
 
   it('while Studio has no context yet, reads ytcfg again every 10 s', () => {
@@ -85,6 +101,37 @@ describe('the copyright module in the Studio tab', () => {
     save(`claimScan:${CH}`, { rows: [] });
     await new Promise((r) => setTimeout(r, 0));
     expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  // 4a re-review (c): a run writes a result per step; against a background that stopped answering
+  // that would be a toast per write, stacking in the panel.
+  it('the same failed-write message is said once a minute at most; another message is said at once', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const toast = vi.fn();
+    const send = vi.fn(async (..._: unknown[]) => undefined);
+    const page = createClaimsPage({ send: send as never, toast, refreshCfg: async () => {} });
+    C.setClaimsUi(page.ui);
+    let fail = new Error('claims:op on trimResults:UC1 timed out (it may still be applied)');
+    useMemoryClaims({}, async () => { throw fail; });
+    const failOnce = async () => { write({ op: 'set', key: 'logOpen', value: Math.random() }); await vi.advanceTimersByTimeAsync(0); await flushClaims(); };
+    await failOnce();
+    await failOnce();
+    await failOnce();
+    const logs = () => send.mock.calls.filter(([t]) => t === 'claims:log').length;
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(logs()).toBe(1);
+    fail = new Error('claims:op: not allowed from this sender'); // a different failure
+    await failOnce();
+    expect(toast).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(60_001);
+    await failOnce(); // the same text, a minute later
+    expect(toast).toHaveBeenCalledTimes(3);
+    expect(logs()).toBe(3);
+    page.dispose();
+    C.setClaimsUi(null);
+    vi.useRealTimers();
   });
 
   // Task 5 review m4: cachedCfg() is a snapshot; a tab whose first read came before Studio had
@@ -140,6 +187,33 @@ describe('the Studio content script', () => {
     expect(studio).toContain("onMessage('claims:view', () => claimsState());");
     // a scan takes minutes: the message is answered at once (void), the scan reports by broadcast
     expect(studio).toContain("onMessage('claims:scan', ({ data }) => void claims.scan(data));");
+  });
+
+  // 4a review m11: the first callers of runner:worker and runner:holds. The lease and the lock
+  // are asked before the handlers that start work are there.
+  it('wires the worker lease and the automation lock to the background, then the panel\'s and the alarm\'s messages', () => {
+    expect(studio).toContain("worker: (ch, force) => sendMessage('runner:worker', { ch, force }),");
+    expect(studio).toContain("acquire: () => sendMessage('runner:acquire', 'claims'),");
+    expect(studio).toContain("release: () => void sendMessage('runner:release', 'claims').catch(() => {}),");
+    expect(studio).toContain("holds: () => sendMessage('runner:holds', 'claims'),");
+    const at = (s: string) => { const i = studio.indexOf(s); expect(i, s).toBeGreaterThan(-1); return i; };
+    const init = at('await initClaimsLock();');
+    expect(at('setClaimsLock({')).toBeLessThan(init);
+    for (const h of [
+      "onMessage('claims:trim', ({ data }) => trimFromPanel(data));",
+      "onMessage('claims:ads', ({ data }) => adsFromPanel(data));",
+      "onMessage('claims:collab', ({ data }) => collabFromPanel(data));",
+      "onMessage('claims:stop', () => stopAll());",
+      "onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));",
+    ]) expect(at(h)).toBeGreaterThan(init);
+    expect(studio).toContain('setCfgRefresh(() => refreshCfg(readCfg));');
+    expect(studio).toContain('stop.add(() => setCfgRefresh(async () => {}));');
+    expect(studio).toContain('setChannelSwitcher((t, next) => sw.switchToChannel(t, next));');
+    expect(studio).toContain('stop.add(installConfirmWatch());');
+    // the wait for the background is over: the extension may have gone meanwhile
+    expect(studio).toMatch(/await initClaimsLock\(\);\s*if \(ctx\.isInvalid\) return;/);
+    // a page back from the back/forward cache mid-step starts over (safety review I3)
+    expect(studio).toContain('stop.add(installBackGuard());');
   });
 
   it('ticks the copyright module in the 800 ms interval, in its own try', () => {

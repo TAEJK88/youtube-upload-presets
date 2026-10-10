@@ -1,7 +1,7 @@
 import { L } from '../i18n';
 import { sendMessage } from '../messages';
 import { cachedCfg } from '../studio/channel';
-import { claimsState, log, startScan, type ClaimsUi } from './claims';
+import { claimsState, claimsTick, log, startScan, type ClaimsUi } from './claims';
 import { setWriteFailed } from './store';
 
 // The Studio content script's side of the copyright module: what the drawer's pane did, sent to
@@ -32,21 +32,30 @@ export function createClaimsPage(d: {
   // A copyright write the background refused or didn't answer (store.ts): the tab's copy went back
   // to what is stored, so a scan that just said "complete" is not what the panel shows. Said where
   // the action started: a toast, on the page and in the panel, and an error line in the activity log.
+  // Said once per message and minute: a run writes a result per step, and a background that
+  // stopped answering would otherwise toast at every one (4a re-review c). The console has them all
+  // (store.ts logs each failed write).
+  const SAY_AGAIN_MS = 60_000;
+  const said = new Map<string, number>();
   setWriteFailed((_key, e) => {
     const msg = L(`บันทึกไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't save (${(e as Error)?.message ?? e})`);
+    const now = Date.now();
+    if (now - (said.get(msg) ?? -Infinity) < SAY_AGAIN_MS) return;
+    said.set(msg, now);
+    for (const [m, at] of said) if (now - at >= SAY_AGAIN_MS) said.delete(m); // the map stays small
     log(msg, 'err');
     d.toast(msg);
   });
   return {
     ui,
     // Every 0.8 s (the userscript's tick, 6361): until Studio has its context, read ytcfg again
-    // every 10 s; then the state, if it changed.
+    // every 10 s; then the ported tick, which ends in renderStatus(): the state, if it changed.
     tick() {
       if (!cachedCfg('INNERTUBE_CONTEXT') && Date.now() - cfgAt > 10_000) {
         cfgAt = Date.now();
         void d.refreshCfg().catch(() => {});
       }
-      broadcast();
+      claimsTick();
     },
     // claims:scan: ytcfg is read again first. cachedCfg() is a copy from startup, the last tick
     // or a queue start; the scan's "Studio hasn't finished loading" check and its channel use it.

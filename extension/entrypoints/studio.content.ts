@@ -1,7 +1,10 @@
 import '@/lib/debug-capture/studio'; // FIRST: the debug page shows what goes wrong below
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
-import { claimsState, setClaimsUi } from '@/lib/claims/claims';
+import {
+  adsFromPanel, autopilotDue, claimsState, collabFromPanel, initClaimsLock, installBackGuard, installConfirmWatch, setCfgRefresh, setChannelSwitcher, setClaimsLock,
+  setClaimsUi, stopAll, trimFromPanel,
+} from '@/lib/claims/claims';
 import { createClaimsPage } from '@/lib/claims/page';
 import { disposeClaimsStore } from '@/lib/claims/store';
 import { loadClaimsData, wireClaims } from '@/lib/claims/wiring';
@@ -109,6 +112,26 @@ export default defineContentScript({
     onMessage('claims:view', () => claimsState());
     // A scan takes minutes: answer now, report through claims:state / claims:log / claims:show.
     onMessage('claims:scan', ({ data }) => void claims.scan(data));
+    // The channel's worker lease and the automation lock for copyright jobs (D26), asked before
+    // the first tick; then what the panel and the Auto-pilot alarm ask this tab to do (D25, D27).
+    setClaimsLock({
+      worker: (ch, force) => sendMessage('runner:worker', { ch, force }),
+      acquire: () => sendMessage('runner:acquire', 'claims'),
+      release: () => void sendMessage('runner:release', 'claims').catch(() => {}),
+      holds: () => sendMessage('runner:holds', 'claims'),
+    });
+    await initClaimsLock();
+    if (ctx.isInvalid) return;
+    stop.add(installBackGuard());
+    setCfgRefresh(() => refreshCfg(readCfg));
+    stop.add(() => setCfgRefresh(async () => {}));
+    setChannelSwitcher((t, next) => sw.switchToChannel(t, next));
+    stop.add(installConfirmWatch());
+    onMessage('claims:trim', ({ data }) => trimFromPanel(data));
+    onMessage('claims:ads', ({ data }) => adsFromPanel(data));
+    onMessage('claims:collab', ({ data }) => collabFromPanel(data));
+    onMessage('claims:stop', () => stopAll());
+    onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));
     // The userscript's FAB: opens the side panel (needs the click's user gesture — see README).
     const fab = mountFab(() => ui.openDrawer());
     stop.add(() => fab.remove());

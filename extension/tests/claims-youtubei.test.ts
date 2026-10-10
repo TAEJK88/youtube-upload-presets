@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { checkAnswer } from '../lib/claims/answers';
 import { listScheduled } from '../lib/claims/claims';
 import { useMemoryClaims } from '../lib/claims/store';
 import { loadClaimsData, wireClaims } from '../lib/claims/wiring';
@@ -82,15 +83,32 @@ describe('answers are page data', () => {
     }
   });
 
-  it('an endpoint with no answer check yet is refused (4b adds its check with its use)', async () => {
+  it('an endpoint with no answer check is refused', async () => {
     setYoutubei(async () => ({ videos: [] }));
-    await expect(yti('creator/get_creator_videos', {})).rejects.toThrow('Unexpected answer from creator/get_creator_videos (no check)');
+    await expect(yti('creator/update_creator_videos', {})).rejects.toThrow('Unexpected answer from creator/update_creator_videos (no check)');
   });
 
   it('listScheduled never hands the queue a title that is not text', async () => {
     const at = String((NOW + 3600e3) / 1000);
     setYoutubei(async () => ({ videos: [{ videoId: 'v1', title: { toString: () => 'x' }, scheduledPublishingDetails: { scheduledPublishings: [{ scheduledTimeSeconds: at, status: 'X_SCHEDULED' }] } }] }));
     await expect(listScheduled()).rejects.toThrow(/^Unexpected answer from creator\/list_creator_videos \(videos\[0\]\.title/);
+  });
+});
+
+describe('creator/get_creator_videos (the ads run)', () => {
+  it('a well-formed answer passes as plain data', () => {
+    const a = checkAnswer('creator/get_creator_videos', { videos: [{ videoId: 'abcdefghijk', monetization: { adMonetization: { userSetMonetization: 'X_ON' } } }] });
+    expect(a.videos[0].monetization.adMonetization.userSetMonetization).toBe('X_ON');
+  });
+  it('a malformed one is refused like any API error', () => {
+    for (const bad of [{ videos: 'x' }, { videos: [{ videoId: '__proto__' }] }, { videos: [{ videoId: 'v', monetization: { adMonetization: { userSetMonetization: 5 } } }] }]) {
+      expect(() => checkAnswer('creator/get_creator_videos', bad)).toThrow('Unexpected answer from creator/get_creator_videos');
+    }
+  });
+  // The guard from the 4a T5 review: this list is what the MAIN world will call for the tab.
+  it('the MAIN world still serves only read-only endpoints', () => {
+    expect([...YTI_PATHS].sort()).toEqual(['copyright/get_creator_received_claim_matches', 'creator/get_creator_videos',
+      'creator/list_creator_received_claims', 'creator/list_creator_videos']);
   });
 });
 

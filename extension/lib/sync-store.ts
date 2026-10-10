@@ -7,6 +7,8 @@ import { save } from './storage';
 // changes made elsewhere (the side panel, another tab) flow back in via storage.onChanged.
 export interface SyncStore {
   get<T>(key: string, fallback?: T): T;
+  // The stored value itself, not a copy: `fn` must only read it.
+  peek<R>(key: string, fn: (value: unknown) => R): R;
   set(key: string, value: unknown): void;
   // A write someone else makes for us (the background, D20): the copy shows `value` at once,
   // events for the key wait until `done` settles, and the key is read again then.
@@ -114,6 +116,7 @@ export async function createSyncStore(keyList: string[], prefixes: string[] = []
       check(key);
       return cache.has(key) ? copy(cache.get(key) as T) : (fallback as T);
     },
+    peek: (key, fn) => (check(key), fn(cache.get(key))),
     set(key, value) {
       check(key);
       if (!live) throw new Error('SyncStore: disposed');
@@ -176,6 +179,7 @@ export function createMemoryStore(initial: Record<string, unknown> = {}): SyncSt
   const data = new Map<string, unknown>(Object.entries(structuredClone(initial)));
   return {
     get: <T>(key: string, fallback?: T): T => (data.has(key) ? copy(data.get(key) as T) : (fallback as T)),
+    peek: (key, fn) => fn(data.get(key)),
     set: (key, value) => void (value === undefined ? data.delete(key) : data.set(key, copy(value))),
     expect: (key, value, done) => {
       void Promise.resolve(done).catch((e) => console.error(`[ytup] write failed for ${key}`, e));

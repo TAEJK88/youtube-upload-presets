@@ -106,7 +106,17 @@ const CHECKS: Record<string, (a: Obj) => void> = {
       optNum(s.endMillis, `matches[${i}]`);
     });
   },
-  // 'creator/get_creator_videos' (4b) has no check yet: its answers are refused until it does.
+  // adsIsOn (5373): one video's monetization setting
+  'creator/get_creator_videos': (a) => {
+    list(a.videos, 'videos').forEach((v, i) => {
+      const at = `videos[${i}]`;
+      const o = obj(v, at);
+      videoId(o.videoId, `${at}.videoId`);
+      const am = optObj(optObj(o.monetization, `${at}.monetization`).adMonetization, `${at}.monetization`);
+      optStr(am.userSetMonetization, `${at}.monetization`);
+      optStr(am.effectiveStatus, `${at}.monetization`);
+    });
+  },
 };
 
 // Studio's answer to `path`, as plain data that passed its check; throws otherwise.

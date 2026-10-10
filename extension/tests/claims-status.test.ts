@@ -45,6 +45,16 @@ describe('computeStatus / claimsState', () => {
     expect(C.claimsState().counts).toMatchObject({ hasScan: true, claims: 3, claimVideos: 2, songs: 2 });
   });
 
+  it('counts the claimed songs without copying the history (review m4)', () => {
+    const songHistory = Object.fromEntries(Array.from({ length: 500 }, (_, i) => ['k' + i, { title: 't' + i, videos: {} }]));
+    useMemoryClaims({ songHistory });
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    expect(C.claimsState().counts.songs).toBe(500);
+    // nothing as large as the history went through structuredClone
+    expect(clone.mock.calls.some(([v]) => v && typeof v === 'object' && Object.keys(v as object).length === 500)).toBe(false);
+    clone.mockRestore();
+  });
+
   it('the upload queue holds copyright work back only with waiting or in-flight videos, not failed ones, nor a run in another tab', () => {
     useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: Date.now() + 3600e3 } });
     const item = (status: Q.QueueItem['status']) => ({ id: status, status }) as Q.QueueItem;
@@ -64,6 +74,24 @@ describe('computeStatus / claimsState', () => {
     vi.stubGlobal('document', { documentElement: { lang: 'th' }, querySelector: () => null });
     useMemoryClaims();
     expect(C.claimsState().english).toBe(false);
+  });
+
+  // 4a review m11: workerHere's first writer is the ported tick, from the worker lease
+  it("a tab that isn't the channel's worker reports workerHere: false and shows where a run is running", async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    useMemoryClaims({ [`trimRun:${CH}`]: { active: true, started: '', items: [{ key: 'v:1', videoId: 'v', video: 'Mix', song: 'S1', state: 'pending', msg: '' }] } });
+    const lock = (mine: boolean) => ({ worker: async () => mine, acquire: async () => false, release: () => {}, holds: async () => false });
+    C.setClaimsLock(lock(false)); // another tab is this channel's worker
+    await C.initClaimsLock();
+    C.claimsTick();
+    expect(C.claimsState().workerHere).toBe(false);
+    expect(C.computeStatus()).toMatchObject({ stepIdx: -1, stepDetail: '↪ Running in another Studio tab' });
+    C.setClaimsLock(lock(true)); // the lease is this tab's
+    await C.initClaimsLock();
+    useMemoryClaims(); // no run: the tick starts no step
+    C.claimsTick();
+    expect(C.claimsState().workerHere).toBe(true);
+    vi.restoreAllMocks();
   });
 
   it('claimsStatus() for the FAB never throws', () => {
