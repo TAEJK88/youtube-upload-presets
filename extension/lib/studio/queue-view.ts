@@ -1,7 +1,7 @@
 import { fixChapters, type TracklistCheck } from '../chapters';
 import { getSongs } from '../claims/claims';
 import { claimedSongsIn } from '../claims/core';
-import { onClaimsStored } from '../claims/store';
+import { onClaimsStored, storedRef } from '../claims/store';
 import type { QueueState } from '../messages';
 import { chanLabel, channelProblem, getChannel, type Channel } from './channel';
 import {
@@ -52,10 +52,15 @@ export interface QueueView {
 // whole history and builds its title index, and queue:view runs on every change the panel hears.
 type Claimed = ViewItem['claimed'];
 const claimedCache = new Map<string, Claimed>();
+let claimedFor: unknown; // the stored history the kept checks were made against
 export const forgetClaimed = () => claimedCache.clear();
-// The content script calls it once the claims store is loaded; returns the undo.
+// The content script calls it once the claims store is loaded; returns the undo. It frees the
+// kept checks early; this tab's own song writes (a scan) have no event, so claimedIn() looks itself.
 export const watchClaimedSongs = (): (() => void) => onClaimsStored('songHistory', forgetClaimed);
 function claimedIn(txt: string): Claimed {
+  const history = storedRef('songHistory');
+  if (history !== claimedFor) forgetClaimed();
+  claimedFor = history;
   let hit = claimedCache.get(txt);
   if (!hit) {
     hit = claimedSongsIn(txt, getSongs());

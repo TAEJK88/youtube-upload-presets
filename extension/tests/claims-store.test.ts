@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { ClaimsOp } from '../lib/claims/ops';
-import { disposeClaimsStore, flushClaims, initClaimsStore, load, SEND_TIMEOUT_MS, setWriteFailed, write } from '../lib/claims/store';
+import { disposeClaimsStore, flushClaims, initClaimsStore, load, SEND_TIMEOUT_MS, setWriteFailed, storedRef, write } from '../lib/claims/store';
 import { claimsOpInOrder } from '../lib/store-writer';
 
 beforeEach(() => fakeBrowser.reset());
@@ -30,6 +30,23 @@ describe('claims store in the Studio tab', () => {
     await flushClaims();
     expect(sent.map((o) => o.op)).toEqual(['merge', 'merge']);
     expect(Object.keys((await browser.storage.local.get('trimResults:UC1'))['trimResults:UC1'] as object)).toEqual(['k1', 'k2']);
+  });
+
+  it('storedRef(): the same object while the value stands, another after a write here, its result, or a change from elsewhere', async () => {
+    await browser.storage.local.set({ songHistory: { a: { title: 'A' } } });
+    await initClaimsStore(claimsOpInOrder);
+    const first = storedRef('songHistory');
+    expect(storedRef('songHistory')).toBe(first); // not a copy
+    write({ op: 'songs', songs: { fn: 'delete', key: 'a' } });
+    const written = storedRef('songHistory');
+    expect(written).not.toBe(first);
+    await flushClaims();
+    expect(storedRef('songHistory')).toEqual({}); // the same content read back may keep the object
+    await browser.storage.local.set({ songHistory: { b: { title: 'B' } } }); // the panel, another tab
+    await vi.waitFor(() => expect(storedRef('songHistory')).toEqual({ b: { title: 'B' } }));
+    expect(storedRef('songHistory')).not.toBe(written);
+    disposeClaimsStore();
+    expect(storedRef('songHistory')).toBe(undefined); // a new, empty store
   });
 
   it('a refused write is logged and the copy goes back to what storage holds', async () => {
