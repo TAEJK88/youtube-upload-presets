@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
@@ -5,7 +6,7 @@ import * as messages from '../lib/messages';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { otherTabRunning, queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
-import { elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '../lib/studio/queue-sync';
+import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '../lib/studio/queue-sync';
 import { disposeState, initState } from '../lib/studio/state';
 
 // The Studio content script's startup and edit gate, without WXT's defineContentScript.
@@ -156,5 +157,51 @@ describe('back from the back/forward cache', () => {
     await vi.waitFor(() => expect(abort).toHaveBeenCalled());
     expect(toasts).toEqual(['Another Studio tab is already running the queue or copyright work']);
     stop();
+  });
+});
+
+describe('following the lock by events (4a review m6)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('asks about the lock every 30 s from the tick, and at once when told it changed', () => {
+    vi.useFakeTimers();
+    const ask = vi.fn(async () => false);
+    const f = createLockFollower({ ask });
+    for (let i = 0; i < 40; i++) { f.tick(); vi.advanceTimersByTime(800); } // 32 s of ticks
+    expect(ask).toHaveBeenCalledTimes(2);
+    f.now(); // runner:changed, focus
+    expect(ask).toHaveBeenCalledTimes(3);
+    for (let i = 0; i < 38; i++) { f.tick(); vi.advanceTimersByTime(800); } // ticks up to 29.6 s: the 30 s count from the last ask
+    expect(ask).toHaveBeenCalledTimes(3);
+    f.tick();
+    expect(ask).toHaveBeenCalledTimes(4);
+  });
+
+  it('an ask that fails is not an unhandled rejection, and the next one still goes out', async () => {
+    const ask = vi.fn(async () => { throw new Error('no answer'); });
+    const f = createLockFollower({ ask, everyMs: 0 });
+    f.now();
+    f.tick();
+    await Promise.resolve();
+    expect(ask).toHaveBeenCalledTimes(2);
+  });
+
+  // The entrypoints run under WXT only, so their side of the link is pinned in the source.
+  it('the tab asks on the tick through the follower, on focus and on runner:changed', () => {
+    const src = readFileSync(new URL('../entrypoints/studio.content.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/const lockFollower = createLockFollower\(\{ ask: elsewhere \}\)/);
+    expect(src).toMatch(/onMessage\('runner:changed', \(\) => lockFollower\.now\(\)\)/);
+    expect(src).toMatch(/visibilityState === 'visible'\) lockFollower\.now\(\)/);
+    expect(src).toMatch(/ctx\.setInterval\(\(\) => \{\s*lockFollower\.tick\(\);/);
+  });
+
+  it('the background tells every Studio tab when the lock changes, and looks at the holder when a tab leaves Studio or is discarded', () => {
+    const src = readFileSync(new URL('../entrypoints/background.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/registerRunnerLock\(\(\) => void tellStudioTabs\(\)\)/);
+    const tell = src.slice(src.indexOf('const tellStudioTabs'), src.indexOf('registerRunnerLock('));
+    expect(tell).toMatch(/isStudioUrl\(t\.url\)/);
+    expect(tell).toMatch(/sendMessage\('runner:changed', undefined, t\.id\)\.catch\(/);
+    expect(tell).not.toMatch(/storage|acquireRunner|releaseRunner|runnerHeld|claimWorker/); // it only sends: a write to the lock from here would loop
+    expect(src).toMatch(/if \(info\.url \|\| info\.discarded\) void runnerHeld\(\)\.catch\(/);
   });
 });

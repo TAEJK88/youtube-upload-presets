@@ -1,12 +1,20 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMemoryClaims } from '../lib/claims/store';
 import type { QueueState } from '../lib/messages';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
-import { queueView } from '../lib/studio/queue-view';
+import { forgetClaimed, queueView, watchClaimedSongs } from '../lib/studio/queue-view';
 import { settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
+
+// The real function, counted.
+const claimedCalls = vi.hoisted(() => ({ n: 0 }));
+vi.mock('../lib/claims/core', async (orig) => {
+  const real = await orig<typeof import('../lib/claims/core')>();
+  return { ...real, claimedSongsIn: (...a: Parameters<typeof real.claimedSongsIn>) => (claimedCalls.n++, real.claimedSongsIn(...a)) };
+});
 
 const ui = {
   item() {}, run() {}, queue() {}, schedule() {}, presetPreview() {}, toast() {}, openDrawer() {}, notifyDone() {},
@@ -28,6 +36,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   useMemoryClaims();
+  forgetClaimed(); // the memory store has no change events
 });
 
 describe('queueView', () => {
@@ -69,5 +78,46 @@ describe('queueView', () => {
     const [a, b] = queueView(state).items;
     expect(a!.claimed).toEqual([{ line: 'Lena - Midnight Rain', song: 'Midnight Rain', artists: 'Lena', times: 2 }]);
     expect(b!.claimed).toEqual([]); // no tracklist
+  });
+
+  const history = { k: { title: 'Midnight Rain', artists: 'Lena', label: '', claimants: [], types: [], firstSeen: '', lastSeen: '', videos: { a: {} }, trimmed: 0 } };
+
+  it('checks a tracklist against the song history once, not on every view (review m4)', () => {
+    useMemoryClaims({ songHistory: history });
+    forgetClaimed();
+    Q.queue.push(item('a', 'pending', { txt: '00:00 Lena - Midnight Rain' }), item('b', 'pending', { txt: '00:00 Lena - Midnight Rain' }), item('c', 'pending'));
+    claimedCalls.n = 0;
+    const first = queueView(state);
+    queueView(state);
+    queueView(state);
+    expect(claimedCalls.n).toBe(1); // two cards share one tracklist text; three views
+    expect(first.items[0]!.claimed).toHaveLength(1);
+    expect(queueView(state).items[1]!.claimed).toEqual(first.items[0]!.claimed);
+    first.items[0]!.claimed.length = 0; // the panel's copy: the cache is not handed out
+    expect(queueView(state).items[0]!.claimed).toHaveLength(1);
+  });
+
+  it('a changed tracklist is checked again; a changed song history forgets every check', () => {
+    useMemoryClaims({ songHistory: history });
+    forgetClaimed();
+    Q.queue.push(item('a', 'pending', { txt: '00:00 Lena - Midnight Rain' }));
+    queueView(state);
+    claimedCalls.n = 0;
+    Q.queue[0]!.txt = '00:00 Other - Song';
+    expect(queueView(state).items[0]!.claimed).toEqual([]);
+    expect(claimedCalls.n).toBe(1);
+    useMemoryClaims({ songHistory: {} }); // the history changed…
+    forgetClaimed(); // …which is what the store's change listener calls
+    Q.queue[0]!.txt = '00:00 Lena - Midnight Rain';
+    expect(queueView(state).items[0]!.claimed).toEqual([]);
+  });
+
+  // The memory store has no change events, so the link from the store to forgetClaimed() is pinned in the source.
+  it('forgets its checks when the stored song history changes', () => {
+    expect(watchClaimedSongs).toBeTypeOf('function');
+    const src = readFileSync(new URL('../lib/studio/queue-view.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/onClaimsStored\('songHistory',\s*forgetClaimed\)/);
+    const content = readFileSync(new URL('../entrypoints/studio.content.ts', import.meta.url), 'utf8');
+    expect(content).toMatch(/stop\.add\(watchClaimedSongs\(\)\)/);
   });
 });

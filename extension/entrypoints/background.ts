@@ -1,6 +1,6 @@
 import '@/lib/debug-capture/background'; // FIRST: the debug page shows what goes wrong below
 import { browser } from 'wxt/browser';
-import { onMessage } from '@/lib/messages';
+import { onMessage, sendMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
 import { isChannelId } from '@/lib/claims/keys';
 import { initI18n, watchLang } from '@/lib/i18n';
@@ -24,6 +24,8 @@ export default defineBackground(() => {
 
   browser.tabs.onUpdated.addListener((tabId, info, tab) => {
     if (info.url || info.status === 'complete') scope(tabId, tab.url);
+    // A holder that left Studio or was discarded is cleaned up here, which is a change of the lock.
+    if (info.url || info.discarded) void runnerHeld().catch(() => {});
   });
   browser.tabs.query({}).then((tabs) => tabs.forEach((t) => t.id !== undefined && scope(t.id, t.url)));
 
@@ -89,5 +91,12 @@ export default defineBackground(() => {
     const id = studioTab(sender);
     return id !== null && claimWorker(id, d.ch, d.force === true);
   });
-  registerRunnerLock();
+  // The lock moved: every Studio tab asks again (they no longer poll for it). It only sends: a
+  // write to the lock from here would come back as another change. A tab with no script rejects.
+  const tellStudioTabs = async () => {
+    for (const t of await browser.tabs.query({}).catch(() => [])) {
+      if (t.id !== undefined && isStudioUrl(t.url)) void sendMessage('runner:changed', undefined, t.id).catch(() => {});
+    }
+  };
+  registerRunnerLock(() => void tellStudioTabs());
 });

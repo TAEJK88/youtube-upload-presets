@@ -26,8 +26,8 @@ import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/stud
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { abortRun, installIntercept, isStartBinding, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
-import { elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '@/lib/studio/queue-sync';
-import { queueView } from '@/lib/studio/queue-view';
+import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '@/lib/studio/queue-sync';
+import { queueView, watchClaimedSongs } from '@/lib/studio/queue-view';
 import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
@@ -77,6 +77,7 @@ export default defineContentScript({
     stop.add(disposeClaimsStore); // first: a teardown while it loads drops what it loaded
     await loadClaimsData();
     if (ctx.isInvalid) return;
+    stop.add(watchClaimedSongs());
     // Studio's API for the copyright module (its own client: 30 s, the userscript's fetch had no
     // timeout; getCfg keeps 10 s, D22), and the queue's schedule avoids the channel's scheduled
     // videos (refreshChanSched, user.js 1899).
@@ -147,8 +148,11 @@ export default defineContentScript({
       void sendMessage('runner:release', 'all').catch(() => {});
     });
     stop.add(() => setOtherTabRuns(false));
-    // Coming back to the tab: refresh at once rather than at the next tick.
-    const refresh = () => { if (document.visibilityState === 'visible') void elsewhere(); };
+    // The lock is asked about when the background says it changed, on coming back to the tab,
+    // and every 30 s from the tick (queue-sync createLockFollower).
+    const lockFollower = createLockFollower({ ask: elsewhere });
+    onMessage('runner:changed', () => lockFollower.now());
+    const refresh = () => { if (document.visibilityState === 'visible') lockFollower.now(); };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
     stop.add(() => {
@@ -194,7 +198,7 @@ export default defineContentScript({
     stop.add(() => setTitleMark(''));
     stop.add(installUnloadGuard());
     ctx.setInterval(() => {
-      void elsewhere();
+      lockFollower.tick();
       // Its own try: a failure here must not stop the progress bar.
       try {
         rememberChannel(getChannel());

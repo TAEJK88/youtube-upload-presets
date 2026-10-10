@@ -14,6 +14,14 @@ export const elsewhere = (): Promise<boolean> =>
     .catch(() => otherTabRunning()) // no answer is not "the lock is free": keep what we knew
     .then(async (v) => (await followOtherTab(v), v));
 
+// The lock is followed by events (runner:changed from the background, focus), with a slow poll
+// as the fallback: asking on every 0.8 s tick kept the service worker awake for good.
+export function createLockFollower(d: { ask(): Promise<unknown>; everyMs?: number }) {
+  let at = 0;
+  const now = () => { at = Date.now(); void d.ask().catch(() => {}); };
+  return { now, tick() { if (Date.now() - at >= (d.everyMs ?? 30_000)) now(); } };
+}
+
 // At startup. A reload in the middle of a run leaves this tab's lock behind, so it goes
 // first — the queue's job only: a copyright job (a trim run changes pages) keeps it (D21).
 // Then the stored queue comes back, its unfinished items cut unless another tab is the one
