@@ -78,8 +78,8 @@ www.youtube.com → invite.content.ts (channel switch + invite accept)
 | `lib/studio/queue-runner.ts` | 1650–2151 | content |
 | `lib/studio/manual-fill.ts`, `lib/studio/quick-actions.ts` | 2152–2361 | content |
 | `entrypoints/sidepanel/*` | 2362–4520 (UI rewritten, same behavior) | panel |
-| `lib/claims/*`, `lib/studio/trim.ts`, MAIN-world youtubei | 4521–end | content + MAIN |
-| `entrypoints/sidepanel/tabs/Copyright.tsx` | copyright UI in 4521–end | panel |
+| `lib/claims/*` (`claims.ts`: the ported module incl. trim; `core.ts`, `songs.ts`: pure; `ops.ts` / `store.ts`: data; `alarms.ts`: Auto-pilot in the background), `lib/main-youtubei.ts` (MAIN world) | 4587–6357 | content + MAIN + background |
+| `entrypoints/sidepanel/tabs/CopyrightTab.tsx` (+ `tabs/copyright/*`) | copyright UI in 4587–6357 | panel |
 | `lib/messages.ts` | new | all |
 | `lib/file-store.ts` | new | panel, bridge |
 
@@ -87,7 +87,7 @@ www.youtube.com → invite.content.ts (channel switch + invite accept)
 
 | Userscript | Extension |
 |---|---|
-| `GM_getValue` / `GM_setValue` | `chrome.storage.local` (same keys and per-channel `key:channelId` layout) |
+| `GM_getValue` / `GM_setValue` | `chrome.storage.local` (same keys and per-channel `key:channelId` layout), except `tabLock:<ch>`: the tab lease is the background's worker lease `claimsWorkers` in `storage.session` (`{ tabId, at }` per channel, stale after 20 s without a renewal, written every 5 s at most, asked by a tab every 10 s) |
 | `GM_addStyle` | Bundled CSS (Tailwind in the panel, Shadow DOM styles in the page) |
 | `GM_setClipboard` | `navigator.clipboard` in the panel; the page sends data to the panel to copy |
 | `GM_notification` | `chrome.notifications` from the background |
@@ -127,6 +127,13 @@ needs a real `File` inside the Studio tab (`DataTransfer` injection, current lin
 The rule "don't change pages or channels while the queue has files" goes away once
 step 4 works.
 
+Two windows can edit one queue: their saves are merged per item, so an edit in one window
+doesn't undo an edit to another item in the other. A start is bound to what the summary
+showed: a signature of the schedule, thumbnails on/off and the waiting items' presets'
+visibility, and a start whose signature no longer matches is refused ("Settings or presets
+changed after you confirmed — click Start again to see the new summary"). The read of the
+channel's scheduled videos before a start is limited to 10 s.
+
 ## Messaging
 
 All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
@@ -134,49 +141,81 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
 - **Panel → page (the Studio tab):** `queue:add`, `queue:preflight`, `queue:start`,
   `queue:stop`, `queue:retry`, `queue:remove`, `queue:clearDone`, `queue:view`,
   `queue:edit`, `channel:switch`, `fill:apply`, `diag:dialogInfo`. Phase 4 adds
-  `claims:scan`, `claims:trim`, `claims:autopilot`.
+  `claims:view`, `claims:scan`, `claims:trim`, `claims:ads`, `claims:collab`, `claims:stop`.
+  The panel asks the confirmations (trim, Auto-pilot) and checks the handles; the page starts
+  each run from its stored scan. The Copyright tab's buttons follow the bound tab; its Stop
+  goes to the lock holder while that tab runs copyright work.
 - **Page → panel:** `queue:state` broadcasts the live runner state (running, stopping,
   progress, a revision number, the channel) and `queue:toast` the page's toasts. The panel
   doesn't take the queue from them: a `queue:state` whose revision changed, a storage
   change or a minute's timer makes it ask its tab for `queue:view` again. Phase 4 adds
-  `claims:state`.
+  `claims:state`, `claims:log` and `claims:show`: they come from the bound tab, or from the
+  lock holder while it runs copyright work. The activity log is the panel's last 80 lines.
 - **Page → background:** `openPanel`, `ensureMigrated`, `files:delete`, `notify`,
-  `runner:acquire`, `runner:release`, `runner:elsewhere`, `store:patch`. **Panel →
-  background:** `store:patch`, `backup:write`. `files:delete`, `store:patch` and
-  `backup:write` are refused from senders that may not write (`mayWrite`).
+  `runner:acquire`, `runner:release`, `runner:elsewhere`, `runner:holds`, `runner:worker`,
+  `store:patch`, `claims:op`. **Panel → background:** `store:patch`, `backup:write`,
+  `claims:op` (Auto-pilot on/off is one: no page needed). `files:delete`, `store:patch`,
+  `backup:write` and `claims:op` are refused from senders that may not write (`mayWrite`);
+  `runner:acquire` and `runner:worker` are refused from senders that are not Studio tabs.
+- **Background → page:** `runner:changed` (the lock moved: every Studio tab asks again) and
+  `claims:autopilot` (an Auto-pilot alarm, to that channel's worker tab).
 - **Persistent state** (settings, presets, upload history, queue metadata, per-channel
   claims data) is read and written through `chrome.storage.local`. Both sides react to
   `storage.onChanged`.
-- **One writer for settings and counters.** The background is the only writer of
-  `settings` and `counters`: the panel and the Studio tabs send `store:patch` (a diff), and
+- **One writer for settings, counters and the copyright keys.** The background is the only
+  writer of `settings` and `counters`: the panel and the Studio tabs send `store:patch` (a diff), and
   the background applies patches one at a time, so two writers never lose each other's
-  change. An import goes through `backup:write` the same way. `presets` and `activeId` are
+  change. An import goes through `backup:write` the same way. The copyright data (the
+  per-channel keys and the four global ones) is written the same way: pages and the panel
+  send `claims:op` (one op, one key), applied one at a time in the same queue. A Studio tab
+  applies the op to its own copy at once and re-reads the key when the background is done. A
+  write unanswered in 30 s counts as failed but may still land; a failed one is shown ("Couldn't
+  save (…)"). No op is accepted for `autopilot:unknown`. `presets` and `activeId` are
   written whole by the panel (plus Alt+1…9 in Studio); `channels` is read-modify-written by
   the page's channel memory and the panel's channel list, as the userscript did across tabs.
 - **Target tab.** The panel binds to the active Studio tab in its window. The background
   enables the panel on Studio tabs only, so there is no "Open YouTube Studio" screen; when the
   Studio tab has no live content script (opened before the extension loaded or reloaded), the
   panel shows **Reload this tab**.
-- **One runner at a time.** A `storage.session` lock `{runnerTabId}` stops two Studio
-  tabs from running queues at once. The lock is released when the runner stops or when
-  its tab closes (`tabs.onRemoved` in the background).
+- **One runner at a time.** A `storage.session` lock with jobs (`runnerTabId` +
+  `runnerJobs`: `queue` / `claims`) stops two Studio tabs from driving Studio at once: the
+  upload queue, or a trim / ads / Collab run, which takes the `claims` job right before it
+  changes pages and gives it back when no run is left (or while its run only waits for the
+  upload queue). The lock is released when the runner stops or when its tab closes
+  (`tabs.onRemoved` in the background), is discarded or leaves Studio. A page restored from
+  the back/forward cache that lost the lock aborts its queue run at once, and one with a
+  copyright step in flight reloads. Scans take no lock. A backup import is refused during any
+  lock job. Studio tabs follow the lock through `runner:changed`, focus and a 30 s poll.
+- **One copyright worker per channel.** Only the channel's worker tab ticks Auto-pilot,
+  follow-up checks and run steps: the lease `claimsWorkers` (see "GM replacements"). The tab
+  that holds the `claims` job for a run keeps the lease with it.
 - **Stop goes to the lock holder.** The panel's Stop is sent to the tab that holds the
   runner lock, which may not be the panel's own tab. When it isn't, the panel names the tab
   that will stop ("Will stop the queue in the tab "…" after the current video finishes").
   The panel shows toasts from its own tab only (plan 3b D14).
 - **Content ↔ MAIN world.** `window.postMessage` on a fixed channel name
   (`ytup:main`). Requests carry an id; responses echo it. The MAIN script answers only
-  `getCfg` and `youtubei`, and ignores any message whose `source` is not `window` or
-  whose shape doesn't match.
+  `getCfg` and `youtubei` (for an allowlist of four read-only endpoints), and ignores any
+  message whose `source` is not `window` or whose shape doesn't match. Its answers are page
+  data: copied as plain data and shape-checked before use. `CHANNEL_ID` names a storage key
+  only when it is a real channel id.
 
 ## Background
 
 - **Side panel.** `sidePanel.setOptions({ tabId, enabled })` turns the panel on for
   `studio.youtube.com` tabs only. The toolbar icon opens it.
-- **Autopilot.** One `chrome.alarms` alarm per channel, named `ap:<channelId>`, with the
-  period from `apEveryHours`. When it fires, the run starts in an open Studio tab for
-  that channel. If no such tab exists, the channel is marked `due` in storage, and the
-  run starts the next time that channel opens in Studio.
+- **Autopilot.** One one-shot `chrome.alarms` alarm per channel, named `ap:<channelId>`, at
+  its next cycle (`autopilot:<channelId>.next`), armed only for a future cycle and once per
+  cycle. When it fires, the background sends `claims:autopilot` to that channel's worker tab
+  (one Studio tab per channel, the userscript's tab lease, kept in `storage.session`; a tab
+  whose lease looks stale because it is hidden is still sent to), which runs its cycle. With
+  no such tab, the channel's next cycle stays due and starts when a tab for that channel
+  opens. Follow-up checks run on the worker tab's own timer.
+- **Autopilot is due (user request).** When an alarm fires and no Studio tab can run the
+  cycle, the background shows one "Auto-pilot is due" notification for that cycle (per channel
+  and `next`, remembered in `storage.local` as `apNotified`, which is not in the backup);
+  clicking it opens Studio on that channel in a new tab. No notification for an alarm more
+  than 60 s late (the computer slept or Chrome was closed past the cycle's time).
 - **Notifications.** "Queue finished" goes through `chrome.notifications`. A click
   focuses the tab, and opens the panel if Chrome accepts the click as the user gesture
   `sidePanel.open()` needs (recorded in the manual check). The tab-title mark and the sound stay in the page.
@@ -192,6 +231,9 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
 - **Same content.** The drawer's tabs — Upload (with the schedule box), Presets, Copyright,
   Settings — with the same fields, actions and EN/TH strings as v4.27.1, the userscript
   commit `npm run ui-check` pins (it proves the strings). Backup/share stays inside Settings.
+  The copyright pane's modals are views of the Copyright tab; claim and song tables are lists
+  of cards. CSV files (claims, songs, upload history) are saved from the panel; the queue card
+  shows "N song(s) previously claimed".
 - **Built from shadcn/ui** components (Button, Tabs, Dialog, Switch, Input, Textarea, Badge,
   Progress, Sonner) copied into `components/ui/`, on Tailwind v4; native `<select>` and
   date-time inputs as in the drawer. The theme is defined as CSS variables carrying the black
@@ -230,18 +272,26 @@ The import accepts the v4.26.1 export format and runs it through the existing
 Studio tab runs the queue ("Stop the queue before importing"); otherwise the queue survives
 it (no page reload, so the userscript's "clear the queue first" guard is gone).
 
+Per-channel copyright data is not in the backup (as in the userscript); the copyright
+settings are. The claimed-songs history moves as a CSV: that import is lossy (titles, artists,
+claimants and counts, not which video was which) and limited to 16 MB. The debug report
+contains the copyright data and the lock state.
+
 ## Error handling
 
 - **Extension reloaded or updated while a Studio tab is open.** The content script
   detects the invalidated context (`chrome.runtime.id` undefined) and shows a "Reload
   this tab" banner.
 - **Bridge failures.** If a handle is missing, permission is denied or the file was moved
-  or renamed, the item goes to `error` with that specific reason and **Retry**. While any
+  or renamed, the item goes to `error` with that specific reason and **Retry**. A file whose
+  read permission the user blocked ('denied') fails with "The browser blocked reading this
+  file — remove it from the queue and add it again". While any
   waiting or failed item's file has lost read permission (after a browser restart), the
   panel shows one banner button, **Re-grant access (N files)**, that asks for every such
   file in one click.
-- **MAIN world not answering.** A `youtubei`/`getCfg` request times out after 10 s and
-  surfaces as a scan error, as API failures do today.
+- **MAIN world not answering.** A `getCfg` request times out after 10 s, a `youtubei`
+  request after 30 s (the userscript's fetch had none); a timeout fails that call like any
+  API error.
 - **Studio markup drift.** The `SEL` / `TXT` tables and the "Copy upload dialog info"
   diagnostic are kept as they are.
 
