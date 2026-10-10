@@ -5,10 +5,12 @@ import { useMemoryClaims, load } from '../lib/claims/store';
 import { setYoutubei } from '../lib/claims/youtubei';
 import { refreshCfg, resetCfg } from '../lib/studio/channel';
 
+// No real waiting: a sleep is over at once and a waitFor looks once, unless a test holds one open (`held`).
+const held = vi.hoisted(() => ({ sleep: null as null | (() => Promise<void>), waitFor: null as null | (() => Promise<unknown>) }));
 vi.mock('../lib/studio/automation', async (orig) => ({
   ...(await orig<typeof import('../lib/studio/automation')>()),
-  sleep: async () => {},
-  waitFor: async (fn: () => unknown) => fn() || null,
+  sleep: async () => held.sleep?.(),
+  waitFor: async (fn: () => unknown) => (held.waitFor ? held.waitFor() : fn() || null),
 }));
 import * as C from '../lib/claims/claims';
 import * as Q from '../lib/studio/queue-runner';
@@ -44,6 +46,7 @@ beforeEach(async () => {
   await C.initClaimsLock();
 });
 afterEach(() => {
+  held.sleep = held.waitFor = null;
   delete (HTMLElement.prototype as { offsetParent?: unknown }).offsetParent;
   C.setClaimsUi(null);
   setYoutubei(null);
@@ -381,6 +384,81 @@ describe('the lock, the lease and the settle (review round)', () => {
     await C.initClaimsLock();
     C.claimsTick();
     expect(release).not.toHaveBeenCalled();
+  });
+
+  // Safety re-review n1: …but a page that stays 'unknown' must not keep the lock from every tab.
+  it("…for 30 s; a page that stays 'unknown' lets it go", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    useMemoryClaims({ [`trimRun:${CH}`]: pendingRun() });
+    resetCfg();
+    await refreshCfg(async () => ({ INNERTUBE_CONTEXT: {} }));
+    history.replaceState(null, '', '/video/v2/claims');
+    const release = vi.fn();
+    C.setClaimsLock({ worker: async () => true, acquire: async () => true, release, holds: async () => true });
+    await C.initClaimsLock();
+    C.claimsTick();
+    await vi.advanceTimersByTimeAsync(29_000);
+    C.claimsTick();
+    expect(release).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    C.claimsTick();
+    expect(release).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  // Safety re-review R1: between the reload and the document going away a wait that was due could
+  // still end, and the step's next click with it. A page put into the cache never goes on.
+  it('a step frozen for the back/forward cache never goes on: its waits do not end, nothing is clicked', async () => {
+    vi.resetModules(); // the frozen step keeps its module busy for good: this page's own copies
+    const F = await import('../lib/claims/claims');
+    (await import('../lib/claims/store')).useMemoryClaims({ [`trimRun:${CH}`]: pendingRun('v1', 'c1') });
+    await (await import('../lib/studio/channel')).refreshCfg(async () => ({ CHANNEL_ID: CH, INNERTUBE_CONTEXT: {} }));
+    let clicks = 0;
+    document.body.innerHTML = '<ytcr-video-content-list-row><span>S</span><button>Take action</button></ytcr-video-content-list-row>';
+    document.querySelector('button')!.addEventListener('click', () => { clicks++; });
+    (await import('../lib/claims/youtubei')).setYoutubei(async () => ({ receivedClaims: [claim('c1')] }));
+    let due!: (v: unknown) => void;
+    held.waitFor = () => new Promise((r) => { due = r; }); // the step's wait for the claim rows stays open
+    const reload = vi.fn();
+    const off = F.installBackGuard(reload);
+    const fire = (type: string) => { const ev = new Event(type); Object.defineProperty(ev, 'persisted', { value: true }); window.dispatchEvent(ev); };
+    F.setClaimsLock({ worker: async () => true, acquire: async () => true, release: vi.fn(), holds: async () => false });
+    let ended = false;
+    void F.trimStep().then(() => { ended = true; });
+    await vi.waitFor(() => expect(due).toBeTypeOf('function'));
+    fire('pagehide'); // into the cache, mid-step
+    fire('pageshow'); // and back
+    expect(reload).toHaveBeenCalledTimes(1);
+    held.waitFor = null;
+    due([...document.querySelectorAll('ytcr-video-content-list-row')]); // the wait was due: the rows are there, "Take action" is next
+    await new Promise((r) => setTimeout(r, 20));
+    expect(clicks).toBe(0);
+    expect(ended).toBe(false);
+    off();
+  });
+
+  it('a scan frozen for the back/forward cache: the page reloads too (its waits would never end)', async () => {
+    vi.resetModules();
+    const F = await import('../lib/claims/claims');
+    (await import('../lib/claims/store')).useMemoryClaims({});
+    await (await import('../lib/studio/channel')).refreshCfg(async () => ({ CHANNEL_ID: CH, INNERTUBE_CONTEXT: {} }));
+    const api = vi.fn(async () => ({ videos: [], nextPageToken: 'more' }));
+    (await import('../lib/claims/youtubei')).setYoutubei(api);
+    let due!: () => void;
+    held.sleep = () => new Promise<void>((r) => { due = r; }); // the pause before the next page of videos stays open
+    const reload = vi.fn();
+    const off = F.installBackGuard(reload);
+    const fire = (type: string) => { const ev = new Event(type); Object.defineProperty(ev, 'persisted', { value: true }); window.dispatchEvent(ev); };
+    F.startScan('claims');
+    await vi.waitFor(() => expect(due).toBeTypeOf('function'));
+    fire('pagehide');
+    fire('pageshow');
+    expect(reload).toHaveBeenCalledTimes(1);
+    held.sleep = null;
+    due(); // the pause was due: the next page is not asked for
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api).toHaveBeenCalledTimes(1);
+    off();
   });
 
   // Safety m3: runner:release is fire-and-forget; if it was lost the background would keep the job

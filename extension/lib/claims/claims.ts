@@ -2,7 +2,7 @@
 import { inviteOutcome, parseHandles } from '../collab';
 import { L, locale } from '../i18n';
 import { cachedCfg, chanLabel, getChannel } from '../studio/channel';
-import { clickByText, clickIn, shownDialog, sleep, waitFor } from '../studio/automation';
+import { clickByText, clickIn, shownDialog, sleep as sleepFor, waitFor as waitUntil } from '../studio/automation';
 import { inviteCollaborators } from '../studio/collab';
 import { otherTabRunning, queue, running, uploadOf } from '../studio/queue-runner';
 import { SEL } from '../studio/sel';
@@ -94,6 +94,7 @@ export const setClaimsLock = (l: ClaimsLock) => {
   workerAnswerAt = 0;
   lockMine = false;
   lockUnsure = false;
+  unknownSince = 0;
   settledHere.clear(); // a new wiring is a new page (tests: runs started in the same millisecond)
 };
 
@@ -166,11 +167,16 @@ const holdsRun = () => lockMine && runActive();
 // it would keep every other tab from starting the queue or a copyright job (and the queue it
 // waits for may be another tab's to start). When the queue is clear the tick's step asks again.
 // Not under a step that is still clicking, and not while the channel is 'unknown' (ytcfg is late
-// on a step's new page): no run is found under that name, which is not "no run left".
+// on a step's new page): no run is found under that name, which is not "no run left". A page
+// that stays 'unknown' lets go after 30 s all the same, or it would keep the lock from every tab
+// for as long as it is open; if its run turns up later, the step asks again.
+const UNKNOWN_HOLD_MS = 30_000;
+let unknownSince = 0;
 function settleLock(): void {
   if (!lockMine) return recheckLock();
   if (trimBusy || adsBusy || collabBusy || trimStarting) return;
-  if (currentChannel() === 'unknown') return;
+  if (currentChannel() !== 'unknown') unknownSince = 0;
+  else if (Date.now() - (unknownSince ||= Date.now()) < UNKNOWN_HOLD_MS) return;
   if (runActive() && !uploadBusy()) return;
   lockMine = false;
   lockUnsure = true;
@@ -207,12 +213,27 @@ export async function initClaimsLock(): Promise<void> {
 // and the next click here could be "Confirm changes". It starts over instead (as the queue does,
 // queue-sync watchLockLifecycle): the reloaded page asks for the job and the lease afresh, and
 // the item, still pending, goes through trimOne's own check with YouTube.
+// Between the reload and the document going away the page still runs, so a page that was hidden
+// for the cache (`left`, set on pagehide, before the freeze) never goes on by itself either: every
+// click of the ported steps comes after a sleep() or a waitFor(), which are this module's here,
+// and one that ends after the page left never returns. (inviteCollaborators has its own waits in
+// lib/studio/collab.ts; for those there is the reload.) A scan, a cycle or a follow-up check caught
+// that way would wait for ever, so the restored page reloads for those too.
+let left = false;
+const never = new Promise<never>(() => {});
+const sleep = (ms: number) => sleepFor(ms).then(() => (left ? never : undefined));
+const waitFor: typeof waitUntil = (fn, timeout, step) => waitUntil(fn, timeout, step).then((v) => (left ? never : v));
 export function installBackGuard(reload: () => void = () => location.reload()): () => void {
+  const hide = (e: PageTransitionEvent) => { if (e.persisted) left = true; };
   const back = (e: PageTransitionEvent) => {
-    if (e.persisted && (lockMine || trimBusy || adsBusy || collabBusy)) reload();
+    if (e.persisted && (lockMine || trimBusy || adsBusy || collabBusy || approving || scanning || adsScanning || collabScanning || apBusy || fuBusy)) reload();
   };
+  window.addEventListener('pagehide', hide);
   window.addEventListener('pageshow', back);
-  return () => window.removeEventListener('pageshow', back);
+  return () => {
+    window.removeEventListener('pagehide', hide);
+    window.removeEventListener('pageshow', back);
+  };
 }
 
 // chainAcceptInvites() switches channel through the channel switcher (lib/channel-switch.ts).
