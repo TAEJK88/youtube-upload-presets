@@ -845,6 +845,8 @@ English. Write down pass or fail; items marked **record** ask for an observation
   slept, or Chrome was closed) still wakes a Studio tab if there is one, but shows no
   notification; the cycle then starts when a Studio tab on that channel is open. The wake-up
   also goes to an open Studio tab that has been hidden so long that it looks idle.
+  (Both rules were decided by the owner on 2026-10-11: the wake-up to a hidden tab, and no
+  notification for a late alarm.)
   - It says "No YouTube Studio tab for … is open" in two cases where a tab is open but can't
     work: a tab Chrome discarded (Memory Saver), and a tab that is in the middle of loading or
     was opened before the extension was loaded. Clicking opens a second tab; that is harmless.
@@ -871,6 +873,10 @@ English. Write down pass or fail; items marked **record** ask for an observation
   answering), the tab starts the cycle again after each scan until it can. If Studio turns out
   to be on another channel when the cycle begins, that cycle is skipped until its next time,
   with a console warning only.
+- **Auto-pilot after an incomplete scan carries on**, as in the userscript (decided by the owner
+  on 2026-10-11). When a scan could not read some claimed videos, the activity log shows the red
+  "scan is incomplete" line; the cycle still replaces the stored scan, trims what it did read,
+  and with "Also turn on ads" goes on to the ads run. It does not stop and wait.
 - **Auto-pilot is never on for a tab that doesn't know its channel.** The switch is greyed out
   until the page says which channel it is on.
 - **Back button during a step.** A page that Chrome kept for the Back button never carries on
