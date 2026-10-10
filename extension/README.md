@@ -62,6 +62,15 @@ In the userscript: Settings → Backup / share → Export. Import that file in t
 (Settings → Back up / share settings → Import). Upload history and per-channel copyright data
 aren't part of the backup.
 
+## CSV exports
+
+The Copyright tab's CSV files (claims, claimed songs, upload history) are written as the
+userscript wrote them: every cell quoted, nothing else changed. A video or song title that
+starts with `=`, `+`, `-` or `@` is therefore read as a formula by Excel or Google Sheets. The
+titles come from YouTube, so open these files as text, or with formulas off, if a channel's
+titles aren't yours. The cells are left alone on purpose: the claimed-songs CSV is also the
+file the extension imports, and a changed cell would come back as a different song.
+
 ## Debugging
 
 When something goes wrong, open the **debug page**. It works without a Studio tab and with a
