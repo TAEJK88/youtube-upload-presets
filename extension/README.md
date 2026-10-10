@@ -98,8 +98,10 @@ What it shows: the version, id, permissions, browser and data schema, and whethe
 answers (Overview); the error log of every part of the extension (background, panel, Studio and
 youtube.com pages, file bridge, debug page; newest first, filterable, each entry's stack on a
 click; it follows new entries live, and **Clear log** empties it); every stored key with its
-size and value; the open Studio tabs and whether each one's page script answers; the stored file
-handles and whether the queue uses them. It changes nothing except **Clear log**.
+size and value, and under `storage.session` the automation lock (`runnerTabId`), what it is held
+for (`runnerJobs`) and the copyright worker of each channel (`claimsWorkers`); the open Studio
+tabs and whether each one's page script answers; the stored file handles and whether the queue
+uses them. It changes nothing except **Clear log**.
 
 To send a report: **Copy diagnostic report** (paste it into a message) or **Download report
 (.json)** (attach the file). The report holds every section above and the last 300 log entries.
@@ -495,7 +497,9 @@ with at least one copyright claim.
     scan with its progress, then "Scan complete"; **Claim list (N)** and **Claimed songs (N)**
     get their counts; "Show activity ▾" lists the scan's lines, ending "Scan complete ✓ …".
     With Studio in Thai the tab warns "⚠ Studio is set to Thai — …". **Record** any "Unexpected
-    answer from …" line in the activity log.
+    answer from …" line in the activity log, and a last line "Couldn't read the claim details
+    of N of M videos — this scan is incomplete" (the card then says "Needs attention" instead
+    of "Scan complete"; see "Known behaviour, Phase 4a").
     - **Claim list.** One card per claim; the "Select:" chips tick claims (ticking only builds
       a list, nothing changes on YouTube); **⬇ CSV**; **↻ Rescan**.
     - **Claimed songs.** Search, sort, **Remove from history** and **Delete all** (each asks
@@ -519,7 +523,7 @@ with at least one copyright claim.
 49. **Status in a second window and in the activity bar.** With Studio in windows A and B on
     the same channel and nothing uploading, press Scan claims in A: the activity bar in A's
     panel shows the copyright status; after the scan, B's Copyright tab shows the same counts
-    without a reload.
+    within a few seconds, without a reload.
 50. **Light and dark, narrow.** Drag the panel to its narrowest (about 320px) and look at the
     Copyright tab, the claim list (scrolled to its end: the footer stays at the bottom edge),
     Claimed songs and the tracklist editor, in Chrome's light and dark themes, English and
@@ -529,7 +533,8 @@ with at least one copyright claim.
     download). **Record** the file names and whether Chrome asked anything.
 52. **One worker per channel.** Open two Studio tabs on the same channel, then close the first.
     In the service worker console, `await chrome.storage.session.get('claimsWorkers')` names one
-    tab for the channel before and the other tab afterwards. Nothing in 4a asks for the lease
+    tab for the channel before and the other tab afterwards (the debug page shows the same
+    value under Stored data → `storage.session`). Nothing in 4a asks for the lease
     yet, so before Phase 4b the entry is empty: run this item with 4b's Auto-pilot (the closed
     worker's tab is replaced at once; a tab that hangs, after about 20 s).
 53. **Start refused during copyright work (complete in 4b).** While another Studio tab holds
@@ -539,6 +544,30 @@ with at least one copyright claim.
     copyright work". Nothing in 4a takes the lock for copyright work (a scan takes none), so
     this can only be run in full with 4b's trim; until then it is covered by unit tests
     (`tests/panel-shell.test.tsx`, `tests/runner-lock.test.ts`).
+
+### Known behaviour, Phase 4a (note, don't test)
+
+- **A schedule list that arrives late can move the slots after you confirmed.** Before a start
+  the channel's scheduled videos are read again, and each of the two waits (the summary, then
+  the run) gives up after 10 s and goes on with the slots known so far. If Studio answers
+  between the summary and the first upload, the run avoids the slots it then knows, which can
+  differ from the times the summary showed. The userscript's refresh during a run did the
+  same. A list that could not be read at all is a console warning only (`[YT Presets] scheduled
+  list`): the run starts without the channel's taken slots.
+- **A scan is stored even when claim details could not be read.** A video whose claims Studio
+  did not return (an error, no answer within 30 s, or an answer in an unexpected shape) is
+  left out, and the scan replaces the one before it, as in the userscript. When every detail
+  call fails, that is a stored scan with 0 claims. The activity log's last line then says
+  "Couldn't read the claim details of N of M videos — this scan is incomplete" and the status
+  card says "Needs attention"; scan again.
+- **A copyright write that failed** (the background refused it or did not answer within 30 s)
+  toasts "Couldn't save (…)" in the panel and on the Studio page and adds the same line to the
+  activity log; the debug log has it too. The tab goes back to what is stored. A write that
+  only timed out may still land.
+- **After a reload or a channel switch of the Studio tab** the Copyright tab shows no status and
+  its buttons are off until the new page answers (a few seconds); an open claim list, song list
+  or tracklist editor closes. It stays that way when the tab came back without the extension's
+  script (the "reload this tab" banner says so). The activity log keeps its lines.
 
 ### Known, dev only (note, don't test)
 
