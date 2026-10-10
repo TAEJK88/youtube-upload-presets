@@ -9,6 +9,7 @@ const alarms = async () => (await browser.alarms.getAll()).map((a) => [a.name, a
 // Every tab is a live Studio tab (workerOf and leasedTab ask tabs.get).
 const liveTabs = () =>
   vi.spyOn(browser.tabs, 'get').mockImplementation((async (id: number) => ({ id, url: 'https://studio.youtube.com/channel/UC' + id })) as never);
+const stored = (ch: string, v: unknown) => browser.storage.local.set({ ['autopilot:' + ch]: v });
 const fire = (name: string, scheduledTime: number) => fakeBrowser.alarms.onAlarm.trigger({ name, scheduledTime } as never);
 
 describe('Auto-pilot alarms', () => {
@@ -31,7 +32,8 @@ describe('Auto-pilot alarms', () => {
     await browser.alarms.create('ap:unknown', { when: NOW + 3600e3 }); // armed by an older build
     await syncAutopilotAlarms(NOW);
     expect(await alarms()).toEqual([]);
-    await armAutopilot('unknown', { on: true, next: NOW + 7200e3 }, NOW);
+    await stored('unknown', { on: true, next: NOW + 7200e3 });
+    await armAutopilot('unknown', NOW);
     expect(await alarms()).toEqual([]);
   });
 
@@ -44,22 +46,28 @@ describe('Auto-pilot alarms', () => {
     await browser.alarms.clear('ap:UC1'); // it fired (a one-shot alarm is gone afterwards)
     await syncAutopilotAlarms(NOW + 3600e3 + 1); // the cycle is due now, not re-armed
     expect(create).toHaveBeenCalledTimes(1);
-    await armAutopilot('UC1', { on: true, next: NOW + 7200e3 }, NOW + 3600e3 + 2); // the cycle ran: next time
+    await stored('UC1', { on: true, next: NOW + 7200e3 });
+    await armAutopilot('UC1', NOW + 3600e3 + 2); // the cycle ran: next time
     expect(create).toHaveBeenCalledTimes(2);
-    await armAutopilot('UC1', { on: false, next: 0 }, NOW + 3600e3 + 3);
+    await stored('UC1', { on: false, next: 0 });
+    await armAutopilot('UC1', NOW + 3600e3 + 3);
     expect(await alarms()).toEqual([]);
   });
 
   it('a new cycle withdraws the "is due" notice of the last one; a channel that stays due keeps it', async () => {
     const clear = vi.spyOn(browser.notifications, 'clear');
-    await armAutopilot('UC1', { on: true, next: NOW - 1 }, NOW); // still due (the page wrote something else in the key)
+    await stored('UC1', { on: true, next: NOW - 1 });
+    await armAutopilot('UC1', NOW); // still due (the page wrote something else in the key)
     expect(clear).not.toHaveBeenCalled();
-    await armAutopilot('UC1', { on: true, next: NOW + 3600e3 }, NOW); // the cycle started or ran: next time
+    await stored('UC1', { on: true, next: NOW + 3600e3 });
+    await armAutopilot('UC1', NOW); // the cycle started or ran: next time
     expect(clear.mock.calls).toEqual([['apdue:UC1']]);
-    await armAutopilot('UC1', { on: true, next: NOW + 3600e3 }, NOW + 1); // the same cycle: nothing to do
+    await stored('UC1', { on: true, next: NOW + 3600e3 });
+    await armAutopilot('UC1', NOW + 1); // the same cycle: nothing to do
     expect(clear).toHaveBeenCalledTimes(1);
     clear.mockRejectedValue(new Error('gone'));
-    await armAutopilot('UC1', { on: true, next: NOW + 7200e3 }, NOW + 2); // a failed clear is not an error
+    await stored('UC1', { on: true, next: NOW + 7200e3 });
+    await armAutopilot('UC1', NOW + 2); // a failed clear is not an error
     expect(await alarms()).toEqual([['ap:UC1', NOW + 7200e3]]);
   });
 
@@ -72,6 +80,28 @@ describe('Auto-pilot alarms', () => {
     await vi.waitFor(async () => expect(await alarms()).toEqual([['ap:UC1', next]]));
     await browser.storage.local.remove('autopilot:UC1');
     await vi.waitFor(async () => expect(await alarms()).toEqual([]));
+  });
+
+  it('a start-up sync working from an older read of storage leaves the cycle written meanwhile armed', async () => {
+    registerAutopilotAlarms();
+    const next = Date.now() + 3600e3;
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: Date.now() - 1000 } }); // due: the alarm woke the worker
+    // The sync's read of all of storage is slow (a large song history): held here until released.
+    const read = browser.storage.local.get.bind(browser.storage.local);
+    let release = () => {};
+    const held = new Promise<void>((r) => { release = r; });
+    vi.spyOn(browser.storage.local, 'get').mockImplementation((async (keys: unknown) => {
+      const got = await read(keys as never);
+      if (keys === null) await held;
+      return got;
+    }) as never);
+    const sync = syncAutopilotAlarms();
+    // Meanwhile the nudged tab's cycle writes its next time, and another channel is switched on.
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next }, 'autopilot:UC2': { on: true, next: next + 1 } });
+    await vi.waitFor(async () => expect(await alarms()).toEqual([['ap:UC1', next], ['ap:UC2', next + 1]]));
+    release();
+    await sync;
+    expect(await alarms()).toEqual([['ap:UC1', next], ['ap:UC2', next + 1]]);
   });
 
   it("the alarm reaches the channel's tab only; no lease, nothing sent", async () => {
