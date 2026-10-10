@@ -1,6 +1,7 @@
 import { fixChapters, type TracklistCheck } from '../chapters';
 import { getSongs } from '../claims/claims';
 import { claimedSongsIn } from '../claims/core';
+import { onClaimsStored } from '../claims/store';
 import type { QueueState } from '../messages';
 import { chanLabel, channelProblem, getChannel, type Channel } from './channel';
 import {
@@ -47,10 +48,25 @@ export interface QueueView {
   state: QueueState;
 }
 
+// claimedSongsIn() per tracklist text, kept until the song history changes: the check clones the
+// whole history and builds its title index, and queue:view runs on every change the panel hears.
+type Claimed = ViewItem['claimed'];
+const claimedCache = new Map<string, Claimed>();
+export const forgetClaimed = () => claimedCache.clear();
+// The content script calls it once the claims store is loaded; returns the undo.
+export const watchClaimedSongs = (): (() => void) => onClaimsStored('songHistory', forgetClaimed);
+function claimedIn(txt: string): Claimed {
+  let hit = claimedCache.get(txt);
+  if (!hit) {
+    hit = claimedSongsIn(txt, getSongs());
+    claimedCache.set(txt, hit);
+  }
+  return hit.map((x) => ({ ...x })); // a copy: the view goes to the panel
+}
+
 export function queueView(state: QueueState): QueueView {
   const set = scheduleOn();
   if (set) void refreshChanSched(); // as onScheduleChange() did; cached 5 min, ends in ui.schedule()
-  const songs = getSongs();
   const items = queue.map((it): ViewItem => {
     const editable = it.status === 'pending' || it.status === 'error';
     const p = presetById(it.presetId);
@@ -64,7 +80,7 @@ export function queueView(state: QueueState): QueueView {
       usesArtists: `${p.title} ${p.description} ${(p.tags || []).join(' ')}`.includes('{artists}'),
       tracklist,
       fixChanges: tracklist && tracklist.errors.length && editable ? fixChapters(it.txt).changes : [],
-      claimed: it.txt ? claimedSongsIn(it.txt, songs) : [],
+      claimed: it.txt ? claimedIn(it.txt) : [],
     };
   });
   return {
