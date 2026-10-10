@@ -4,6 +4,13 @@
 
 **Prerequisite:** Phase 4a (`docs/superpowers/plans/2026-10-09-chrome-extension-phase-4a.md`) is complete: the claims store and `claims:op`, the runner lock with jobs, youtubei through the MAIN world, `lib/claims/claims.ts` with the scans and the status, `claims:state` routing, and the Copyright tab's home, claim list, songs and tracklist fix.
 
+**4a as shipped (reconciled 2026-10-10; where a sample below differs from the code, the code wins):**
+- `lib/claims/`: `keys.ts` (`isChannelId`, `chKey`, `splitKey`, `channelKeys`), `ops.ts` (`ClaimsOp`, `applyOp`, `isClaimsOp`, `okId`, `SONGS_CSV_MAX`), `store.ts` (`load`, `save`, `write`, `useMemoryClaims`, `flushClaims`; a write that isn't answered in `SEND_TIMEOUT_MS` = 30 s counts as failed **but may still be applied**), `songs.ts`, `core.ts`, `claims.ts` (4a's port + `ClaimsUi`, its own `uploadBusy()`, `chMerge` / `chList` / `chRunItem`, `claimsState`, `claimsStatus`, `startScan`), `answers.ts` (`checkAnswer(path, answer)`: every youtubei answer is copied as plain data and shape-checked; **`creator/get_creator_videos` has no check yet, so its answers are refused**), `page.ts` (`createClaimsPage(…)` → `{ ui, tick(), scan(what), dispose() }`; `scan` refreshes ytcfg first), `wiring.ts` (`wireClaims(call)`, `loadClaimsData()`), `youtubei.ts` (`yti` = call + `checkAnswer`).
+- `lib/runner-lock.ts`: jobs as planned, plus `studioTab(sender)` (lock and lease messages are refused from non-Studio senders), and the worker lease stored as `claimsWorkers: { [ch]: { tabId, at } }`, stale after `LEASE_STALE` = 20 s without a renewal, renewal written at most every 5 s, a discarded tab not live. So **a worker must ask again at least every few seconds or it loses the lease**.
+- `lib/studio/queue-runner.ts`: `abortRun(err | null)` / `abortedRun()`, `refreshForStart()` (the bounded ytcfg + scheduled-list refresh before a start).
+- Panel: `ClaimsContext` / `useClaims()` (`state`, `live`, `log`, `shown`, `addLog`), `PanelApi.busyElsewhere`, `CopyrightTab.tsx` (`useClaimsData(ch)` returns `null` until the data is that channel's; `useClaimsGlobals()`; an open view closes when `state.channel` changes; the home's buttons are a wrapping flex row with `data-view` attributes for focus return; `saveFailed` for failed writes), `SubView` (focuses its title, sticky footer), `ClaimList` (still takes an optional `trimButton`), `tests/panel-fake.tsx` (`claimsStateWith`, `fakeClaims`, `renderPanel(ui, api, live, claims)`).
+- `studio.content.ts`: `const claims = createClaimsPage(…)`, `claims.tick()` in the 800 ms interval, `claims:scan` → `claims.scan(data)`; a second `rpcClient` (`yt`, 30 s) feeds `wireClaims`.
+
 **Goal:** Finish the copyright module with behaviour parity to the userscript: trim claims through "Trim out segment" (automatic or reviewed), follow-up trims for videos with several claims, the manual-trim auto-save, turning ads on in bulk, inviting collaborators in bulk (and accepting on your own channel), Auto-pilot — with `chrome.alarms` waking the Studio tab — and the rest of the Copyright tab (trim confirm, Stop, Auto-pilot switch, Ads and Collab views, Copyright settings). Then cover the module's strings, write the README Phase 4 checklist, amend the spec and pass the spec's Phase 4 exit check: **the scan / trim / autopilot checklist passes**.
 
 **Architecture:** As 4a. `lib/claims/claims.ts` grows to the whole `Claims` IIFE (the port config reaches its final regions); jobs that change pages (trim / ads / Collab runs) take the automation lock for `'claims'` before they navigate and let it go when no run is left (D21); `isWorker()` becomes the background's per-channel worker lease (the userscript's tab lease, 4a D21). The background keeps one alarm per channel at its next cycle and, when it fires, nudges that channel's worker tab (`claims:autopilot`), which runs the cycle exactly as its own 0.8 s tick would (D25).
@@ -19,7 +26,7 @@ Identical to Phase 4a's **Global Constraints** (which include Phase 3's), decisi
 | # | Topic | Decision |
 |---|---|---|
 | D25 | Auto-pilot on alarms | `autopilot:<channelId>` keeps `{ on, next, last }` as the userscript did. The background keeps one one-shot alarm `ap:<channelId>` at `next` for every channel with Auto-pilot on whose `next` is in the future (armed when those keys change, never twice for the same `next`; a due channel gets none) and, when it fires, sends `claims:autopilot(channelId)` to that channel's worker tab only (4a D21). That tab runs its tick at once; the worker's tick also starts the cycle by itself when `next` has passed, as in the userscript. With no Studio tab open, nothing runs: `next` stays in the past ("due"), and the cycle starts as soon as a tab for that channel ticks. Follow-up checks stay on the tab's timer (`fuNext`, every `followUpMinutes`), as in the userscript. |
-| D26 | Copyright work, the worker lease and the lock | `isWorker()` is the background's per-channel worker lease (4a D21), asked at most every 5 s (at once on a channel change); `isWorker(true)` takes it, as the userscript's "force" took the tab lease. Only the worker ticks Auto-pilot, follow-ups and run steps. Separately, a trim, ads or Collab step takes the automation lock for `'claims'` right before it changes pages (`claimLock()`); refused, the step waits and the card says "⏸ Waiting for another Studio tab to finish (page change needed)"; after the lock it checks the run is still active (a Stop may have landed). The tab lets the job go after a tick in which no run is active and no step is busy (`settleLock()`); a reload of the same tab keeps it. Scans and Auto-pilot's own scan take no lock, so a queue run in a tab on another channel doesn't stop a cycle: only its page changes wait. |
+| D26 | Copyright work, the worker lease and the lock | `isWorker()` is the background's per-channel worker lease (4a D21): asked every 2.5 s (at once on a channel change), its answer is trusted for 5 s at most, and it is never asked while the channel is `'unknown'`; the alarm's nudge asks afresh before it ticks; `isWorker(true)` takes it, as the userscript's "force" took the tab lease. Only the worker ticks Auto-pilot, follow-ups and run steps. Separately, a trim, ads or Collab step takes the automation lock for `'claims'` right before it changes pages (`claimLock()`); refused, the step waits and the card says "⏸ Waiting for another Studio tab to finish (page change needed)"; after the lock it checks the run is still active (a Stop may have landed). The tab lets the job go after a tick in which no run is active and no step is busy (`settleLock()`); a reload of the same tab keeps it. Scans and Auto-pilot's own scan take no lock, so a queue run in a tab on another channel doesn't stop a cycle: only its page changes wait. |
 | D27 | Panel → page | `claims:trim(keys)`, `claims:ads(videoIds)`, `claims:collab({ videoIds, handles })`, `claims:stop()` go to the bound tab (Stop: to the lock holder while it runs a copyright job elsewhere). The panel shows the confirmations (`openTrimConfirm`, `toggleAutopilot`) and validates the handles; the page starts the run from its stored scan, as the modal's buttons did. Auto-pilot on/off is a `claims:op` from the panel (no page needed). |
 
 ## Review Focus
@@ -73,13 +80,13 @@ Userscript line map: see Phase 4a. The regions this plan adds: DOM helpers 4608�
 The rest of the Claims IIFE, port-checked, plus the glue: the lock (D26), the entry points the panel calls (D27) and the Auto-pilot nudge.
 
 **Files:**
-- Modify: `extension/scripts/port/claims.mjs`, `extension/lib/claims/claims.ts`, `extension/lib/claims/page.ts`, `extension/lib/messages.ts`, `extension/entrypoints/studio.content.ts`, `extension/scripts/strings/extension-only.mjs`
+- Modify: `extension/scripts/port/claims.mjs`, `extension/lib/claims/claims.ts`, `extension/lib/claims/answers.ts`, `extension/lib/claims/page.ts`, `extension/lib/messages.ts`, `extension/entrypoints/studio.content.ts`, `extension/scripts/strings/extension-only.mjs`
 - Create: `extension/tests/claims-trim.test.ts`, `extension/tests/claims-runs.test.ts`, `extension/tests/claims-autopilot.test.ts`
-- Test: `extension/tests/claims-page.test.ts`
+- Test: `extension/tests/claims-page.test.ts`, `extension/tests/claims-youtubei.test.ts`
 
 **Interfaces:**
 - Consumes: 4a's `claims.ts` (`chGet` / `chSet` / `chMerge` / `chList` / `chRunItem`, `log`, `flash`, `computeStatus`, stages, getters, `scanClaims`, `scanAds`), `write`, `yti`, `waitFor` / `sleep` / `shownDialog` / `clickIn` / `clickByText` (`automation.ts`), `inviteCollaborators` (`studio/collab.ts`), `inviteOutcome` / `parseHandles` (`lib/collab.ts`), `SEL`, `TXT`, `settings` / `load as loadState` (`studio/state.ts`); 4a T6's own `uploadBusy()` in `claims.ts`.
-- Produces (all from `claims.ts`): `setClaimsLock(l: { worker(ch: string, force: boolean): Promise<boolean>; acquire(): Promise<boolean>; release(): void; holds(): Promise<boolean> })`, `initClaimsLock(): Promise<void>`, `setChannelSwitcher(fn: (t: { handle?: string; name?: string }, next: string) => void)`, `installConfirmWatch(): () => void`, `claimsTick(): void`, `trimFromPanel(keys: unknown): void`, `adsFromPanel(ids: unknown): void`, `collabFromPanel(d: unknown): void`, `stopAll(): void`, `autopilotDue(ch: unknown): void`, and the ported `startTrimRun`, `stopTrimRun`, `setResult`, `trimStep`, `trimOne`, `fuCheck`, `apPick`, `apCycle`, `startAdsRun`, `stopAdsRun`, `adsStep`, `adsOne`, `startCollabRun`, `stopCollabRun`, `collabStep`, `chainAcceptInvites`, `tick`.
+- Produces (all from `claims.ts`): `setClaimsLock(l: { worker(ch: string, force: boolean): Promise<boolean>; acquire(): Promise<boolean>; release(): void; holds(): Promise<boolean> })`, `initClaimsLock(): Promise<void>`, `setCfgRefresh(fn: () => Promise<void>)`, `setChannelSwitcher(fn: (t: { handle?: string; name?: string }, next: string) => void)`, `installConfirmWatch(): () => void`, `claimsTick(): void`, `trimFromPanel(keys: unknown): void`, `adsFromPanel(ids: unknown): void`, `collabFromPanel(d: unknown): void`, `stopAll(): void`, `autopilotDue(ch: unknown): Promise<void>`, and the ported `startTrimRun`, `stopTrimRun`, `setResult`, `trimStep`, `trimOne`, `fuCheck`, `apPick`, `apCycle`, `startAdsRun`, `stopAdsRun`, `adsStep`, `adsOne`, `startCollabRun`, `stopCollabRun`, `collabStep`, `chainAcceptInvites`, `tick`.
 - `messages.ts`: `'claims:trim'(keys: string[]): void`, `'claims:ads'(videoIds: string[]): void`, `'claims:collab'(d: { videoIds: string[]; handles: string[] }): void`, `'claims:stop'(): void`, `'claims:autopilot'(channelId: string): void`.
 
 - [ ] **Step 1: Write the failing trim and lock tests**
@@ -258,6 +265,52 @@ describe('stop and the lock', () => {
     await vi.advanceTimersByTimeAsync(2500); // tick → trimStep after 2.5 s (6330–6332)
     expect(acquire).toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  // 4a T4 review r2 / m8
+  it("the worker answer expires: older than the renew interval, the tab isn't the worker until a fresh one", async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    let answer!: (v: boolean) => void;
+    C.setClaimsLock({ worker: () => new Promise<boolean>((r) => { answer = r; }), acquire: async () => true, release: vi.fn(), holds: async () => false });
+    const init = C.initClaimsLock();
+    answer(true);
+    await init;
+    await vi.advanceTimersByTimeAsync(6000); // the background never answers the renewals
+    C.claimsTick();
+    expect(ops).toEqual([]); // no cycle on a stale "yes"
+    answer(true);
+    await vi.advanceTimersByTimeAsync(0);
+    C.claimsTick();
+    expect(ops[0]).toMatchObject({ op: 'merge', key: `autopilot:${CH}` }); // fresh: the cycle starts
+    vi.useRealTimers();
+  });
+
+  it("no lease is asked while the channel is 'unknown'", async () => {
+    resetCfg();
+    history.replaceState(null, '', '/video/v1/claims'); // no channel in the address, none from ytcfg
+    const worker = vi.fn(async () => true);
+    C.setClaimsLock({ worker, acquire: async () => true, release: vi.fn(), holds: async () => false });
+    await C.initClaimsLock();
+    C.claimsTick();
+    await C.autopilotDue('unknown');
+    expect(worker).not.toHaveBeenCalled();
+  });
+
+  // 4a T3 review m4
+  it('a result whose write timed out is not done again: the item is skipped and its result re-sent', async () => {
+    const run = { active: true, mode: 'auto', started: 's1', items: [
+      { key: 'v1:c1', videoId: 'v1', claimId: 'c1', song: 'S', video: 'Mix v1', state: 'pending', msg: '' }] };
+    useMemoryClaims({ [`trimRun:${CH}`]: run }, async (op) => void ops.push(op));
+    C.setResult(run.items[0] as never, 'saved', '0:10–0:20');
+    useMemoryClaims({ [`trimRun:${CH}`]: run }, async (op) => void ops.push(op)); // the write timed out: the copy is storage's again
+    ops.length = 0;
+    const acquire = vi.fn(async () => true);
+    C.setClaimsLock({ worker: async () => true, acquire, release: vi.fn(), holds: async () => false });
+    await C.trimStep(); // nothing left to do here: it must not trim v1:c1 a second time
+    expect(acquire).not.toHaveBeenCalled();
+    C.claimsTick();
+    expect(ops).toContainEqual({ op: 'runItem', key: `trimRun:${CH}`, by: 'key', id: 'v1:c1', state: 'saved', msg: '0:10–0:20', onlyActive: true });
   });
 
   it('a reloaded page that holds the lock goes on with the run', async () => {
@@ -439,12 +492,35 @@ describe('apCycle (5847–5873)', () => {
     expect(run.items.map((i) => i.key)).toEqual(['v1:c1']);
   });
 
+  // 4a T6 review m7
+  it('reads ytcfg again before it scans', async () => {
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    const order: string[] = [];
+    C.setCfgRefresh(async () => void order.push('cfg'));
+    setYoutubei(async (path) => { order.push('api'); return studioApi(path); });
+    await C.apCycle();
+    expect(order[0]).toBe('cfg');
+    C.setCfgRefresh(async () => {});
+  });
+
+  it('the alarm nudge asks the background afresh before it ticks (a moved lease runs nothing)', async () => {
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    setYoutubei(studioApi);
+    let mine = true;
+    C.setClaimsLock({ worker: async () => mine, acquire: async () => true, release: vi.fn(), holds: async () => false });
+    await C.initClaimsLock(); // this tab was the worker
+    mine = false; // the lease moved to another tab since
+    await C.autopilotDue(CH);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ops).toEqual([]);
+  });
+
   it('the alarm nudge runs the tick on that channel only', async () => {
     useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
     setYoutubei(studioApi);
-    C.autopilotDue('UCother');
+    await C.autopilotDue('UCother');
     expect(ops).toEqual([]);
-    C.autopilotDue(CH); // due: the tick starts the cycle, whose first write is the next time
+    await C.autopilotDue(CH); // due: the tick starts the cycle, whose first write is the next time
     await vi.waitFor(() => expect(ops[0]).toMatchObject({ op: 'merge', key: `autopilot:${CH}` }));
   });
 
@@ -455,7 +531,7 @@ describe('apCycle (5847–5873)', () => {
     setYoutubei(studioApi);
     C.setClaimsLock({ worker: async () => false, acquire: async () => true, release: vi.fn(), holds: async () => false });
     await C.initClaimsLock(); // the other tab is this channel's worker
-    C.autopilotDue(CH);
+    await C.autopilotDue(CH);
     C.claimsTick(); // nor does its own tick start one
     await new Promise((r) => setTimeout(r, 0));
     expect(ops).toEqual([]);
@@ -483,15 +559,56 @@ describe('apCycle (5847–5873)', () => {
 });
 ```
 
+Also append to `extension/tests/claims-youtubei.test.ts` — the ads run's `adsIsOn()` (5373) reads `creator/get_creator_videos`, whose answers 4a refuses until they have a check (4a T5 / T6 reviews):
+```ts
+import { checkAnswer } from '../lib/claims/answers';
+import { YTI_PATHS } from '../lib/main-ops';
+
+describe('creator/get_creator_videos (the ads run)', () => {
+  it('a well-formed answer passes as plain data', () => {
+    const a = checkAnswer('creator/get_creator_videos', { videos: [{ videoId: 'abcdefghijk', monetization: { adMonetization: { userSetMonetization: 'X_ON' } } }] });
+    expect(a.videos[0].monetization.adMonetization.userSetMonetization).toBe('X_ON');
+  });
+  it('a malformed one is refused like any API error', () => {
+    for (const bad of [{ videos: 'x' }, { videos: [{ videoId: '__proto__' }] }, { videos: [{ videoId: 'v', monetization: { adMonetization: { userSetMonetization: 5 } } }] }]) {
+      expect(() => checkAnswer('creator/get_creator_videos', bad)).toThrow('Unexpected answer from creator/get_creator_videos');
+    }
+  });
+  // The guard from the 4a T5 review: this list is what the MAIN world will call for the tab.
+  it('the MAIN world still serves only read-only endpoints', () => {
+    expect([...YTI_PATHS].sort()).toEqual(['copyright/get_creator_received_claim_matches', 'creator/get_creator_videos',
+      'creator/list_creator_received_claims', 'creator/list_creator_videos']);
+  });
+});
+```
+
 - [ ] **Step 3: Run them to see them fail**
 
-Run: `npx vitest run tests/claims-trim.test.ts tests/claims-runs.test.ts tests/claims-autopilot.test.ts`
-Expected: FAIL against 4a's `claims.ts` — `C.trimFromPanel is not a function`, `C.setClaimsLock is not a function`, `C.apPick is not a function` and the like (the module has only the scans and the status so far).
+Run: `npx vitest run tests/claims-trim.test.ts tests/claims-runs.test.ts tests/claims-autopilot.test.ts tests/claims-youtubei.test.ts`
+Expected: FAIL against 4a's `claims.ts` and `answers.ts` (`Unexpected answer from creator/get_creator_videos (no check)`) — `C.trimFromPanel is not a function`, `C.setClaimsLock is not a function`, `C.apPick is not a function` and the like (the module has only the scans and the status so far).
 
 
 - [ ] **Step 4: The final port config and the glue**
 
-Replace `extension/scripts/port/claims.mjs` with (every sub count was checked against the pinned userscript):
+**youtubei stays read-only.** Trim, ads and Collab change Studio through its own page (clicks), not through the API: the port adds no endpoint. `YTI_PATHS` keeps its four read-only entries (the test above pins them). If a later change ever needs an endpoint that changes the channel, its body must be built inside the MAIN world from typed arguments (a video id, an on/off), never passed through from the tab, and its answer needs a `checkAnswer` entry.
+
+`lib/claims/answers.ts` — the check the ads run needs (`adsIsOn`, 5373–5375), replacing the "no check yet" comment:
+```ts
+  // adsIsOn (5373): one video's monetization setting
+  'creator/get_creator_videos': (a) => {
+    list(a.videos, 'videos').forEach((v, i) => {
+      const at = `videos[${i}]`;
+      const o = obj(v, at);
+      videoId(o.videoId, `${at}.videoId`);
+      const am = optObj(optObj(o.monetization, `${at}.monetization`).adMonetization, `${at}.monetization`);
+      optStr(am.userSetMonetization, `${at}.monetization`);
+      optStr(am.effectiveStatus, `${at}.monetization`);
+    });
+  },
+```
+Every other answer the new code reads comes from the two endpoints 4a already checks (`creator/list_creator_received_claims` in `trimOne` 6026 and `fuCheck` 5789: `claimId`, `status`, `nontakedownClaimActions.options`, `asset`). The ported code reads those fields only; if tsc or a test shows it reading a field the check doesn't cover, add the field to the check, not a cast.
+
+Replace `extension/scripts/port/claims.mjs` with (every sub count was checked against the pinned userscript, the two added in the 4a reconciliation included: 3 and 1):
 ```js
 // lib/claims/claims.ts ← the copyright module (the Claims IIFE, user.js 4592–6357) as page code:
 // its closure's variables are this module's. Storage goes through the claims store (one writer:
@@ -552,6 +669,11 @@ export default {
     ['      trimBusy = true;\n', '      trimBusy = true;\n      if (!(await claimLock())) { setTrimStage(-1, lockWait()); trimBusy = false; return; }\n      if (!(getRun() || {}).active) { trimBusy = false; return; }\n', 1],
     ['      adsBusy = true;\n', '      adsBusy = true;\n      if (!(await claimLock())) { setAdsStage(-1, lockWait()); adsBusy = false; return; }\n      if (!(getAdsRun() || {}).active) { adsBusy = false; return; }\n', 1],
     ['      collabBusy = true;\n', '      collabBusy = true;\n      if (!(await claimLock())) { setCollabStage(-1, lockWait()); collabBusy = false; return; }\n      if (!(getCollabRun() || {}).active) { collabBusy = false; return; }\n', 1],
+    // an item this page already settled is not done again while its write is late (store.ts: a
+    // timed-out claims write may still land)
+    ["const item = run.items.find((i) => i.state === 'pending');", "const item = run.items.find((i) => i.state === 'pending' && !isSettled(run, i));", 3],
+    // the cycle reads ytcfg again before it scans (the cached copy may be from page load)
+    ['const rows = await scanClaims({ show: false });', 'await freshCfg();\n        const rows = await scanClaims({ show: false });', 1],
     // the "Confirm changes" click watcher is installed by the content script, and removed with it
     ["    document.addEventListener('click', (e) => {", "    const installConfirmWatch = () => {\n    const ac = new AbortController();\n    document.addEventListener('click', (e) => {", 1],
     ['    }, true);', '    }, { capture: true, signal: ac.signal });\n    return () => ac.abort();\n    };', 1],
@@ -592,23 +714,46 @@ export const setClaimsLock = (l: ClaimsLock) => {
   workerMine = false;
   workerCh = '';
   workerAt = 0;
+  workerAnswerAt = 0;
   lockMine = false;
 };
 
-// isWorker(force): is this tab the channel's worker? Asked of the background at most every 5 s
-// (and at once on a channel change or with `force`), not every tick: a message per 0.8 s tick
-// would keep the service worker awake. Until the first answer the tab is not the worker.
+// isWorker(force): is this tab the channel's worker? The background's answer, never older than
+// WORKER_RENEW: the lease goes stale after 20 s without a renewal (runner-lock LEASE_STALE), and
+// an old "yes" could outlive it (4a T4 review r2). Asked again every WORKER_ASK (half of that), so
+// in normal running the answer is always fresh; when it isn't (the service worker was slow, the
+// first tick of a page), the tab is not the worker until the answer comes. Not asked on every
+// 0.8 s tick: that would keep the service worker awake. Never asked while the channel is
+// 'unknown' (4a T4 review m8): that lease would name no channel.
 // `force` (a run started from this tab) takes the lease, as the userscript's did.
+const WORKER_ASK = WORKER_RENEW / 2;
+let workerAnswerAt = 0; // when the background last answered for workerCh
+function askWorker(ch: string, force: boolean): Promise<boolean> {
+  workerCh = ch;
+  workerAt = Date.now();
+  return lockApi.worker(ch, force).then(
+    (v) => {
+      if (workerCh === ch) {
+        workerMine = v;
+        workerAnswerAt = Date.now();
+      }
+      return v;
+    },
+    () => false,
+  );
+}
 function isWorker(force = false): boolean {
   const ch = currentChannel();
+  if (ch === 'unknown') return false;
   if (ch !== workerCh) workerMine = false;
-  if (force || ch !== workerCh || Date.now() - workerAt > WORKER_RENEW) {
-    workerCh = ch;
-    workerAt = Date.now();
-    if (force) workerMine = true;
-    void lockApi.worker(ch, force).then((v) => { if (workerCh === ch) workerMine = v; }, () => {});
+  if (force || ch !== workerCh || Date.now() - workerAt > WORKER_ASK) {
+    void askWorker(ch, force);
+    if (force) {
+      workerMine = true;
+      workerAnswerAt = Date.now();
+    }
   }
-  return workerMine;
+  return workerMine && Date.now() - workerAnswerAt <= WORKER_RENEW;
 }
 // Right before a step changes pages (trimStep / adsStep / collabStep): the automation lock, so two
 // tabs never drive Studio at once (4a D21). Refused: the step waits, and its card says why.
@@ -628,9 +773,8 @@ function settleLock(): void {
 // At startup: is this tab the channel's worker, and does a page back from its own reload mid-run
 // still hold the job (D21)? Asked before the first tick, so a new tab never acts on a guess.
 export async function initClaimsLock(): Promise<void> {
-  workerCh = currentChannel();
-  workerAt = Date.now();
-  workerMine = await lockApi.worker(workerCh, false).catch(() => false);
+  const ch = currentChannel();
+  if (ch !== 'unknown') await askWorker(ch, false);
   lockMine = await lockApi.holds().catch(() => false);
 }
 
@@ -648,6 +792,7 @@ function markSongTrimmed(item: { song?: string; videoId: string }): void {
 
 // The content script's 0.8 s tick (6361): the ported tick, then the lock.
 export function claimsTick(): void {
+  resendSettled();
   tick();
   settleLock();
 }
@@ -687,10 +832,47 @@ export function stopAll(): void {
   renderStatus();
 }
 // claims:autopilot — the background's alarm for a channel (D25): the tab on it ticks now.
-// The background sends it to the channel's worker only; checked again here (the lease may have moved).
-export function autopilotDue(ch: unknown): void {
-  if (typeof ch === 'string' && ch === currentChannel() && isWorker()) claimsTick();
+// The background sends it to the channel's worker only; the lease may have moved since, so the
+// tab asks again and ticks only on a fresh "yes" (4a T4 review r2).
+export async function autopilotDue(ch: unknown): Promise<void> {
+  if (typeof ch !== 'string' || ch === 'unknown' || ch !== currentChannel()) return;
+  if (await askWorker(ch, false)) claimsTick();
 }
+
+// A result this page wrote for a run item. The background may be slow: after 30 s the write
+// counts as failed and the tab's copy goes back to what storage holds, though the write may
+// still land (store.ts). The step must not take the item as still pending and do it again
+// (a second trim of the same claim): items settled here are skipped, and their result is sent
+// again while storage still says pending (the ops are idempotent). Per page: after a page change
+// the copy was read from storage afresh.
+const settledHere = new Map<string, Map<string, { name: string; by: 'key' | 'videoId'; state: string; msg: string; onlyActive: boolean }>>();
+const isSettled = (run: Run, i: { key?: string; videoId: string }) => !!settledHere.get(run.started)?.has(i.key || i.videoId);
+function resendSettled(): void {
+  for (const [started, items] of settledHere) {
+    for (const [id, r] of items) {
+      const run = chGet<Run | null>(r.name, null);
+      if (!run || run.started !== started) { settledHere.delete(started); break; }
+      const it = run.items.find((x) => (r.by === 'key' ? x.key : x.videoId) === id);
+      if (it && it.state === 'pending') write({ op: 'runItem', key: r.name + ':' + currentChannel(), by: r.by, id, state: r.state, msg: r.msg, onlyActive: r.onlyActive });
+    }
+  }
+}
+
+// Auto-pilot's cycle reads ytcfg again before it scans (4a T6 review m7): the copy may be from
+// page load, and the scan's channel and "Studio has loaded" check use it. The content script sets it.
+let freshCfg: () => Promise<void> = async () => {};
+export const setCfgRefresh = (fn: typeof freshCfg) => { freshCfg = fn; };
+```
+Change 4a's `chRunItem` (same file, tail) so it remembers what this page settled:
+```ts
+const chRunItem = (name: string, by: 'key' | 'videoId', id: string, state: string, msg: string, onlyActive = false, ch = currentChannel()) => {
+  const run = chGet<Run | null>(name, null, ch);
+  if (run && state !== 'pending') {
+    if (!settledHere.has(run.started)) settledHere.set(run.started, new Map());
+    settledHere.get(run.started)!.set(id, { name, by, state, msg, onlyActive });
+  }
+  write({ op: 'runItem', key: name + ':' + ch, by, id, state, msg, onlyActive });
+};
 ```
 Extend the export list with: `visible, findText, isDisabled, otherJobBusy, startAdsRun, stopAdsRun, setAdsResult, adsIsOn, adsStep, adsOne, startCollabRun, stopCollabRun, chainAcceptInvites, setCollabResult, collabStep, setResult, startTrimRun, stopTrimRun, fuHas, fuAdd, fuOnResult, fuCheck, apPick, apCycle, installConfirmWatch, findConfirmDialog, deepAll, approveConfirm, trimStep, closeDialogs, pickRow, trimOne, tick`.
 
@@ -719,27 +901,30 @@ Expected: PASS. Fix typing slips in the port, not the tests' expectations.
       holds: () => sendMessage('runner:holds', 'claims'),
     });
     await initClaimsLock();
+    setCfgRefresh(() => refreshCfg(readCfg));
+    stop.add(() => setCfgRefresh(async () => {}));
     setChannelSwitcher((t, next) => sw.switchToChannel(t, next));
     stop.add(installConfirmWatch());
     onMessage('claims:trim', ({ data }) => trimFromPanel(data));
     onMessage('claims:ads', ({ data }) => adsFromPanel(data));
     onMessage('claims:collab', ({ data }) => collabFromPanel(data));
     onMessage('claims:stop', () => stopAll());
-    onMessage('claims:autopilot', ({ data }) => autopilotDue(data));
+    onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));
 ```
+(These go after 4a's `const claims = createClaimsPage(…)` block. The background's `runner:acquire` / `runner:worker` handlers already refuse non-Studio senders (`studioTab`); 4b adds no tab → background message.)
 `scripts/strings/extension-only.mjs`:
 ```js
   // Phase 4b
   { th: '⏸ รอแท็บ Studio อื่นทำงานเสร็จก่อน (ต้องเปลี่ยนหน้า)', en: '⏸ Waiting for another Studio tab to finish (page change needed)', why: "one automation lock (D21/D26): a copyright step that changes pages waits while another tab drives Studio; the userscript's lease was per channel and per tab" },
 ```
-`page.ts` `tick()`: replace `broadcast();` with `claimsTick();` (the ported tick ends in `renderStatus()`, which broadcasts). Update `tests/claims-page.test.ts`'s first test: it still sees one `claims:state` for two ticks.
+`page.ts` `tick()`: replace `broadcast();` with `claimsTick();` (the ported tick ends in `renderStatus()`, which broadcasts); `scan()` stays as 4a wrote it. Update `tests/claims-page.test.ts`'s first test: it still sees one `claims:state` for two ticks.
 
 - [ ] **Step 7: Verify and commit**
 
 Run: `npm run check && npm run build`
 Expected: port-check `ok   claims (lib/claims/claims.ts, … lines)`.
 ```bash
-git add extension/scripts/port/claims.mjs extension/lib/claims/claims.ts extension/lib/claims/page.ts extension/lib/messages.ts extension/entrypoints/studio.content.ts extension/scripts/strings/extension-only.mjs extension/tests/claims-trim.test.ts extension/tests/claims-runs.test.ts extension/tests/claims-autopilot.test.ts extension/tests/claims-page.test.ts
+git add extension/scripts/port/claims.mjs extension/lib/claims/claims.ts extension/lib/claims/answers.ts extension/tests/claims-youtubei.test.ts extension/lib/claims/page.ts extension/lib/messages.ts extension/entrypoints/studio.content.ts extension/scripts/strings/extension-only.mjs extension/tests/claims-trim.test.ts extension/tests/claims-runs.test.ts extension/tests/claims-autopilot.test.ts extension/tests/claims-page.test.ts
 git commit -m "Copyright module, page side complete: trim, follow-ups, ads and Collab runs, Auto-pilot cycle, under the automation lock
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -753,10 +938,10 @@ The spec's "one `chrome.alarms` alarm per channel, named `ap:<channelId>`" (D25)
 
 **Files:**
 - Create: `extension/lib/claims/alarms.ts`, `extension/tests/claims-alarms.test.ts`
-- Modify: `extension/entrypoints/background.ts`, `extension/scripts/strings/extension-only.mjs`
+- Modify: `extension/entrypoints/background.ts`, `extension/lib/runner-lock.ts`, `extension/tests/runner-lock.test.ts`, `extension/scripts/strings/extension-only.mjs`
 
 **Interfaces:**
-- Consumes: `splitKey` (`keys.ts`), `WORKERS_KEY` (`runner-lock.ts`), `isStudioUrl`, `sendMessage`.
+- Consumes: `splitKey` (`keys.ts`), `sendMessage`, and a new export of `runner-lock.ts`: `workerOf(ch: string): Promise<number | null>` (the channel's worker tab if its lease is not stale and the tab is live).
 - Produces: `AP_ALARM = 'ap:'`, `AP_NOTE = 'apdue:'`, `NOTIFIED_KEY = 'apNotified'`, `notifyAutopilotDue(ch: string, next: number): Promise<boolean>`, `openFromAutopilotNote(id: string): Promise<boolean>`, `armAutopilot(ch: string, value: unknown, now?: number): Promise<void>`, `syncAutopilotAlarms(now?: number): Promise<void>`, `nudgeAutopilot(alarmName: string, send?): Promise<boolean>`, `registerAutopilotAlarms(): void`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -801,16 +986,17 @@ describe('Auto-pilot alarms', () => {
 
   it("the alarm reaches the channel's worker tab only; no worker, nothing sent", async () => {
     const send = vi.fn(async () => undefined);
-    await browser.storage.session.set({ claimsWorkers: { UC1: 3, UC2: 1 } });
+    await browser.storage.session.set({ claimsWorkers: { UC1: { tabId: 3, at: Date.now() }, UC2: { tabId: 1, at: Date.now() }, UC5: { tabId: 4, at: Date.now() - 21_000 } } });
     vi.spyOn(browser.tabs, 'get').mockImplementation((async (id: number) => ({ id, url: 'https://studio.youtube.com/channel/UC' + id })) as never);
     expect(await nudgeAutopilot('ap:UC1', send as never)).toBe(true);
     expect(send.mock.calls).toEqual([['claims:autopilot', 'UC1', 3]]);
     expect(await nudgeAutopilot('ap:UC7', send as never)).toBe(false);
+    expect(await nudgeAutopilot('ap:UC5', send as never)).toBe(false); // a lease not renewed for 20 s is nobody's
     expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('a worker tab without a live script (discarded, or left Studio): no error', async () => {
-    await browser.storage.session.set({ claimsWorkers: { UC1: 3 } });
+    await browser.storage.session.set({ claimsWorkers: { UC1: { tabId: 3, at: Date.now() } } });
     vi.spyOn(browser.tabs, 'get').mockImplementation((async (id: number) => ({ id, url: 'https://studio.youtube.com/' })) as never);
     const send = vi.fn(async () => { throw new Error('Receiving end does not exist'); });
     expect(await nudgeAutopilot('ap:UC1', send as never)).toBe(false);
@@ -822,11 +1008,21 @@ Expected: FAIL (no module).
 
 - [ ] **Step 2: `alarms.ts`**
 
+First the reader the nudge needs, in `lib/runner-lock.ts` after `claimWorker` (4a stores a lease as `{ tabId, at }`, stale after `LEASE_STALE`; `readLeases` and `liveStudio` are the file's own):
+```ts
+// The channel's worker tab, for the Auto-pilot alarm: a lease that isn't stale, in a live tab.
+export const workerOf = (ch: string) =>
+  serial(async () => {
+    const l = (await readLeases())[ch];
+    return l && Date.now() - l.at <= LEASE_STALE && (await liveStudio(l.tabId)) ? l.tabId : null;
+  });
+```
+(Add to `tests/runner-lock.test.ts`: after `claimWorker(a, 'UC1', false)`, `workerOf('UC1')` is `a`; with the lease's `at` set 21 s back in `storage.session`, it is `null`; `workerOf('UC9')` is `null`. Write these three assertions before the function.)
+
 ```ts
 import { browser } from 'wxt/browser';
 import { sendMessage } from '../messages';
-import { isStudioUrl } from '../panel-scope';
-import { WORKERS_KEY } from '../runner-lock';
+import { workerOf } from '../runner-lock';
 import { splitKey } from './keys';
 
 // Auto-pilot on chrome.alarms (spec "Background", D25). The service worker can't drive the page:
@@ -868,11 +1064,8 @@ export async function syncAutopilotAlarms(now = Date.now()): Promise<void> {
 // discarded tab, one opened before the extension loaded): nothing runs until a tab ticks.
 export async function nudgeAutopilot(alarmName: string, send: typeof sendMessage = sendMessage): Promise<boolean> {
   const ch = alarmName.slice(AP_ALARM.length);
-  const workers = (await browser.storage.session.get(WORKERS_KEY))[WORKERS_KEY] as Record<string, number> | undefined;
-  const tabId = workers?.[ch];
-  if (typeof tabId !== 'number') return false;
-  const onStudio = await browser.tabs.get(tabId).then((t) => isStudioUrl(t?.url), () => false);
-  if (!onStudio) return false;
+  const tabId = await workerOf(ch);
+  if (tabId === null) return false;
   try {
     await send('claims:autopilot', ch, tabId);
     return true;
@@ -936,7 +1129,7 @@ describe('"Auto-pilot is due" notification', () => {
 
   it('no notification when the worker tab took the nudge', async () => {
     await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW } });
-    await browser.storage.session.set({ claimsWorkers: { UC1: 3 } });
+    await browser.storage.session.set({ claimsWorkers: { UC1: { tabId: 3, at: Date.now() } } });
     vi.spyOn(browser.tabs, 'get').mockResolvedValue({ id: 3, url: 'https://studio.youtube.com/' } as never);
     const create = vi.spyOn(browser.notifications, 'create');
     expect(await nudgeAutopilot('ap:UC1', (async () => undefined) as never)).toBe(true);
@@ -1022,7 +1215,7 @@ Expected: PASS.
 
 Run: `npm run check && npm run build` (manifest permissions still exactly the five).
 ```bash
-git add extension/lib/claims/alarms.ts extension/entrypoints/background.ts extension/scripts/strings/extension-only.mjs extension/tests/claims-alarms.test.ts
+git add extension/lib/claims/alarms.ts extension/entrypoints/background.ts extension/lib/runner-lock.ts extension/tests/runner-lock.test.ts extension/scripts/strings/extension-only.mjs extension/tests/claims-alarms.test.ts
 git commit -m "Auto-pilot on chrome.alarms: one alarm per channel wakes its worker tab, armed once per cycle; a desktop notice when no tab can run it
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1034,7 +1227,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `extension/entrypoints/sidepanel/tabs/copyright/AutopilotSwitch.tsx`, `extension/tests/panel-copyright-run.test.tsx`
-- Modify: `extension/entrypoints/sidepanel/tabs/CopyrightTab.tsx`, `extension/entrypoints/sidepanel/tabs/copyright/ClaimList.tsx`, `extension/lib/panel/claims.ts`, `extension/entrypoints/sidepanel/App.tsx`, `extension/tests/panel-claims.test.ts`
+- Modify: `extension/entrypoints/sidepanel/tabs/CopyrightTab.tsx`, `extension/entrypoints/sidepanel/tabs/copyright/ClaimList.tsx`, `extension/lib/panel/claims.ts`, `extension/entrypoints/sidepanel/App.tsx`, `extension/components/ui/badge.tsx`, `extension/tests/panel-claims.test.ts`, `extension/tests/panel-queue.test.tsx`
 
 **Interfaces:**
 - Consumes: `useAsk()`, `useClaims()` (`addLog`), `usePanel()` (`runner`, `sendTo`), `claimsWrite`, `ClaimsData`.
@@ -1143,7 +1336,7 @@ export const apRules = (c: ClaimsCfg): string[] => [
 
 - [ ] **Step 3: The trim confirmation in `ClaimList.tsx`**
 
-In `ClaimList`, build the `trimButton` itself (drop the prop) — `openTrimConfirm()` (5672–5696). `const ask = useAsk();` goes at the top of the component with the other hooks (before the "not scanned yet" early return); the rest after `rows` is known:
+In `ClaimList`, build the `trimButton` itself (drop 4a's optional `trimButton` prop) — `openTrimConfirm()` (5672–5696). `const ask = useAsk();` goes at the top of the component with the other hooks (before the "not scanned yet" early return); the rest after `rows` is known:
 ```tsx
   const ask = useAsk();
   const pickedRows = rows.filter((r) => picked.has(rowKey(r)) && !isDone(data.trimResults[rowKey(r)]));
@@ -1240,7 +1433,7 @@ export function AutopilotSwitch({ data, state }: { data: ClaimsData; state: Clai
 
 - [ ] **Step 5: The pane's full layout in `CopyrightTab.tsx`**
 
-Rework the home to `buildPane()`'s rows and `renderStatus()`'s visibility rules (6204–6251):
+Rework the home to `buildPane()`'s rows and `renderStatus()`'s visibility rules (6204–6251), **on top of the file as 4a shipped it**: keep `useClaimsGlobals()`, the `closed` / `data-view` focus return, the scroll-to-top effect, `saveFailed`, the `sub` expression for the views (Tasks 4 and 5 add their views to it), and the wrapping flex rows (`flex flex-wrap gap-2 [&>button]:grow`) in place of the `grid-cols-3` shown below — the panel can be 320px wide. Only the rows' contents and visibility change:
 ```tsx
   const busyRun = !!s?.busyRun;
   const busyScan = !!s?.busyScan;
@@ -1273,6 +1466,42 @@ Rework the home to `buildPane()`'s rows and `renderStatus()`'s visibility rules 
 ```
 (Keep 4a's buttons in their rows: Claim list and Claimed songs move into row2; Fix tracklist and Upload history into the Auto-pilot section's button row.) `usePanel()` now also gives `runner` and `sendTo`.
 
+**A view must not close on a passing `'unknown'` channel** (4a T8 review R3). 4a closes an open view whenever `state.channel` changes. A trim, ads or Collab step changes pages, and the new page may report `'unknown'` for a moment (`/video/<id>/claims` has no channel in its address; ytcfg arrives a little later), which would close the claim list under the user and empty `useClaimsData`. The tab keeps the last real channel instead:
+```tsx
+  // The channel the tab shows: the bound tab's, ignoring a passing 'unknown' (a page still loading).
+  const lastCh = useRef<string | null>(null);
+  const reported = state?.channel ?? null;
+  if (reported && reported !== 'unknown') lastCh.current = reported;
+  if (!state) lastCh.current = null; // no bound tab: nothing to keep
+  const ch = reported === 'unknown' ? lastCh.current ?? 'unknown' : reported;
+  const data = useClaimsData(ch);
+  useEffect(() => setView({ name: 'home' }), [ch]);
+```
+(replacing 4a's `const data = useClaimsData(state?.channel ?? null)` and `const ch = state?.channel ?? null`). Test, in `tests/panel-copyright-run.test.tsx`, written first:
+```tsx
+  it("an open view stays open while the tab's page reports 'unknown' for a moment, and closes on a real other channel", async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': { ...scan, channel: 'UC2', channelName: 'Other' } });
+    const counts = { hasScan: true, scanDate: '', claims: 1, claimVideos: 1, songs: 0, hasAdsScan: false, adsTodo: 0 };
+    const view = (channel: string) => (
+      <PanelContext.Provider value={fakePanel()}><ClaimsContext.Provider value={fakeClaims({ state: claimsStateWith({ channel, counts }) })}>
+        <AskProvider><CopyrightTab /></AskProvider>
+      </ClaimsContext.Provider></PanelContext.Provider>
+    );
+    const { rerender } = render(view('UC1'));
+    fireEvent.click(await screen.findByRole('button', { name: /Claim list \(1\)/ }));
+    expect(await screen.findByText(/Copyright claims — Mine/)).toBeTruthy();
+    rerender(view('unknown')); // the trim step's new page, before ytcfg
+    expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
+    rerender(view('UC2'));
+    expect(await screen.findByRole('button', { name: /Scan claims/ })).toBeTruthy(); // back home: another channel's
+  });
+```
+(imports: `render` from `@testing-library/react`, `PanelContext` / `ClaimsContext` from the panel module, `AskProvider` from `../entrypoints/sidepanel/ask`.)
+
+**The "previously claimed" chip in light** (4a T7/T8 review m11): `Badge tone="bad"` is `text-warn` on `bg-warn/[0.12]`, 3.8:1 in the light theme. In `components/ui/badge.tsx` make the bad tone's text `text-fg` and keep the amber on its icon and tint: `tone === 'bad' && 'border-transparent bg-warn/[0.12] text-fg [&>svg]:text-warn'`. Add to `tests/panel-queue.test.tsx`'s chip test: `expect(chip.closest('[data-slot="badge"], span')!.className).toContain('text-fg')`. (Tokens only; both themes ≥ 4.5:1 for the text.)
+
+**Claimed songs without a bound Studio tab: not done.** The review offered it as optional. The panel is enabled on Studio tabs only, so the tab is unbound only on a page with no live script (the "Reload this tab" banner), and the home already shows the song count from storage there (`useClaimsGlobals`). The views keep needing `data` and `state`.
+
 `App.tsx`: the Copyright tab shows `●` while a run is active (`tabCount.claims`, 6255):
 ```tsx
   const { live } = useClaims();
@@ -1289,7 +1518,7 @@ Expected: PASS (render the trim question and the Auto-pilot question in Thai in 
 
 Run: `npm run check && npm run build`
 ```bash
-git add extension/entrypoints/sidepanel/tabs/CopyrightTab.tsx extension/entrypoints/sidepanel/tabs/copyright/ClaimList.tsx extension/entrypoints/sidepanel/tabs/copyright/AutopilotSwitch.tsx extension/entrypoints/sidepanel/App.tsx extension/lib/panel/claims.ts extension/tests/panel-claims.test.ts extension/tests/panel-copyright-run.test.tsx extension/tests/panel-i18n.test.tsx
+git add extension/entrypoints/sidepanel/tabs/CopyrightTab.tsx extension/entrypoints/sidepanel/tabs/copyright/ClaimList.tsx extension/entrypoints/sidepanel/tabs/copyright/AutopilotSwitch.tsx extension/entrypoints/sidepanel/App.tsx extension/components/ui/badge.tsx extension/tests/panel-queue.test.tsx extension/lib/panel/claims.ts extension/tests/panel-claims.test.ts extension/tests/panel-copyright-run.test.tsx extension/tests/panel-i18n.test.tsx
 git commit -m "Copyright tab: trim confirmation, Stop to the running tab, Auto-pilot switch, the pane's layout
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1535,7 +1764,7 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
 
 - [ ] **Step 5: Home buttons and views**
 
-In `CopyrightTab.tsx`: routes `if (view.name === 'ads' && data.adsScan) return <AdsView …/>` and `if (view.name === 'collab' && data.collabScan) return <CollabView …/>`; row1 between Scan and Stop:
+In `CopyrightTab.tsx`: add to 4a's `sub` expression `view.name === 'ads' && data.adsScan ? <AdsView data={data} state={state} onClose={home} />` and `view.name === 'collab' && data.collabScan ? <CollabView data={data} state={state} onClose={home} />` (give the two home buttons `data-view="ads"` / `data-view="collab"` so Close returns focus to them); row1 between Scan and Stop:
 ```tsx
           {!busyRun && !busyScan && (
             <Button onClick={() => (data?.adsScan ? setView({ name: 'ads' }) : void send('claims:scan', 'ads').catch(failed))}
@@ -1682,7 +1911,7 @@ export function CopyrightSettings({ data, onClose }: { data: ClaimsData; onClose
   );
 }
 ```
-`CopyrightTab.tsx`: route `view.name === 'settings'` to `<CopyrightSettings data={data} onClose={home} />`; the Auto-pilot section's first button:
+`CopyrightTab.tsx`: add `view.name === 'settings' ? <CopyrightSettings data={data} onClose={home} />` to the `sub` expression (the button gets `data-view="settings"`); failed writes use `saveFailed` as the home does; the Auto-pilot section's first button:
 ```tsx
           <Button size="sm" onClick={() => setView({ name: 'settings' })} disabled={!data}><Icon name="sliders" size={13} />{L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')}</Button>
 ```
@@ -1715,43 +1944,67 @@ Expected after: `ui-check: ok` with `--coverage`. Update `tests/ui-check.test.mj
 
 - [ ] **Step 2: README — Phase 4 exit checklist**
 
-Rename "## Phase 3 exit check (manual, in Chrome)" to "## Exit checks (manual, in Chrome)", keep its items, and append:
+**Numbering (as of 4a Task 9, `931c067`).** The README's checklist now ends at item 53: 4a added "### Copyright, Phase 4a (scan, lists, one lock)" with items 46–53 (46 scan and status card, 47 the scheduler avoids a taken slot, 48 a scan during an upload, 49 status in a second window, 50 light / dark / narrow, 51 CSV downloads in the real side panel, 52 one worker per channel, 53 Start refused during copyright work). So this step:
+- **numbers its new items from 54** (54–74 below); if a later 4a fix round added items after 53, start at the next free number instead and shift every number and cross-reference below by the same amount;
+- **doesn't repeat what 46–51 already check**: items 54 and 71 below only add what is new to them;
+- **extends items 52 and 53 in place** (they say they can only be exercised in 4b), as written under "Items 52 and 53" below;
+- **updates item 2's range**: "(items 46 to 52)" becomes "(items 46 to 74)", and its sentence about the Copyright tab lists what 4b added (Ads off, Collab, Stop, the Auto-pilot switch, Copyright settings).
+
+**Items 52 and 53, rewritten in place:**
+```markdown
+52. **One worker per channel.** Turn Auto-pilot on (item 69) with two Studio tabs open on the same
+    channel. In the service worker console, `await chrome.storage.session.get('claimsWorkers')`
+    names one tab for the channel (`{ tabId, at }`, `at` moving every few seconds). One cycle runs,
+    not two; during a run the other tab's card shows "↪ Running in another Studio tab". Close the
+    worker tab: within about 5 s the entry names the other tab, and it carries on. **Record** what
+    happens when the worker tab hangs instead (DevTools → pause script execution): the other tab
+    takes over after about 20 s.
+53. **Start refused during copyright work.** Start a trim run in Studio tab A (item 57). In tab B
+    the panel shows "Another Studio tab is busy with copyright work — wait for it, or press Stop in
+    the Copyright tab" with **Go to that tab**, Start is disabled, and a forced Start (item 16's
+    way) toasts "Another Studio tab is already running the queue or copyright work". When A's run
+    ends, B's banner goes and Start works.
+```
+(Item 52 as 4a wrote it reads the lease from `chrome.storage.local`; it lives in `storage.session`. The rewrite above corrects that.)
+
+Rename "## Phase 3 exit check (manual, in Chrome)" to "## Exit checks (manual, in Chrome)" (unless 4a already did), keep its items, and append:
 ```markdown
 ### Phase 4: copyright (scan, trim, Auto-pilot)
 
 Use a test channel with at least two videos that carry claims (one with two claims), Studio in
 English. Write down pass or fail; items marked **record** ask for an observation.
 
-46. **Scan.** Copyright → **Scan claims**: the card shows "Scanning this channel's claims" with a
-    progress bar, then "Scan complete"; the **claim list** opens with one card per claim (video,
-    privacy · length, song · artists · label, claimant, ranges with % of the video, impact).
-    **Claim list (N)** and **Claimed songs (N)** show counts. ⬇ CSV saves
-    `youtube-claims-YYYY-MM-DD.csv` with the userscript's columns.
-47. **Scan before Studio loaded / not signed in.** Reload Studio and click Scan at once:
+54. **Scan, on a claim-heavy channel.** (Items 46 and 51 cover the scan, the status card, the
+    lists and the CSV files.) Scan the channel with the most claims you have: the claim list shows
+    one card per claim with video, privacy · length, song · artists · label, claimant, ranges with
+    % of the video, and impact. Then open **Show activity ▾**: no "Unexpected answer from …"
+    lines. **Record** any, with its text (it names the endpoint and the field: Studio answered in
+    a shape the check doesn't know).
+55. **Scan before Studio loaded / not signed in.** Reload Studio and click Scan at once:
     "Studio hasn't finished loading — try again in a few seconds" in the activity log. (Optional:
     in a signed-out profile, "Not signed in (SAPISID cookie not found)".)
-48. **Picks.** Each chip ticks the right rows; ticks survive closing and reopening the panel and
+56. **Picks.** Each chip ticks the right rows; ticks survive closing and reopening the panel and
     show in another window's panel on the same channel.
-49. **Trim, automatic.** Tick one claim, **✂ Trim selected (1)** → the question (total length,
+57. **Trim, automatic.** Tick one claim, **✂ Trim selected (1)** → the question (total length,
     "Saved trims cannot be undone", ⚡ Fully automatic) → **Start trim**. The tab opens the
     video's claims page, the card shows the steps (Open video → … → Confirm), the claim ends
     "✅ Trimmed" with its range; the Upload tab's queue is untouched. **Record** the time it took.
-50. **Several claims on one video.** Trim both claims of the two-claim video: the first trims, the
+58. **Several claims on one video.** Trim both claims of the two-claim video: the first trims, the
     second shows "⏳ Queued — will trim after the previous trim on this video finishes"; the card
     says "Waiting for YouTube to process trims" with the next check time. Set Copyright settings →
     "Check every N minutes" to 2 and wait: the second trims after YouTube finishes (can take hours;
     **record** whether it happened before the end of the session).
-51. **Review mode.** Turn off "Fully automatic trim": the trim editor opens and waits ("👉 Your
+59. **Review mode.** Turn off "Fully automatic trim": the trim editor opens and waits ("👉 Your
     turn…"); Cancel ends it "⏭ Skipped"; Save + I acknowledge + Confirm changes ends it "✅ Trimmed".
-52. **Stop.** During a run, **Stop** (also from a second window's panel on another Studio tab of the
+60. **Stop.** During a run, **Stop** (also from a second window's panel on another Studio tab of the
     same channel): the run ends after the current step, "You stopped it: …"; queued follow-ups are
     cancelled ("Cancelled N queued follow-up trims").
-53. **Studio in Thai.** Switch Studio to Thai: the red warning shows on the Copyright tab, Scan still
+61. **Studio in Thai.** Switch Studio to Thai: the red warning shows on the Copyright tab, Scan still
     works, a trim fails with "Studio is not set to English — switch to English and try again".
-54. **Manual trim auto-save.** Copyright settings → turn on "When trimming manually…"; trim a claim
+62. **Manual trim auto-save.** Copyright settings → turn on "When trimming manually…"; trim a claim
     by hand in Studio: Save is clicked about 1.5 s after the editor opens, Confirm changes is ticked
     and confirmed. Turn it off again.
-55. **One lock.** Start a trim run in Studio tab A; in tab B (same browser) the Upload tab's Start is
+63. **One lock.** Start a trim run in Studio tab A; in tab B (same browser) the Upload tab's Start is
     disabled with "Another Studio tab is busy with copyright work — wait for it, or press Stop in
     the Copyright tab" and **Go to that tab**. Reverse: with a queue running in A, a trim run
     started in B (another channel) waits at its first page change (its card shows "⏸ Waiting for
@@ -1759,24 +2012,24 @@ English. Write down pass or fail; items marked **record** ask for an observation
     Auto-pilot cycle still scans meanwhile. With no tab running the queue, a trim run waits while
     the queue has **waiting** videos ("⏸ Waiting for the upload queue to clear…"); a **failed**
     upload left in the queue doesn't hold it back.
-56. **Run survives page changes; takeover.** During a run with 3 claims on different videos, the tab
+64. **Run survives page changes; takeover.** During a run with 3 claims on different videos, the tab
     changes pages per video and keeps going. Close that tab mid-run with a second Studio tab on the
     same channel open: the second tab continues within a few seconds.
-57. **Ads.** **Ads off** (first time: it scans) → the list with ineligible ones marked → **Turn on
+65. **Ads.** **Ads off** (first time: it scans) → the list with ineligible ones marked → **Turn on
     ads (N)**: each video's monetisation page opens, "None of the above" is answered when asked,
     Save; "✅ Turned on". **Record** any "YouTube asked more after Save" message.
-58. **Collab in bulk.** **Collab** → type `@handle` (kept after reopening), pick videos, **Invite**:
+66. **Collab in bulk.** **Collab** → type `@handle` (kept after reopening), pick videos, **Invite**:
     each video's edit page opens, the invite is sent and saved; "Invite links" lists the link with
     **Copy**. If the handle is one of your own channels (in the channel list), the tab switches to
     it and accepts (with "Auto-accept channel permission invites" on).
-59. **Claimed songs.** The list searches and sorts; ✕ asks "Sure?"; ⬇ CSV / ⬆ Import CSV round-trip
+67. **Claimed songs.** The list searches and sorts; ✕ asks "Sure?"; ⬇ CSV / ⬆ Import CSV round-trip
     (`claimed-songs-*.csv` from the userscript imports with "Imported N songs into history");
     "Delete all" asks twice. A `.txt` dropped into the queue with a claimed song shows "1 song(s)
     previously claimed" on its card, the tooltip listing it.
-60. **Tracklist fix.** **Fix tracklist** → pick a trimmed video: its upload-history tracklist is
+68. **Tracklist fix.** **Fix tracklist** → pick a trimmed video: its upload-history tracklist is
     filled in, the trimmed range ticked, the new tracklist has the cut song removed and later
     times moved up; **Copy new tracklist** toasts. A `.txt` dropped on "Original tracklist" replaces it.
-61. **Auto-pilot.** Turn it on (the question lists the rules) with "Run every N hours" = 0.5: the
+69. **Auto-pilot.** Turn it on (the question lists the rules) with "Run every N hours" = 0.5: the
     card says "Auto-pilot is on · Next scan + trim in …"; within a minute a cycle scans and trims
     what the rules pick. Afterwards, in the service worker console, `await chrome.alarms.getAll()`
     shows one `ap:<channelId>` at the next cycle (none while a cycle is due). Turn it off: the
@@ -1784,7 +2037,7 @@ English. Write down pass or fail; items marked **record** ask for an observation
     - **Two tabs, one channel.** Open a second Studio tab on the same channel: one cycle runs (one
       "🤖 Auto-pilot starting a new cycle" in the log), not two; the other tab's card shows
       "↪ Running in another Studio tab" during runs.
-62. **Auto-pilot with no Studio tab.** With Auto-pilot on and its next cycle due, close every
+70. **Auto-pilot with no Studio tab.** With Auto-pilot on and its next cycle due, close every
     Studio tab, wait past the time, then open Studio on that channel: the cycle starts within a few
     seconds of the page loading. While it was due with no tab, the service worker stayed asleep
     (its console shows no `[ytup] autopilot` lines every 30 s). **Record** whether a backgrounded
@@ -1795,15 +2048,15 @@ English. Write down pass or fail; items marked **record** ask for an observation
       Chrome or the extension doesn't show it again for the same cycle). Clicking it opens Studio on
       that channel in a new tab, and the cycle starts there within a few seconds. With a Studio tab
       on that channel open, no notification.
-63. **Scheduled slots.** With scheduling on, a channel that already has a video scheduled at the
-    queue's first slot: the schedule box skips that slot ("N slots skipped") and the summary's
-    release times avoid it.
-64. **Two windows, one queue.** Two windows with panels on two idle Studio tabs: edit a card's
+71. **Scheduled slots after a trim run.** (Item 47 covers the scheduler avoiding a taken slot.)
+    Repeat item 47 right after a trim run changed pages in that tab: the schedule box still
+    skips the taken slot (the scheduled list is read again on the new page).
+72. **Two windows, one queue.** Two windows with panels on two idle Studio tabs: edit a card's
     title in one and another card's title in the other within half a second: both edits stay.
-65. **Settings changed after the summary.** Open the start summary in window A, turn scheduling off
+73. **Settings changed after the summary.** Open the start summary in window A, turn scheduling off
     in window B's panel, confirm in A: "Settings or presets changed after you confirmed — click
     Start again to see the new summary".
-66. **Activity log.** **Show activity ▾** shows the lines of scans and trims (they survive the
+74. **Activity log.** **Show activity ▾** shows the lines of scans and trims (they survive the
     trim's page changes); the open/closed choice is kept.
 ```
 
@@ -1827,7 +2080,7 @@ From `extension/`: `npm run check && npm run build`. From the root: `node --test
 
 ```bash
 git add extension/scripts/ui-check.mjs extension/scripts/strings/dropped.mjs extension/tests/ui-check.test.mjs extension/README.md docs/superpowers/specs/2026-10-05-chrome-extension-design.md
-git commit -m "Phase 4 exit: copyright strings covered, README checklist (items 46–66), spec amended
+git commit -m "Phase 4 exit: copyright strings covered, README checklist (items 52–74), spec amended
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1836,7 +2089,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ## Phase 4 exit check (manual, in Chrome)
 
-The README items 46–66 (and the open Phase 3 items), run once by the user at the end of 4b, with the userscript disabled. Any failure blocks Phase 5.
+The README items 46–74 (4a's 46–53, with 52 and 53 extended, and 4b's 54–74) and the open Phase 3 items, run once by the user at the end of 4b, with the userscript disabled. Any failure blocks Phase 5.
 
 ## What comes next
 

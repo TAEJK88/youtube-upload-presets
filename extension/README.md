@@ -528,7 +528,7 @@ with at least one copyright claim.
     and Claimed songs' **⬇ CSV** each save a file from the side panel (no new tab, no blocked
     download). **Record** the file names and whether Chrome asked anything.
 52. **One worker per channel.** Open two Studio tabs on the same channel, then close the first.
-    In the service worker console, `await chrome.storage.local.get('claimsWorkers')` names one
+    In the service worker console, `await chrome.storage.session.get('claimsWorkers')` names one
     tab for the channel before and the other tab afterwards. Nothing in 4a asks for the lease
     yet, so before Phase 4b the entry is empty: run this item with 4b's Auto-pilot (the closed
     worker's tab is replaced at once; a tab that hangs, after about 20 s).
