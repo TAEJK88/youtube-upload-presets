@@ -1252,12 +1252,16 @@ export function trimFromPanel(keys: unknown): void {
   if (!rows.length) return log(L('ยังไม่ได้เลือก claim', 'No claims selected'), 'warn');
   startTrimRun(rows, cfg().autoSaveTrim ? 'auto' : 'review');
 }
+// The panel's view is closed by now and the tab's stored scan has none of the chosen videos (the
+// scan was replaced, or this page does not know its channel yet): said in the log, as for a trim.
+const notInScan = () => log(L('ไม่พบคลิปที่เลือกในผลสแกนล่าสุด — สแกนใหม่แล้วลองอีกครั้ง', 'The chosen videos are not in the latest scan — scan again and try again'), 'warn');
 // claims:ads — showAds()'s go button (5294–5298).
 export function adsFromPanel(ids: unknown): void {
   if (!strList(ids)) return;
   const scan = chGet<{ rows: { videoId: string; video: string }[] } | null>('adsScan', null);
   const rows = (scan ? scan.rows : []).filter((r) => ids.includes(r.videoId));
-  if (rows.length) startAdsRun(rows);
+  if (!rows.length) return notInScan();
+  startAdsRun(rows);
 }
 // claims:collab — showCollab()'s go button (5494–5500). The panel sends parseHandles() output
 // (lib/collab.ts); checked again here, after the message: one @name each, no space or comma.
@@ -1267,7 +1271,8 @@ export function collabFromPanel(d: unknown): void {
   if (!v || !strList(v.videoIds) || !strList(v.handles) || !v.handles.length || !v.handles.every(isHandle)) return;
   const scan = chGet<{ rows: { videoId: string; video: string }[] } | null>('collabScan', null);
   const rows = (scan ? scan.rows : []).filter((r) => (v.videoIds as string[]).includes(r.videoId));
-  if (rows.length) startCollabRun(rows, v.handles);
+  if (!rows.length) return notInScan();
+  startCollabRun(rows, v.handles);
 }
 // claims:stop — UI.stopBtn (6193).
 export function stopAll(): void {
