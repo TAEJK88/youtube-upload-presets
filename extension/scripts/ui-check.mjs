@@ -33,7 +33,7 @@ import { parse as babelParse } from '@babel/parser';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PIN = 'd15ef87caaddb7a6d3187d2851b83a484c4bb9e7'; // userscript v4.27.1, as scripts/port-check.mjs
-export const DRAWER = [2428, 4586]; // "===== UI =====" up to the copyright module (Phase 4)
+export const DRAWER = [2428, 6356]; // "===== UI =====" through the copyright module (its pane and modals are the Copyright tab)
 // What the userscript at PIN yields, and the sha256 of its sorted unique pair keys (pairsHash);
 // anything else means the parser drifted.
 const US_PAIRS = { total: 790, unique: 725, sha256: 'c5530d297425bac68c55da196d8430ae84e2205183a0dc0db0c32a66a82094ff' };
