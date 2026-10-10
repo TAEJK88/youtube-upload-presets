@@ -595,7 +595,7 @@ English. Write down pass or fail; items marked **record** ask for an observation
 > another channel to a video. Auto-pilot does all of the first two by itself, on every video its
 > rules pick, without asking.
 >
-> - Items 57 to 60, 62 and 64 (trim): only on videos you are willing to cut. Safest: upload a
+> - Items 53, 57 to 60 and 62 to 64 (trim): only on videos you are willing to cut. Safest: upload a
 >   private or unlisted test video that contains a song you know gets claimed, wait for its
 >   claim, and trim that one.
 > - Item 65 (ads) and item 66 (Collab): tick only private test videos; for Collab invite a
@@ -858,8 +858,8 @@ English. Write down pass or fail; items marked **record** ask for an observation
 - **A tab without the extension's script** (the "reload this tab" banner shows): the status card
   is gone and Scan is off. If the panel was already open on that tab, Claim list, Claimed songs,
   Copyright settings and Fix tracklist still open from what is stored, and a view that was open
-  stays open. A panel opened on such a tab for the first time has every Copyright button greyed
-  out and no Auto-pilot switch until the tab is reloaded.
+  stays open. A panel opened on such a tab for the first time has every Copyright button except
+  Upload history greyed out and no Auto-pilot switch until the tab is reloaded.
 - **Large Collab lists.** The Collab view shows every video of the channel, and each keystroke in
   the handles box and each tick redraws all of them: about 70 ms per keystroke at 3,000 videos
   (measured in tests; Chrome is faster). Fine up to a few hundred videos; typing may feel heavy
