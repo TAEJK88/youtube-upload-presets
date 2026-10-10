@@ -11,7 +11,10 @@ import { Icon } from '../Icon';
 import { useClaims, usePanel } from '../panel';
 import { saveFailed } from '../save-failed';
 import { ActivityLog } from './copyright/ActivityLog';
+import { AdsView } from './copyright/AdsView';
 import { ClaimList } from './copyright/ClaimList';
+import { CollabView } from './copyright/CollabView';
+import { CopyrightSettings } from './copyright/CopyrightSettings';
 import { Songs } from './copyright/Songs';
 import { StatusCard } from './copyright/StatusCard';
 import { TracklistFix } from './copyright/TracklistFix';
@@ -99,6 +102,9 @@ export function CopyrightTab() {
     : view.name === 'claims' ? <ClaimList data={data} state={state} onClose={home} onTracklist={(videoId) => setView({ name: 'tracklist', videoId })} />
     : view.name === 'songs' ? <Songs data={data} onClose={home} />
     : view.name === 'tracklist' ? <TracklistFix data={data} videoId={view.videoId} onPick={(videoId) => setView({ name: 'tracklist', videoId })} onClose={home} />
+    : view.name === 'ads' && data.adsScan ? <AdsView data={data} state={state} onClose={home} />
+    : view.name === 'collab' && data.collabScan ? <CollabView data={data} state={state} onClose={home} />
+    : view.name === 'settings' ? <CopyrightSettings data={data} onClose={home} />
     : null;
   if (sub) return <div ref={root}>{sub}</div>;
 

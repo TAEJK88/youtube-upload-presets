@@ -326,6 +326,17 @@ describe('views', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view: 'claims', n: 1 } }));
     expect(await screen.findByText(/Copyright claims — Mine/)).toBeTruthy();
   });
+
+  it('a finished ads or Collab scan opens its view, and Close goes back to the tab', async () => {
+    await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date: '2026-01-01', total: 0, rows: [] }, 'collabScan:UC1': { date: '2026-01-01', total: 0, rows: [] } });
+    const ads = renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view: 'ads', n: 1 } }));
+    expect(await screen.findByText(/Videos with ads off — Mine/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+    ads.unmount();
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view: 'collab', n: 1 } }));
+    expect(await screen.findByText(/Collab — Mine/)).toBeTruthy();
+  });
 });
 
 describe('moving between the tab and its views', () => {

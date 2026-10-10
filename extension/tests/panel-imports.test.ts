@@ -43,3 +43,10 @@ describe('side panel bundle', () => {
     expect(hits).toEqual([]);
   });
 });
+
+describe('one copy of shared helpers (4a review m10)', () => {
+  const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
+  it('the "not connected" toast has one shared helper', () => {
+    expect(read('entrypoints/sidepanel/save-failed.ts')).toMatch(/export const notConnected\b/);
+  });
+});

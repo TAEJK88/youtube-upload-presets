@@ -103,4 +103,10 @@ export default [
   { th: 'คัดลอก tracklist ไม่สำเร็จ (${})', en: "Couldn't copy the tracklist (${})", why: "the panel copies with navigator.clipboard, which can refuse; the userscript's GM_setClipboard could not fail" },
   // Phase 4a final review
   { th: 'อ่านรายละเอียด claim ไม่ได้ ${} จาก ${} คลิป — ผลสแกนนี้ไม่ครบ', en: "Couldn't read the claim details of ${} of ${} videos — this scan is incomplete", why: "a scan skips a video whose claim details can't be read and is stored as complete, as in the userscript; its fetch had no time limit and no answer check, so here every detail call can fail (D22) and the scan would read as 0 claims without this line" },
+  // 4b P (page)
+  //
+  // 4b D (alarms)
+  //
+  // 4b Q (panel)
+  //
 ];

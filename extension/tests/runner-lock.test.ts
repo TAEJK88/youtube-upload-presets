@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { acquireRunner, claimWorker, registerRunnerLock, releaseRunner, runnerElsewhere, runnerHeld, runnerHolds, studioTab } from '../lib/runner-lock';
+import { acquireRunner, claimWorker, JOBS_KEY, LOCK_KEY, registerRunnerLock, releaseRunner, runnerElsewhere, runnerHeld, runnerHolds, studioTab, workerOf, WORKERS_KEY } from '../lib/runner-lock';
 
 beforeEach(() => fakeBrowser.reset());
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -208,6 +208,33 @@ describe('runner lock', () => {
     expect(await claimWorker(a, '__proto__', false)).toBe(true);
     expect(await claimWorker(b, '__proto__', false)).toBe(false);
     expect(await claimWorker(b, 'constructor', false)).toBe(true);
+  });
+
+  it('tells its listener when the lock or its jobs change, also when a stale holder is cleaned up', async () => {
+    const changed = vi.fn();
+    registerRunnerLock(changed);
+    const a = await tab();
+    await acquireRunner(a, 'queue');
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+    await acquireRunner(a, 'claims');
+    await releaseRunner(a, 'all');
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(3));
+    await claimWorker(a, 'UC1', false); // the worker lease is not the lock
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changed).toHaveBeenCalledTimes(3);
+    await browser.storage.session.set({ [LOCK_KEY]: 999, [JOBS_KEY]: ['queue'] }); // a holder whose tab is gone
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(4));
+    expect(await runnerHeld()).toBe(false); // cleaned up: one more change
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(5));
+  });
+
+  it("workerOf: the channel's worker tab while its lease is fresh", async () => {
+    const a = await tab();
+    await claimWorker(a, 'UC1', false);
+    expect(await workerOf('UC1')).toBe(a);
+    expect(await workerOf('UC9')).toBe(null);
+    await browser.storage.session.set({ [WORKERS_KEY]: { UC1: { tabId: a, at: Date.now() - 21_000 } } });
+    expect(await workerOf('UC1')).toBe(null);
   });
 
   it('only a Studio tab may ask for the lock or the lease', () => {

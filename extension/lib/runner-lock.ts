@@ -9,7 +9,7 @@ import { isStudioUrl } from './panel-scope';
 // or no longer on Studio doesn't count. Known limitation: a live Studio tab whose runner died
 // (content script gone, or the page hung) keeps the lock until that tab navigates away,
 // closes, or reloads.
-const KEY = 'runnerTabId';
+export const LOCK_KEY = 'runnerTabId';
 export const JOBS_KEY = 'runnerJobs';
 export type Job = 'queue' | 'claims';
 export const isJob = (v: unknown): v is Job => v === 'queue' || v === 'claims';
@@ -32,11 +32,11 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 
 interface Holder { id: number; jobs: Job[] }
 async function holder(): Promise<Holder | null> {
-  const got = await browser.storage.session.get([KEY, JOBS_KEY]);
-  const id = got[KEY];
+  const got = await browser.storage.session.get([LOCK_KEY, JOBS_KEY]);
+  const id = got[LOCK_KEY];
   if (typeof id !== 'number') return null;
   if (!(await liveStudio(id))) {
-    await browser.storage.session.remove([KEY, JOBS_KEY]);
+    await browser.storage.session.remove([LOCK_KEY, JOBS_KEY]);
     return null;
   }
   // A lock written before jobs existed was the queue's.
@@ -49,7 +49,7 @@ export const acquireRunner = (tabId: number, job: Job) =>
     const h = await holder();
     if (h && h.id !== tabId) return false;
     const jobs = h ? [...new Set([...h.jobs, job])] : [job];
-    await browser.storage.session.set({ [KEY]: tabId, [JOBS_KEY]: jobs });
+    await browser.storage.session.set({ [LOCK_KEY]: tabId, [JOBS_KEY]: jobs });
     return true;
   });
 
@@ -59,7 +59,7 @@ export const releaseRunner = (tabId: number, job: Job | 'all') =>
     if (!h || h.id !== tabId) return;
     const jobs = job === 'all' ? [] : h.jobs.filter((j) => j !== job);
     if (jobs.length) await browser.storage.session.set({ [JOBS_KEY]: jobs });
-    else await browser.storage.session.remove([KEY, JOBS_KEY]);
+    else await browser.storage.session.remove([LOCK_KEY, JOBS_KEY]);
   });
 
 // Another tab holds the lock — for `job`, or for anything ('any').
@@ -123,6 +123,12 @@ export const claimWorker = (tabId: number, ch: string, force: boolean) =>
     if (changed) await browser.storage.session.set({ [WORKERS_KEY]: w });
     return mine;
   });
+// The channel's worker tab, for the Auto-pilot alarm: a lease that isn't stale, in a live tab.
+export const workerOf = (ch: string) =>
+  serial(async () => {
+    const l = (await readLeases())[ch];
+    return l && Date.now() - l.at <= LEASE_STALE && (await liveStudio(l.tabId)) ? l.tabId : null;
+  });
 const dropWorker = (tabId: number) =>
   serial(async () => {
     const w = await readLeases();
@@ -131,9 +137,13 @@ const dropWorker = (tabId: number) =>
   });
 
 // Called once from the background: a closed tab frees the lock and its worker lease right away.
-export function registerRunnerLock() {
+// `onChange` hears every change of the lock or its jobs (not of the worker leases).
+export function registerRunnerLock(onChange?: () => void) {
   browser.tabs.onRemoved.addListener((tabId) => {
     releaseRunner(tabId, 'all').catch(console.error);
     dropWorker(tabId).catch(console.error);
+  });
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === 'session' && (LOCK_KEY in changes || JOBS_KEY in changes)) onChange?.();
   });
 }

@@ -44,6 +44,10 @@ export type ProtocolMap = {
   'backup:write'(imp: BackupImport): void;
   // copyright data writes, from Studio tabs and the side panel (lib/claims/ops.ts, D20)
   'claims:op'(op: ClaimsOp): void;
+  // background → content (every Studio tab): the automation lock moved, ask again
+  'runner:changed'(): void;
+  // background → content (the channel's worker tab): its Auto-pilot alarm went off (D25)
+  'claims:autopilot'(channelId: string): void;
   // side panel → content (the Studio tab)
   'queue:add'(ids: string[]): void;
   'queue:preflight'(): StartSummary | { error: string };
@@ -60,6 +64,10 @@ export type ProtocolMap = {
   // side panel → content: the copyright module
   'claims:view'(): ClaimsState;
   'claims:scan'(what: 'claims' | 'ads' | 'collab'): void;
+  'claims:trim'(keys: string[]): void; // openTrimConfirm(): the panel asked, the page starts; keys are videoId:claimId
+  'claims:ads'(videoIds: string[]): void;
+  'claims:collab'(d: { videoIds: string[]; handles: string[] }): void;
+  'claims:stop'(): void;
   // content → side panel (broadcast; nobody listens while the panel is closed)
   'queue:state'(s: QueueState): void;
   'queue:toast'(msg: string): void;
