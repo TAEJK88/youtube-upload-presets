@@ -5,8 +5,8 @@ import { toast } from 'sonner';
 import { PresetsFooter, PresetsTab } from '../entrypoints/sidepanel/tabs/PresetsTab';
 import { toPanelData } from '../lib/panel/data';
 import { AskProvider } from '../entrypoints/sidepanel/ask';
-import { LiveContext, PanelContext } from '../entrypoints/sidepanel/panel';
-import { fakeLive, fakePanel, renderPanel } from './panel-fake';
+import { ClaimsContext, LiveContext, PanelContext } from '../entrypoints/sidepanel/panel';
+import { fakeClaims, fakeLive, fakePanel, renderPanel } from './panel-fake';
 import type { PanelApi } from '../entrypoints/sidepanel/panel';
 import type { Preset } from '../lib/presets';
 
@@ -18,9 +18,9 @@ afterEach(cleanup);
 const echo = (view: ReturnType<typeof renderPanel>, api: PanelApi, presets: Preset[], activeId = api.data!.activeId, ui = <PresetsTab />) =>
   view.rerender(
     <PanelContext.Provider value={{ ...api, data: { ...api.data!, presets, activeId } }}>
-      <LiveContext.Provider value={fakeLive()}>
+      <LiveContext.Provider value={fakeLive()}><ClaimsContext.Provider value={fakeClaims()}>
         <AskProvider>{ui}</AskProvider>
-      </LiveContext.Provider>
+      </ClaimsContext.Provider></LiveContext.Provider>
     </PanelContext.Provider>,
   );
 // happy-dom's setRangeText assigns `this.value`, which React's value tracker sees (so no
@@ -132,9 +132,9 @@ describe('presets tab', () => {
     const echoed = { ...api, data: { ...api.data!, presets: list } };
     view.rerender(
       <PanelContext.Provider value={echoed}>
-        <LiveContext.Provider value={fakeLive()}>
+        <LiveContext.Provider value={fakeLive()}><ClaimsContext.Provider value={fakeClaims()}>
           <AskProvider><PresetsTab /></AskProvider>
-        </LiveContext.Provider>
+        </ClaimsContext.Provider></LiveContext.Provider>
       </PanelContext.Provider>,
     );
     const label = screen.getByLabelText('Preset name') as HTMLInputElement;

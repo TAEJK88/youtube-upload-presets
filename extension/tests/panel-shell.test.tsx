@@ -15,7 +15,7 @@ import { setLang } from '../lib/i18n';
 import { ICONS } from '../lib/studio/dom';
 import * as fileStore from '../lib/file-store';
 import { toPanelData } from '../lib/panel/data';
-import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
+import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
 beforeEach(() => {
@@ -191,6 +191,22 @@ describe('activity bar', () => {
   it('is hidden when nothing runs', () => {
     renderPanel(<ActivityBar onGo={() => {}} />, fakePanel({ view: viewWith([{ status: 'pending' }]) }));
     expect(screen.queryByText(/Uploading/)).toBe(null);
+  });
+
+  it('the activity bar shows a copyright job when the queue is idle', () => {
+    renderPanel(<ActivityBar onGo={() => {}} />, fakePanel(), fakeLive(), fakeClaims({
+      live: claimsStateWith({ status: { icon: '🔍', kind: 'busy', title: "Scanning this channel's claims", detail: 'Reading video list…', progress: null } }),
+    }));
+    expect(screen.getByText("Scanning this channel's claims")).toBeTruthy();
+  });
+
+  it('the upload wins over a copyright job, and an idle copyright status shows nothing', () => {
+    const busy = fakeClaims({ live: claimsStateWith({ status: { icon: '🔍', kind: 'busy', title: "Scanning this channel's claims", detail: '', progress: 0.5 } }) });
+    renderPanel(<ActivityBar onGo={() => {}} />, fakePanel(), fakeLive({ liveState: state({ running: true }) }), busy);
+    expect(screen.queryByText("Scanning this channel's claims")).toBe(null);
+    cleanup();
+    const { container } = renderPanel(<ActivityBar onGo={() => {}} />, fakePanel(), fakeLive(), fakeClaims());
+    expect(container.textContent).toBe('');
   });
 });
 

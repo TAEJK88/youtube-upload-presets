@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
+import type { ClaimsLogLine, ClaimsState, ClaimsView } from '@/lib/claims/types';
 import { getLang, L, setLang, watchLang } from '@/lib/i18n';
 import { sendMessage, type ProtocolMap, type QueueState } from '@/lib/messages';
-import { installBus, onQueueState, onQueueToast } from '@/lib/panel/bus';
+import { installBus, onClaimsLog, onClaimsShow, onClaimsState, onQueueState, onQueueToast } from '@/lib/panel/bus';
 import { readPanelData, watchPanelData, type PanelData } from '@/lib/panel/data';
 import { activeStudioTab, runnerTab, watchRunner, watchTabs, type RunnerTab, type Target } from '@/lib/panel/target';
 import { createViewSync, type LinkStatus } from '@/lib/panel/view-sync';
@@ -51,6 +52,19 @@ export interface LiveApi {
 }
 export const LiveContext = createContext<LiveApi>({ state: null, liveState: null });
 export const useLive = () => useContext(LiveContext);
+
+// The copyright module's live state (D24): the bound tab's, and the lock holder's while it runs a
+// copyright job in another tab (like LiveApi for the queue). The log is kept here, newest first.
+export interface ClaimsApi {
+  state: ClaimsState | null; // the bound tab's
+  live: ClaimsState | null; // the lock holder's while it runs a copyright job elsewhere, else `state`
+  log: ClaimsLogLine[];
+  shown: { view: ClaimsView; n: number } | null; // the bound tab finished a scan: open this list
+  addLog(msg: string, type?: string): void; // a line the panel itself logs (Auto-pilot on/off)
+}
+export const ClaimsContext = createContext<ClaimsApi>({ state: null, live: null, log: [], shown: null, addLog: () => {} });
+export const useClaims = () => useContext(ClaimsContext);
+const LOG_MAX = 80; // logBox kept 80 lines (6179)
 
 const sameRunner = (a: RunnerTab | null, b: RunnerTab | null) =>
   a === b || (!!a && !!b && a.tabId === b.tabId && a.windowId === b.windowId && a.title === b.title && a.jobs.join() === b.jobs.join());
@@ -188,6 +202,45 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     });
   }, [targetId, runnerId]);
 
+  // The copyright module's state per tab (the bound one and the lock holder), its log and the
+  // list a finished scan asks to open.
+  const [claimStates, setClaimStates] = useState<ReadonlyMap<number, ClaimsState>>(new Map());
+  const [log, setLog] = useState<ClaimsLogLine[]>([]);
+  const [shown, setShown] = useState<ClaimsApi['shown']>(null);
+  const addLog = useCallback((msg: string, type = '') => setLog((l) => [{ at: Date.now(), msg, type }, ...l].slice(0, LOG_MAX)), []);
+  // The bound tab's copyright state at bind time (later changes come as broadcasts).
+  useEffect(() => {
+    if (targetId === undefined || link !== 'ok') return;
+    let alive = true;
+    void sendMessage('claims:view', undefined, targetId)
+      .then((s) => { if (alive && s) setClaimStates((m) => new Map(m).set(targetId, s)); })
+      .catch((e) => console.error('[ytup] claims:view failed', e));
+    return () => { alive = false; };
+  }, [targetId, link]);
+  useEffect(() => {
+    installBus();
+    const ours = (tabId: number | undefined): tabId is number => tabId !== undefined && (tabId === targetRef.current?.tabId || tabId === runnerRef.current);
+    const offState = onClaimsState((s, tabId) => { if (ours(tabId)) setClaimStates((m) => new Map(m).set(tabId, s)); });
+    const offLog = onClaimsLog((l, tabId) => { if (ours(tabId)) setLog((cur) => [l, ...cur].slice(0, LOG_MAX)); });
+    const offShow = onClaimsShow((view, tabId) => {
+      if (tabId !== undefined && tabId === targetRef.current?.tabId) setShown((s) => ({ view, n: (s?.n ?? 0) + 1 }));
+    });
+    return () => { offState(); offLog(); offShow(); };
+  }, []);
+  // Like `states`: only the bound tab's and the runner's are kept.
+  useEffect(() => {
+    setClaimStates((m) => {
+      const keep = [...m.keys()].filter((id) => id === targetId || id === runnerId);
+      return keep.length === m.size ? m : new Map(keep.map((id) => [id, m.get(id)!]));
+    });
+  }, [targetId, runnerId]);
+  const runsClaims = !!runner?.jobs.includes('claims');
+  const claims = useMemo<ClaimsApi>(() => {
+    const state = targetId !== undefined ? claimStates.get(targetId) ?? null : null;
+    const holder = runnerId !== undefined && runnerId !== targetId && runsClaims ? claimStates.get(runnerId) ?? null : null;
+    return { state, live: holder ?? state, log, shown, addLog };
+  }, [claimStates, targetId, runnerId, runsClaims, log, shown, addLog]);
+
   const [grant, setGrant] = useState<{ lost: string[]; rev: number }>({ lost: [], rev: 0 });
   const setLost = useCallback((ids: string[], regranted = false) => {
     setGrant((g) => {
@@ -221,7 +274,9 @@ export function PanelProvider({ children }: { children: ReactNode }) {
 
   return (
     <PanelContext.Provider value={api}>
-      <LiveContext.Provider value={live}>{children}</LiveContext.Provider>
+      <LiveContext.Provider value={live}>
+        <ClaimsContext.Provider value={claims}>{children}</ClaimsContext.Provider>
+      </LiveContext.Provider>
     </PanelContext.Provider>
   );
 }

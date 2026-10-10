@@ -2,7 +2,8 @@ import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { vi } from 'vitest';
 import { AskProvider } from '../entrypoints/sidepanel/ask';
-import { LiveContext, PanelContext, type LiveApi, type PanelApi } from '../entrypoints/sidepanel/panel';
+import { ClaimsContext, LiveContext, PanelContext, type ClaimsApi, type LiveApi, type PanelApi } from '../entrypoints/sidepanel/panel';
+import type { ClaimsState } from '../lib/claims/types';
 import { toPanelData } from '../lib/panel/data';
 import type { QueueState } from '../lib/messages';
 import type { QueueView, ViewItem } from '../lib/studio/queue-view';
@@ -54,11 +55,22 @@ export function fakePanel(over: Partial<PanelApi> = {}): PanelApi {
 // The live state lives in its own context (useLive()), apart from usePanel().
 export const fakeLive = (over: Partial<LiveApi> = {}): LiveApi => ({ state: state(), liveState: state(), ...over });
 
-export const renderPanel = (ui: ReactElement, api: PanelApi = fakePanel(), live: LiveApi = fakeLive()) =>
+// The copyright module's state as a Studio tab sends it (claims:state), and the panel's ClaimsApi.
+export const claimsStateWith = (over: Partial<ClaimsState> = {}): ClaimsState => ({
+  channel: 'UC1', channelName: 'Mine', ready: true, english: true, uploadBusy: false,
+  status: { icon: '✓', kind: 'idle', title: 'Ready', detail: 'Click "Scan claims" to check this channel' },
+  counts: { hasScan: false, scanDate: '', claims: 0, claimVideos: 0, songs: 0, hasAdsScan: false, adsTodo: 0 },
+  busyRun: false, busyScan: false, waiting: 0, workerHere: true, ...over,
+});
+export const fakeClaims = (over: Partial<ClaimsApi> = {}): ClaimsApi => ({ state: claimsStateWith(), live: claimsStateWith(), log: [], shown: null, addLog: vi.fn(), ...over });
+
+export const renderPanel = (ui: ReactElement, api: PanelApi = fakePanel(), live: LiveApi = fakeLive(), claims: ClaimsApi = fakeClaims()) =>
   render(
     <PanelContext.Provider value={api}>
       <LiveContext.Provider value={live}>
-        <AskProvider>{ui}</AskProvider>
+        <ClaimsContext.Provider value={claims}>
+          <AskProvider>{ui}</AskProvider>
+        </ClaimsContext.Provider>
       </LiveContext.Provider>
     </PanelContext.Provider>,
   );

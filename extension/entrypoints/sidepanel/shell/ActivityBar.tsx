@@ -3,13 +3,14 @@ import { activityFrom, emojiIconName } from '@/lib/activity';
 import { L } from '@/lib/i18n';
 import type { TabKey } from '../App';
 import { Icon } from '../Icon';
-import { useLive, usePanel } from '../panel';
+import { useClaims, useLive, usePanel } from '../panel';
 
 // The drawer's activity bar (actBar 3304–3312, activity() / renderActivity() 4079–4136):
 // what is running right now, on every tab; click to go to it. Hidden when idle.
 export function ActivityBar({ onGo }: { onGo(tab: TabKey): void }) {
   const { view } = usePanel();
   const { liveState } = useLive();
+  const { live } = useClaims(); // the copyright module's status (Claims.status(), 4089)
   const items = view?.items ?? [];
   const count = (s: string) => items.filter((i) => i.status === s).length;
   const a = activityFrom(
@@ -20,7 +21,7 @@ export function ActivityBar({ onGo }: { onGo(tab: TabKey): void }) {
       done: count('done'),
       errors: count('error'),
     },
-    null, // the copyright module's status arrives in Phase 4
+    live?.status ?? null,
     liveState?.prog ?? null,
   );
   if (!a) return null;

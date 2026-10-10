@@ -15,7 +15,8 @@ vi.mock('../lib/messages', async (orig) => ({
 import { toast } from 'sonner';
 import { setLang } from '../lib/i18n';
 import { sendMessage } from '../lib/messages';
-import { PanelProvider, useLive, usePanel } from '../entrypoints/sidepanel/panel';
+import { PanelProvider, useClaims, useLive, usePanel } from '../entrypoints/sidepanel/panel';
+import type { ClaimsState } from '../lib/claims/types';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 
 const studio = (id: number, windowId: number) => ({ id, windowId, url: 'https://studio.youtube.com/channel/UC1', title: `T${id}`, active: true });
@@ -201,5 +202,73 @@ describe('files that need a re-grant', () => {
     expect(screen.getByTestId('g').textContent).toBe('|1');
     fireEvent.click(screen.getByText('granted')); // a re-grant that changed nothing still re-reads previews
     expect(screen.getByTestId('g').textContent).toBe('|2');
+  });
+});
+
+// D24: the copyright state of the bound tab, and of the lock holder while it runs a copyright job.
+describe('copyright state routing', () => {
+  function ClaimsProbe() {
+    const c = useClaims();
+    return (
+      <div>
+        <div data-testid="c">{`${c.state?.channelName ?? '-'}|${c.live?.channelName ?? '-'}|${c.log.length}|${c.log[0]?.msg ?? '-'}`}</div>
+        <div data-testid="s">{c.shown ? `${c.shown.view}#${c.shown.n}` : '-'}</div>
+        <button onClick={() => c.addLog('from the panel', 'ok')}>add</button>
+      </div>
+    );
+  }
+  const STUDIO = 'https://studio.youtube.com/channel/UC1';
+  const deliver = (type: string, data: unknown, tabId: number, url = STUDIO) =>
+    act(async () => { handlers.get(type)!({ data, sender: { tab: { id: tabId, url }, url } }); });
+  const cs = (name: string, busyRun = false) => ({ channelName: name, busyRun, status: { icon: '✓', kind: 'idle', title: 'Ready', detail: '' } }) as unknown as ClaimsState;
+  const text = (id: string) => screen.getByTestId(id).textContent;
+
+  it('the bound tab, and the lock holder while it runs a copyright job; other tabs ignored', async () => {
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    await deliver('claims:state', cs('other'), 5);
+    expect(text('c')).toBe('bound|bound|0|-');
+    await deliver('claims:state', cs('holder', true), 9);
+    expect(text('c')).toBe('bound|holder|0|-');
+    for (let i = 0; i < 81; i++) await deliver('claims:log', { at: i, msg: 'line ' + i, type: '' }, 3);
+    await deliver('claims:log', { at: 0, msg: 'ignored', type: '' }, 5);
+    expect(text('c')).toBe('bound|holder|80|line 80');
+    fireEvent.click(screen.getByText('add'));
+    expect(text('c')).toBe('bound|holder|80|from the panel');
+  });
+
+  it("the holder's state is not the live one while it only runs the queue", async () => {
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['queue'] });
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    await deliver('claims:state', cs('holder'), 9);
+    expect(text('c')).toBe('bound|bound|0|-');
+  });
+
+  it('a list to open comes from the bound tab only', async () => {
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    await deliver('claims:show', 'claims', 9);
+    expect(text('s')).toBe('-');
+    await deliver('claims:show', 'claims', 3);
+    await deliver('claims:show', 'ads', 3);
+    expect(text('s')).toBe('ads#2');
+  });
+
+  it('messages from a tab that is not on Studio, or that are not what a Studio tab sends, are ignored', async () => {
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    await deliver('claims:state', cs('forged'), 3, 'https://www.youtube.com/watch?v=x');
+    await deliver('claims:log', { at: 1, msg: 'forged', type: '' }, 3, 'https://www.youtube.com/');
+    await deliver('claims:show', 'claims', 3, 'https://evil.example/');
+    for (const bad of [null, 'x', { at: 1, msg: 5, type: '' }, { at: 1, msg: 'x', type: {} }]) await deliver('claims:log', bad, 3);
+    for (const bad of ['songs', 1, null]) await deliver('claims:show', bad, 3);
+    await deliver('claims:state', null, 3);
+    expect(text('c')).toBe('bound|bound|0|-');
+    expect(text('s')).toBe('-');
   });
 });
