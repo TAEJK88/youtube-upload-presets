@@ -11,6 +11,7 @@ vi.mock('../lib/studio/automation', async (orig) => ({
   waitFor: async (fn: () => unknown) => fn() || null,
 }));
 import * as C from '../lib/claims/claims';
+import * as Q from '../lib/studio/queue-runner';
 
 const CH = 'UCaaaaaaaaaaaaaaaaaaaaaa';
 const ops: ClaimsOp[] = [];
@@ -215,7 +216,9 @@ describe('stop and the lock', () => {
 
   it("no lease is asked while the channel is 'unknown'", async () => {
     resetCfg();
-    history.replaceState(null, '', '/video/v1/claims'); // no channel in the address, none from ytcfg
+    await refreshCfg(async () => ({ INNERTUBE_CONTEXT: {} })); // Studio has loaded (the tick gets as far as the lease)…
+    history.replaceState(null, '', '/video/v1/claims'); // …with no channel in the address and none from ytcfg
+    expect(C.currentChannel()).toBe('unknown');
     const worker = vi.fn(async () => true);
     C.setClaimsLock({ worker, acquire: async () => true, release: vi.fn(), holds: async () => false });
     await C.initClaimsLock();
@@ -246,8 +249,15 @@ describe('stop and the lock', () => {
     const release = vi.fn();
     C.setClaimsLock({ acquire: async () => true, release, worker: async () => true, holds: async () => true });
     await C.initClaimsLock();
-    C.claimsTick();
+    Q.queue.push({ id: 'q', status: 'pending' } as Q.QueueItem);
+    C.claimsTick(); // the run waits for the upload queue: no step starts
     expect(release).not.toHaveBeenCalled(); // the run is active: the job stays
+    Q.queue.splice(0);
+    C.claimsTick(); // the step is on its way
+    expect(release).not.toHaveBeenCalled();
+    // the step itself is not this test's: it finds the lock refused and ends, leaving nothing behind
+    C.setClaimsLock({ acquire: async () => false, release, worker: async () => true, holds: async () => false });
+    await vi.advanceTimersByTimeAsync(2500);
     vi.useRealTimers();
   });
 });
