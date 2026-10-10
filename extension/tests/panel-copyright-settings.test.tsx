@@ -138,6 +138,47 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(text('Run every N hours').value).toBe('12');
   });
 
+  it('each help text is tied to its input, and an input without help names none (review m2)', () => {
+    show();
+    const help = (el: HTMLElement) => document.getElementById(el.getAttribute('aria-describedby') ?? '')?.textContent;
+    expect(help(text('Your own artist / label names'))).toBe('Claims with these names are marked ★ your own music (comma-separated)');
+    expect(help(box('Fully automatic trim'))).toMatch(/^Clicks Save in the trim editor/);
+    expect(help(box('When trimming manually: auto-click Save and Confirm changes'))).toMatch(/^Better left off — if on, the script clicks Save 1.5 seconds/);
+    expect(help(text('Check every N minutes'))).toBe('Videos with 2+ claims: how often to check whether the previous trim has finished');
+    expect(help(box('Also turn on ads for videos that have them off'))).toBe('Only videos turned off in settings, not ones YouTube marks as ineligible');
+    for (const el of [text('Run every N hours'), text('Max claims per cycle'), box("Don't trim your own music (★)")]) expect(el.hasAttribute('aria-describedby')).toBe(false);
+    const ids = [...screen.getAllByRole('checkbox'), ...screen.getAllByRole('textbox')].map((el) => el.getAttribute('aria-describedby')).filter(Boolean);
+    expect(new Set(ids).size).toBe(5);
+  });
+
+  it('a second Save or Reset click while the write is on its way does nothing (review m3)', async () => {
+    let done!: () => void;
+    const send = vi.spyOn(await import('../lib/messages'), 'sendMessage').mockImplementation(() => new Promise<never>((r) => { done = r as () => void; }));
+    const saving = show();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' })); // not armed either
+    expect(send).toHaveBeenCalledTimes(1);
+    done();
+    await waitFor(() => expect(saving.onClose).toHaveBeenCalledTimes(1));
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Click again to reset' })).toBeNull();
+    cleanup();
+
+    send.mockClear();
+    const resetting = show();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+    await screen.findByRole('button', { name: 'Click again to reset' });
+    fireEvent.click(screen.getByRole('button', { name: 'Click again to reset' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Click again to reset' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(send).toHaveBeenCalledTimes(1);
+    done();
+    await waitFor(() => expect(resetting.onClose).toHaveBeenCalledTimes(1));
+    expect(resetting.addLog).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledTimes(1); // the first part's "saved", nothing new
+  });
+
   it('in Thai', () => {
     setLang('th');
     show();
