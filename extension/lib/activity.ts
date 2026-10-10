@@ -11,7 +11,7 @@ export function parseUploadPct(text: unknown): number | null {
 }
 
 export interface QueueSummary { running: boolean; inFlight: boolean; total: number; done: number; errors: number }
-export interface ClaimsStatus { kind: string; icon?: string; title?: string; detail?: string; progress?: number }
+export interface ClaimsStatus { kind: string; icon?: string; title?: string; detail?: string; progress?: number | null }
 export interface UploadProgress { pct?: number | null; text?: string }
 export interface Activity {
   task: 'upload' | 'claims';

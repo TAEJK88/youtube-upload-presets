@@ -1,4 +1,5 @@
 import { activityFrom, emojiIconName, type Activity } from '../activity';
+import { claimsStatus } from '../claims/claims';
 import { L } from '../i18n';
 import { h, icon } from './dom';
 import { queue, running, uploadProg } from './queue-runner';
@@ -51,7 +52,7 @@ export function fabModel(): FabModel {
   const count = (s: string) => queue.filter((i) => i.status === s).length;
   const activity = activityFrom(
     { running, inFlight: queue.some((i) => i.status === 'uploading' || i.status === 'review'), total: queue.length, done: count('done'), errors: count('error') },
-    null,
+    claimsStatus(),
     uploadProg,
   );
   return { channel: c.label, problem: c.problem, locked: !!settings.lockChannel, preset: active()?.label ?? '', activity, pending: count('pending'), total: queue.length };

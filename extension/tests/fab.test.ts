@@ -2,6 +2,7 @@
 import { within } from '@testing-library/dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fabModel, mountFab, type FabModel } from '../lib/studio/fab';
+import { useMemoryClaims } from '../lib/claims/store';
 import * as Q from '../lib/studio/queue-runner';
 import { active, load, save } from '../lib/studio/state';
 
@@ -126,5 +127,23 @@ describe('fabModel()', () => {
     expect(m.activity).toMatchObject({ task: 'upload', icon: '⬆', count: { at: 2, of: 4 }, progress: 0.25 });
     Q.queue.splice(0);
     expect(fabModel()).toMatchObject({ activity: null, pending: 0, total: 0 });
+  });
+});
+
+describe('fabModel() and the copyright module', () => {
+  afterEach(() => useMemoryClaims());
+  const trimming = { active: true, started: '', items: [{ key: 'v:1', videoId: 'v', video: 'Mix', song: 'S1', state: 'pending', msg: '' }] };
+
+  it('shows a copyright job while the queue is idle (activity(), 4089)', () => {
+    useMemoryClaims({ 'trimRun:unknown': trimming });
+    expect(fabModel().activity).toMatchObject({ task: 'claims', icon: '✂️', tab: 'claims', title: 'Trimming claim 1 of 1', progress: 0 });
+  });
+
+  it('a broken copyright module leaves the upload progress alone', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    useMemoryClaims({ 'trimRun:unknown': { active: true, items: 'broken' } });
+    expect(fabModel().activity).toBe(null);
+    expect(err).toHaveBeenCalledWith('[ytup] copyright status', expect.any(TypeError));
+    err.mockRestore();
   });
 });

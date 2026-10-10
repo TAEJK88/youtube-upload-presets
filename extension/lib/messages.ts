@@ -1,6 +1,7 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
 import type { BackupImport } from './backup';
 import type { ClaimsOp } from './claims/ops';
+import type { ClaimsLogLine, ClaimsState, ClaimsView } from './claims/types';
 import type { Job } from './runner-lock';
 import type { StorePatch } from './store-writer';
 import type { SwitchRequest } from './studio/channels';
@@ -56,9 +57,15 @@ export type ProtocolMap = {
   'channel:switch'(req: SwitchRequest): void;
   'fill:apply'(): void;
   'diag:dialogInfo'(): unknown;
+  // side panel → content: the copyright module
+  'claims:view'(): ClaimsState;
+  'claims:scan'(what: 'claims' | 'ads' | 'collab'): void;
   // content → side panel (broadcast; nobody listens while the panel is closed)
   'queue:state'(s: QueueState): void;
   'queue:toast'(msg: string): void;
+  'claims:state'(s: ClaimsState): void;
+  'claims:log'(l: ClaimsLogLine): void;
+  'claims:show'(view: ClaimsView): void; // a scan this tab ran ended: open its list
 };
 
 export const { sendMessage, onMessage } = defineExtensionMessaging<ProtocolMap>();

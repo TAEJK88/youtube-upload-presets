@@ -1,6 +1,8 @@
 import '@/lib/debug-capture/studio'; // FIRST: the debug page shows what goes wrong below
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
+import { claimsState, setClaimsUi } from '@/lib/claims/claims';
+import { createClaimsPage } from '@/lib/claims/page';
 import { disposeClaimsStore } from '@/lib/claims/store';
 import { loadClaimsData, wireClaims } from '@/lib/claims/wiring';
 import { createFileBridge } from '@/lib/file-bridge-client';
@@ -95,6 +97,17 @@ export default defineContentScript({
     const ui = createContentUi();
     setPageUi(ui);
     stop.add(() => ui.dispose());
+    // The copyright module's pane is the side panel's Copyright tab now (D24): this tab sends it
+    // the status card, the log lines and the lists to open, and runs the scans it asks for.
+    const claims = createClaimsPage({ toast: (m) => ui.toast(m), refreshCfg: () => refreshCfg(readCfg) });
+    setClaimsUi(claims.ui);
+    stop.add(() => {
+      claims.dispose();
+      setClaimsUi(null);
+    });
+    onMessage('claims:view', () => claimsState());
+    // A scan takes minutes: answer now, report through claims:state / claims:log / claims:show.
+    onMessage('claims:scan', ({ data }) => void claims.scan(data));
     // The userscript's FAB: opens the side panel (needs the click's user gesture — see README).
     const fab = mountFab(() => ui.openDrawer());
     stop.add(() => fab.remove());
@@ -192,6 +205,11 @@ export default defineContentScript({
         ui.tick();
       } catch (e) {
         console.error('[ytup] progress', e);
+      }
+      try {
+        claims.tick();
+      } catch (e) {
+        console.error('[ytup] copyright tick', e);
       }
       // Its own try too: a failing tick must not freeze the FAB, nor the FAB the tick.
       try {
