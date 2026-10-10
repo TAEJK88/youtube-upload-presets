@@ -461,6 +461,28 @@ describe('the lock, the lease and the settle (review round)', () => {
     off();
   });
 
+  // Safety re-review 2 (R2-I1): an idle page is not reloaded, so it must not stay "left": every
+  // later wait of the module would never end (a scan stuck on "Scanning…", a cycle that hangs).
+  it('an idle page back from the back/forward cache is not reloaded and works on: a scan started there finishes', async () => {
+    vi.resetModules();
+    const F = await import('../lib/claims/claims');
+    const S = await import('../lib/claims/store');
+    S.useMemoryClaims({});
+    await (await import('../lib/studio/channel')).refreshCfg(async () => ({ CHANNEL_ID: CH, INNERTUBE_CONTEXT: {} }));
+    const api = vi.fn(async () => ({ videos: [] }));
+    (await import('../lib/claims/youtubei')).setYoutubei(api);
+    const reload = vi.fn();
+    const off = F.installBackGuard(reload);
+    const fire = (type: string) => { const ev = new Event(type); Object.defineProperty(ev, 'persisted', { value: true }); window.dispatchEvent(ev); };
+    fire('pagehide');
+    fire('pageshow');
+    expect(reload).not.toHaveBeenCalled(); // nothing was in flight: the page stays
+    F.startScan('claims'); // "Scan claims" on the restored page
+    await vi.waitFor(() => expect(S.load(`claimScan:${CH}`, null)).not.toBe(null));
+    expect(F.claimsState().busyScan).toBe(false);
+    off();
+  });
+
   // Safety m3: runner:release is fire-and-forget; if it was lost the background would keep the job
   // for an idle tab. The tab asks once after each release.
   it('after letting the job go the tab asks whether it is really gone, and lets it go again if not', async () => {
