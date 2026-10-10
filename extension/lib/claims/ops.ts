@@ -20,6 +20,13 @@ export type ClaimsOp =
   | { op: 'runItem'; key: string; by: 'key' | 'videoId'; id: string; state: string; msg: string; onlyActive?: boolean }
   | { op: 'songs'; songs: SongsOp };
 
+// The most a songs CSV may hold, in UTF-16 units (a file's bytes are never fewer). A real export is
+// one row per song: 200,000 short rows are 3.8 MB, and a few thousand songs with their video titles
+// stay well under 1 MB. importSongs is linear, so 5 MB is read twice (panel, then here) in well under a
+// second; the limit keeps a wrong file (a video, a database dump) from being parsed, sent as one
+// message and held in the one writer's queue.
+export const SONGS_CSV_MAX = 5 * 1024 * 1024;
+
 export const opKey = (op: ClaimsOp): string => (op.op === 'songs' ? 'songHistory' : op.key);
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -77,7 +84,7 @@ function isSongsOp(v: unknown): v is SongsOp {
   switch (v.fn) {
     case 'record': return Array.isArray(v.rows) && v.rows.every(isRow) && typeof v.chName === 'string' && typeof v.now === 'string';
     case 'trimmed': return typeof v.song === 'string' && okId(v.videoId);
-    case 'import': return typeof v.text === 'string' && typeof v.now === 'string';
+    case 'import': return typeof v.text === 'string' && v.text.length <= SONGS_CSV_MAX && typeof v.now === 'string';
     case 'delete': return typeof v.key === 'string' && !PROTO.has(v.key);
     case 'clear': return true;
   }

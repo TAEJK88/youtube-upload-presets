@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
@@ -69,7 +69,15 @@ export function CopyrightTab() {
   const stored = useClaimsGlobals();
   const [view, setView] = useState<CopyrightView>({ name: 'home' });
   const [openLog, setOpenLog] = useState<boolean | null>(null);
-  const home = () => setView({ name: 'home' });
+  const root = useRef<HTMLDivElement>(null);
+  const closed = useRef<CopyrightView['name'] | null>(null); // the view Close just left: its button takes focus back
+  const home = () => {
+    closed.current = view.name;
+    setView({ name: 'home' });
+  };
+  // The bound tab moved to another channel: an open view was the old channel's (its video, its text).
+  const ch = state?.channel ?? null;
+  useEffect(() => setView({ name: 'home' }), [ch]);
   // A scan started here ended in the bound tab: open its list (showClaims() after scanClaims()).
   useEffect(() => {
     if (!shown) return;
@@ -77,11 +85,22 @@ export function CopyrightTab() {
     setView(next);
   }, [shown]);
 
-  if (data && state) {
-    if (view.name === 'claims') return <ClaimList data={data} state={state} onClose={home} onTracklist={(videoId) => setView({ name: 'tracklist', videoId })} />;
-    if (view.name === 'songs') return <Songs data={data} onClose={home} />;
-    if (view.name === 'tracklist') return <TracklistFix data={data} videoId={view.videoId} onPick={(videoId) => setView({ name: 'tracklist', videoId })} onClose={home} />;
-  }
+  // Each view, and the tab on the way back, opens at its top (the pane scrolls: App's [data-pane-scroll]).
+  const at = view.name + ':' + (view.name === 'tracklist' ? view.videoId : '');
+  useEffect(() => {
+    // Not while another panel tab shows (a scan can end and open its list then): the panes share the scroller.
+    const scroller = root.current?.closest('[data-state="inactive"]') ? null : root.current?.closest('[data-pane-scroll]');
+    if (scroller) scroller.scrollTop = 0;
+    if (view.name === 'home' && closed.current) root.current?.querySelector<HTMLElement>(`[data-view="${closed.current}"]`)?.focus({ preventScroll: true });
+    closed.current = null;
+  }, [at]);
+
+  const sub = !data || !state ? null
+    : view.name === 'claims' ? <ClaimList data={data} state={state} onClose={home} onTracklist={(videoId) => setView({ name: 'tracklist', videoId })} />
+    : view.name === 'songs' ? <Songs data={data} onClose={home} />
+    : view.name === 'tracklist' ? <TracklistFix data={data} videoId={view.videoId} onPick={(videoId) => setView({ name: 'tracklist', videoId })} onClose={home} />
+    : null;
+  if (sub) return <div ref={root}>{sub}</div>;
 
   const s = live ?? state;
   const n = state?.counts;
@@ -103,7 +122,7 @@ export function CopyrightTab() {
     void claimsWrite({ op: 'set', key: 'logOpen', value: !logOpen }).catch(saveFailed);
   };
   return (
-    <div>
+    <div ref={root}>
       {state && !state.english && (
         <div className="mb-3 rounded-[12px] border border-err/35 bg-err/[0.08] px-3 py-2 text-xs text-err">
           {L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language')}
@@ -115,11 +134,11 @@ export function CopyrightTab() {
           // The side panel can be 320px wide: a button that doesn't fit beside its neighbour takes the next line.
           <div className="mt-2.5 flex flex-wrap gap-2 [&>button]:grow">
             <Button variant="go" onClick={scan} disabled={!state}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>
-            <Button onClick={() => setView({ name: 'claims' })} disabled={!data}>
+            <Button data-view="claims" onClick={() => setView({ name: 'claims' })} disabled={!data}>
               <Icon name="queue" size={16} />
               {n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list')}
             </Button>
-            <Button className="basis-full" onClick={() => setView({ name: 'songs' })} disabled={!data}
+            <Button data-view="songs" className="basis-full" onClick={() => setView({ name: 'songs' })} disabled={!data}
               title={L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels')}>
               <Icon name="music" size={16} />{L(`เพลงที่เคยโดน (${n?.songs ?? stored.songs})`, `Claimed songs (${n?.songs ?? stored.songs})`)}
             </Button>
@@ -128,7 +147,7 @@ export function CopyrightTab() {
       </Section>
       <Section>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => setView({ name: 'tracklist', videoId: '' })} disabled={!data}><Icon name="note" size={14} />{L('แก้ tracklist', 'Fix tracklist')}</Button>
+          <Button data-view="tracklist" size="sm" onClick={() => setView({ name: 'tracklist', videoId: '' })} disabled={!data}><Icon name="note" size={14} />{L('แก้ tracklist', 'Fix tracklist')}</Button>
           <Button size="sm" onClick={() => void uploads()} title={L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script')}>
             <Icon name="history" size={14} />{L('ประวัติการอัป', 'Upload history')}
           </Button>

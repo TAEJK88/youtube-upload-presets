@@ -1,5 +1,5 @@
 import { parseCSV, songNorm } from './core';
-import type { ClaimRow, Songs } from './types';
+import type { ClaimRow, SongEntry, Songs } from './types';
 
 export type SongRow = Pick<ClaimRow, 'song' | 'artists' | 'label' | 'claimant' | 'type' | 'videoId' | 'video' | 'impact'>;
 
@@ -36,9 +36,20 @@ export type SongRow = Pick<ClaimRow, 'song' | 'artists' | 'label' | 'claimant' |
   function importSongs(db: Songs, text: string, now: string): number {
     const rows = parseCSV(text);
     const head = (rows.shift() || []).map((x) => x.trim());
-    const col = (n: string) => head.indexOf(n);
+    const cols = new Map(head.map((h, i): [string, number] => [h, i]).reverse());
+    const col = (n: string) => cols.get(n) ?? -1;
     if (col('song') < 0) return -1;
     let n = 0;
+    const seen = new Map<SongEntry, { claimants: Set<string>; types: Set<string>; videos: Map<string, number> }>();
+    const hadOf = (e: SongEntry) => {
+      let h = seen.get(e);
+      if (!h) {
+        h = { claimants: new Set(e.claimants), types: new Set(e.types), videos: new Map() };
+        for (const x of Object.values(e.videos)) h.videos.set(x.video, (h.videos.get(x.video) || 0) + 1);
+        seen.set(e, h);
+      }
+      return h;
+    };
     for (const r of rows) {
       const g = (name: string) => (col(name) >= 0 ? r[col(name)] || '' : '');
       const title = g('song').trim();
@@ -47,11 +58,18 @@ export type SongRow = Pick<ClaimRow, 'song' | 'artists' | 'label' | 'claimant' |
       const e = db[key] || (db[key] = { title, artists: g('artists'), label: g('label'), claimants: [], types: [],
         firstSeen: (g('first_seen') || now.slice(0, 10)) + 'T00:00:00Z',
         lastSeen: (g('last_seen') || now.slice(0, 10)) + 'T00:00:00Z', videos: {}, trimmed: +g('videos_trimmed') || 0 });
-      g('claimants').split(';').map((x) => x.trim()).filter(Boolean).forEach((c) => { if (!e.claimants.includes(c)) e.claimants.push(c); });
-      g('claim_type').split(';').map((x) => x.trim()).filter(Boolean).forEach((c) => { if (!e.types.includes(c)) e.types.push(c); });
+      const had = hadOf(e);
+      const channel = g('channels').split(';')[0] || '';
+      g('claimants').split(';').map((x) => x.trim()).filter(Boolean).forEach((c) => { if (!had.claimants.has(c)) { had.claimants.add(c); e.claimants.push(c); } });
+      g('claim_type').split(';').map((x) => x.trim()).filter(Boolean).forEach((c) => { if (!had.types.has(c)) { had.types.add(c); e.types.push(c); } });
       g('videos').split('|').map((x) => x.trim()).filter(Boolean).forEach((v, i) => {
         const k = 'import:' + songNorm(v) + ':' + i;
-        if (!Object.values(e.videos).some((x) => x.video === v)) e.videos[k] = { video: v, channel: g('channels').split(';')[0] || '', status: 'claimed' };
+        if (!had.videos.get(v)) {
+          const old = e.videos[k];
+          if (old) had.videos.set(old.video, had.videos.get(old.video)! - 1);
+          e.videos[k] = { video: v, channel, status: 'claimed' };
+          had.videos.set(v, 1);
+        }
       });
       n++;
     }

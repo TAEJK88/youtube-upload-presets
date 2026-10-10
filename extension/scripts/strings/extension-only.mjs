@@ -98,4 +98,7 @@ export default [
   { th: 'เรียงตาม', en: 'Sort by', why: "the claimed-songs sort menu's accessible name; the userscript's <select> had none" },
   { th: 'มี tracklist จากประวัติการอัป', en: 'Tracklist from upload history', why: "the tracklist picker's line: the userscript wrote it inside one template with the length (`${} · ${}`, 4989); the panel shows it as its own text" },
   { th: 'ต้องวาง tracklist เอง', en: 'Paste tracklist manually', why: 'as above, for a video with no upload history' },
+  { th: 'ไฟล์ใหญ่เกินไป — นำเข้าได้ไม่เกิน ${} MB', en: 'This file is too large — the limit is ${} MB', why: 'the songs CSV import has a size limit, in the panel and in the background (T8 review I2); the userscript read any file' },
+  { th: 'อ่านไฟล์ไม่สำเร็จ (${})', en: "Couldn't read the file (${})", why: 'the songs CSV is read in the panel before it is sent to the background, and the read can fail; the userscript left the rejection unhandled' },
+  { th: 'คัดลอก tracklist ไม่สำเร็จ (${})', en: "Couldn't copy the tracklist (${})", why: "the panel copies with navigator.clipboard, which can refuse; the userscript's GM_setClipboard could not fail" },
 ];

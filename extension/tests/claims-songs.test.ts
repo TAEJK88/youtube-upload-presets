@@ -33,4 +33,67 @@ describe('song history reducers', () => {
     expect(Object.values(db['s|a']!.videos).map((v) => v.video)).toEqual(['Mix 1', 'Mix 2']);
     expect(importSongs(db, 'title\nx', '2026-10-01T00:00:00Z')).toBe(-1);
   });
+  // A hostile or broken file must not hold the panel, nor the background's one writer (T8 review I2).
+  describe('importSongs stays linear in the size of the file', () => {
+    const NOW = '2026-10-01T00:00:00Z';
+    const timed = (csv: string, db: Songs = {}) => {
+      const t = performance.now();
+      const n = importSongs(db, csv, NOW);
+      return { n, ms: performance.now() - t, db };
+    };
+    it('one song claimed in 20,000 videos', () => {
+      const names = Array.from({ length: 20_000 }, (_, i) => 'v' + i);
+      const r = timed('song,videos\nS,' + names.join('|') + '\n');
+      expect(Object.keys(r.db['s|']!.videos)).toHaveLength(20_000);
+      expect(r.ms).toBeLessThan(1000);
+    });
+    it('one song repeated on 20,000 rows, each adding a video, a claimant and a type', () => {
+      const rows = Array.from({ length: 20_000 }, (_, i) => `S,c${i},t${i},v${i}`);
+      const r = timed('song,claimants,claim_type,videos\n' + rows.join('\n') + '\n');
+      expect(r.n).toBe(20_000);
+      const e = r.db['s|']!;
+      expect([Object.keys(e.videos).length, e.claimants.length, e.types.length]).toEqual([20_000, 20_000, 20_000]);
+      expect(r.ms).toBeLessThan(1000);
+    });
+    it('20,000 claimants and types in one row, a long channel list, a header of 20,000 columns', () => {
+      const many = (p: string) => Array.from({ length: 20_000 }, (_, i) => p + i).join(';');
+      const head = Array.from({ length: 20_000 }, (_, i) => 'x' + i).join(',') + ',song,claimants,claim_type,channels,videos';
+      const cells = ','.repeat(20_000);
+      const rows = Array.from({ length: 200 }, (_, i) => `${cells}S${i},,,${many('ch')},${Array.from({ length: 100 }, (_, j) => 'v' + j).join('|')}`);
+      const r = timed(`${head}\n${cells}S,${many('c')},${many('t')},,\n${rows.join('\n')}\n`);
+      expect(r.db['s|']!.claimants).toHaveLength(20_000);
+      expect(r.db['s|']!.types).toHaveLength(20_000);
+      expect(r.db['s0|']!.videos['import:v0:0']!.channel).toBe('ch0');
+      expect(r.ms).toBeLessThan(1500);
+    });
+    it('a header of 200,000 columns, most of the columns it looks for missing', () => {
+      const head = 'song,' + Array.from({ length: 200_000 }, (_, i) => 'x' + i).join(',');
+      const r = timed(head + '\n' + Array.from({ length: 5000 }, (_, i) => 'S' + i).join('\n') + '\n');
+      expect(r.n).toBe(5000);
+      expect(r.ms).toBeLessThan(1000);
+    });
+    it('a column named twice is read from its first place, as before', () => {
+      const db: Songs = {};
+      importSongs(db, 'song,artists,song\nFirst,A,Second\n', NOW);
+      expect(Object.keys(db)).toEqual(['first|a']);
+    });
+    it('still adds each video, claimant and type once: within a row, across rows, and against what is stored', () => {
+      const db: Songs = {};
+      recordSongs(db, [row('S', 'v1', { video: 'Mix 1', artists: '' })], 'Chan', NOW);
+      const csv = 'song,claimants,claim_type,channels,videos\nS,Co; New; New,audio; video; video,Other; Third,Mix 1 | Mix 2 | Mix 2\nS,New,video,Other,Mix 2 | Mix 3\n';
+      expect(importSongs(db, csv, NOW)).toBe(2);
+      const e = db['s|']!;
+      expect(e.claimants).toEqual(['Co', 'New']);
+      expect(e.types).toEqual(['audio', 'video']);
+      expect(e.videos).toEqual({
+        v1: { video: 'Mix 1', channel: 'Chan', status: 'claimed', impact: '' },
+        'import:mix 2:1': { video: 'Mix 2', channel: 'Other', status: 'claimed' },
+        'import:mix 3:1': { video: 'Mix 3', channel: 'Other', status: 'claimed' },
+      });
+      // a second import of the same file changes nothing
+      const before = JSON.stringify(db);
+      importSongs(db, csv, NOW);
+      expect(JSON.stringify(db)).toBe(before);
+    });
+  });
 });

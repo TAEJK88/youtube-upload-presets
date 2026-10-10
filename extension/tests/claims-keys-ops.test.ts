@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { channelKeys, isClaimsKey, splitKey } from '../lib/claims/keys';
-import { applyOp, isClaimsOp, opKey } from '../lib/claims/ops';
+import { applyOp, isClaimsOp, opKey, SONGS_CSV_MAX } from '../lib/claims/ops';
 
 describe('copyright keys', () => {
   it('knows the per-channel and global keys, and nothing else', () => {
@@ -55,6 +55,9 @@ describe('ops', () => {
     expect(isClaimsOp({ op: 'list', key: 'trimQueue:UC1', add: [1] })).toBe(false);
     expect(isClaimsOp({ op: 'runItem', key: 'trimRun:UC1', by: 'title', id: 'x', state: 's', msg: '' })).toBe(false);
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'import', text: 'x', now: 'n' } })).toBe(true);
+    // a songs CSV over the limit never reaches the one writer (T8 review I2)
+    expect(isClaimsOp({ op: 'songs', songs: { fn: 'import', text: 'x'.repeat(SONGS_CSV_MAX), now: 'n' } })).toBe(true);
+    expect(isClaimsOp({ op: 'songs', songs: { fn: 'import', text: 'x'.repeat(SONGS_CSV_MAX + 1), now: 'n' } })).toBe(false);
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'eval' } })).toBe(false);
     expect(isClaimsOp(null)).toBe(false);
   });

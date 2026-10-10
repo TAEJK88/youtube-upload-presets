@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { songsCsvRows } from '@/lib/claims/core';
+import { SONGS_CSV_MAX } from '@/lib/claims/ops';
 import { importSongs } from '@/lib/claims/songs';
 import { L, locale } from '@/lib/i18n';
 import { claimsWrite, type ClaimsData } from '@/lib/panel/claims-data';
@@ -24,7 +25,15 @@ export function Songs({ data, onClose }: { data: ClaimsData; onClose(): void }) 
   const list = songList(data.songs, q, sortBy);
   // importSongsCSV() (5137–5164): the background adds the rows; the count is worked out here too.
   const importFile = async (f: File) => {
-    const text = await f.text();
+    // Refused before it is read: the background refuses the same size (isSongsOp).
+    if (f.size > SONGS_CSV_MAX) return void toast(L(`ไฟล์ใหญ่เกินไป — นำเข้าได้ไม่เกิน ${SONGS_CSV_MAX / 1048576} MB`, `This file is too large — the limit is ${SONGS_CSV_MAX / 1048576} MB`));
+    let text: string;
+    try {
+      text = await f.text();
+    } catch (e) {
+      console.error('[ytup] import songs', e);
+      return void toast(L(`อ่านไฟล์ไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't read the file (${(e as Error)?.message ?? e})`));
+    }
     const now = new Date().toISOString();
     const n = importSongs({}, text, now);
     if (n < 0) return void toast(L('ไฟล์นี้ไม่ใช่ CSV ประวัติเพลง (ต้องมีคอลัมน์ song)', 'This is not a song history CSV (needs a song column)'));
@@ -47,7 +56,7 @@ export function Songs({ data, onClose }: { data: ClaimsData; onClose(): void }) 
           setClearArmed(false);
         }}>{clearArmed ? L('กดอีกครั้งเพื่อลบทั้งหมด', 'Press again to delete all') : L('ลบทั้งหมด', 'Delete all')}</Button>
         <input ref={fileIn} type="file" accept=".csv,text/csv" hidden
-          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importFile(f).catch((err) => console.error('[ytup] import songs', err)); }} />
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importFile(f); }} />
         <Button size="sm" title={L('ไฟล์ claimed-songs-*.csv จากสคริปต์ YT Studio Helper เดิม', 'claimed-songs-*.csv file from the old YT Studio Helper script')} onClick={() => fileIn.current?.click()}>{L('⬆ นำเข้า CSV', '⬆ Import CSV')}</Button>
         <span className="flex-1" />
         <Button size="sm" onClick={() => downloadCsv(songsCsvRows(data.songs), `claimed-songs-${new Date().toISOString().slice(0, 10)}.csv`)}>⬇ CSV</Button>
@@ -68,14 +77,17 @@ export function Songs({ data, onClose }: { data: ClaimsData; onClose(): void }) 
           const vids = Object.values(e.videos);
           const channels = [...new Set(vids.map((v) => v.channel))].filter(Boolean).join(', ');
           const remove = L('ลบออกจากประวัติ', 'Remove from history');
+          // An imported file can hold anything in these two columns: shown only when they make sense.
+          const seen = new Date(e.lastSeen);
+          const when = Number.isNaN(seen.getTime()) ? '' : seen.toLocaleDateString(locale());
           return (
             <div key={e.key} data-song={e.key} className="flex items-start gap-2 rounded-[14px] border border-tint/[0.09] bg-tint/5 p-3 text-[13px]">
               <div className="min-w-0 flex-1 break-words">
                 <b>{e.title}</b>{e.types.length ? <span className="text-xs text-fg3">{' · ' + e.types.join(', ')}</span> : null}
                 <div className="text-xs text-fg2">{e.artists || '—'}{e.label ? ' · ' + e.label : ''}</div>
                 <div className="text-xs text-fg2">{e.claimants.join(', ') || '—'}</div>
-                <div className="text-xs"><b>{String(e.n)}</b>{L(' คลิป', ' videos')}{e.trimmed ? <span className="ml-1.5 text-ok">{L(`✂ ตัดแล้ว ${e.trimmed}`, `✂ Trimmed ${e.trimmed}`)}</span> : null}</div>
-                <div className="text-xs text-fg3">{channels}{channels ? ' · ' : ''}{new Date(e.lastSeen).toLocaleDateString(locale())}</div>
+                <div className="text-xs"><b>{String(e.n)}</b>{L(' คลิป', ' videos')}{e.trimmed > 0 ? <span className="ml-1.5 text-ok">{L(`✂ ตัดแล้ว ${e.trimmed}`, `✂ Trimmed ${e.trimmed}`)}</span> : null}</div>
+                <div className="text-xs text-fg3">{channels}{channels && when ? ' · ' : ''}{when}</div>
               </div>
               {/* Asks once: the first click arms this song's button (5207–5210). */}
               <Button size="sm" title={remove} aria-label={armed === e.key ? undefined : remove} onClick={() => {

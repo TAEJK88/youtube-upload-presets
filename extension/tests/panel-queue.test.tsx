@@ -131,6 +131,12 @@ describe('queue card', () => {
     expect(chip.closest('[title]')!.getAttribute('title')).toBe('Tracklist songs previously claimed:\n• Lena - Midnight Rain  (claimed on 2 video(s))');
   });
 
+  it('the chip\'s tooltip has one line per song', () => {
+    one({ txt: 'x', claimed: [{ line: 'A - One', song: 'One', artists: 'A', times: 2 }, { line: 'B - Two', song: 'Two', artists: 'B', times: 1 }] });
+    expect(screen.getByText('2 song(s) previously claimed').closest('[title]')!.getAttribute('title'))
+      .toBe('Tracklist songs previously claimed:\n• A - One  (claimed on 2 video(s))\n• B - Two  (claimed on 1 video(s))');
+  });
+
   it('no chip when none of its songs was claimed before', () => {
     one({ txt: 'x' });
     expect(screen.queryByText(/previously claimed/)).toBe(null);

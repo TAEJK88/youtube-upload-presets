@@ -84,8 +84,9 @@ let presetTexts: string[] = [];
 const presetPieces = (v: string) => v.split(/\{[^}]*\}|\[\[|\]\]|\n/).map((x) => x.trim()).filter((x) => /[A-Za-z]{2}/.test(x));
 const withoutPresets = (s: string) =>
   presetTexts.reduce((t, v) => t.replace(new RegExp(`(?<![A-Za-z])${esc(v)}(?![A-Za-z])`, 'g'), ' '), s);
+// A tooltip built of lines, each line a pair's Thai side (the "previously claimed" chip), is Thai too.
 const latin = (s: string) =>
-  (thai(s) || SAME_IN_BOTH.has(s) ? [] : words(withoutPresets(s)).filter((w) => !LATIN_OK.has(w)));
+  (thai(s) || SAME_IN_BOTH.has(s) || s.split('\n').every((l) => thai(l.trim())) ? [] : words(withoutPresets(s)).filter((w) => !LATIN_OK.has(w)));
 
 const ATTRS = ['title', 'aria-label', 'placeholder', 'alt', 'aria-valuetext', 'aria-description'];
 // Every text node and the attributes a screen reader or tooltip shows, in light and shadow DOM.
@@ -119,7 +120,8 @@ const clean = (root: Node) => {
 
 const AT = 1_900_000_000_000;
 const items = [
-  { status: 'pending', txt: '0:05 ก - ข\n3:00 ค - ง\n6:00 จ - ฉ', txtName: 'a.txt', tracklist: { errors: ['x'], warnings: [], count: 3 }, at: AT, artists: '' },
+  { status: 'pending', txt: '0:05 ก - ข\n3:00 ค - ง\n6:00 จ - ฉ', txtName: 'a.txt', tracklist: { errors: ['x'], warnings: [], count: 3 }, at: AT, artists: '',
+    claimed: [{ line: 'ก - ข', song: 'ข', artists: 'ก', times: 2 }, { line: 'ค - ง', song: 'ง', artists: 'ค', times: 1 }] },
   { status: 'error', draftId: '01234567890', msg: 'ผิด', thumb: { name: 'a.jpg', size: 1e5, type: 'image/jpeg' } },
   { status: 'uploading' }, { status: 'review' }, { status: 'done', videoId: '01234567890' },
 ].map((it, i) => ({ file: { name: `คลิป ${i + 1}.mp4`, size: 2e8, type: 'video/mp4' }, title: `ชื่อ ${i + 1}`, ...it })) as Parameters<typeof viewWith>[0];
@@ -171,6 +173,8 @@ describe('the panel in Thai', () => {
     expect(screen.getByRole('button', { name: 'รายการ claim (2)', hidden: true })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'เพลงที่เคยโดน (3)', hidden: true })).toBeTruthy();
     expect(await screen.findByText(/สแกนเสร็จ ✓ ช่องฉัน/)).toBeTruthy();
+    expect(root.textContent).toContain('2 เพลงเคยโดน claim'); // the queue card's chip, its tooltip one line per song
+    expect(root.querySelector('[title^="เพลงใน tracklist ที่เคยโดน claim:"]')!.getAttribute('title')!.split('\n')).toHaveLength(3);
     clean(document.body); // with what renders outside the container
     expect(root.textContent).toContain('ช่องฉัน');
   });

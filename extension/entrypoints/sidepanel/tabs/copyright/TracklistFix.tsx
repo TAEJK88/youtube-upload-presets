@@ -9,12 +9,13 @@ import { claimedVideos, isDone, rowKey } from '@/lib/panel/claims';
 import type { ClaimsData } from '@/lib/panel/claims-data';
 import { isTxt, readText } from '@/lib/panel/format';
 import { fixTracklist } from '@/lib/tracklist';
-import { AreaField, Hint } from '../../fields';
+import { Hint } from '../../fields';
 import { SubView } from './SubView';
 
 // showTracklistFix() (4980–5040): pick a claimed video, tick the trimmed ranges, get the
 // tracklist with cut songs removed and later times moved up; copy it.
 interface Upload { videoId: string; txt?: string }
+const stopDrag = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); }; // not the panel's queue drop (usePanelDrop)
 // The upload history (uploadOf 2076), read once per view; null while it is being read.
 function useUploads(): Upload[] | null {
   const [list, setList] = useState<Upload[] | null>(null);
@@ -67,9 +68,18 @@ function Editor({ data, videoId, onClose }: { data: ClaimsData; videoId: string;
   const r = fixTracklist(text, chosen, length);
   const onDrop = async (e: DragEvent) => {
     const f = [...(e.dataTransfer?.files ?? [])].find((x) => isTxt(x));
-    if (!f) return;
-    e.preventDefault();
+    if (!f) return; // anything else is the panel's, as everywhere
+    stopDrag(e);
     setSrc(await readText(f));
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(r.text);
+      toast(L('คัดลอก tracklist ใหม่แล้ว ไปวางในคำอธิบายของวิดีโอได้เลย', 'New tracklist copied — paste it into the video description'));
+    } catch (e) {
+      console.error('[ytup] copy tracklist', e);
+      toast(L(`คัดลอก tracklist ไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't copy the tracklist (${(e as Error)?.message ?? e})`));
+    }
   };
   const original = L('tracklist เดิม', 'Original tracklist');
   const fixed = L('tracklist ใหม่', 'New tracklist');
@@ -80,9 +90,7 @@ function Editor({ data, videoId, onClose }: { data: ClaimsData; videoId: string;
         {up ? L(' · ดึง tracklist จากประวัติการอัปโหลด', ' · tracklist pulled from upload history') : null}
       </>}
       onClose={onClose}
-      footer={<Button variant="go" size="sm" className="ml-auto" onClick={() => void navigator.clipboard.writeText(r.text).then(
-        () => toast(L('คัดลอก tracklist ใหม่แล้ว ไปวางในคำอธิบายของวิดีโอได้เลย', 'New tracklist copied — paste it into the video description')),
-        (e) => console.error('[ytup] copy tracklist', e))}>{L('📋 คัดลอก tracklist ใหม่', '📋 Copy new tracklist')}</Button>}
+      footer={<Button variant="go" size="sm" className="ml-auto" onClick={() => void copy()}>{L('📋 คัดลอก tracklist ใหม่', '📋 Copy new tracklist')}</Button>}
     >
       <b className="text-xs font-medium text-fg2">{L('ช่วงที่ตัด', 'Trimmed ranges')}</b>
       {segs.length ? (
@@ -96,9 +104,9 @@ function Editor({ data, videoId, onClose }: { data: ClaimsData; videoId: string;
         </div>
       ) : <div className="text-xs text-fg3">{L('ไม่มีข้อมูลช่วงเวลา — สแกน claim ใหม่ก่อน', 'No time range data — rescan claims first')}</div>}
       <b className="text-xs font-medium text-fg2">{original}</b>
-      <div onDragOver={(e) => e.preventDefault()} onDrop={(e) => void onDrop(e)}>
-        <AreaField aria-label={original} value={text} onValue={setSrc} rows={6} placeholder={L('วาง tracklist เดิม (00:00 ศิลปิน - เพลง) หรือลากไฟล์ .txt มาวาง', 'Paste the original tracklist (00:00 Artist - Song) or drop a .txt file here')} />
-      </div>
+      {/* Local text, not a stored value: a plain box, so a drop shows even while it has focus. */}
+      <Textarea aria-label={original} value={text} onChange={(e) => setSrc(e.target.value)} onDragOver={stopDrag} onDrop={(e) => void onDrop(e)} rows={6}
+        placeholder={L('วาง tracklist เดิม (00:00 ศิลปิน - เพลง) หรือลากไฟล์ .txt มาวาง', 'Paste the original tracklist (00:00 Artist - Song) or drop a .txt file here')} />
       <b className="text-xs font-medium text-fg2">{fixed}</b>
       <Textarea aria-label={fixed} readOnly value={r.text} rows={6} />
       <div className="text-xs break-words text-fg3">

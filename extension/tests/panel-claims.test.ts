@@ -29,6 +29,7 @@ describe('claim list picks (showClaims chips 4921–4927)', () => {
   });
   it('picked rows already trimmed or gone leave the list', () => {
     expect(doneKeys(rows, results, ['5:c5', '1:c1'])).toEqual(['5:c5']);
+    expect(doneKeys(rows, { ...results, '3:c3': { state: 'gone', msg: '', date: '' } }, ['5:c5'])).toEqual(['5:c5']); // done, but never picked
   });
   it('the tracklist picker lists each claimed video once', () => {
     expect(claimedVideos({ date: '', total: 0, channel: '', channelName: '', rows: [r('1'), r('1'), r('2')] }).map((x) => x.videoId)).toEqual(['1', '2']);
@@ -50,5 +51,11 @@ describe('song list (showSongs draw() 5195–5204)', () => {
     expect(songList(songs, '  L1 ', 'count').map((e) => e.key)).toEqual(['a']); // label, any case, spaces
     expect(songList(songs, 'nothing', 'count')).toEqual([]);
     expect(songList(songs, '', 'count')[0]).toMatchObject({ key: 'a', n: 2 });
+  });
+  it('equal counts, and equal artists, fall back to the title', () => {
+    const e = (title: string, artists: string) => ({ title, artists, label: '', claimants: [], types: [], firstSeen: '', lastSeen: '', videos: { v: {} }, trimmed: 0 });
+    const tie = { x: e('Zulu', 'Same'), y: e('Alpha', 'Same'), z: e('Mike', 'Same') } as unknown as Songs;
+    expect(songList(tie, '', 'count').map((s) => s.title)).toEqual(['Alpha', 'Mike', 'Zulu']);
+    expect(songList(tie, '', 'artist').map((s) => s.title)).toEqual(['Alpha', 'Mike', 'Zulu']);
   });
 });

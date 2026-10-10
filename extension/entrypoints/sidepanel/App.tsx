@@ -58,7 +58,8 @@ export function App() {
             </TabsTrigger>
           ))}
         </TabsList>
-        <div ref={body} className="min-h-0 flex-1 overflow-y-auto px-[18px] pt-4 pb-[18px]">
+        {/* scroll-pb: a focused control scrolls clear of a sub-view's sticky footer (SubView) */}
+        <div ref={body} data-pane-scroll="" className="min-h-0 flex-1 scroll-pb-28 overflow-y-auto px-[18px] pt-4 pb-[18px]">
           {/* Kept mounted like the drawer's panes: edits and expanded cards survive a tab switch. */}
           {tabDefs().map(([k]) => (
             <TabsContent key={k} value={k} forceMount className="data-[state=inactive]:hidden">
