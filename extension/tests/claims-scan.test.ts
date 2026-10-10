@@ -65,6 +65,32 @@ describe('scanClaims', () => {
     expect(C.scanning).toBe(false);
   });
 
+  it('reads every page: the next request carries the page token, and the total is the sum', async () => {
+    const bodies: any[] = [];
+    api['creator/list_creator_videos'] = (body) => {
+      bodies.push(body);
+      return body.pageToken ? { videos: [{ videoId: 'v3', title: 'Third' }] } : { videos, nextPageToken: 'page-2' };
+    };
+    expect(await run(C.scanClaims({ show: false }))).toHaveLength(1);
+    expect(bodies.map((b) => b.pageToken)).toEqual([undefined, 'page-2']);
+    const set = ops.find((o) => o.op === 'set') as Extract<ClaimsOp, { op: 'set' }>;
+    expect(set.value).toMatchObject({ total: 3 });
+  });
+
+  it('a null where a field may be missing reads as missing, as in the userscript', async () => {
+    api['creator/list_creator_videos'] = () => ({ nextPageToken: null, videos: [videos[0],
+      { videoId: 'v2', title: null, privacy: null, copyrightSummary: null, allRestrictions: null, monetization: null, scheduledPublishingDetails: null }] });
+    api['creator/list_creator_received_claims'] = () => ({ ...claims(), contentOwners: null,
+      receivedClaims: [{ ...claims().receivedClaims[0], matchDetails: null, nontakedownClaimActions: null }] });
+    api['copyright/get_creator_received_claim_matches'] = () => ({ matches: null });
+    const rows = await run(C.scanClaims({ show: false }));
+    expect(rows).toHaveLength(1);
+    expect(rows![0]).toMatchObject({ videoId: 'v1', claimant: 'o1', segments: [], canTrim: false });
+    expect(ui.log.mock.calls.some(([m]) => /Unexpected answer/.test(m))).toBe(false);
+    const set = ops.find((o) => o.op === 'set') as Extract<ClaimsOp, { op: 'set' }>;
+    expect(set.value).toMatchObject({ total: 2 });
+  });
+
   it('before Studio has its context: says so, changes nothing', async () => {
     resetCfg();
     expect(await C.scanClaims()).toBe(null);
@@ -153,6 +179,8 @@ describe('scanClaims with forged answers', () => {
       { ...claims(), contentOwners: [{ contentOwnerId: '__proto__', displayName: 'x' }] },
       { ...claims(), receivedClaims: [{ ...claims().receivedClaims[0], claimId: '__proto__' }] },
       { ...claims(), receivedClaims: [{ ...claims().receivedClaims[0], claimId: { id: 1 } }] },
+      { ...claims(), receivedClaims: [{ ...claims().receivedClaims[0], claimId: 'c'.repeat(201) }] },
+      { ...claims(), contentOwners: [{ contentOwnerId: 'o'.repeat(201) }] },
       { ...claims(), receivedClaims: { 0: claims().receivedClaims[0] } },
     ]) {
       ops.length = 0;

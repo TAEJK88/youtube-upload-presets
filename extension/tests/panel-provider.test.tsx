@@ -268,7 +268,37 @@ describe('copyright state routing', () => {
     for (const bad of [null, 'x', { at: 1, msg: 5, type: '' }, { at: 1, msg: 'x', type: {} }]) await deliver('claims:log', bad, 3);
     for (const bad of ['songs', 1, null]) await deliver('claims:show', bad, 3);
     await deliver('claims:state', null, 3);
+    await deliver('claims:state', { ...cs('no status'), status: 'x' }, 3);
     expect(text('c')).toBe('bound|bound|0|-');
     expect(text('s')).toBe('-');
+  });
+
+  it('asks the bound tab for its state only once the tab is linked', async () => {
+    let answer!: (v: unknown) => void;
+    vi.mocked(sendMessage).mockImplementation(((type: string) =>
+      (type === 'queue:view' ? new Promise((r) => { answer = r; }) : Promise.resolve(cs('bound')))) as never);
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    const asked = () => vi.mocked(sendMessage).mock.calls.filter(([t]) => t === 'claims:view').length;
+    expect(asked()).toBe(0);
+    await act(async () => { answer({ items: [] }); });
+    await flush();
+    expect(asked()).toBe(1);
+    expect(text('c')).toBe('bound|bound|0|-');
+  });
+
+  it("a holder that let the lock go and took it again doesn't show its old state", async () => {
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    await deliver('claims:state', cs('holder', true), 9);
+    expect(text('c')).toBe('bound|holder|0|-');
+    await act(async () => { await browser.storage.session.remove(['runnerTabId', 'runnerJobs']); });
+    await flush();
+    expect(text('c')).toBe('bound|bound|0|-');
+    await act(async () => { await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] }); });
+    await flush();
+    expect(text('c')).toBe('bound|bound|0|-'); // until it broadcasts again
   });
 });

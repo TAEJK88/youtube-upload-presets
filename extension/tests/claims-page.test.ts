@@ -80,6 +80,19 @@ describe('the copyright module in the Studio tab', () => {
     page.dispose();
   });
 
+  it('disposed while ytcfg is being read (extension reloaded): no scan starts', async () => {
+    const ui = { show: vi.fn(), status: vi.fn(), log: vi.fn(), toast: vi.fn() };
+    C.setClaimsUi(ui);
+    let done!: () => void;
+    const page = createClaimsPage({ send: (async () => undefined) as never, toast: () => {}, refreshCfg: () => new Promise<void>((r) => { done = r; }) });
+    const p = page.scan('claims');
+    page.dispose();
+    done();
+    await p;
+    expect(ui.log).not.toHaveBeenCalled(); // not even "Studio hasn't finished loading"
+    expect(C.scanning).toBe(false);
+  });
+
   it('a failing ytcfg read still lets the scan say why it cannot start', async () => {
     const ui = { show: vi.fn(), status: vi.fn(), log: vi.fn(), toast: vi.fn() };
     vi.spyOn(console, 'log').mockImplementation(() => {});

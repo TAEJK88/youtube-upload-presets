@@ -21,6 +21,12 @@ describe('computeStatus / claimsState', () => {
     expect(C.claimsState()).toMatchObject({ channel: CH, ready: true, english: true, busyRun: false, busyScan: false, waiting: 0 });
   });
 
+  it('not ready until Studio has its context', () => {
+    useMemoryClaims();
+    resetCfg();
+    expect(C.claimsState().ready).toBe(false);
+  });
+
   it('a trim run in progress shows its claim, progress and steps', () => {
     useMemoryClaims({ [`trimRun:${CH}`]: { active: true, started: '', items: [
       { key: 'v:1', videoId: 'v', video: 'Mix', song: 'S1', state: 'saved', msg: '' },

@@ -31,7 +31,8 @@ function plain(v: unknown): unknown {
     }
     if (!isPlain(x)) throw new Bad(at || 'answer');
     const out: Record<string, unknown> = {};
-    for (const [k, y] of Object.entries(x)) if (!UNSAFE.has(k) && y !== undefined) out[k] = copy(y, depth + 1, at ? `${at}.${k}` : k);
+    // a null entry reads as a missing one, as the userscript's `x || {}` / `x || []` took it
+    for (const [k, y] of Object.entries(x)) if (!UNSAFE.has(k) && y != null) out[k] = copy(y, depth + 1, at ? `${at}.${k}` : k);
     return out;
   };
   return copy(v, 0, '');
