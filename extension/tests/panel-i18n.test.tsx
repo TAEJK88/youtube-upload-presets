@@ -62,7 +62,7 @@ const LATIN_OK = new Set([
 ]);
 // Literals the userscript shows the same in both languages (no L()): its language picker
 // (4496, 4500), Studio's own option names (4518, 4530) and the CSV download buttons (4931, 5248).
-const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above', '⬇ CSV']);
+const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above', '⬇ CSV', 'Collab', 'Auto-pilot']);
 const LATIN_IGNORE: RegExp[] = [
   /\{[a-z_0-9]+\}/g, // template variables: {n}, {title}, {track1}
   /\.(mp4|mov|txt|jpg|png|json)\b/gi, // file extensions
