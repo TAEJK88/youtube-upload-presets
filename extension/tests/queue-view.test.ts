@@ -1,11 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useMemoryClaims } from '../lib/claims/store';
+import { browser } from 'wxt/browser';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
+import type { ClaimsOp } from '../lib/claims/ops';
+import { disposeClaimsStore, flushClaims, initClaimsStore, useMemoryClaims, write } from '../lib/claims/store';
 import type { QueueState } from '../lib/messages';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
 import { forgetClaimed, queueView, watchClaimedSongs } from '../lib/studio/queue-view';
 import { settings } from '../lib/studio/state';
+import { claimsOpInOrder } from '../lib/store-writer';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
 
@@ -110,6 +114,47 @@ describe('queueView', () => {
     forgetClaimed(); // …which is what the store's change listener calls
     Q.queue[0]!.txt = '00:00 Lena - Midnight Rain';
     expect(queueView(state).items[0]!.claimed).toEqual([]);
+  });
+
+  // The real store over storage, the background's writer in process (4b C review I1).
+  describe('with the stored song history', () => {
+    const row = { song: 'Midnight Rain', artists: 'Lena', label: '', claimant: '', type: '', videoId: 'v1', video: 'V', impact: '' };
+    const record: ClaimsOp = { op: 'songs', songs: { fn: 'record', rows: [row], chName: 'Mine', now: '2026-01-01T00:00:00.000Z' } };
+    beforeEach(async () => {
+      fakeBrowser.reset();
+      disposeClaimsStore();
+      await initClaimsStore(claimsOpInOrder);
+      Q.queue.push(item('a', 'pending', { txt: '00:00 Lena - Midnight Rain' }));
+      expect(queueView(state).items[0]!.claimed).toEqual([]); // checked, and kept
+    });
+    afterEach(disposeClaimsStore);
+
+    it("this tab's own song write (a scan here) is seen by the next view, at once and after the write lands", async () => {
+      write(record);
+      expect(queueView(state).items[0]!.claimed).toHaveLength(1);
+      await flushClaims();
+      expect(queueView(state).items[0]!.claimed).toEqual([{ line: 'Lena - Midnight Rain', song: 'Midnight Rain', artists: 'Lena', times: 1 }]);
+      claimedCalls.n = 0;
+      queueView(state);
+      expect(claimedCalls.n).toBe(0); // and it is kept again
+    });
+
+    it('a song write from elsewhere (the panel, another tab) is seen too', async () => {
+      await claimsOpInOrder(record);
+      await vi.waitFor(() => expect(queueView(state).items[0]!.claimed).toHaveLength(1));
+    });
+
+    it('a write that fails takes the check back with the stored history', async () => {
+      disposeClaimsStore();
+      await initClaimsStore(async () => { throw new Error('refused'); });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      write(record);
+      expect(queueView(state).items[0]!.claimed).toHaveLength(1);
+      await flushClaims();
+      expect(queueView(state).items[0]!.claimed).toEqual([]);
+      expect(await browser.storage.local.get('songHistory')).toEqual({});
+      vi.restoreAllMocks();
+    });
   });
 
   // The memory store has no change events, so the link from the store to forgetClaimed() is pinned in the source.

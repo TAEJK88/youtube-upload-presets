@@ -49,6 +49,9 @@ export function useMemoryClaims(initial: Record<string, unknown> = {}, s: Send =
 export const load = <T>(key: string, fallback: T): T => kv.get(key, fallback);
 // How many entries the object stored at `key` has, without copying it (the song history is large).
 export const count = (key: string): number => kv.peek(key, (v) => (v && typeof v === 'object' ? Object.keys(v).length : 0));
+// The stored value itself, not a copy, for telling whether it changed: every change (a write
+// here, its result, a change from elsewhere, a new store) puts another object there. Never edit it.
+export const storedRef = (key: string): unknown => kv.peek(key, (v) => v);
 export const onClaimsStored = (key: string, fn: (value: unknown) => void) => kv.onChange(key, fn);
 export const flushClaims = () => kv.flush();
 
