@@ -183,13 +183,33 @@ describe('wiring', () => {
   const LIGHT = /:root\[data-theme='light'\]\s*\{([^}]*)\}/;
   const DARK = /:root\s*\{([^}]*)\}/;
   it("the stylesheet has a light palette (the userscript's tokens) next to the dark one", () => {
-    // The userscript's values, except --fg3, --ok and --warn: one step darker so 12px text
+    // The userscript's values, except --fg3, --ok, --warn and --err: one step darker so 12px text
     // clears 4.5:1 on white and on --surface (style.css says why).
     expect(block(LIGHT)).toMatchObject({
       'color-scheme': 'light', '--bg': '#ffffff', '--surface': '#f7f7f9', '--surface2': '#efeff3', '--line': '#e4e4ea', '--line2': '#d6d6de', '--fg': '#111114',
-      '--fg2': '#5d5d6b', '--fg3': '#6e6e7a', '--ok': '#15803d', '--warn': '#b45309', '--err': '#dc2626', '--info': '#2563eb', '--muted': '#9a9aa6', '--popover': '#ffffff',
+      '--fg2': '#5d5d6b', '--fg3': '#6e6e7a', '--ok': '#15803d', '--warn': '#b45309', '--err': '#b91c1c', '--info': '#2563eb', '--muted': '#9a9aa6', '--popover': '#ffffff',
       '--raised-shadow': '0 24px 60px -12px rgba(15, 15, 25, 0.28), 0 2px 6px rgba(15, 15, 25, 0.06)', // the userscript's light --shadow
     });
+  });
+  // WCAG contrast of two colours; `over` is a translucent layer of `fg` on `bg` (bg-err/[0.08]).
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const lum = (c: number[]) => {
+    const [r, g, b] = c.map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: number[], b: number[]) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+  const over = (fg: number[], bg: number[], alpha: number) => fg.map((v, i) => v * alpha + bg[i]! * (1 - alpha));
+  it('light error text clears 4.5:1 at 12px: on the page, the surfaces, its own tinted box and the log', () => {
+    const t = block(LIGHT);
+    const err = rgb(t['--err']!);
+    const bg = rgb(t['--bg']!);
+    for (const on of [bg, rgb(t['--surface']!), rgb(t['--surface2']!), over(err, bg, 0.08), over(err, bg, 0.09), over(rgb(t['--tint']!), bg, 0.05)]) {
+      expect(ratio(err, on)).toBeGreaterThanOrEqual(4.5);
+    }
+    // the danger button: its label on --err, and a hover that still differs from it
+    expect(ratio(rgb(t['--on-err']!), err)).toBeGreaterThanOrEqual(4.5);
+    expect(t['--err-hover']).not.toBe(t['--err']);
+    expect(ratio(rgb(t['--on-err']!), rgb(t['--err-hover']!))).toBeGreaterThanOrEqual(4.5);
   });
   // Dark is the default and the drawer's look: every token pinned, so an edit to :root that
   // changes dark fails here instead of going unnoticed.

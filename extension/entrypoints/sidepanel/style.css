@@ -52,6 +52,10 @@
    hints, why the go button is disabled). The userscript's values give 2.8–3.3:1 on the light
    surfaces; these give 5.0:1 on white, 4.7:1 on --surface and 4.4:1 on --surface2 and on
    the bg-warn/10 and bg-ok/[0.09] boxes. Dark keeps the userscript's values.
+   --err too (the userscript's #dc2626, hover #b91c1c): 12px error text (the copyright log, the
+   Studio-language warning, a card's message) had 4.2–4.3:1 on the log's tint and on its own
+   bg-err/[0.08] box. #b91c1c gives 6.5:1 on white, 6.0:1 on --surface and 5.6:1 or more on
+   --surface2, those boxes and the log; --err-hover moves one step darker with it.
    It had no popover colour: white, with the --line2 border. --raised-shadow is its --shadow. */
 :root[data-theme='light'] {
   color-scheme: light;
@@ -65,7 +69,7 @@
   --fg3: #6e6e7a;
   --ok: #15803d;
   --warn: #b45309;
-  --err: #dc2626;
+  --err: #b91c1c;
   --info: #2563eb;
   --muted: #9a9aa6;
   --popover: #ffffff;
@@ -75,7 +79,7 @@
   --fg-hover: #000000;
   --fg-active: #3a3a42;
   --on-err: #ffffff;
-  --err-hover: #b91c1c;
+  --err-hover: #991b1b;
   --raised: #ffffff;
   --raised-line: var(--line2);
   --raised-shadow: 0 24px 60px -12px rgba(15, 15, 25, 0.28), 0 2px 6px rgba(15, 15, 25, 0.06);
