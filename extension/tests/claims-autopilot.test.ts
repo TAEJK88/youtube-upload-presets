@@ -30,13 +30,13 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); setYoutubei(null); 
 describe('apPick (5825–5844)', () => {
   it('skips own music, no-impact, too long, done, already queued; scheduled first; at most N', () => {
     useMemoryClaims({
-      cfg: { apMaxPct: '25', apMaxPerCycle: '2' },
+      cfg: { apMaxPct: '25', apMaxPerCycle: '3' },
       [`trimResults:${CH}`]: { 'v5:c5': { state: 'saved' } },
       [`followUp:${CH}`]: { v6: { video: '', pending: [{ claimId: 'c6', key: 'v6:c6', song: '', tries: 0 }], lastClaimId: null, lastSavedAt: 0 } },
     });
-    const rows = [r('1', { own: true }), r('2', { hasImpact: false }), r('3', { claimedSec: 300 }), r('4'), r('5'), r('6'),
-      r('7', { publishAt: NOW + 3600e3 }), r('8')];
-    expect(C.apPick(rows as never).map((x) => x.videoId)).toEqual(['v7', 'v4']);
+    const rows = [r('1', { own: true }), r('2', { hasImpact: false }), r('3', { claimedSec: 300 }), r('9', { canTrim: false }), r('4'), r('5'), r('6'),
+      r('7', { publishAt: NOW + 3600e3 }), r('8'), r('10')];
+    expect(C.apPick(rows as never).map((x) => x.videoId)).toEqual(['v7', 'v4', 'v8']); // past v5 (done) and v6 (queued); v10 is one too many
   });
 });
 
@@ -84,6 +84,22 @@ describe('apCycle (5847–5873)', () => {
     C.setCfgRefresh(async () => {});
   });
 
+  // Safety m5: the cycle's times were written for the channel the tick saw. If the fresh ytcfg
+  // names another one, the scan and the trims would be that one's: the cycle ends there.
+  it('a ytcfg read that names another channel ends the cycle before it scans', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const OTHER = 'UCbbbbbbbbbbbbbbbbbbbbbb';
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    const api = vi.fn(studioApi);
+    setYoutubei(api);
+    C.setCfgRefresh(() => refreshCfg(async () => ({ CHANNEL_ID: OTHER, INNERTUBE_CONTEXT: {} })));
+    await C.apCycle();
+    expect(C.currentChannel()).toBe(OTHER);
+    expect(api).not.toHaveBeenCalled();
+    expect(ops.map((o) => (o as { key?: string }).key)).toEqual([`autopilot:${CH}`]);
+    C.setCfgRefresh(async () => {});
+  });
+
   // 4a re-review (b): a scan whose detail calls all failed is the userscript's, with a warning.
   // It returns [] and replaces the stored scan; the cycle goes on as after any scan with nothing
   // to trim. (No "stop on an incomplete scan": that would be new behaviour, see the planning report.)
@@ -95,8 +111,10 @@ describe('apCycle (5847–5873)', () => {
     const lines: string[] = [];
     C.setClaimsUi({ show() {}, status() {}, toast() {}, log: (msg, type) => void lines.push(`${type}:${msg}`) });
     useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 }, [`claimScan:${CH}`]: { date: 'old', total: 1, rows: [{ videoId: 'x' }] } }, async (op) => void ops.push(op));
-    setYoutubei(detailsFail);
+    const api = vi.fn(detailsFail);
+    setYoutubei(api as never);
     await C.apCycle();
+    expect((api.mock.calls as unknown as [string, { mask?: { monetization?: unknown } }?][]).some(([, body]) => body?.mask?.monetization)).toBe(false); // no ads scan without the setting
     expect(load(`trimRun:${CH}`, null)).toBe(null); // nothing to trim: no run
     const scan = load<{ date: string; rows: unknown[] }>(`claimScan:${CH}`, null as never);
     expect(scan.date).not.toBe('old'); // replaced, as the userscript did

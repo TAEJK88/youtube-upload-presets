@@ -39,6 +39,22 @@ describe('the copyright module in the Studio tab', () => {
     C.setClaimsUi(null);
   });
 
+  // Port review I2: with broadcast() here instead, nothing of the copyright module would ever run.
+  it('the tick is the ported tick: a due Auto-pilot cycle starts from it', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const ops: ClaimsOp[] = [];
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    await refreshCfg(async () => ({ CHANNEL_ID: CH, INNERTUBE_CONTEXT: {} }));
+    const lock = (mine: boolean) => ({ worker: async () => mine, acquire: async () => false, release() {}, holds: async () => false });
+    C.setClaimsLock(lock(true));
+    await C.initClaimsLock();
+    const page = createClaimsPage({ send: (async () => undefined) as never, toast: () => {}, refreshCfg: async () => {} });
+    page.tick();
+    expect(ops[0]).toMatchObject({ op: 'merge', key: `autopilot:${CH}` });
+    page.dispose();
+    C.setClaimsLock(lock(false));
+  });
+
   it('while Studio has no context yet, reads ytcfg again every 10 s', () => {
     vi.useFakeTimers();
     const refreshCfg = vi.fn(async () => {});
@@ -194,6 +210,10 @@ describe('the Studio content script', () => {
     expect(studio).toContain('stop.add(() => setCfgRefresh(async () => {}));');
     expect(studio).toContain('setChannelSwitcher((t, next) => sw.switchToChannel(t, next));');
     expect(studio).toContain('stop.add(installConfirmWatch());');
+    // the wait for the background is over: the extension may have gone meanwhile
+    expect(studio).toMatch(/await initClaimsLock\(\);\s*if \(ctx\.isInvalid\) return;/);
+    // a page back from the back/forward cache mid-step starts over (safety review I3)
+    expect(studio).toContain('stop.add(installBackGuard());');
   });
 
   it('ticks the copyright module in the 800 ms interval, in its own try', () => {

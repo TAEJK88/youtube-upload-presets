@@ -65,8 +65,9 @@ export default {
     // an item this page already settled is not done again while its write is late (store.ts: a
     // timed-out claims write may still land)
     ["const item = run.items.find((i) => i.state === 'pending');", "const item = run.items.find((i) => i.state === 'pending' && !isSettled(run, i));", 3],
-    // the cycle reads ytcfg again before it scans (the cached copy may be from page load)
-    ['const rows = await scanClaims({ show: false });', 'await freshCfg();\n        const rows = await scanClaims({ show: false });', 1],
+    // the cycle reads ytcfg again before it scans (the cached copy may be from page load), and ends
+    // if that names another channel than the one it started for
+    ['const rows = await scanClaims({ show: false });', 'if (!(await freshCfg())) return;\n        const rows = await scanClaims({ show: false });', 1],
     // Task 0's two (they are in the config since then): counting songs without a copy; owner
     // names in a null-prototype map
     ['songs: Object.keys(getSongs()).length,', 'songs: songCount(),', 1],

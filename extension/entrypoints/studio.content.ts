@@ -2,7 +2,7 @@ import '@/lib/debug-capture/studio'; // FIRST: the debug page shows what goes wr
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
 import {
-  adsFromPanel, autopilotDue, claimsState, collabFromPanel, initClaimsLock, installConfirmWatch, setCfgRefresh, setChannelSwitcher, setClaimsLock,
+  adsFromPanel, autopilotDue, claimsState, collabFromPanel, initClaimsLock, installBackGuard, installConfirmWatch, setCfgRefresh, setChannelSwitcher, setClaimsLock,
   setClaimsUi, stopAll, trimFromPanel,
 } from '@/lib/claims/claims';
 import { createClaimsPage } from '@/lib/claims/page';
@@ -120,6 +120,8 @@ export default defineContentScript({
       holds: () => sendMessage('runner:holds', 'claims'),
     });
     await initClaimsLock();
+    if (ctx.isInvalid) return;
+    stop.add(installBackGuard());
     setCfgRefresh(() => refreshCfg(readCfg));
     stop.add(() => setCfgRefresh(async () => {}));
     setChannelSwitcher((t, next) => sw.switchToChannel(t, next));

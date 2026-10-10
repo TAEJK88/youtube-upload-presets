@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Studio's answers, as the userscript read them */
-import { inviteOutcome } from '../collab';
+import { inviteOutcome, parseHandles } from '../collab';
 import { L, locale } from '../i18n';
 import { cachedCfg, chanLabel, getChannel } from '../studio/channel';
 import { clickByText, clickIn, shownDialog, sleep, waitFor } from '../studio/automation';
@@ -76,7 +76,8 @@ interface ClaimsLock {
   release(): void;
   holds(): Promise<boolean>;
 }
-let lockApi: ClaimsLock = { worker: async () => true, acquire: async () => true, release: () => {}, holds: async () => false };
+// Until the content script has wired it, nothing is granted: no tick may act on a guess.
+let lockApi: ClaimsLock = { worker: async () => false, acquire: async () => false, release: () => {}, holds: async () => false };
 // Call 34 (approved 2026-10-10): asked every 10 s, an answer trusted for 15 s. A closed worker tab's lease is
 // dropped at once, so another tab on the channel takes over at its next ask: about 10–15 s. A hung tab: 20 s.
 const WORKER_RENEW = 15_000; // an answer is trusted this long: under the lease's 20 s (runner-lock LEASE_STALE)
@@ -84,6 +85,7 @@ let workerMine = false; // the background's last answer for this tab and channel
 let workerCh = '';
 let workerAt = 0;
 let lockMine = false; // this tab holds the automation lock for 'claims'
+let lockUnsure = false; // …or may: asked again at the next idle tick (recheckLock)
 export const setClaimsLock = (l: ClaimsLock) => {
   lockApi = l;
   workerMine = false;
@@ -91,16 +93,25 @@ export const setClaimsLock = (l: ClaimsLock) => {
   workerAt = 0;
   workerAnswerAt = 0;
   lockMine = false;
+  lockUnsure = false;
+  settledHere.clear(); // a new wiring is a new page (tests: runs started in the same millisecond)
 };
 
 // isWorker(force): is this tab the channel's worker? The background's answer, never older than
 // WORKER_RENEW: the lease goes stale after 20 s without a renewal (runner-lock LEASE_STALE), and
 // an old "yes" could outlive it (4a T4 review r2). Asked again every WORKER_ASK (10 s), so
 // in normal running the answer is always fresh; when it isn't (the service worker was slow, the
-// first tick of a page), the tab is not the worker until the answer comes. Not asked on every
-// 0.8 s tick: that would keep the service worker awake. Never asked while the channel is
-// 'unknown' (4a T4 review m8): that lease would name no channel.
-// `force` (a run started from this tab) takes the lease, as the userscript's did.
+// first tick of a page), the tab is not the worker until the answer comes. An idle tab does not
+// ask on every 0.8 s tick; while a step, a cycle or a follow-up check is busy the tick asks with
+// `force` every time, as the userscript wrote its lease on every tick (the background writes the
+// lease at most every 5 s). Never asked while the channel is 'unknown' (4a T4 review m8): that
+// lease would name no channel. An ask that fails is "no", and drops an earlier "yes".
+// `force` takes the lease, as the userscript's did: a run started from this tab, a busy tab, and
+// the tab that holds the job for an active run (holdsRun). Without the last one the lease and the
+// lock can end up in two tabs — this one's lease lapsed while it was hidden or loading a step's
+// page — and then neither moves the run: the other tab is the worker and is refused the lock,
+// this one holds the lock and is never the worker. Only one tab can hold the lock, so two tabs
+// never both force for it.
 const WORKER_ASK = 10_000; // asked this often: well inside both limits, and not a message every few ticks
 let workerAnswerAt = 0; // when the background last answered for workerCh
 function askWorker(ch: string, force: boolean): Promise<boolean> {
@@ -114,7 +125,10 @@ function askWorker(ch: string, force: boolean): Promise<boolean> {
       }
       return v;
     },
-    () => false,
+    () => {
+      if (workerCh === ch) workerMine = false;
+      return false;
+    },
   );
 }
 // A tick that found its answer too old ticks again when the new one is "yes": a hidden tab's
@@ -128,7 +142,7 @@ function isWorker(force = false): boolean {
   if (ch !== workerCh) workerMine = false;
   if (force || ch !== workerCh || Date.now() - workerAt > WORKER_ASK) {
     const late = !force && !workerTrusted();
-    void askWorker(ch, force)
+    void askWorker(ch, force || holdsRun())
       .then((mine) => { if (mine && late) claimsTick(); })
       .catch((e) => console.error('[ytup] copyright tick', e));
     if (force) {
@@ -145,25 +159,72 @@ async function claimLock(): Promise<boolean> {
   return lockMine;
 }
 const lockWait = () => L('⏸ รอแท็บ Studio อื่นทำงานเสร็จก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for another Studio tab to finish (page change needed)');
-// After each tick: let the job go once no run needs this tab any more.
+const runActive = () => [getRun(), getAdsRun(), getCollabRun()].some((r) => !!(r && r.active));
+const holdsRun = () => lockMine && runActive();
+// After each tick: let the job go once no run needs this tab any more, and also while its run
+// can only wait for the upload queue. The lock is one for all Studio tabs: held by a waiting run
+// it would keep every other tab from starting the queue or a copyright job (and the queue it
+// waits for may be another tab's to start). When the queue is clear the tick's step asks again.
+// Not under a step that is still clicking, and not while the channel is 'unknown' (ytcfg is late
+// on a step's new page): no run is found under that name, which is not "no run left".
 function settleLock(): void {
-  if (!lockMine || trimBusy || adsBusy || collabBusy || trimStarting) return;
-  const active = (r: Run | null) => !!(r && r.active);
-  if (active(getRun()) || active(getAdsRun()) || active(getCollabRun())) return;
+  if (!lockMine) return recheckLock();
+  if (trimBusy || adsBusy || collabBusy || trimStarting) return;
+  if (currentChannel() === 'unknown') return;
+  if (runActive() && !uploadBusy()) return;
   lockMine = false;
+  lockUnsure = true;
   lockApi.release();
+}
+// runner:release is sent and not awaited, and at startup runner:holds may not have answered: in
+// both cases the background may hold the job for this tab while the tab thinks it doesn't, until
+// the tab closes. So the tab asks once more at an idle tick; a "yes" is let go by the next one.
+function recheckLock(): void {
+  if (!lockUnsure || trimBusy || adsBusy || collabBusy) return;
+  lockUnsure = false;
+  void lockApi.holds().then((held) => { if (held) lockMine = true; }, () => { lockUnsure = true; });
+}
+// The background answers in milliseconds; the content script waits for these before it mounts
+// the FAB and wires the queue, so each wait has a limit.
+const LOCK_ANSWER_MS = 5000;
+function within<T, F>(p: Promise<T>, fallback: F): Promise<T | F> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<F>((resolve) => { timer = setTimeout(() => resolve(fallback), LOCK_ANSWER_MS); });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }
 // At startup: is this tab the channel's worker, and does a page back from its own reload mid-run
 // still hold the job (D21)? Asked before the first tick, so a new tab never acts on a guess.
 export async function initClaimsLock(): Promise<void> {
   const ch = currentChannel();
-  if (ch !== 'unknown') await askWorker(ch, false);
-  lockMine = await lockApi.holds().catch(() => false);
+  if (ch !== 'unknown') await within(askWorker(ch, false), false);
+  const held = await within(lockApi.holds().catch(() => false), null);
+  lockMine = held === true;
+  lockUnsure = held === null;
+  if (ch !== 'unknown' && !workerMine && holdsRun()) await within(askWorker(ch, true), false);
+}
+// A page restored from the back/forward cache resumes a step where it was frozen, with the lock it
+// asked for before: meanwhile this tab's next page, or another tab, may have gone on with the run,
+// and the next click here could be "Confirm changes". It starts over instead (as the queue does,
+// queue-sync watchLockLifecycle): the reloaded page asks for the job and the lease afresh, and
+// the item, still pending, goes through trimOne's own check with YouTube.
+export function installBackGuard(reload: () => void = () => location.reload()): () => void {
+  const back = (e: PageTransitionEvent) => {
+    if (e.persisted && (lockMine || trimBusy || adsBusy || collabBusy)) reload();
+  };
+  window.addEventListener('pageshow', back);
+  return () => window.removeEventListener('pageshow', back);
 }
 
 // chainAcceptInvites() switches channel through the channel switcher (lib/channel-switch.ts).
-let switchToChannel: (t: { handle?: string; name?: string }, next: string) => void = () => {};
-export const setChannelSwitcher = (fn: typeof switchToChannel) => { switchToChannel = fn; };
+// Its own check, uploadBusy(), leaves a queue that runs in another tab to that tab; the switch
+// changes the channel for every Studio tab, so it is not done under that upload either (a Stop in
+// a tab that was waiting for the lock can end a run with invites done while another tab uploads).
+let switcher: (t: { handle?: string; name?: string }, next: string) => void = () => {};
+export const setChannelSwitcher = (fn: typeof switcher) => { switcher = fn; };
+const switchToChannel: typeof switcher = (t, next) => {
+  if (otherTabRunning()) return log(L('คิวอัปโหลดยังวิ่งอยู่ — ยังไม่สลับช่องไปกดยอมรับคำเชิญ', 'Upload queue is running — not switching channels to accept the invite yet'), 'warn');
+  switcher(t, next);
+};
 
 // @port-begin
   const cfg = (): ClaimsCfg => Object.assign({}, DEFAULTS, load('cfg', {}));
@@ -775,7 +836,7 @@ export const setChannelSwitcher = (fn: typeof switchToChannel) => { switchToChan
       const hours = Math.max(0.5, parseFloat(cfg().apEveryHours) || 6);
       chMerge('autopilot', { next: Date.now() + hours * 3600e3, last: Date.now() });
       log(L(`🤖 Auto-pilot เริ่มรอบใหม่ที่ ${channelName()}`, `🤖 Auto-pilot starting a new cycle on ${channelName()}`), 'ok');
-      await freshCfg();
+      if (!(await freshCfg())) return;
       const rows = await scanClaims({ show: false });
       if (!rows) return;
       const pick = apPick(rows);
@@ -1133,9 +1194,10 @@ const chList = (name: string, d: { add?: string[]; del?: string[] }, ch = curren
 };
 const chRunItem = (name: string, by: 'key' | 'videoId', id: string, state: string, msg: string, onlyActive = false, ch = currentChannel()) => {
   const run = chGet<Run | null>(name, null, ch);
-  if (run && state !== 'pending') {
+  // remembered only where the userscript would have written it (5661: a trim result goes into an active run only)
+  if (run && state !== 'pending' && (!onlyActive || run.active)) {
     if (!settledHere.has(run.started)) settledHere.set(run.started, new Map());
-    settledHere.get(run.started)!.set(id, { name, by, state, msg, onlyActive });
+    settledHere.get(run.started)!.set(id, { name, by, state, msg });
   }
   write({ op: 'runItem', key: name + ':' + ch, by, id, state, msg, onlyActive });
 };
@@ -1172,10 +1234,12 @@ export function adsFromPanel(ids: unknown): void {
   const rows = (scan ? scan.rows : []).filter((r) => ids.includes(r.videoId));
   if (rows.length) startAdsRun(rows);
 }
-// claims:collab — showCollab()'s go button (5494–5500); the panel checked the handles.
+// claims:collab — showCollab()'s go button (5494–5500). The panel sends parseHandles() output
+// (lib/collab.ts); checked again here, after the message: one @name each, no space or comma.
+const isHandle = (h: string) => h.length > 1 && h.length <= 100 && parseHandles(h).length === 1 && parseHandles(h)[0] === h;
 export function collabFromPanel(d: unknown): void {
   const v = d as { videoIds?: unknown; handles?: unknown } | null;
-  if (!v || !strList(v.videoIds) || !strList(v.handles) || !v.handles.length) return;
+  if (!v || !strList(v.videoIds) || !strList(v.handles) || !v.handles.length || !v.handles.every(isHandle)) return;
   const scan = chGet<{ rows: { videoId: string; video: string }[] } | null>('collabScan', null);
   const rows = (scan ? scan.rows : []).filter((r) => (v.videoIds as string[]).includes(r.videoId));
   if (rows.length) startCollabRun(rows, v.handles);
@@ -1201,7 +1265,14 @@ export async function autopilotDue(ch: unknown): Promise<void> {
 // (a second trim of the same claim): items settled here are skipped, and their result is sent
 // again while storage still says pending (the ops are idempotent). Per page: after a page change
 // the copy was read from storage afresh.
-const settledHere = new Map<string, Map<string, { name: string; by: 'key' | 'videoId'; state: string; msg: string; onlyActive: boolean }>>();
+// The re-send is not "for an active run only" even for a trim: the run may have ended since (the
+// last item's step ends it seconds after the result), and that op would be ignored, then sent
+// again on every tick. The item was written into the run it names (`started`), which is enough.
+// Only the run item is sent again. The same result's other writes (trimResults, trimQueue, the
+// song mark, followUp) are not, and a run that ends before the re-send lands counts the item as
+// "not done" in its summary. What then stands between a lost trimResults entry and a second trim
+// is trimOne's own check with YouTube (the claim is gone, or has no Trim option while it processes).
+const settledHere = new Map<string, Map<string, { name: string; by: 'key' | 'videoId'; state: string; msg: string }>>();
 const isSettled = (run: Run, i: { key?: string; videoId: string }) => !!settledHere.get(run.started)?.has(i.key || i.videoId);
 function resendSettled(): void {
   for (const [started, items] of settledHere) {
@@ -1209,7 +1280,7 @@ function resendSettled(): void {
       const run = chGet<Run | null>(r.name, null);
       if (!run || run.started !== started) { settledHere.delete(started); break; }
       const it = run.items.find((x) => (r.by === 'key' ? x.key : x.videoId) === id);
-      if (it && it.state === 'pending') write({ op: 'runItem', key: r.name + ':' + currentChannel(), by: r.by, id, state: r.state, msg: r.msg, onlyActive: r.onlyActive });
+      if (it && it.state === 'pending') write({ op: 'runItem', key: r.name + ':' + currentChannel(), by: r.by, id, state: r.state, msg: r.msg, onlyActive: false });
     }
   }
 }
@@ -1218,9 +1289,17 @@ function resendSettled(): void {
 // page load, and the scan's channel and "Studio has loaded" check use it. The content script sets it.
 // A read that fails doesn't end the cycle (its next time is already written): the scan goes on
 // with the copy it has, and says so itself if Studio's context is missing (as page.ts scan()).
+// A read that names another channel does end it (false): the cycle was started, and its times
+// written, for the channel the tick saw; the scan and the trims must not be another one's.
 let cfgRefresh: () => Promise<void> = async () => {};
 export const setCfgRefresh = (fn: typeof cfgRefresh) => { cfgRefresh = fn; };
-const freshCfg = () => cfgRefresh().catch((e) => console.warn('[ytup] ytcfg before an Auto-pilot scan', e));
+async function freshCfg(): Promise<boolean> {
+  const ch = currentChannel();
+  await cfgRefresh().catch((e) => console.warn('[ytup] ytcfg before an Auto-pilot scan', e));
+  if (currentChannel() === ch) return true;
+  console.warn('[ytup] the channel changed under an Auto-pilot cycle', ch, currentChannel());
+  return false;
+}
 
 // What renderStatus() (6219–6256) read, for the side panel (claims:state / claims:view).
 export function claimsState(): ClaimsState {
