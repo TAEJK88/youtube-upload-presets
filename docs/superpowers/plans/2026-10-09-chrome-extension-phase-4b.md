@@ -57,8 +57,8 @@ What that leaves: one short serial unit, then **seven units at once**, then one 
 | Unit | From | Depends on | Creates / modifies (hot files in **bold**) |
 |---|---|---|---|
 | **K** contracts | new (parts of T0 Step 3, T0 Step 4, T1 Step 6, T2 Step 2, T3–T5) | 4a fix round merged | **`lib/messages.ts`**: every 4b message type (`runner:changed`, `claims:trim`, `claims:ads`, `claims:collab`, `claims:stop`, `claims:autopilot`). **`lib/runner-lock.ts`**: `LOCK_KEY` exported, `registerRunnerLock(onChange?)`, `workerOf(ch)`, with their tests in `tests/runner-lock.test.ts` (T0 Step 3's first test, T2 Step 2's three assertions). `entrypoints/sidepanel/save-failed.ts`: `notConnected` + its `panel-imports` pin. **`scripts/strings/extension-only.mjs`**: three marker lines, nothing else — `// 4b P (page)`, `// 4b D (alarms)`, `// 4b Q (panel)`, each followed by a blank comment line `//`. New stub files `tabs/copyright/AdsView.tsx`, `CollabView.tsx`, `CopyrightSettings.tsx` (a `SubView` with the modal's title and Close, props as in Tasks 4–5) and their three routes in **`CopyrightTab.tsx`**'s `sub` expression. |
-| **P** page side | T0 Step 2(b), T0 Step 4 (m9), all of T1 | K | **`lib/claims/claims.ts`**, **`scripts/port/claims.mjs`**, `lib/claims/answers.ts`, `lib/claims/page.ts`, `lib/sync-store.ts`, `lib/claims/store.ts`, **`entrypoints/studio.content.ts`** (one block after the `claims:scan` handler), `extension-only.mjs` (under its marker); tests `claims-trim`, `claims-runs`, `claims-autopilot` (new), `claims-youtubei`, `claims-page`, `claims-status`, `claims-scan`, `sync-store`. |
-| **Q** panel home | T0 Step 1, T0 Step 2(a), T0 Step 4 (m10: `target.ts`, `bus.ts`, callers of `notConnected`), all of T3 | K | **`CopyrightTab.tsx`** (sole owner after K), `ClaimList.tsx`, `AutopilotSwitch.tsx` (new), `App.tsx`, `components/ui/badge.tsx`, `lib/panel/claims-data.ts`, `lib/panel/claims.ts`, `lib/panel/target.ts`, `lib/panel/bus.ts`; tests `panel-copyright`, `panel-copyright-run` (new), `panel-claims`, `panel-claims-data`, `panel-target`, `panel-imports`, `panel-queue`, **`tests/panel-fake.tsx`** (sole owner). Q also writes the home's Ads off / Collab / Copyright settings **buttons** and their tests (T4 Step 5, T5 Step 2's button): the views they open are K's stubs in Q's worktree. |
+| **P** page side | T0 Step 2(b), T0 Step 4 (m9), all of T1 | K | **`lib/claims/claims.ts`**, **`scripts/port/claims.mjs`**, `lib/claims/answers.ts`, `lib/claims/page.ts`, `lib/sync-store.ts`, `lib/claims/store.ts`, **`entrypoints/studio.content.ts`** (one block after the `claims:scan` handler), `extension-only.mjs` (under its marker); tests `claims-trim`, `claims-runs`, `claims-autopilot` (new), `claims-youtubei`, `claims-page`, `claims-status`, `claims-scan`, `sync-store`. **Also P's (4a re-review):** (b) the two Auto-pilot tests for a scan whose detail calls all failed — no trim run, the scan replaced, the "incomplete" line then "Nothing to trim", and with `apAdsOn` the ads scan still runs (userscript parity; no stop-on-incomplete); (c) T1 Step 5b, failed-write notices limited per message in `lib/claims/page.ts`. |
+| **Q** panel home | T0 Step 1, T0 Step 2(a), T0 Step 4 (m10: `target.ts`, `bus.ts`, callers of `notConnected`), all of T3 | K | **`CopyrightTab.tsx`** (sole owner after K), `ClaimList.tsx`, `AutopilotSwitch.tsx` (new), `App.tsx`, `components/ui/badge.tsx`, `lib/panel/claims-data.ts`, `lib/panel/claims.ts`, `lib/panel/target.ts`, `lib/panel/bus.ts`; tests `panel-copyright`, `panel-copyright-run` (new), `panel-claims`, `panel-claims-data`, `panel-target`, `panel-imports`, `panel-queue`, **`tests/panel-fake.tsx`** (sole owner). Q also writes the home's Ads off / Collab / Copyright settings **buttons** and their tests (T4 Step 5, T5 Step 2's button): the views they open are K's stubs in Q's worktree. **Also Q's (4a re-review a):** T3 Step 5's "an open view stays open through a trim step" — the kept channel and state reset only when the bound tab changes, a view closes only on a different real channel, with its three tests (the first: "state null then back on the same channel"). |
 | **C** content and background plumbing | T0 Step 2(c), T0 Step 3 (the tab and background side) | K | `lib/studio/queue-view.ts`, `lib/studio/queue-sync.ts`, **`entrypoints/studio.content.ts`** (three spots: after `loadClaimsData()`, the focus handler, the interval), **`entrypoints/background.ts`** (the `registerRunnerLock` callback, one line in `tabs.onUpdated`); tests `queue-view`, `queue-sync`. |
 | **D** alarms and the notification | T2 (without `workerOf`, which is K's, and without `background.ts`) | K | `lib/claims/alarms.ts` (new), `tests/claims-alarms.test.ts` (new), `extension-only.mjs` (under its marker). It exports `registerAutopilotAlarms`, `syncAutopilotAlarms`, `openFromAutopilotNote`; **it does not wire them**: unit Z does. |
 | **E** pins | T0 Step 5 | K | one new file, `tests/wiring-pins.test.ts`. Nothing else. |
@@ -160,9 +160,9 @@ Userscript line map: see Phase 4a. The regions this plan adds: DOM helpers 4608�
 
 **Depends on the 4a fix round** (a fix agent is landing it; read `git log` and the files before starting, and skip a step it already did):
 - review I1 / I2 / m12 (the timing test, pins for the entrypoints' guards and the abort guard): if `tests/` has no pin for a guard listed in I2 or m12, add it in Step 5 below;
-- m1 (the panel drops the bound tab's copyright state when the tab stops being linked): Task 3's Stop and Auto-pilot switch assume it, so a stale card can't be acted on;
-- m2 (a scan whose detail calls all failed): Task 1's Auto-pilot test "does nothing after a scan whose detail calls all failed" assumes `scanClaims()` then returns `null` (or whatever the fix chose: adapt the test's expectation to it, not the fix to the test) and that the stored scan is not replaced;
-- m5 (a failed `claims:op` is shown): Task 1's run steps rely on it for the user to see a lost result; "timed out" still means "maybe applied" (Task 1's `settledHere`);
+- m1 as re-reviewed (R1): the panel drops the bound tab's copyright state **only when the tab has no live script** (`link === 'noScript'`), not on every `'loading'`. So during a real page load the old state stays until the new page answers, and a trim step's page change does not blank the tab by itself. Task 3 still keeps the last channel and state per bound tab (its "views stay open" step), because `state` can be `null` for other reasons (a rebind, a no-script moment);
+- m2 as re-reviewed (b): a scan whose detail calls all failed is the userscript's, plus a warning: `scanClaims()` returns the rows it has (`[]`, never `null`), the stored `claimScan` **is replaced**, and the log gets "Couldn't read the claim details of N of M videos — this scan is incomplete" (`err`). Task 1's Auto-pilot tests expect exactly that; no stop-on-incomplete behaviour is added (userscript parity);
+- m5 as re-reviewed (c): a failed `claims:op` from the tab gives one page toast, one panel toast (bound tab) and one error log line (`setWriteFailed` in `lib/claims/page.ts`). Run steps write per step, so Task 1 rate-limits these by message (its "failed writes are said once" step); "timed out" still means "maybe applied" (Task 1's `settledHere`);
 - m7 (`runnerJobs` and `claimsWorkers` in the debug report): README item 52 reads them.
 
 **Files:**
@@ -933,14 +933,43 @@ describe('apCycle (5847–5873)', () => {
     C.setCfgRefresh(async () => {});
   });
 
-  // 4a whole-branch review m2: Auto-pilot must not act on a scan that read nothing. Depends on the
-  // 4a fix round: if it reports such a scan another way than `null`, expect that instead.
-  it('does nothing after a scan whose detail calls all failed', async () => {
-    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 }, [`claimScan:${CH}`]: { date: 'old', total: 1, rows: [] } }, async (op) => void ops.push(op));
-    setYoutubei(async (path) => { if (path !== 'creator/list_creator_videos') throw new Error('youtubei: timed out after 30000 ms'); return studioApi(path); });
+  // 4a re-review (b): a scan whose detail calls all failed is the userscript's, with a warning.
+  // It returns [] and replaces the stored scan; the cycle goes on as after any scan with nothing
+  // to trim. (No "stop on an incomplete scan": that would be new behaviour, see the planning report.)
+  const detailsFail = async (path: string) => {
+    if (path === 'creator/list_creator_received_claims') throw new Error('youtubei: timed out after 30000 ms');
+    return studioApi(path);
+  };
+  it('after a scan whose detail calls all failed: no trim run, the scan is replaced, the log says it is incomplete', async () => {
+    const lines: string[] = [];
+    C.setClaimsUi({ show() {}, status() {}, toast() {}, log: (msg, type) => void lines.push(`${type}:${msg}`) });
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 }, [`claimScan:${CH}`]: { date: 'old', total: 1, rows: [{ videoId: 'x' }] } }, async (op) => void ops.push(op));
+    setYoutubei(detailsFail);
     await C.apCycle();
-    expect(load(`trimRun:${CH}`, null)).toBe(null); // no run started
-    expect(load<{ date: string }>(`claimScan:${CH}`, null as never).date).toBe('old'); // the good scan is kept
+    expect(load(`trimRun:${CH}`, null)).toBe(null); // nothing to trim: no run
+    const scan = load<{ date: string; rows: unknown[] }>(`claimScan:${CH}`, null as never);
+    expect(scan.date).not.toBe('old'); // replaced, as the userscript did
+    expect(scan.rows).toEqual([]);
+    const incomplete = lines.findIndex((l) => l === "err:Couldn't read the claim details of 1 of 1 videos — this scan is incomplete");
+    const nothing = lines.findIndex((l) => l.startsWith('ok:🤖 Nothing to trim, next check '));
+    expect(incomplete).toBeGreaterThanOrEqual(0);
+    expect(nothing).toBeGreaterThan(incomplete);
+    expect(load(`adsRun:${CH}`, null)).toBe(null); // apAdsOn is off by default
+    C.setClaimsUi(null);
+  });
+
+  it('…and with "Also turn on ads" on, the cycle still goes on to the ads scan and can start an ads run', async () => {
+    useMemoryClaims({ cfg: { apAdsOn: true }, [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    setYoutubei(async (path: string, body?: Record<string, unknown>) => {
+      const mask = (body?.mask ?? {}) as Record<string, unknown>;
+      if (path === 'creator/list_creator_videos' && mask.monetization) {
+        return { videos: [{ videoId: 'adsvideo001', title: 'A', monetization: { adMonetization: { userSetMonetization: 'X_OFF', effectiveStatus: 'X_OFF' } } }] };
+      }
+      return detailsFail(path);
+    });
+    await C.apCycle();
+    await vi.waitFor(() => expect(load<{ active: boolean } | null>(`adsRun:${CH}`, null)?.active).toBe(true));
+    expect(load(`trimRun:${CH}`, null)).toBe(null);
   });
 
   it('the alarm nudge asks the background afresh before it ticks (a moved lease runs nothing)', async () => {
@@ -1326,6 +1355,63 @@ Extend the export list with: `visible, findText, isDisabled, otherJobBusy, start
 
 Run: `npx vitest run tests/claims-trim.test.ts tests/claims-runs.test.ts tests/claims-autopilot.test.ts tests/claims-scan.test.ts tests/claims-status.test.ts`
 Expected: PASS. Fix typing slips in the port, not the tests' expectations.
+
+- [ ] **Step 5b: Failed writes are said once, not once per step (4a re-review c) — failing test first**
+
+In 4a one failed `claims:op` from the tab gives one page toast, one panel toast and one error log line (`setWriteFailed` in `lib/claims/page.ts`). A run writes a result per step: against a background that stopped answering, that would be a toast per write (30 s apart for timeouts), and the panel's toasts stack. The notice is limited **per message**: the same text is said again only after a minute; every failure still goes to the console.
+
+`tests/claims-page.test.ts`:
+```ts
+  it('the same failed-write message is said once a minute at most; another message is said at once', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const toast = vi.fn();
+    const send = vi.fn(async () => undefined);
+    const page = createClaimsPage({ send: send as never, toast, refreshCfg: async () => {} });
+    C.setClaimsUi(page.ui);
+    let fail = new Error('claims:op on trimResults:UC1 timed out (it may still be applied)');
+    useMemoryClaims({}, async () => { throw fail; });
+    setWriteFailed(page.writeFailed); // useMemoryClaims() swapped the store: hook the page's notice in again
+    const failOnce = async () => { write({ op: 'set', key: 'logOpen', value: Math.random() }); await vi.advanceTimersByTimeAsync(0); await flushClaims(); };
+    await failOnce();
+    await failOnce();
+    await failOnce();
+    const logs = () => send.mock.calls.filter(([t]) => t === 'claims:log').length;
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(logs()).toBe(1);
+    fail = new Error('claims:op: not allowed from this sender'); // a different failure
+    await failOnce();
+    expect(toast).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(60_001);
+    await failOnce(); // the same text, a minute later
+    expect(toast).toHaveBeenCalledTimes(3);
+    expect(logs()).toBe(3);
+    page.dispose();
+    C.setClaimsUi(null);
+    vi.useRealTimers();
+  });
+```
+(imports: `setWriteFailed`, `write`, `flushClaims`, `useMemoryClaims` from `../lib/claims/store`. If 4a's hook survives `useMemoryClaims()`, drop the `setWriteFailed(page.writeFailed)` line.) Expected: FAIL (3 toasts for the first three failures; `page.writeFailed` is not exported).
+
+`lib/claims/page.ts`: name the handler and limit it:
+```ts
+  // … Said once per message and minute: a run writes a result per step, and a background that
+  // stopped answering would otherwise toast at every one (4a re-review c). The console has them all
+  // (store.ts logs each failed write).
+  const SAY_AGAIN_MS = 60_000;
+  const said = new Map<string, number>();
+  const writeFailed = (_key: string, e: unknown) => {
+    const msg = L(`บันทึกไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't save (${(e as Error)?.message ?? e})`);
+    const now = Date.now();
+    if (now - (said.get(msg) ?? -Infinity) < SAY_AGAIN_MS) return;
+    said.set(msg, now);
+    for (const [m, at] of said) if (now - at >= SAY_AGAIN_MS) said.delete(m); // the map stays small
+    log(msg, 'err');
+    d.toast(msg);
+  };
+  setWriteFailed(writeFailed);
+```
+and return `writeFailed` from `createClaimsPage` beside `ui`. (A timeout's message names its key, so two keys failing are two messages: both are said. That is intended: they are different losses.)
 
 - [ ] **Step 6: Wire it in the Studio tab**
 
@@ -1913,37 +1999,66 @@ Rework the home to `buildPane()`'s rows and `renderStatus()`'s visibility rules 
 ```
 (Keep 4a's buttons in their rows: Claim list and Claimed songs move into row2; Fix tracklist and Upload history into the Auto-pilot section's button row.) `usePanel()` now also gives `runner` and `sendTo`.
 
-**A view must not close on a passing `'unknown'` channel** (4a T8 review R3). 4a closes an open view whenever `state.channel` changes. A trim, ads or Collab step changes pages, and the new page may report `'unknown'` for a moment (`/video/<id>/claims` has no channel in its address; ytcfg arrives a little later), which would close the claim list under the user and empty `useClaimsData`. The tab keeps the last real channel instead:
+**An open view stays open through a trim step** (4a T8 review R3; 4a re-review R1 and (a)). 4a closes an open view whenever `state.channel` changes, and renders a view only while `state` and `data` are there. A trim, ads or Collab step loads a new page each time. While it loads, the bound tab's `state` can be `null` for a moment (a rebind, a no-script instant) or report `'unknown'` (`/video/<id>/claims` has no channel in its address; ytcfg arrives a little later). Either would close the claim list under the user, and unmounting the tracklist editor loses a pasted tracklist. So, per bound tab, the Copyright tab keeps the last real channel **and** the last state:
+- they are forgotten only when the **bound tab changes** (another tab id, or no bound tab);
+- a view closes only when the tab reports a **different real channel**;
+- `null` and `'unknown'` change nothing.
 ```tsx
-  // The channel the tab shows: the bound tab's, ignoring a passing 'unknown' (a page still loading).
-  const lastCh = useRef<string | null>(null);
-  const reported = state?.channel ?? null;
-  if (reported && reported !== 'unknown') lastCh.current = reported;
-  if (!state) lastCh.current = null; // no bound tab: nothing to keep
-  const ch = reported === 'unknown' ? lastCh.current ?? 'unknown' : reported;
+  const { send, sendTo, runner, target } = usePanel();
+  // What the bound tab last said for real: its channel and state survive a page load of that tab
+  // (state null, or 'unknown' before ytcfg). Another bound tab starts from nothing.
+  const kept = useRef<{ tabId: number | undefined; ch: string | null; state: ClaimsState | null }>({ tabId: undefined, ch: null, state: null });
+  if (kept.current.tabId !== target?.tabId) kept.current = { tabId: target?.tabId, ch: null, state: null };
+  if (state && state.channel !== 'unknown') kept.current = { tabId: target?.tabId, ch: state.channel, state };
+  const shown = state && state.channel !== 'unknown' ? state : kept.current.state ?? state; // what the views and buttons read
+  const ch = kept.current.ch ?? state?.channel ?? null;
   const data = useClaimsData(ch);
-  useEffect(() => setView({ name: 'home' }), [ch]);
+  useEffect(() => setView({ name: 'home' }), [ch]); // a different real channel (or another tab): the view was the old one's
 ```
-(replacing 4a's `const data = useClaimsData(state?.channel ?? null)` and `const ch = state?.channel ?? null`). Test, in `tests/panel-copyright-run.test.tsx`, written first:
+(replacing 4a's `const data = useClaimsData(state?.channel ?? null)` and `const ch = state?.channel ?? null`; the `sub` expression, the buttons and `n` read `shown` where they read `state`; the status card keeps `live ?? shown`. `ClaimsState` is imported as a type. Name clash: 4a's `shown` from `useClaims()` — the scan-finished signal — is renamed `opened` at the destructuring.) Tests, in `tests/panel-copyright-run.test.tsx`, written first:
 ```tsx
-  it("an open view stays open while the tab's page reports 'unknown' for a moment, and closes on a real other channel", async () => {
-    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': { ...scan, channel: 'UC2', channelName: 'Other' } });
-    const counts = { hasScan: true, scanDate: '', claims: 1, claimVideos: 1, songs: 0, hasAdsScan: false, adsTodo: 0 };
-    const view = (channel: string) => (
-      <PanelContext.Provider value={fakePanel()}><ClaimsContext.Provider value={fakeClaims({ state: claimsStateWith({ channel, counts }) })}>
+  const counts = { hasScan: true, scanDate: '', claims: 1, claimVideos: 1, songs: 0, hasAdsScan: false, adsTodo: 0 };
+  const tabView = (state: ClaimsState | null, tabId = 1) => (
+    <PanelContext.Provider value={fakePanel({ target: { tabId, windowId: 1, url: 'https://studio.youtube.com/', title: 'Studio' } })}>
+      <ClaimsContext.Provider value={fakeClaims({ state, live: state })}>
         <AskProvider><CopyrightTab /></AskProvider>
-      </ClaimsContext.Provider></PanelContext.Provider>
-    );
-    const { rerender } = render(view('UC1'));
+      </ClaimsContext.Provider>
+    </PanelContext.Provider>
+  );
+  const on = (channel: string) => claimsStateWith({ channel, counts });
+  const openList = async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': { ...scan, channel: 'UC2', channelName: 'Other' } });
+    const r = render(tabView(on('UC1')));
     fireEvent.click(await screen.findByRole('button', { name: /Claim list \(1\)/ }));
     expect(await screen.findByText(/Copyright claims — Mine/)).toBeTruthy();
-    rerender(view('unknown')); // the trim step's new page, before ytcfg
+    return r;
+  };
+
+  it("state null then back on the same channel (a trim step's page load): the view is still open, and stayed rendered", async () => {
+    const { rerender } = await openList();
+    rerender(tabView(null)); // the new page hasn't answered yet
     expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
-    rerender(view('UC2'));
+    rerender(tabView(on('UC1')));
+    expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
+  });
+
+  it("a passing 'unknown' changes nothing either", async () => {
+    const { rerender } = await openList();
+    rerender(tabView(on('unknown')));
+    expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
+  });
+
+  it('a different real channel closes the view; so does another bound tab', async () => {
+    const { rerender } = await openList();
+    rerender(tabView(on('UC2')));
     expect(await screen.findByRole('button', { name: /Scan claims/ })).toBeTruthy(); // back home: another channel's
+    cleanup();
+    const again = await openList();
+    again.rerender(tabView(null, 2)); // the panel is bound to another tab, which hasn't answered
+    expect(screen.queryByText(/Copyright claims — Mine/)).toBe(null);
   });
 ```
-(imports: `render` from `@testing-library/react`, `PanelContext` / `ClaimsContext` from the panel module, `AskProvider` from `../entrypoints/sidepanel/ask`.)
+(imports: `render`, `cleanup` from `@testing-library/react`, `PanelContext` / `ClaimsContext` from the panel module, `AskProvider` from `../entrypoints/sidepanel/ask`, `type ClaimsState`.) Expected before the change: the first test FAILS (4a renders the home while `state` is `null`).
 
 **The "previously claimed" chip in light** (4a T7/T8 review m11): `Badge tone="bad"` is `text-warn` on `bg-warn/[0.12]`, 3.8:1 in the light theme. In `components/ui/badge.tsx` make the bad tone's text `text-fg` and keep the amber on its icon and tint: `tone === 'bad' && 'border-transparent bg-warn/[0.12] text-fg [&>svg]:text-warn'`. Add to `tests/panel-queue.test.tsx`'s chip test: `expect(chip.closest('[data-slot="badge"], span')!.className).toContain('text-fg')`. (Tokens only; both themes ≥ 4.5:1 for the text.)
 
