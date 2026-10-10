@@ -1,14 +1,17 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { AskProvider } from '../entrypoints/sidepanel/ask';
+import { ClaimsContext, LiveContext, PanelContext } from '../entrypoints/sidepanel/panel';
 import { AdsView } from '../entrypoints/sidepanel/tabs/copyright/AdsView';
 import { CollabView } from '../entrypoints/sidepanel/tabs/copyright/CollabView';
 import { setLang } from '../lib/i18n';
-import { claimsWrite, toClaimsData } from '../lib/panel/claims-data';
+import { claimsWrite, toClaimsData, type ClaimsData } from '../lib/panel/claims-data';
 import { adsInitial, adsWhere, collabWhere } from '../lib/panel/claims-runs';
-import { claimsStateWith, fakePanel, renderPanel } from './panel-fake';
+import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel } from './panel-fake';
 
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
 // The handles are written through the background (claims:op); here the write is watched.
@@ -37,6 +40,8 @@ const vids = [{ videoId: 'x', video: 'Lofi Mix', privacy: 'public', length: 1 },
 describe('ads and Collab picks', () => {
   it('starts with the eligible ones not turned on yet (5293)', () => {
     expect(adsInitial({ date: '', total: 3, rows: ads }, { b: { state: 'on', msg: '', date: '' } })).toEqual(['a']);
+    // one that failed is tried again
+    expect(adsInitial({ date: '', total: 3, rows: ads }, { a: { state: 'failed', msg: 'x', date: '' } })).toEqual(['a', 'b']);
   });
   it('the chips (5323–5326)', () => {
     expect(adsWhere('settings', ads)).toEqual(['a', 'b']);
@@ -59,6 +64,22 @@ const adsData = (over: Record<string, unknown> = {}) =>
   toClaimsData('UC1', { 'adsScan:UC1': { date: '2026-01-01T00:00:00.000Z', total: 9, rows: ads }, ...over });
 const collabData = (over: Record<string, unknown> = {}) =>
   toClaimsData('UC1', { 'collabScan:UC1': { date: '2026-01-01T00:00:00.000Z', total: 2, rows: vids }, ...over });
+// renderPanel's tree, for a rerender with new data (another tree would remount the view).
+function mount(ui: (d: ClaimsData) => ReactElement, data: ClaimsData, api = fakePanel()) {
+  const live = fakeLive();
+  const claims = fakeClaims();
+  const wrap = (d: ClaimsData) => (
+    <PanelContext.Provider value={api}>
+      <LiveContext.Provider value={live}>
+        <ClaimsContext.Provider value={claims}>
+          <AskProvider>{ui(d)}</AskProvider>
+        </ClaimsContext.Provider>
+      </LiveContext.Provider>
+    </PanelContext.Provider>
+  );
+  const r = renderPanel(ui(data), api, live, claims);
+  return { ...r, api, to: (d: ClaimsData) => r.rerender(wrap(d)) };
+}
 const box = (name: string | RegExp) => screen.getByRole('checkbox', { name }) as HTMLInputElement;
 const button = (name: string | RegExp) => screen.getByRole('button', { name }) as HTMLButtonElement;
 
@@ -82,9 +103,23 @@ describe('Ads view', () => {
     expect(button('💰 Turn on ads (2)')).toBeTruthy();
     fireEvent.click(box('C'));
     fireEvent.click(box('A'));
-    fireEvent.click(button('💰 Turn on ads (2)'));
+    expect(button('💰 Turn on ads (2)')).toBeTruthy();
+    fireEvent.click(box('A')); // ticked last, first in the list
+    fireEvent.click(button('💰 Turn on ads (3)'));
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(api.send).toHaveBeenCalledWith('claims:ads', ['b', 'c']);
+    expect(api.send).toHaveBeenCalledWith('claims:ads', ['a', 'b', 'c']);
+  });
+
+  it('a newer scan under the open view (Recheck) starts the ticks again from its own rows', () => {
+    const next = [{ videoId: 'n1', video: 'New 1', privacy: 'public', length: 1, ineligible: false, status: '' }, { videoId: 'n2', video: 'New 2', privacy: 'public', length: 1, ineligible: true, status: '' }];
+    const v = mount((d) => <AdsView data={d} state={state} onClose={() => {}} />, adsData());
+    fireEvent.click(box('C'));
+    v.to(adsData()); // the same scan again (another key changed): the ticks stay
+    expect(button('💰 Turn on ads (3)')).toBeTruthy();
+    v.to(adsData({ 'adsScan:UC1': { date: '2026-02-02T00:00:00.000Z', total: 9, rows: next } }));
+    expect([box('New 1').checked, box('New 2').checked]).toEqual([true, false]);
+    fireEvent.click(button('💰 Turn on ads (1)'));
+    expect(v.api.send).toHaveBeenCalledWith('claims:ads', ['n1']);
   });
 
   it('the chips tick exactly their rows; with nothing ticked the button is off', () => {
@@ -179,6 +214,35 @@ describe('Collab view', () => {
     vi.advanceTimersByTime(1);
     expect(claimsWrite).toHaveBeenCalledTimes(1);
     expect(claimsWrite).toHaveBeenCalledWith({ op: 'set', key: 'collabHandles', value: '@ab' });
+  });
+
+  it('handles the timer saved are not written again when the view closes', () => {
+    vi.useFakeTimers();
+    const r = renderPanel(<CollabView data={collabData()} state={state} onClose={() => {}} />);
+    fireEvent.change(handles(), { target: { value: '@a' } });
+    vi.advanceTimersByTime(400);
+    r.unmount();
+    expect(claimsWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles typed right before the side panel itself closes are saved (no React cleanup runs then)', () => {
+    vi.useFakeTimers();
+    renderPanel(<CollabView data={collabData()} state={state} onClose={() => {}} />);
+    fireEvent.change(handles(), { target: { value: '@gone' } });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(claimsWrite).toHaveBeenCalledWith({ op: 'set', key: 'collabHandles', value: '@gone' });
+    vi.advanceTimersByTime(1000);
+    expect(claimsWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('a newer scan under the open view (Reload list) starts with nothing ticked', () => {
+    const v = mount((d) => <CollabView data={d} state={state} onClose={() => {}} />, collabData());
+    fireEvent.click(box('Jazz'));
+    v.to(collabData({ collabHandles: '@a' })); // the same scan again: the tick stays
+    expect(button('🤝 Invite (1 videos)')).toBeTruthy();
+    v.to(collabData({ 'collabScan:UC1': { date: '2026-02-02T00:00:00.000Z', total: 1, rows: [{ videoId: 'n1', video: 'New 1', privacy: 'public', length: 1 }] } }));
+    expect(box('New 1').checked).toBe(false);
+    expect(button('🤝 Invite (0 videos)').disabled).toBe(true);
   });
 
   it('handles typed right before the view closes are still saved', () => {

@@ -25,8 +25,16 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
   const [handles, setHandles] = useState(data.collabHandles);
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // A newer scan can land under the open view (Reload list opens it before the stored scan is
+  // read): the ticks start again, as the modal's did each time it opened.
+  const [of, setOf] = useState(scan.date);
+  if (of !== scan.date) {
+    setOf(scan.date);
+    setPicked(new Set());
+  }
   // collabHandles was saved on every keystroke (5492); here a moment after the typing stops (a
-  // write is a message to the background), and at once when the view closes before that.
+  // write is a message to the background), and at once when the view closes before that, or the
+  // side panel itself does (pagehide: no cleanup runs in a closing window).
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const unsaved = useRef<string | null>(null);
   const saveNow = () => {
@@ -41,7 +49,13 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
     clearTimeout(timer.current);
     timer.current = setTimeout(saveNow, 400);
   };
-  useEffect(() => saveNow, []);
+  useEffect(() => {
+    window.addEventListener('pagehide', saveNow);
+    return () => {
+      window.removeEventListener('pagehide', saveNow);
+      saveNow();
+    };
+  }, []);
   const chip = (kind: CollabPick, label: string) => (
     <Button size="sm" className="h-auto min-h-8 py-1 whitespace-normal" onClick={() => {
       const d = collabWhere(kind, scan.rows, data.collabResults, q);

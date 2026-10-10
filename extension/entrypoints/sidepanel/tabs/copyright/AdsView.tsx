@@ -19,6 +19,13 @@ export function AdsView({ data, state, onClose }: { data: ClaimsData; state: Cla
   const id = useId();
   const scan = data.adsScan!; // the route opens this view only with a scan
   const [picked, setPicked] = useState(() => new Set(adsInitial(scan, data.adsResults)));
+  // A newer scan can land under the open view (Recheck opens it before the stored scan is read):
+  // the ticks start again from its rows, as the modal's did each time it opened.
+  const [of, setOf] = useState(scan.date);
+  if (of !== scan.date) {
+    setOf(scan.date);
+    setPicked(new Set(adsInitial(scan, data.adsResults)));
+  }
   const chip = (kind: AdsPick, label: string) => <Button size="sm" className="h-auto min-h-8 py-1 whitespace-normal" onClick={() => setPicked(new Set(adsWhere(kind, scan.rows)))}>{label}</Button>;
   const ok = scan.rows.filter((r) => !r.ineligible).length;
   const go = () => {
@@ -50,15 +57,15 @@ export function AdsView({ data, state, onClose }: { data: ClaimsData; state: Cla
       </div>
       {scan.rows.length ? (
         <div className="flex flex-col gap-2">
-          {scan.rows.map((r, i) => {
+          {scan.rows.map((r) => {
             const res = data.adsResults[r.videoId];
             const url = `https://studio.youtube.com/video/${r.videoId}/monetization`;
             return (
               <div key={r.videoId} className="flex gap-2.5 rounded-[14px] border border-tint/[0.09] bg-tint/5 p-3 text-[13px]">
-                <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-fg" checked={picked.has(r.videoId)} aria-labelledby={`${id}v${i}`}
+                <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-fg" checked={picked.has(r.videoId)} aria-labelledby={`${id}${r.videoId}`}
                   onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(r.videoId); else n.delete(r.videoId); return n; })} />
                 <div className="min-w-0 flex-1 break-words">
-                  <a id={`${id}v${i}`} className="font-medium underline-offset-2 hover:underline" href={url} onClick={(e) => { e.preventDefault(); openTab(url); }}>{r.video}</a>
+                  <a id={`${id}${r.videoId}`} className="font-medium underline-offset-2 hover:underline" href={url} onClick={(e) => { e.preventDefault(); openTab(url); }}>{r.video}</a>
                   <div className="text-xs text-fg3">{`${r.privacy} · ${fmt(r.length)}`}</div>
                   <div className="text-xs text-fg2">{r.ineligible ? <span className="text-warn">{L('⚠ YouTube แจ้งว่าไม่มีสิทธิ์', '⚠ YouTube says ineligible')}</span> : L('ปิดโฆษณาไว้ (ตั้งค่า)', 'Ads off (setting)')}</div>
                   {res && <div className={res.state === 'on' ? 'text-xs text-ok' : 'text-xs text-err'}>{res.state === 'on' ? L('✅ เปิดแล้ว', '✅ Turned on') : '❌ ' + res.msg}</div>}
