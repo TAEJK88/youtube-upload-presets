@@ -132,6 +132,17 @@ describe('debug page', () => {
     for (const w of writes) expect(w).not.toHaveBeenCalled();
   });
 
+  it('storage.session: the lock, its jobs and the copyright worker leases', async () => {
+    vi.spyOn(browser.tabs, 'query').mockResolvedValue([] as never);
+    await browser.storage.session.set({ runnerTabId: 4, runnerJobs: ['claims'], claimsWorkers: { UCaaaaaaaaaaaaaaaaaaaaaa: { tabId: 4, at: 9 } } });
+    render(<DebugPage ping={async () => 5} files={files} />);
+    await settle();
+    const stored = section('Stored data').textContent;
+    expect(stored).toContain('runnerTabId: 4');
+    expect(stored).toContain('runnerJobs: ["claims"]');
+    expect(stored).toContain('claimsWorkers: {"UCaaaaaaaaaaaaaaaaaaaaaa":{"tabId":4,"at":9}}');
+  });
+
   it('a failing storage.session read leaves the stored keys listed', async () => {
     vi.spyOn(browser.tabs, 'query').mockResolvedValue([] as never);
     await browser.storage.local.set({ presets: [] });

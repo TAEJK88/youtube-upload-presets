@@ -200,7 +200,11 @@ function StoredSection() {
               ))}
             </ul>
             <Row k="storage.session">
-              {'error' in d.session ? <span className="text-xs text-err">{failed(d.session.error)}</span> : <Data>{`runnerTabId: ${json(d.session.runnerTabId)}`}</Data>}
+              {'error' in d.session ? <span className="text-xs text-err">{failed(d.session.error)}</span> : (
+                <div className="flex flex-col">
+                  {Object.entries(d.session).map(([k, v]) => <Data key={k}>{`${k}: ${JSON.stringify(v) ?? String(v)}`}</Data>)}
+                </div>
+              )}
             </Row>
           </>
         )}
