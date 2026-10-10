@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { asTarget, runnerTab, watchTabs } from '../lib/panel/target';
+import { asTarget, runnerTab, watchRunner, watchTabs } from '../lib/panel/target';
+import { JOBS_KEY, LOCK_KEY } from '../lib/runner-lock';
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -26,6 +28,30 @@ describe('target', () => {
     expect(await runnerTab()).toEqual({ tabId: 9, windowId: 2, title: 'A', jobs: ['claims'] });
     get.mockRejectedValue(new Error('No tab with id: 9'));
     expect(await runnerTab()).toBe(null);
+  });
+
+  it('the runner tab is read with the lock module\'s own keys, and a discarded tab is nobody (review m10)', async () => {
+    await browser.storage.session.set({ [LOCK_KEY]: 9, [JOBS_KEY]: ['claims'] });
+    const get = vi.spyOn(browser.tabs, 'get').mockResolvedValue({ id: 9, windowId: 2, url: 'https://studio.youtube.com/', title: 'A', discarded: true } as never);
+    expect(await runnerTab()).toBe(null); // Memory Saver: no script runs there (holder() says the same)
+    get.mockResolvedValue({ id: 9, windowId: 2, url: 'https://studio.youtube.com/', title: 'A', discarded: false } as never);
+    expect(await runnerTab()).toEqual({ tabId: 9, windowId: 2, title: 'A', jobs: ['claims'] });
+    const src = readFileSync(new URL('../lib/panel/target.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/'runnerTabId'|'runnerJobs'/); // no second copy of the key names
+  });
+
+  it('the runner is re-checked when the lock or its jobs change, not for other session keys', async () => {
+    const fn = vi.fn();
+    const off = watchRunner(fn);
+    await browser.storage.session.set({ [LOCK_KEY]: 9 });
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(1));
+    await browser.storage.session.set({ [JOBS_KEY]: ['claims'] });
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+    await browser.storage.session.set({ claimsWorkers: {} });
+    await browser.storage.local.set({ [LOCK_KEY]: 9 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fn).toHaveBeenCalledTimes(2);
+    off();
   });
 
   it('tab events of this window only', async () => {
