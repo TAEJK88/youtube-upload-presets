@@ -65,10 +65,23 @@ function timed(p: Promise<void>, key: string): Promise<void> {
   return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }
 
+// A write the background refused or did not answer in time. The store logs it and takes the
+// stored value back (sync-store expect); the Studio content script also says it to the user
+// (page.ts), as state.ts setPatchFailed does for the settings.
+let writeFailed: ((key: string, e: unknown) => void) | null = null;
+export const setWriteFailed = (fn: typeof writeFailed): void => void (writeFailed = fn);
+
 export function write(op: ClaimsOp): void {
   const key = opKey(op);
   const next = applyOp(kv.get(key), op);
   const done = timed(send(op), key);
+  done.catch((e) => {
+    try {
+      writeFailed?.(key, e);
+    } catch (err) {
+      console.error('[ytup] claims write failure report', err);
+    }
+  });
   try {
     kv.expect(key, next, done);
   } catch (e) {

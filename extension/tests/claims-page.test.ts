@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as C from '../lib/claims/claims';
 import type { ClaimsOp } from '../lib/claims/ops';
 import { createClaimsPage } from '../lib/claims/page';
-import { useMemoryClaims } from '../lib/claims/store';
+import { save, useMemoryClaims } from '../lib/claims/store';
 import { setYoutubei } from '../lib/claims/youtubei';
 import { refreshCfg, resetCfg } from '../lib/studio/channel';
 
@@ -61,6 +61,30 @@ describe('the copyright module in the Studio tab', () => {
     page.ui.log('x', '');
     page.ui.show('ads');
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // Final review m5: the scan says "complete" and opens the list while the panel still shows the
+  // old scan. Said where the action started: a toast (the page's, sent on to the panel) and an
+  // error line in the activity log, which is also the card's "Needs attention".
+  it('a copyright write the background refused is said in a toast and in the activity log', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    useMemoryClaims({}, async () => { throw new Error('claims:op: not allowed from this sender'); });
+    const send = vi.fn(async (..._: unknown[]) => undefined);
+    const toast = vi.fn();
+    const page = createClaimsPage({ send: send as never, toast, refreshCfg: async () => {} });
+    C.setClaimsUi(page.ui);
+    save(`claimScan:${CH}`, { rows: [] });
+    await new Promise((r) => setTimeout(r, 0));
+    const msg = "Couldn't save (claims:op: not allowed from this sender)";
+    expect(toast.mock.calls).toEqual([[msg]]);
+    expect(send).toHaveBeenCalledWith('claims:log', expect.objectContaining({ msg, type: 'err' }));
+    expect(C.computeStatus()).toMatchObject({ kind: 'err', detail: msg });
+    // after the teardown (extension reloaded) nothing more is said
+    page.dispose();
+    save(`claimScan:${CH}`, { rows: [] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(toast).toHaveBeenCalledTimes(1);
   });
 
   // Task 5 review m4: cachedCfg() is a snapshot; a tab whose first read came before Studio had

@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { ClaimsOp } from '../lib/claims/ops';
-import { disposeClaimsStore, flushClaims, initClaimsStore, load, SEND_TIMEOUT_MS, write } from '../lib/claims/store';
+import { disposeClaimsStore, flushClaims, initClaimsStore, load, SEND_TIMEOUT_MS, setWriteFailed, write } from '../lib/claims/store';
 import { claimsOpInOrder } from '../lib/store-writer';
 
 beforeEach(() => fakeBrowser.reset());
 afterEach(() => {
+  setWriteFailed(null);
   disposeClaimsStore();
   vi.useRealTimers();
 });
@@ -57,6 +58,33 @@ describe('claims store in the Studio tab', () => {
     await vi.waitFor(() => expect(flushed).toBe(true));
     expect(load('logOpen', null)).toBe(false);
     expect(String(err.mock.calls[0]?.[1])).toContain('timed out (it may still be applied)');
+  });
+
+  // Final review m5: a failed write was in the console only, while the scan said "complete".
+  it('a refused or timed-out write is reported to whoever asked to hear (the content script), a stored one is not', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = vi.fn();
+    setWriteFailed(failed);
+    let answer: () => Promise<void> = async () => { throw new Error('claims:op: not allowed'); };
+    await initClaimsStore(() => answer());
+    write({ op: 'set', key: 'logOpen', value: true });
+    await flushClaims();
+    expect(failed.mock.calls).toEqual([['logOpen', expect.objectContaining({ message: 'claims:op: not allowed' })]]);
+    answer = async () => {};
+    write({ op: 'set', key: 'logOpen', value: true });
+    await flushClaims();
+    expect(failed).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    answer = () => new Promise<void>(() => {});
+    write({ op: 'set', key: 'cfg', value: {} });
+    await vi.advanceTimersByTimeAsync(SEND_TIMEOUT_MS);
+    expect(failed).toHaveBeenLastCalledWith('cfg', expect.objectContaining({ message: expect.stringMatching(/timed out/) }));
+    // a listener that throws does not break the write
+    setWriteFailed(() => { throw new Error('listener'); });
+    answer = async () => { throw new Error('again'); };
+    vi.useRealTimers();
+    write({ op: 'set', key: 'logOpen', value: false });
+    await flushClaims();
   });
 
   it('an answer in time clears the timer', async () => {

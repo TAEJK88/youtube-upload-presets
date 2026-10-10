@@ -1,6 +1,8 @@
+import { L } from '../i18n';
 import { sendMessage } from '../messages';
 import { cachedCfg } from '../studio/channel';
-import { claimsState, startScan, type ClaimsUi } from './claims';
+import { claimsState, log, startScan, type ClaimsUi } from './claims';
+import { setWriteFailed } from './store';
 
 // The Studio content script's side of the copyright module: what the drawer's pane did, sent to
 // the side panel instead (D24). A broadcast fails when no panel is open; that is fine.
@@ -27,6 +29,14 @@ export function createClaimsPage(d: {
     log: (msg, type) => void (live && send('claims:log', { at: Date.now(), msg, type }).catch(() => {})),
     toast: (msg) => d.toast(msg),
   };
+  // A copyright write the background refused or didn't answer (store.ts): the tab's copy went back
+  // to what is stored, so a scan that just said "complete" is not what the panel shows. Said where
+  // the action started: a toast, on the page and in the panel, and an error line in the activity log.
+  setWriteFailed((_key, e) => {
+    const msg = L(`บันทึกไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't save (${(e as Error)?.message ?? e})`);
+    log(msg, 'err');
+    d.toast(msg);
+  });
   return {
     ui,
     // Every 0.8 s (the userscript's tick, 6361): until Studio has its context, read ytcfg again
@@ -47,6 +57,7 @@ export function createClaimsPage(d: {
     },
     dispose() {
       live = false;
+      setWriteFailed(null);
     },
   };
 }
