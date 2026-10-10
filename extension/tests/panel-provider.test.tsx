@@ -304,6 +304,25 @@ describe('copyright state routing', () => {
     expect(text('c')).toBe('bound|bound|0|-');
   });
 
+  // Final review m1: a scan's "Scanning… 27%" stayed on the card through a reload of the tab,
+  // and for good when the tab came back without the extension's script.
+  it('a reload of the bound tab drops its state; what the page sent while leaving is not shown; the new page answers', async () => {
+    let page = 'scanning';
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs(page) : { items: [] })) as never);
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    expect(text('c')).toBe('scanning|scanning|0|-');
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'loading' }, tabs[3] as never); });
+    await flush();
+    expect(text('c')).toBe('-|-|0|-');
+    await deliver('claims:state', cs('scanning'), 3); // the old page's last tick
+    expect(text('c')).toBe('-|-|0|-');
+    page = 'reloaded';
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'complete' }, tabs[3] as never); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); }); // the view is asked 120 ms after the load
+    expect(text('c')).toBe('reloaded|reloaded|0|-');
+  });
+
   it("a holder that let the lock go and took it again doesn't show its old state", async () => {
     await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
     vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
