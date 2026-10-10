@@ -225,8 +225,12 @@ const sleep = (ms: number) => sleepFor(ms).then(() => (left ? never : undefined)
 const waitFor: typeof waitUntil = (fn, timeout, step) => waitUntil(fn, timeout, step).then((v) => (left ? never : v));
 export function installBackGuard(reload: () => void = () => location.reload()): () => void {
   const hide = (e: PageTransitionEvent) => { if (e.persisted) left = true; };
+  // Back with something in flight: start over. Back idle: the page stays, and works again
+  // (`left` kept would end every later wait of this module in nothing: a scan stuck for good).
   const back = (e: PageTransitionEvent) => {
-    if (e.persisted && (lockMine || trimBusy || adsBusy || collabBusy || approving || scanning || adsScanning || collabScanning || apBusy || fuBusy)) reload();
+    if (!e.persisted) return;
+    if (lockMine || trimBusy || adsBusy || collabBusy || approving || scanning || adsScanning || collabScanning || apBusy || fuBusy) reload();
+    else left = false;
   };
   window.addEventListener('pagehide', hide);
   window.addEventListener('pageshow', back);
