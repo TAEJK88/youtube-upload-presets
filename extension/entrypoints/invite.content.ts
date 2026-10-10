@@ -17,7 +17,7 @@ export default defineContentScript({
     stop.add(() => store.dispose());
     const env = browserEnv(store, {
       setInterval: (fn, ms) => ctx.setInterval(fn, ms),
-      clearInterval,
+      clearInterval: (id) => clearInterval(id),
       setTimeout: (fn, ms) => ctx.setTimeout(fn, ms),
     });
     const sw = createChannelSwitch(env);
