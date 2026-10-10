@@ -87,7 +87,7 @@ www.youtube.com → invite.content.ts (channel switch + invite accept)
 
 | Userscript | Extension |
 |---|---|
-| `GM_getValue` / `GM_setValue` | `chrome.storage.local` (same keys and per-channel `key:channelId` layout), except `tabLock:<ch>`: the tab lease is the background's worker lease `claimsWorkers` in `storage.session` (`{ tabId, at }` per channel, stale after 20 s without a renewal, written every 5 s at most, asked by a tab every 10 s) |
+| `GM_getValue` / `GM_setValue` | `chrome.storage.local` (same keys and per-channel `key:channelId` layout), except `tabLock:<ch>`: the tab lease is the background's worker lease `claimsWorkers` in `storage.session` (`{ tabId, at }` per channel, stale after 20 s without a renewal, written every 5 s at most, asked by a tab every 10 s, an answer trusted for 15 s) |
 | `GM_addStyle` | Bundled CSS (Tailwind in the panel, Shadow DOM styles in the page) |
 | `GM_setClipboard` | `navigator.clipboard` in the panel; the page sends data to the panel to copy |
 | `GM_notification` | `chrome.notifications` from the background |
@@ -183,8 +183,9 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
   changes pages and gives it back when no run is left (or while its run only waits for the
   upload queue). The lock is released when the runner stops or when its tab closes
   (`tabs.onRemoved` in the background), is discarded or leaves Studio. A page restored from
-  the back/forward cache that lost the lock aborts its queue run at once, and one with a
-  copyright step in flight reloads. Scans take no lock. A backup import is refused during any
+  the back/forward cache that lost the lock aborts its queue run at once, and one that holds the
+  `claims` job or has copyright work in flight (a step, a scan, a cycle, a follow-up check)
+  reloads; an idle one works on. Scans take no lock. A backup import is refused during any
   lock job. Studio tabs follow the lock through `runner:changed`, focus and a 30 s poll.
 - **One copyright worker per channel.** Only the channel's worker tab ticks Auto-pilot,
   follow-up checks and run steps: the lease `claimsWorkers` (see "GM replacements"). The tab
