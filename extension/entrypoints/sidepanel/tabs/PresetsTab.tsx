@@ -332,7 +332,8 @@ export function PresetsFooter() {
     toast(L(`ใส่ลงหน้าต่างที่เปิดอยู่ไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't apply to the open window (${(e as Error)?.message ?? e})`));
   });
   return (
-    <div className="flex gap-2 border-t border-line px-[18px] py-3.5">
+    // At 320px the two buttons don't fit side by side in English: the second takes the next line.
+    <div className="flex flex-wrap gap-2 border-t border-line px-[18px] py-3.5">
       <Button className="flex-1" title={L('ใส่พรีเซ็ตหลักลงหน้าต่างอัปโหลดที่เปิดอยู่', 'Apply the default preset to the open upload dialog')} onClick={() => void apply()}>
         <Icon name="send" size={14} />{L('ใส่ลงหน้าต่างที่เปิดอยู่', 'Apply to open window')}
       </Button>
