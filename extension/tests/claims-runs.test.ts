@@ -17,6 +17,7 @@ import * as Q from '../lib/studio/queue-runner';
 const CH = 'UCaaaaaaaaaaaaaaaaaaaaaa';
 const ops: ClaimsOp[] = [];
 const ui = { show: vi.fn(), status: vi.fn(), log: vi.fn(), toast: vi.fn() };
+const NOT_IN_SCAN = 'The chosen videos are not in the latest scan — scan again and try again';
 const noLock = { acquire: async () => false, release: vi.fn(), worker: async () => true, holds: async () => false };
 beforeEach(async () => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -106,6 +107,17 @@ describe('ads run', () => {
     for (const bad of ['a', 42, null, [1]]) C.adsFromPanel(bad);
     expect(load(`adsRun:${CH}`, null)).toBe(null);
   });
+
+  it('claims:ads with no chosen video in the stored scan (replaced since, or another channel): says so, no run', () => {
+    C.setClaimsLock(noLock);
+    ui.log.mockClear();
+    C.adsFromPanel(['zz']);
+    expect(ui.log.mock.calls).toEqual([[NOT_IN_SCAN, 'warn']]);
+    expect(load(`adsRun:${CH}`, null)).toBe(null);
+    ui.log.mockClear();
+    C.adsFromPanel(['a']); // one that is: no such line
+    expect(ui.log).not.toHaveBeenCalledWith(NOT_IN_SCAN, 'warn');
+  });
 });
 
 describe('Collab run', () => {
@@ -169,6 +181,10 @@ describe('Collab run', () => {
     C.collabFromPanel(null);
     // the panel sends parseHandles() output: one @name each, no spaces or commas, a sane length
     for (const bad of ['a', '@a b', '@a,@b', '@', '', '@' + 'x'.repeat(100)]) C.collabFromPanel({ videoIds: ['w'], handles: ['@ok', bad] });
+    expect(load(`collabRun:${CH}`, null)).toBe(null);
+    ui.log.mockClear();
+    C.collabFromPanel({ videoIds: ['zz'], handles: ['@a'] }); // not in the stored scan: said, no run
+    expect(ui.log.mock.calls).toEqual([[NOT_IN_SCAN, 'warn']]);
     expect(load(`collabRun:${CH}`, null)).toBe(null);
     C.collabFromPanel({ videoIds: ['w'], handles: ['@a', '@ไทย.b_c-d'] });
     expect(load<{ items: { videoId: string }[]; handles: string[] }>(`collabRun:${CH}`, null as never)).toMatchObject({ handles: ['@a', '@ไทย.b_c-d'], items: [{ videoId: 'w' }] });

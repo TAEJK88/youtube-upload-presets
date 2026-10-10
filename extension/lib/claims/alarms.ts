@@ -15,8 +15,19 @@ export const AP_ALARM = 'ap:';
 export const AP_NOTE = 'apdue:';
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
-export async function armAutopilot(ch: string, value: unknown, now = Date.now()): Promise<void> {
+// One at a time, and each reads autopilot:<ch> itself: a value handed in (a change event's, or
+// the start-up sync's read of all of storage) can be older than the one stored by the time it is
+// its turn, and would clear the alarm of the cycle just written.
+let chain: Promise<unknown> = Promise.resolve();
+export function armAutopilot(ch: string, now?: number): Promise<void> {
+  const run = chain.then(() => arm(ch, now));
+  chain = run.catch(() => {});
+  return run;
+}
+
+async function arm(ch: string, now = Date.now()): Promise<void> {
   const name = AP_ALARM + ch;
+  const value = (await browser.storage.local.get('autopilot:' + ch))['autopilot:' + ch];
   // 'unknown' is no channel (a key an older build may have left): never armed.
   const next = ch !== 'unknown' && isObj(value) && value.on === true ? Number(value.next) || 0 : 0;
   const cur = await browser.alarms.get(name);
@@ -31,18 +42,18 @@ export async function armAutopilot(ch: string, value: unknown, now = Date.now())
 }
 
 // At service worker start. It reads all of storage once to find the autopilot:<ch> keys (they
-// can't be named up front); changes after that go key by key (registerAutopilotAlarms).
-export async function syncAutopilotAlarms(now = Date.now()): Promise<void> {
-  const on = new Set<string>();
-  for (const [k, v] of Object.entries(await browser.storage.local.get(null))) {
+// can't be named up front); changes after that go key by key (registerAutopilotAlarms). An alarm
+// with no key in that read is asked the same way: its key is gone (cleared), or newer than the read.
+export async function syncAutopilotAlarms(now?: number): Promise<void> {
+  const chs = new Set<string>();
+  for (const k of Object.keys(await browser.storage.local.get(null))) {
     const s = splitKey(k);
-    if (s?.name !== 'autopilot' || !s.ch) continue;
-    on.add(AP_ALARM + s.ch);
-    await armAutopilot(s.ch, v, now);
+    if (s?.name === 'autopilot' && s.ch) chs.add(s.ch);
   }
   for (const a of await browser.alarms.getAll()) {
-    if (a.name.startsWith(AP_ALARM) && !on.has(a.name)) await browser.alarms.clear(a.name);
+    if (a.name.startsWith(AP_ALARM)) chs.add(a.name.slice(AP_ALARM.length));
   }
+  for (const ch of chs) await armAutopilot(ch, now);
 }
 
 // The alarm went off: tell the channel's worker tab, or the tab its lease names when the lease
@@ -114,9 +125,9 @@ export function registerAutopilotAlarms(send: typeof sendMessage = sendMessage):
   });
   browser.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    for (const [k, { newValue }] of Object.entries(changes)) {
+    for (const k of Object.keys(changes)) {
       const s = splitKey(k);
-      if (s?.name === 'autopilot' && s.ch) void armAutopilot(s.ch, newValue).catch((e) => console.error('[ytup] autopilot alarm', e));
+      if (s?.name === 'autopilot' && s.ch) void armAutopilot(s.ch).catch((e) => console.error('[ytup] autopilot alarm', e));
     }
   });
 }
