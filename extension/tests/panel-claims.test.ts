@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { claimedVideos, doneKeys, rowKey, selectWhere, songList } from '../lib/panel/claims';
+import { DEFAULTS } from '../lib/claims/core';
+import { apRules, claimedVideos, doneKeys, rowKey, selectWhere, songList, trimSummary } from '../lib/panel/claims';
 import type { ClaimRow, Songs } from '../lib/claims/types';
 
 const r = (id: string, extra: Partial<ClaimRow> = {}): ClaimRow => ({
@@ -57,5 +58,21 @@ describe('song list (showSongs draw() 5195–5204)', () => {
     const tie = { x: e('Zulu', 'Same'), y: e('Alpha', 'Same'), z: e('Mike', 'Same') } as unknown as Songs;
     expect(songList(tie, '', 'count').map((s) => s.title)).toEqual(['Alpha', 'Mike', 'Zulu']);
     expect(songList(tie, '', 'artist').map((s) => s.title)).toEqual(['Alpha', 'Mike', 'Zulu']);
+  });
+});
+
+describe('trim confirmation and Auto-pilot rules', () => {
+  it('sums the picked claims (openTrimConfirm 5677–5679)', () => {
+    expect(trimSummary([r('1', { own: true }), r('1'), r('2', { claimedSec: 50 })])).toEqual({ claims: 3, videos: 2, own: 1, total: 250 });
+  });
+  it('lists the rules toggleAutopilot showed (5884–5890)', () => {
+    expect(apRules({ ...DEFAULTS, ownNames: 'Me' })).toEqual([
+      'Every 6 hours: rescan this channel',
+      'Only claims that affect the video (no revenue / restricted / blocked)',
+      "Don't trim your own music (Me)",
+      'Skip claims longer than 25% of the video',
+      'Up to 10 claims per cycle · scheduled videos are trimmed first',
+    ]);
+    expect(apRules({ ...DEFAULTS, apOnlyImpact: false, apSkipOwn: false }).slice(1, 3)).toEqual(['Every trimmable claim', 'Include your own music too']);
   });
 });

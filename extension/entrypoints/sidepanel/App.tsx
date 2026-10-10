@@ -3,7 +3,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L } from '@/lib/i18n';
 import { Icon } from './Icon';
-import { usePanel } from './panel';
+import { useClaims, usePanel } from './panel';
 import { PaneBoundary } from './PaneBoundary';
 import { ActivityBar } from './shell/ActivityBar';
 import { Banners } from './shell/Banners';
@@ -35,6 +35,7 @@ export function App() {
   const [tab, setTab] = useState<TabKey>('queue');
   // usePanel() also carries `lang`: a language change re-renders App, so the labels follow it.
   const { view } = usePanel();
+  const { live } = useClaims();
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (body.current) body.current.scrollTop = 0; // showTab(): each tab opens at its top
@@ -55,6 +56,8 @@ export function App() {
               {k === 'queue' && total > 0 && (
                 <span className="rounded-full bg-tint/[0.18] px-1.5 text-xs text-tint group-data-[state=active]:bg-on-fg">{total}</span>
               )}
+              {/* a copyright run is active, in any tab (tabCount.claims, 6255) */}
+              {k === 'claims' && live?.busyRun && <span className="text-xs text-fg2">●</span>}
             </TabsTrigger>
           ))}
         </TabsList>
