@@ -33,7 +33,7 @@ const page: Record<string, (d: unknown) => unknown> = {
   'claims:stop': () => C.stopAll(),
   'claims:autopilot': (d) => void C.autopilotDue(d),
 };
-const toTab = vi.fn(async (type: string, data?: unknown) => wire(page[type](wire(data))));
+const toTab = vi.fn(async (type: string, data?: unknown) => wire(page[type]!(wire(data))));
 const stored = async <T,>(key: string) => (await browser.storage.local.get(key))[key] as T;
 const row = (n: number) => ({ videoId: 'v' + n, video: 'Mix ' + n, privacy: 'public', length: 600, claimId: 'c' + n, song: 'Song ' + n, artists: '', label: '', claimant: 'Co',
   type: '', status: '', impact: 'blocked', segments: [[60, 90]], claimedSec: 30, canTrim: true, options: 'trim', own: false, hasImpact: true, publishAt: 0 });
@@ -48,9 +48,9 @@ async function start(data: Record<string, unknown>) {
   await C.initClaimsLock();
 }
 // The panel as the bound tab's claims:view answers it.
-const panel = () => {
-  const state = toTab.getMockImplementation()!('claims:view') as unknown as Promise<ClaimsState>;
-  return state.then((s) => renderPanel(<CopyrightTab />, fakePanel({ send: toTab as never }), undefined, fakeClaims({ state: s })));
+const panel = async () => {
+  const state = (await toTab('claims:view')) as ClaimsState;
+  return renderPanel(<CopyrightTab />, fakePanel({ send: toTab as never }), undefined, fakeClaims({ state }));
 };
 
 beforeEach(async () => {
