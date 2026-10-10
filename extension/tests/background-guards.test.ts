@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
@@ -65,5 +66,37 @@ describe('the background refuses', () => {
     await ask('runner:release', 'all', studio(3));
     await ask('backup:write', imp, panel());
     expect((await browser.storage.local.get('presets')).presets).toHaveLength(1);
+  });
+});
+
+// Unit D's module is reached only through these lines (4b Z): the listeners at the top level,
+// the sync once the stored data is ready, the notice's click.
+describe('the background wires Auto-pilot', () => {
+  const alarms = async () => (await browser.alarms.getAll()).map((a) => a.name).sort();
+
+  it("a change of autopilot:<ch> arms that channel's alarm", async () => {
+    await browser.storage.local.set({ ['autopilot:' + CH]: { on: true, next: Date.now() + 3600e3 } });
+    await vi.waitFor(async () => expect(await alarms()).toEqual(['ap:' + CH]));
+  });
+
+  it('at start the alarms are brought in line with what is stored', async () => {
+    await browser.alarms.create('ap:UCgone', { when: Date.now() + 3600e3 }); // a channel with no key (any more)
+    background.main!();
+    await vi.waitFor(async () => expect(await alarms()).toEqual([]));
+  });
+
+  it('a click on the "Auto-pilot is due" notice opens Studio on that channel', async () => {
+    const create = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    await fakeBrowser.notifications.onClicked.trigger('apdue:' + CH);
+    await vi.waitFor(() => expect(create).toHaveBeenCalledWith({ url: 'https://studio.youtube.com/channel/' + CH }));
+  });
+
+  it('registered at the top level with no argument, after the lock; the sync waits for `ready`', () => {
+    const src = readFileSync(new URL('../entrypoints/background.ts', import.meta.url), 'utf8');
+    const after = src.slice(src.indexOf('registerRunnerLock(() => void tellStudioTabs());'));
+    expect(after).toMatch(/\n  registerAutopilotAlarms\(\);\n/); // two spaces: defineBackground's own level; `send` is for the tests
+    expect(after).toMatch(/\n  void ready\.then\(\(\) => syncAutopilotAlarms\(\)\)\.catch\(/);
+    expect(src.match(/registerAutopilotAlarms\(/g)).toHaveLength(1);
+    expect(src).toMatch(/\n  browser\.notifications\.onClicked\.addListener\(\(id\) => void openFromAutopilotNote\(id\)\.catch\(/);
   });
 });

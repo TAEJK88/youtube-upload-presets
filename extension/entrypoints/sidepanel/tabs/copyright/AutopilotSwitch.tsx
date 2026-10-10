@@ -11,6 +11,7 @@ import { saveFailed } from '../../save-failed';
 
 // The pane's Auto-pilot switch (UI.apTog 6197, UI.apSub 6253) and toggleAutopilot() (5875–5904).
 // On/off is a write to autopilot:<channel>; the background's alarm and the tab's tick do the rest (D25).
+// Off limits while the tab's channel is 'unknown': the background refuses that key (isClaimsOp).
 export function AutopilotSwitch({ data, state }: { data: ClaimsData; state: ClaimsState }) {
   const ask = useAsk();
   const { addLog } = useClaims();
@@ -41,7 +42,7 @@ export function AutopilotSwitch({ data, state }: { data: ClaimsData; state: Clai
   };
   return (
     <label className="flex items-center gap-3">
-      <Switch checked={on} onCheckedChange={() => void toggle().catch(saveFailed)} aria-label="Auto-pilot" />
+      <Switch checked={on} disabled={data.ch === 'unknown'} onCheckedChange={() => void toggle().catch(saveFailed)} aria-label="Auto-pilot" />
       <span>
         <b className="flex items-center gap-1.5 text-[13px]"><Icon name="robot" size={16} />Auto-pilot</b>
         <small className="block text-xs text-fg3">{on ? L(`เปิด · สแกน + ตัดทุก ${c.apEveryHours} ชม.`, `On · scan + trim every ${c.apEveryHours} h`) : L('ปิด · สแกนและตัดอัตโนมัติตามรอบเวลา', 'Off · scan and trim automatically on a schedule')}</small>

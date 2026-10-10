@@ -27,7 +27,8 @@ beforeEach(() => {
 });
 afterEach(async () => {
   cleanup();
-  await fakeBrowser.storage.local.remove(['logOpen', 'claimScan:UC1', 'trimQueue:UC1', 'trimResults:UC1', 'songHistory', 'uploads']);
+  await fakeBrowser.storage.local.remove(['logOpen', 'claimScan:UC1', 'trimQueue:UC1', 'trimResults:UC1', 'songHistory', 'uploads',
+    'adsScan:UC1', 'adsResults:UC1', 'collabScan:UC1', 'collabResults:UC1', 'collabLinks:UC1', 'collabHandles', 'cfg']);
   document.querySelector('#ytup-fab')?.remove();
   document.querySelector('#ytup-reload')?.remove();
   setLang('en');
@@ -61,8 +62,9 @@ const LATIN_OK = new Set([
   'Alt', // the shortcut chips (kbd) name the keys
 ]);
 // Literals the userscript shows the same in both languages (no L()): its language picker
-// (4496, 4500), Studio's own option names (4518, 4530) and the CSV download buttons (4931, 5248).
-const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above', '⬇ CSV', 'Collab', 'Auto-pilot']);
+// (4496, 4500), Studio's own option names (4518, 4530), the CSV download buttons (4931, 5248),
+// the Collab view's handles placeholder (5491), the Collab button (6195) and Auto-pilot (6210).
+const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above', '⬇ CSV', 'Collab', 'Auto-pilot', '@handle1, @handle2']);
 const LATIN_IGNORE: RegExp[] = [
   /\{[a-z_0-9]+\}/g, // template variables: {n}, {title}, {track1}
   /\.(mp4|mov|txt|jpg|png|json)\b/gi, // file extensions
@@ -305,6 +307,82 @@ describe('the panel in Thai', () => {
     await act(async () => fireEvent.change(pane().querySelector('input[type=text], input:not([type])')!, { target: { value: 'ไม่มี' } }));
     expect(pane().textContent).toContain('ไม่พบเพลงที่ค้นหา');
     expect(pane().textContent).toContain('0 จาก 2 เพลง');
+    clean(document.body);
+  });
+
+  it('…nor in what 4b added: the trim question (every warning, both modes), the Auto-pilot question, Ads, Collab, Copyright settings', async () => {
+    const row = (n: number, over: Record<string, unknown> = {}) => ({
+      videoId: 'v' + n, video: `มิกซ์ ${n}`, privacy: 'สาธารณะ', length: 600, claimId: 'c' + n, song: `เพลง ${n}`, artists: 'ศิลปิน', label: 'ค่าย',
+      claimant: 'ผู้ถือสิทธิ์', type: 'เสียง', status: '', impact: 'บล็อก', segments: [[60, 90]], claimedSec: 30, canTrim: true, options: '', own: false,
+      hasImpact: true, publishAt: 0, ...over,
+    });
+    const vid = (n: number, over: Record<string, unknown> = {}) => ({ videoId: 'v' + n, video: `มิกซ์ ${n}`, privacy: 'สาธารณะ', length: 600, ...over });
+    const date = '2026-10-01T00:00:00Z';
+    await fakeBrowser.storage.local.set({
+      'claimScan:UC1': { date, total: 2, channel: 'UC1', channelName: 'ช่องฉัน', rows: [row(1, { own: true }), row(2)] },
+      'trimQueue:UC1': ['v1:c1', 'v2:c2'],
+      'adsScan:UC1': { date, total: 9, rows: [vid(1), vid(2, { ineligible: true }), vid(3), vid(4)] },
+      'adsResults:UC1': { v3: { state: 'on', msg: '' }, v4: { state: 'failed', msg: 'บันทึกไม่ได้' } },
+      'collabScan:UC1': { date, total: 3, rows: [vid(1), vid(2), vid(3)] },
+      'collabResults:UC1': { v1: { state: 'done', msg: 'เชิญแล้ว' }, v2: { state: 'failed', msg: 'หาช่องไม่เจอ' } },
+      'collabLinks:UC1': { '@เพื่อน': 'https://studio.youtube.com/invite/x' },
+      collabHandles: '@เพื่อน',
+    });
+    // The tab runs the upload queue: the question's third warning (Studio in Thai is the second).
+    const root = await renderThai(fakePanel({ data: thData(), view: thView() }), undefined, thClaims(undefined, { uploadBusy: true }));
+    const tap = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name, hidden: true }).at(-1)!));
+    const pane = () => root.querySelector('[role=tabpanel][id$=claims]')!;
+    await vi.waitFor(() => expect((screen.getByRole('button', { name: 'รายการ claim (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
+
+    await tap('รายการ claim (2)');
+    await tap('✂ ตัดที่เลือก (2)');
+    expect(dialog().textContent).toContain('ตัด 2 claim ใน 2 คลิป?');
+    expect(dialog().textContent).toContain('⚡ อัตโนมัติทั้งหมด');
+    expect(dialog().textContent).toContain('1 รายการเป็น claim บนเพลงของคุณเอง');
+    expect(dialog().textContent).toContain('Studio ไม่ได้ตั้งเป็นภาษาอังกฤษ');
+    expect(dialog().textContent).toContain('คิวอัปโหลดยังมีไฟล์อยู่');
+    clean(document.body);
+    await cancel();
+    await act(async () => { await fakeBrowser.storage.local.set({ cfg: { autoSaveTrim: false } }); }); // review mode
+    await tap('✂ ตัดที่เลือก (2)');
+    await vi.waitFor(() => expect(dialog().textContent).not.toContain('⚡ อัตโนมัติทั้งหมด'));
+    clean(document.body);
+    await cancel();
+    await tap('ปิด');
+
+    await act(async () => fireEvent.click(screen.getByRole('switch', { name: 'Auto-pilot', hidden: true })));
+    expect(dialog().textContent).toContain('เปิด Auto-pilot ให้ช่อง ช่องฉัน?');
+    expect(dialog().querySelectorAll('li').length).toBeGreaterThan(2); // the rules
+    clean(document.body);
+    await cancel();
+
+    await tap(/โฆษณาปิดอยู่/);
+    expect(pane().textContent).toContain('💰 คลิปที่ปิดโฆษณา — ช่องฉัน');
+    for (const t of ['4 จาก 9 คลิป', '⚠ YouTube แจ้งว่าไม่มีสิทธิ์', 'ปิดโฆษณาไว้ (ตั้งค่า)', '✅ เปิดแล้ว', '❌ บันทึกไม่ได้', '💰 เปิดโฆษณา (']) expect(pane().textContent).toContain(t);
+    clean(document.body);
+    await tap('ปิด');
+    await act(async () => { await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date, total: 9, rows: [] } }); });
+    await tap(/โฆษณาปิดอยู่/);
+    await vi.waitFor(() => expect(pane().textContent).toContain('🎉 ทุกคลิปเปิดโฆษณาแล้ว'));
+    clean(document.body);
+    await tap('ปิด');
+
+    await tap('Collab');
+    expect(pane().textContent).toContain('🤝 Collab — ช่องฉัน');
+    for (const t of ['ช่องที่จะเชิญ', 'ลิงก์คำเชิญ (ส่งให้อีกฝ่าย)', '@เพื่อน: https://', '✅ เชิญแล้ว', '❌ หาช่องไม่เจอ', '🤝 เชิญ (0 คลิป)']) expect(pane().textContent).toContain(t);
+    clean(document.body);
+    await tap('ปิด');
+    await act(async () => { await fakeBrowser.storage.local.set({ 'collabScan:UC1': { date, total: 0, rows: [] } }); });
+    await tap('Collab');
+    await vi.waitFor(() => expect(pane().textContent).toContain('ช่องนี้ยังไม่มีคลิป'));
+    clean(document.body);
+    await tap('ปิด');
+
+    await tap('ตั้งค่าลิขสิทธิ์');
+    expect(pane().querySelectorAll('input').length).toBe(10);
+    expect(pane().textContent).toContain('ตั้งค่าลิขสิทธิ์');
+    clean(document.body);
+    await tap('คืนค่าเริ่มต้น'); // armed: it asks once more
     clean(document.body);
   });
 

@@ -88,7 +88,8 @@ export function restoreQueue(markInterrupted: boolean): void {
 export async function followOtherTab(runs: boolean): Promise<void> {
   // An aborted run still on its way out stays a mirror: the read-back below waits for it.
   if (!runs && running && abortedRun()) return;
-  // A read-back an aborted run still waits for counts as ended too: the next tick retries one
+  // A read-back an aborted run still waits for counts as ended too: the next ask of the lock
+  // (a lock change, focus, or the 30 s fallback: queue-sync createLockFollower) retries one
   // whose storage read failed (the mirror flag is already off by then).
   const ended = (otherTabRunning() || (abortedRun() !== null && !running)) && !runs;
   setOtherTabRuns(runs);

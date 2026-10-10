@@ -2,6 +2,7 @@ import '@/lib/debug-capture/background'; // FIRST: the debug page shows what goe
 import { browser } from 'wxt/browser';
 import { onMessage, sendMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
+import { openFromAutopilotNote, registerAutopilotAlarms, syncAutopilotAlarms } from '@/lib/claims/alarms';
 import { isChannelId } from '@/lib/claims/keys';
 import { initI18n, watchLang } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
@@ -71,6 +72,7 @@ export default defineBackground(() => {
     await notifyQueueDone(data, sender.tab);
   });
   browser.notifications.onClicked.addListener((id) => void openFromNotification(id));
+  browser.notifications.onClicked.addListener((id) => void openFromAutopilotNote(id).catch((e) => console.error('[ytup] autopilot note', e)));
 
   // One Studio tab drives Studio at a time (the queue or a copyright job), and one tab per
   // channel is its copyright worker (D21).
@@ -100,4 +102,8 @@ export default defineBackground(() => {
     }
   };
   registerRunnerLock(() => void tellStudioTabs());
+
+  // Auto-pilot: one alarm per channel wakes its worker tab (D25).
+  registerAutopilotAlarms();
+  void ready.then(() => syncAutopilotAlarms()).catch((e) => console.error('[ytup] autopilot alarms', e));
 });

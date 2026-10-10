@@ -13,7 +13,7 @@ npm run check    # tsc + vitest + port-check + ui-check --coverage — run befor
 npm run build    # .output/chrome-mv3 → chrome://extensions → Load unpacked
 ```
 
-Ported code is checked against the userscript at the pinned commit:
+Ported code is checked against the userscript at the pinned commit (v4.27.1, `d15ef87`):
 `npm run port-check` (configs in `scripts/port/`; `node scripts/port-check.mjs --print <name>`
 prints the code a port starts from).
 
@@ -22,8 +22,8 @@ Studio tab active in its window: it asks for a `QueueView` and sends `queue:*` m
 never touches Studio's DOM. Logic the panel needs lives in `lib/panel/` (unit-tested).
 `npm run ui-check` proves every shipped UI string is one of the userscript's `L()` pairs (or
 is listed with a reason in `scripts/strings/extension-only.mjs`) and that no text is below 12px;
-with `--coverage` (as in `npm run check`), also that every pair of the userscript's drawer is
-used by some `L()` call in the extension's shipping code or listed with a reason in
+with `--coverage` (as in `npm run check`), also that every pair of the userscript's drawer and
+copyright module is used by some `L()` call in the extension's shipping code or listed with a reason in
 `scripts/strings/dropped.mjs`. "Used" is not "shown in the panel": a pair kept alive only by
 page-side code (the FAB, page toasts) or by dead code passes too.
 `tests/panel-i18n.test.tsx` renders the whole panel (every tab, card state, question and banner),
@@ -44,6 +44,8 @@ Console lines from the extension start with `[ytup]`.
 - `lib/studio/txt.ts`, `lib/studio/sel.ts` — the `TXT` / `SEL` tables (see the root README)
 - `lib/claims/` — the copyright module ported from the userscript (`claims.ts`, port-checked); its
   data: per-channel keys, one writer (`claims:op` in the background)
+- `lib/claims/alarms.ts` — Auto-pilot's alarms in the background (one per channel at its next
+  cycle) and the "Auto-pilot is due" notification
 - `lib/main-youtubei.ts` — Studio's `/youtubei/v1` calls, run in the MAIN world
 - `entrypoints/sidepanel/` — the side panel (React); `lib/panel/` — its logic; `components/ui/` — shadcn-style components
 - `scripts/ui-check.mjs`, `scripts/strings/` — strings parity with the userscript, 12px floor
@@ -99,7 +101,8 @@ answers (Overview); the error log of every part of the extension (background, pa
 youtube.com pages, file bridge, debug page; newest first, filterable, each entry's stack on a
 click; it follows new entries live, and **Clear log** empties it); every stored key with its
 size and value, and under `storage.session` the automation lock (`runnerTabId`), what it is held
-for (`runnerJobs`) and the copyright worker of each channel (`claimsWorkers`); the open Studio
+for (`runnerJobs`) and the copyright worker of each channel (`claimsWorkers`), and under
+`storage.local` the Auto-pilot cycles already notified (`apNotified`); the open Studio
 tabs and whether each one's page script answers; the stored file handles and whether the queue
 uses them. It changes nothing except **Clear log**.
 
@@ -113,15 +116,39 @@ video ids); and log messages, which can quote titles. It contains no files and n
 (no cookies, tokens or YouTube auth headers: the extension never stores or logs them). Look it
 over before sending it outside your team. The log keeps the newest 300 entries in
 `chrome.storage.local` (`debugLog`), dropping info lines before warnings and errors; a line
-repeated back to back is kept once, shown with ×N. It is not part of a settings backup. Errors inside Studio's page-world script
+repeated back to back is kept once, shown with ×N. It is not part of a settings backup; nor is
+`apNotified`. Errors inside Studio's page-world script
 (`studio-main`) are not captured (it has no extension APIs): see Studio's DevTools console.
 
-## Phase 3 exit check (manual, in Chrome)
+## Exit checks (manual, in Chrome)
 
-Needs the logged-in Chrome profile. Run `npm run build`, reload the unpacked extension
-(`.output/chrome-mv3`), and **disable the userscript in Tampermonkey**. Use a test channel.
+Needs the logged-in Chrome profile, with **the userscript disabled in Tampermonkey**. Use a test
+channel.
+
+### Before you start: load or update the build
+
+Do this every time the build folder is new or was replaced (`npm run build` writes
+`.output/chrome-mv3`), in this order:
+
+1. Close the side panel in every Chrome window. Do not open it again until step 4.
+2. `chrome://extensions` → the extension's card → the round **reload** arrow. (First time: turn
+   on **Developer mode**, **Load unpacked**, pick the build folder.)
+3. Reload **every** open YouTube Studio tab and every open youtube.com tab (or close them and
+   open new ones).
+4. Now open the side panel.
+
+Why the order matters: the side panel reads its files from the folder each time it opens, but
+the background and the scripts inside the tabs keep running the old build until steps 2 and 3.
+A panel opened too early is a new panel talking to old scripts: it can show an error screen
+instead of the panel, an empty Copyright tab, or "This tab is not connected to the extension
+yet — reload this tab". Nothing it shows then can be trusted. If that happens, close the panel
+and do steps 2 to 4 again.
+
+### How to write the results down
+
 In Studio's DevTools, filter the console by `[ytup]` (the ported code also logs `[YT Presets]`
-and `[YT Upload Presets]`). Write down pass or fail for each item; any failure blocks Phase 4.
+and `[YT Upload Presets]`). Write down pass or fail for each item; any failure blocks the next
+phase.
 Items marked **record** ask for an observation; write down what happened.
 Settings are changed in the panel's Settings tab (no DevTools snippets any more).
 The panel's own console: right-click inside the panel → Inspect.
@@ -141,7 +168,9 @@ The panel's own console: right-click inside the panel → Inspect.
 2. **Look.** Black glass, Thai and English text in IBM Plex Sans Thai, nothing smaller than
    12px, icons on tabs and section headings. Tabs: Upload · Presets · Copyright · Settings; the
    Copyright tab shows the status card and Scan claims, then Claim list, Claimed songs, Fix
-   tracklist and Upload history, and the activity log under "Show activity ▾" (items 46 to 52).
+   tracklist and Upload history, and the activity log under "Show activity ▾"; since Phase 4b
+   also Ads off, Collab, Stop (while something runs), the Auto-pilot switch and Copyright
+   settings (items 46 to 74).
 3. **Language.** Settings → General → Language / ภาษา → ไทย: the whole panel switches at once,
    without a reload, with no English left. The next toast from Studio is Thai too. Switch
    back to English.
@@ -490,7 +519,7 @@ Record what happens; the Phase 0 spike results document
 
 ### Copyright, Phase 4a (scan, lists, one lock)
 
-Trim, Auto-pilot, Ads and Collab arrive in Phase 4b; these check what 4a added. Use a channel
+These check what 4a added (trim, Auto-pilot, Ads and Collab are items 54 to 74). Use a channel
 with at least one copyright claim.
 
 46. **Scan claims and the status card.** Copyright → **Scan claims**: the status card shows the
@@ -531,19 +560,245 @@ with at least one copyright claim.
 51. **CSV downloads in the real side panel.** **Upload history**, the claim list's **⬇ CSV**
     and Claimed songs' **⬇ CSV** each save a file from the side panel (no new tab, no blocked
     download). **Record** the file names and whether Chrome asked anything.
-52. **One worker per channel.** Open two Studio tabs on the same channel, then close the first.
-    In the service worker console, `await chrome.storage.session.get('claimsWorkers')` names one
-    tab for the channel before and the other tab afterwards (the debug page shows the same
-    value under Stored data → `storage.session`). Nothing in 4a asks for the lease
-    yet, so before Phase 4b the entry is empty: run this item with 4b's Auto-pilot (the closed
-    worker's tab is replaced at once; a tab that hangs, after about 20 s).
-53. **Start refused during copyright work (complete in 4b).** While another Studio tab holds
-    the lock for copyright work, this tab's panel shows "Another Studio tab is busy with
-    copyright work — wait for it, or press Stop in the Copyright tab", Start is disabled, and
-    a forced Start (item 16's way) toasts "Another Studio tab is already running the queue or
-    copyright work". Nothing in 4a takes the lock for copyright work (a scan takes none), so
-    this can only be run in full with 4b's trim; until then it is covered by unit tests
-    (`tests/panel-shell.test.tsx`, `tests/runner-lock.test.ts`).
+52. **One worker per channel.** Turn Auto-pilot on (item 69) with two Studio tabs open on the same
+    channel. In the service worker console, `await chrome.storage.session.get('claimsWorkers')`
+    (easier: the debug page, Settings → Troubleshooting → **Open debug page** → Stored data →
+    `storage.session` → `claimsWorkers`; reload the debug page to see it change. Item 42 says how
+    to open the service worker console.)
+    names one tab for the channel (`{ tabId, at }`, `at` moving about every 10 s). One cycle runs,
+    not two; during a run the other tab's card shows "↪ Running in another Studio tab". Close the
+    worker tab: within about 10–15 s the entry names the other tab, and it carries on. **Record** what
+    happens when the worker tab hangs instead (DevTools → pause script execution): the other tab
+    takes over after about 20–30 s.
+53. **Start refused during copyright work.** Start a trim run in Studio tab A (item 57). In tab B
+    the panel shows "Another Studio tab is busy with copyright work — wait for it, or press Stop in
+    the Copyright tab" with **Go to that tab**, Start is disabled, and a forced Start (item 16's
+    way) toasts "Another Studio tab is already running the queue or copyright work". When A's run
+    ends, B's banner goes and Start works.
+    - The banner appears within a second or two of A's run starting and goes as quickly when it
+      ends, A's tab is closed, or A's tab is moved to another site (type example.com in it) (tabs
+      are told when the lock changes; they no longer ask every
+      second). The same for item 18's "Another Studio tab is running the queue". **Record** a
+      banner that takes longer than a few seconds, or stays.
+    - **Record**: with a Studio tab open and nothing running, does the service worker go
+      "inactive" on `chrome://extensions` after about a minute? (Every Studio tab tells the
+      extension's background every 10 s that it is still there, so the background may stay
+      awake; that is expected, write down what you see.)
+
+### Phase 4: copyright (scan, trim, Auto-pilot)
+
+Use a test channel with at least two videos that carry claims (one with two claims), Studio in
+English. Write down pass or fail; items marked **record** ask for an observation.
+
+> **These items change real videos.** A saved trim cuts the video and its sound for good
+> (YouTube cannot undo it). "Turn on ads" changes a video's monetisation. A Collab invite adds
+> another channel to a video. Auto-pilot does all of the first two by itself, on every video its
+> rules pick, without asking.
+>
+> - Items 53, 57 to 60 and 62 to 64 (trim): only on videos you are willing to cut. Safest: upload a
+>   private or unlisted test video that contains a song you know gets claimed, wait for its
+>   claim, and trim that one.
+> - Item 65 (ads) and item 66 (Collab): tick only private test videos; for Collab invite a
+>   channel of your own.
+> - Items 52, 69 and 70 (Auto-pilot): first open Copyright settings, set "Max claims per cycle"
+>   to 1, and read the rules in the question before you turn it on. Use a channel where the only
+>   claims are on test videos.
+> - When you finish: turn Auto-pilot off, turn "When trimming manually…" off, set "Fully
+>   automatic trim", "Run every N hours" and "Check every N minutes" back, and switch Studio
+>   back to English after item 61.
+>
+> Suggested order for one sitting: 54 to 62, then 53 and 63 to 68, then 69, 52 and 70, then 71
+> to 74 (item 52 needs Auto-pilot on, item 53 needs a trim run).
+
+54. **Scan, on a claim-heavy channel.** (Items 46 and 51 cover the scan, the status card, the
+    lists and the CSV files.) Scan the channel with the most claims you have: the claim list shows
+    one card per claim with video, privacy · length, song · artists · label, claimant, ranges with
+    % of the video, and impact. Then open **Show activity ▾**: no "Unexpected answer from …"
+    lines. **Record** any, with its text (it names the endpoint and the field: Studio answered in
+    a shape the check doesn't know).
+55. **Scan before Studio loaded / not signed in.** Reload Studio and click Scan at once:
+    "Studio hasn't finished loading — try again in a few seconds" in the activity log. (Optional:
+    in a signed-out profile, "Not signed in (SAPISID cookie not found)".)
+    - **Record** how long the round button (bottom right in Studio) takes to appear after a
+      reload. It waits for the background to answer two questions first: normally well under a
+      second, 15 s at the very worst.
+56. **Picks.** Each chip ticks the right rows; ticks survive closing and reopening the panel and
+    show in another window's panel on the same channel.
+57. **Trim, automatic.** Tick one claim, **✂ Trim selected (1)** → the question (total length,
+    "Saved trims cannot be undone", ⚡ Fully automatic) → **Start trim**. The tab opens the
+    video's claims page, the card shows the steps (Open video → … → Confirm). When the run ends
+    open **Claim list** again: the claim's card says "✅ Trimmed" with its range; the Upload tab's
+    queue is untouched. **Record** the time it took.
+    - **The right claim.** On a video with several claims (best: two with the same song title),
+      turn on review mode (item 59) and, before you click Save, compare the times in YouTube's
+      trim editor with the range on that claim's card: they are the same claim's.
+    - **The confirmation.** In automatic mode the "I acknowledge" box of YouTube's "Confirm
+      changes" dialog gets ticked, Confirm is clicked, and an "OK" / "Got it" dialog that follows
+      is closed. The activity log says "✔ Trim confirmed …".
+    - **When YouTube says no.** **Record** what a claim that can't be trimmed ends as (no "Take
+      action" button, the Trim option greyed out, the editor not opening): its card shows ❌ with
+      a reason, YouTube's dialogs are closed, and the run goes on to the next claim.
+58. **Several claims on one video.** Trim both claims of the two-claim video: the first trims, the
+    second shows "⏳ Queued — will trim after the previous trim on this video finishes"; the card
+    says "Waiting for YouTube to process trims" with the next check time. Set Copyright settings →
+    "Check every N minutes" to 2 and wait: the second trims after YouTube finishes (can take hours;
+    **record** whether it happened before the end of the session).
+    - While YouTube is still working the activity log says "⏳ …: previous trim still processing".
+      A claim that YouTube released meanwhile ends "✅ Claim gone". Reloading the Studio tab
+      checks at once instead of waiting for the next check time. Leave the tab hidden for more
+      than five minutes while it waits: the check still happens, up to a minute late.
+59. **Review mode.** Turn off "Fully automatic trim": the trim editor opens and waits ("👉 Your
+    turn…"); Cancel ends it "⏭ Skipped"; Save + I acknowledge + Confirm changes ends it "✅ Trimmed".
+    - While the editor waits for you, another Studio tab can't start its queue (item 53's
+      banner): a review holds the one lock until you answer.
+60. **Stop.** During a run, **Stop** (also from a second window's panel on another Studio tab of the
+    same channel): the run ends after the current step, "You stopped it: …"; queued follow-ups are
+    cancelled ("Cancelled N queued follow-up trims").
+    - Try Stop during a trim, during an ads run (item 65) and during a Collab run (item 66):
+      after the step in progress nothing more is clicked.
+    - With the run in a tab of **another window**, Stop in this window's panel still reaches it.
+61. **Studio in Thai.** Switch Studio to Thai: the red warning shows on the Copyright tab, Scan still
+    works, a trim fails with "Studio is not set to English — switch to English and try again" and
+    nothing is clicked on the page.
+62. **Manual trim auto-save.** Copyright settings → turn on "When trimming manually…"; trim a claim
+    by hand in Studio: Save is clicked about 1.5 s after the editor opens, Confirm changes is ticked
+    and confirmed. Turn it off again: nothing is clicked for you. During a trim run the helper is
+    off: the run does its own clicks.
+    - **Copyright settings, the view itself.** Ten settings in two groups. **Save** closes the
+      view and toasts; **Reset to defaults** asks once more; **Cancel** changes nothing. In a
+      short panel the three buttons stay at the bottom edge while the list scrolls. With the
+      keyboard only: Tab reaches every field and button in order. With a screen reader each
+      field is read with its label and, where it has one, its help text. **Record** anything
+      that isn't.
+63. **One lock.** Start a trim run in Studio tab A; in tab B (same browser) the Upload tab's Start is
+    disabled with "Another Studio tab is busy with copyright work — wait for it, or press Stop in
+    the Copyright tab" and **Go to that tab**. Reverse: with a queue running in A, a trim run
+    started in B (another channel) waits at its first page change (its card shows "⏸ Waiting for
+    another Studio tab to finish (page change needed)") and goes on after A's queue ends. (An
+    Auto-pilot cycle that comes due in B while A's queue runs still scans, because scans take no
+    lock; the trims it then starts wait the same way.) With no tab running the queue, a trim, ads
+    or Collab run waits while the queue has **waiting** videos ("⏸ Waiting for the upload queue to clear…"); a **failed**
+    upload left in the queue doesn't hold it back.
+    - **A waiting run doesn't block the others.** Put two clips in A's queue without starting,
+      then start a trim run from A's panel: it waits for the queue. Now in B, Start (or a trim
+      run) works. When the queue is clear again, A's run goes on by itself.
+    - **The channel changed elsewhere.** During a run in A, switch channel in another Studio
+      tab. A's next page is on the new channel: the run stops there (it is kept for the old
+      channel) and other tabs can start again.
+64. **Run survives page changes; takeover.** During a run with 3 claims on different videos, the tab
+    changes pages per video and keeps going. Close that tab mid-run with a second Studio tab on the
+    same channel open: the second tab continues within about 10–15 s.
+    - While the run changes pages, the other tab's card says "↪ Running in another Studio tab".
+      In the running tab's panel open **Fix tracklist** (or Copyright settings) during the run:
+      the view stays open through each page change. (The Claim list button is hidden while a
+      run is going; that is expected.)
+    - **A hidden tab.** Start a run in A, switch to another tab or window and leave A hidden
+      for more than five minutes: the run keeps going (slowly: Chrome wakes a hidden tab about
+      once a minute). It must not stop for good with A saying "Running in another Studio tab"
+      and B saying "Waiting for another Studio tab".
+    - **Memory Saver.** If Chrome discards the running tab (`chrome://discards` → Urgent
+      Discard), the other tab takes over as if it had been closed. With a third thing to watch:
+      B's "Another Studio tab is busy…" banner goes within a few seconds of the discard.
+      **Record** if it takes about 30 s.
+    - **Back button. Record**: can Chrome bring a Studio video page back from its Back-button
+      memory (the "back/forward cache": Chrome keeps the last page frozen so Back is instant)?
+      Check: in the running tab, DevTools → Application → Back/forward cache → **Test
+      back/forward cache** on a video's claims page, and write down what it says. If it says
+      the page can be restored: start a run with claims on two videos, wait until the tab has
+      moved to the second video's page, and press Back once. The first video's page must load
+      again by itself (you see it reload) and click nothing; the run then goes on. **Record**
+      a page that comes back and clicks Save or Confirm without reloading. Also, if pages can
+      be restored: move an idle Studio tab B to another site, start the queue in A, press Back
+      in B: within a second or two B refuses a queue edit with "Another Studio tab is running
+      the queue — change the queue there".
+    - **Extension reloaded mid-step.** Reload the extension on `chrome://extensions` while a
+      trim step is on screen: the old page stops before "Confirm changes". Reload the tab; the
+      run goes on.
+65. **Ads.** **Ads off** (first time: it scans) → the list with ineligible ones marked → **💰 Turn
+    on ads (N)**: each video's monetisation page opens, "None of the above" is answered when asked,
+    Save; the status card counts the videos, and when the run ends open **Ads off** again: each
+    card says "✅ Turned on". **Record** any "YouTube asked more after Save" message.
+    - A video whose ads were already on: nothing is clicked, the activity log says "✅ Ads turned
+      on: … (Already on)" and its card says "✅ Turned on".
+    - **↻ Recheck** with a list already there: when the new list opens, the ticks start again
+      from the new list and the number on **💰 Turn on ads (N)** matches the ticked rows.
+66. **Collab in bulk.** **Collab** → type `@handle` (kept after reopening), pick videos, **🤝 Invite
+    (N videos)**:
+    each video's edit page opens, the invite is sent and saved; "Invite links" lists the link with
+    **Copy**. If the handle is one of your own channels (in the channel list), the tab switches to
+    it and accepts (with "Auto-accept channel permission invites" on).
+    - **Copy** puts the link on the clipboard and toasts "Copied …'s link". If Chrome refuses
+      the clipboard, the toast is "Couldn't copy".
+    - Type a handle and close the side panel straight away, then open it again: the handle is
+      there. **Record** if the last letters are missing.
+    - **A large channel. Record** how typing in the handles box and ticking feel in the Collab
+      view on the channel with the most videos you have (see "Known behaviour, Phase 4b").
+    - The switch to your own channel does not happen while the upload queue has work, here or
+      in another tab.
+    - **Narrow, both themes.** At about 320px, light and dark, English and Thai: the Copyright
+      tab's buttons, the trim and Auto-pilot questions, the Ads and Collab views and Copyright
+      settings show no sideways scroll and no clipped button; the "Select:" chips are readable;
+      the small dot on the Copyright tab's name (while something runs) doesn't push the name
+      out of the tab bar.
+67. **Claimed songs.** The list searches and sorts; ✕ asks "Sure?"; ⬇ CSV / ⬆ Import CSV round-trip
+    (`claimed-songs-*.csv` from the userscript imports with "Imported N songs into history");
+    "Delete all" asks once more ("Press again to delete all"). A `.txt` dropped into the queue with
+    a claimed song shows "1 song(s) previously claimed" on its card, the tooltip listing it. A card
+    that was in the queue before the scan gets the chip after it, without reloading the tab.
+68. **Tracklist fix.** **Fix tracklist** → pick a trimmed video: its upload-history tracklist is
+    filled in, the trimmed range ticked, the new tracklist has the cut song removed and later
+    times moved up; **Copy new tracklist** toasts. A `.txt` dropped on "Original tracklist" replaces it.
+69. **Auto-pilot.** Turn it on (the question lists the rules) with "Run every N hours" = 0.5: the
+    card says "Auto-pilot is on · Next scan + trim in …"; within a minute a cycle scans and trims
+    what the rules pick. Afterwards, in the service worker console, `await chrome.alarms.getAll()`
+    shows one `ap:<channelId>` at the next cycle (none while a cycle is due). Turn it off: the
+    alarm is gone.
+    - **Two tabs, one channel.** Open a second Studio tab on the same channel: one cycle runs (one
+      "🤖 Auto-pilot starting a new cycle" in the log), not two; the other tab's card shows
+      "↪ Running in another Studio tab" during runs.
+    - **The rules.** With nothing left to trim the log says "🤖 Nothing to trim, next check …".
+      Copyright settings → "Also turn on ads for videos that have them off": on, a cycle that
+      has nothing to trim also turns ads on; off, it doesn't. Clips waiting in the upload
+      queue hold the cycle back until the queue is clear.
+    - If the panel opens on a Studio tab that doesn't know its channel yet (the first moment
+      of a page load), the switch is greyed out until it does.
+70. **Auto-pilot with no Studio tab.** With Auto-pilot on, a few minutes before its next cycle
+    (the card's "Next scan + trim in …"), close every Studio tab, wait past the time, then open
+    Studio on that channel: the cycle starts within a few seconds of the page loading. While you
+    waited, the extension's card on `chrome://extensions` showed its service worker as
+    "inactive" (**record** if it never did). **Record** whether a backgrounded
+    Studio tab started its cycle on time (the alarm wakes it); a tab Chrome discarded (Memory Saver)
+    has no script and does not wake.
+    - **The "due" notification.** In that same wait, when the cycle's time came with no Studio tab
+      open, one desktop notification "Auto-pilot is due" naming the channel appears (once: restarting
+      Chrome or the extension doesn't show it again for the same cycle). Clicking it opens Studio on
+      that channel in a new tab, and the cycle starts there within a few seconds. With a Studio tab
+      on that channel open, no notification. The computer must be awake and Chrome running at
+      the cycle's time (see "Known behaviour, Phase 4b").
+    - **A tab hidden for a long time.** Leave the channel's Studio tab hidden for more than
+      five minutes across a cycle's time: the cycle starts on time and **no** notification
+      appears.
+    - **In Thai.** With the panel's language set to Thai, the notification is in Thai
+      ("Auto-pilot ถึงรอบแล้ว"). **Record** its language when it is the first thing that happens
+      after Chrome sat idle for a while (it can come out in English then).
+    - **No window open (macOS).** Close every Chrome window but leave Chrome running, then click
+      the notification: a new window opens with Studio on that channel.
+    - **Chrome closed at the cycle's time.** Quit Chrome before the cycle's time and start it
+      after: no notification; the cycle starts when a Studio tab on that channel loads.
+    - **The notification goes away.** Leave it unclicked and open Studio on the channel
+      yourself: once the cycle has started, the notification is withdrawn.
+71. **Scheduled slots after a trim run.** (Item 47 covers the scheduler avoiding a taken slot.)
+    Repeat item 47 right after a trim run changed pages in that tab: the schedule box still
+    skips the taken slot (the scheduled list is read again on the new page).
+72. **Two windows, one queue.** Two windows with panels on two idle Studio tabs: edit a card's
+    title in one and another card's title in the other within half a second: both edits stay.
+73. **Settings changed after the summary.** Open the start summary in window A, turn scheduling off
+    in window B's panel, confirm in A: "Settings or presets changed after you confirmed — click
+    Start again to see the new summary".
+74. **Activity log.** **Show activity ▾** shows the lines of scans and trims (they survive the
+    trim's page changes); the open/closed choice is kept.
+    - **When a save fails. Record** only if you see it: "Couldn't save (…)" appears once per
+      message per minute, not on every tick.
 
 ### Known behaviour, Phase 4a (note, don't test)
 
@@ -569,11 +824,67 @@ with at least one copyright claim.
   later; an open claim list, song list or tracklist editor stays open, and closes only when the
   new page is on another channel. Clicking around inside Studio changes nothing here. When the
   tab came back without the extension's script (the "reload this tab" banner says so), the
-  Copyright tab shows no status, its buttons are off and an open view closes. The activity log
-  keeps its lines.
+  Copyright tab shows no status and Scan is off; the lists, Copyright settings and Fix tracklist
+  still open from what is stored, and an open view stays open. The activity log keeps its lines.
+
+### Known behaviour, Phase 4b (note, don't test)
+
+- **One lock for every Studio tab.** Only one tab changes Studio's pages at a time, whatever
+  the channel: an upload run, or a trim / ads / Collab run. A run in review mode keeps the lock
+  while it waits for you, so other tabs can't upload meanwhile. A run that is only waiting for
+  the upload queue gives the lock back while it waits. Scans take no lock.
+- **A hidden tab is slow.** Chrome wakes a tab that has been hidden for more than five minutes
+  about once a minute, so a run or an Auto-pilot scan in a tab you never look at takes much
+  longer, as it did in the userscript. Keep the working tab in its own window if time matters.
+- **Copyright settings: Save writes all ten settings as the view shows them.** A setting changed
+  in another window while the view was open is overwritten by Save (the userscript's settings
+  window did the same). Close and reopen the view to see the latest values first.
+- **The "Auto-pilot is due" notification** appears only if the computer is awake and Chrome is
+  running at the cycle's time. An alarm that goes off more than a minute late (the computer
+  slept, or Chrome was closed) still wakes a Studio tab if there is one, but shows no
+  notification; the cycle then starts when a Studio tab on that channel is open. The wake-up
+  also goes to an open Studio tab that has been hidden so long that it looks idle.
+  - It says "No YouTube Studio tab for … is open" in two cases where a tab is open but can't
+    work: a tab Chrome discarded (Memory Saver), and a tab that is in the middle of loading or
+    was opened before the extension was loaded. Clicking opens a second tab; that is harmless.
+  - Its language can be English for a Thai user when it is the first thing the extension does
+    after Chrome was idle (the language setting may not have been read yet).
+  - Each notified cycle is remembered in `apNotified` (`chrome.storage.local`, not part of a
+    settings backup), so a restart doesn't repeat it. Two channels coming due in the very same
+    instant can lose one of the two entries; nothing else uses that list.
+  - Every time the background wakes it reads all stored data once to find the channels with
+    Auto-pilot on. With a very large scan or song history that takes a moment; nothing waits
+    for it.
+- **A tab without the extension's script** (the "reload this tab" banner shows): the status card
+  is gone and Scan is off. If the panel was already open on that tab, Claim list, Claimed songs,
+  Copyright settings and Fix tracklist still open from what is stored, and a view that was open
+  stays open. A panel opened on such a tab for the first time has every Copyright button except
+  Upload history greyed out and no Auto-pilot switch until the tab is reloaded.
+- **Large Collab lists.** The Collab view shows every video of the channel, and each keystroke in
+  the handles box and each tick redraws all of them: about 70 ms per keystroke at 3,000 videos
+  (measured in tests; Chrome is faster). Fine up to a few hundred videos; typing may feel heavy
+  on a very large channel.
+- **Ads: "already on" is read from the first video of YouTube's answer**, as in the userscript.
+  A wrong "on" only records "Already on" and clicks nothing.
+- **Auto-pilot, rare cases.** If the cycle's own time can't be saved (the background is not
+  answering), the tab starts the cycle again after each scan until it can. If Studio turns out
+  to be on another channel when the cycle begins, that cycle is skipped until its next time,
+  with a console warning only.
+- **Auto-pilot is never on for a tab that doesn't know its channel.** The switch is greyed out
+  until the page says which channel it is on.
+- **Back button during a step.** A page that Chrome kept for the Back button never carries on
+  with a copyright step: when it is shown again it reloads and the run goes on from what is
+  stored. A page that comes back with nothing in flight just keeps working. During the Collab invite itself only the reload protects (the invite's own waits are
+  the upload code's); whether Studio's video pages are ever kept this way is item 64's record.
+- **Userscript parity worth knowing.** A step checks which page it is on once, when it starts.
+  If you click over to another video's page while a step is waiting, the ads step (and a trim
+  step on a video with a single claim) acts on the page that is there. Don't click around in the
+  working tab during a run.
 
 ### Known, dev only (note, don't test)
 
 - After a full extension reload during `npm run dev`, WXT re-injects the content script and
   the old instance's "reload this tab" banner can stay over a working page (review M8).
   Production Chrome doesn't re-inject into open tabs.
+- Phase 4b's plan had a unit of source pins for the entrypoints' guards (unit E). It was
+  dropped: every one of those guards already fails a 4a test when removed.

@@ -17,7 +17,8 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 export async function armAutopilot(ch: string, value: unknown, now = Date.now()): Promise<void> {
   const name = AP_ALARM + ch;
-  const next = isObj(value) && value.on === true ? Number(value.next) || 0 : 0;
+  // 'unknown' is no channel (a key an older build may have left): never armed.
+  const next = ch !== 'unknown' && isObj(value) && value.on === true ? Number(value.next) || 0 : 0;
   const cur = await browser.alarms.get(name);
   if (next <= now) {
     if (cur) await browser.alarms.clear(name);
