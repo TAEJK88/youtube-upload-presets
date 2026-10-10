@@ -34,43 +34,63 @@ describe('song history reducers', () => {
     expect(importSongs(db, 'title\nx', '2026-10-01T00:00:00Z')).toBe(-1);
   });
   // A hostile or broken file must not hold the panel, nor the background's one writer (T8 review I2).
-  describe('importSongs stays linear in the size of the file', () => {
+  // Measured as growth, not wall time: a 1.5 s limit failed whenever the machine was busy (final
+  // review I1). The 60 s is for a busy machine only (the 34 MB file below takes about 1 s alone,
+  // and ran past the default 5 s with four suites going at once).
+  describe('importSongs stays linear in the size of the file', { timeout: 60_000 }, () => {
     const NOW = '2026-10-01T00:00:00Z';
-    const timed = (csv: string, db: Songs = {}) => {
-      const t = performance.now();
-      const n = importSongs(db, csv, NOW);
-      return { n, ms: performance.now() - t, db };
+    const run = (csv: string, db: Songs = {}) => ({ n: importSongs(db, csv, NOW), db });
+    // This process's CPU time, which other processes' work doesn't add to.
+    const cpu = (fn: () => void) => {
+      const t = process.cpuUsage();
+      fn();
+      const d = process.cpuUsage(t);
+      return d.user + d.system;
     };
+    // How the time grows with the input, as an exponent: one file sixteen times the size against
+    // the small one read sixteen times (the same work when linear), the best of five each.
+    const growth = (csv: (n: number) => string, n: number) => {
+      const small = csv(n), big = csv(16 * n);
+      let a = Infinity, b = Infinity;
+      for (let i = 0; i < 5; i++) {
+        a = Math.min(a, cpu(() => { for (let j = 0; j < 16; j++) run(small); }));
+        b = Math.min(b, cpu(() => run(big)));
+      }
+      return 1 + Math.log(b / a) / Math.log(16);
+    };
+    const LINEAR = 1.6; // linear code measures 1.0 to 1.4 here (memory gets slower as it grows), quadratic code 1.8 to 2.2
+    const seq = (n: number, f: (i: number) => string) => Array.from({ length: n }, (_, i) => f(i));
+
+    const oneSong = (n: number) => 'song,videos\nS,' + seq(n, (i) => 'v' + i).join('|') + '\n';
     it('one song claimed in 20,000 videos', () => {
-      const names = Array.from({ length: 20_000 }, (_, i) => 'v' + i);
-      const r = timed('song,videos\nS,' + names.join('|') + '\n');
-      expect(Object.keys(r.db['s|']!.videos)).toHaveLength(20_000);
-      expect(r.ms).toBeLessThan(1000);
+      expect(Object.keys(run(oneSong(20_000)).db['s|']!.videos)).toHaveLength(20_000);
+      expect(growth(oneSong, 1250)).toBeLessThan(LINEAR);
     });
+    const oneSongRows = (n: number) => 'song,claimants,claim_type,videos\n' + seq(n, (i) => `S,c${i},t${i},v${i}`).join('\n') + '\n';
     it('one song repeated on 20,000 rows, each adding a video, a claimant and a type', () => {
-      const rows = Array.from({ length: 20_000 }, (_, i) => `S,c${i},t${i},v${i}`);
-      const r = timed('song,claimants,claim_type,videos\n' + rows.join('\n') + '\n');
+      const r = run(oneSongRows(20_000));
       expect(r.n).toBe(20_000);
       const e = r.db['s|']!;
       expect([Object.keys(e.videos).length, e.claimants.length, e.types.length]).toEqual([20_000, 20_000, 20_000]);
-      expect(r.ms).toBeLessThan(1000);
+      expect(growth(oneSongRows, 1250)).toBeLessThan(LINEAR);
     });
     it('20,000 claimants and types in one row, a long channel list, a header of 20,000 columns', () => {
-      const many = (p: string) => Array.from({ length: 20_000 }, (_, i) => p + i).join(';');
-      const head = Array.from({ length: 20_000 }, (_, i) => 'x' + i).join(',') + ',song,claimants,claim_type,channels,videos';
+      const many = (p: string, n = 20_000) => seq(n, (i) => p + i).join(';');
+      const head = seq(20_000, (i) => 'x' + i).join(',') + ',song,claimants,claim_type,channels,videos';
       const cells = ','.repeat(20_000);
-      const rows = Array.from({ length: 200 }, (_, i) => `${cells}S${i},,,${many('ch')},${Array.from({ length: 100 }, (_, j) => 'v' + j).join('|')}`);
-      const r = timed(`${head}\n${cells}S,${many('c')},${many('t')},,\n${rows.join('\n')}\n`);
+      const rows = seq(200, (i) => `${cells}S${i},,,${many('ch')},${seq(100, (j) => 'v' + j).join('|')}`);
+      const r = run(`${head}\n${cells}S,${many('c')},${many('t')},,\n${rows.join('\n')}\n`);
       expect(r.db['s|']!.claimants).toHaveLength(20_000);
       expect(r.db['s|']!.types).toHaveLength(20_000);
       expect(r.db['s0|']!.videos['import:v0:0']!.channel).toBe('ch0');
-      expect(r.ms).toBeLessThan(1500);
+      // the claimants and types alone: the 34 MB above is mostly cells, read once each
+      expect(growth((n) => `song,claimants,claim_type\nS,${many('c', n)},${many('t', n)}\n`, 1250)).toBeLessThan(LINEAR);
     });
     it('a header of 200,000 columns, most of the columns it looks for missing', () => {
-      const head = 'song,' + Array.from({ length: 200_000 }, (_, i) => 'x' + i).join(',');
-      const r = timed(head + '\n' + Array.from({ length: 5000 }, (_, i) => 'S' + i).join('\n') + '\n');
-      expect(r.n).toBe(5000);
-      expect(r.ms).toBeLessThan(1000);
+      const wide = (cols: number, songs: number) => 'song,' + seq(cols, (i) => 'x' + i).join(',') + '\n' + seq(songs, (i) => 'S' + i).join('\n') + '\n';
+      expect(run(wide(200_000, 5000)).n).toBe(5000);
+      // columns and rows grow together: a search of the header per cell would be quadratic
+      expect(growth((n) => wide(n, n / 10), 12_500)).toBeLessThan(LINEAR);
     });
     it('a column named twice is read from its first place, as before', () => {
       const db: Songs = {};

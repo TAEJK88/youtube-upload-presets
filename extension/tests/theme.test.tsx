@@ -169,7 +169,8 @@ describe('wiring', () => {
   // The entry <script type="module"> is render-blocking, so a stored light theme is set before
   // Chrome paints the empty page with the dark defaults. Vite rewrites the entry tag and drops
   // the attribute from index.html, so a plugin in wxt.config.ts puts it on the built tag.
-  it('the built panel and debug page entry scripts are render-blocking', async () => {
+  // 30 s: importing wxt.config loads WXT and Vite, which took over the default 5 s on a busy machine.
+  it('the built panel and debug page entry scripts are render-blocking', { timeout: 30_000 }, async () => {
     const { renderBlocking } = await import('../wxt.config');
     const { handler } = renderBlocking().transformIndexHtml as { handler: (html: string, ctx: { filename: string }) => string };
     const built = '<head>\n    <script type="module" crossorigin src="/chunks/sidepanel-x.js"></script>\n    <link rel="modulepreload" crossorigin href="/chunks/a.js">\n</head>';
