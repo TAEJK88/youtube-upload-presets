@@ -9,6 +9,7 @@ import { downloadCsv } from '@/lib/panel/download';
 import { Section } from '../fields';
 import { Icon } from '../Icon';
 import { useClaims, usePanel } from '../panel';
+import { saveFailed } from '../save-failed';
 import { ActivityLog } from './copyright/ActivityLog';
 import { ClaimList } from './copyright/ClaimList';
 import { Songs } from './copyright/Songs';
@@ -31,7 +32,29 @@ export function useClaimsData(ch: string | null): ClaimsData | null {
     const off = watchClaims(ch, (d) => { if (alive) setData(d); });
     return () => { alive = false; off(); };
   }, [ch]);
-  return data;
+  // Never another channel's data: the bound tab moved and the new read is pending, or failed.
+  return data?.ch === ch ? data : null;
+}
+
+// What the pane keeps for every channel, read without a Studio tab: whether the activity log
+// is open (logOpen, 6184) and how many songs were ever claimed (songHistory, 5066).
+const GLOBALS = ['logOpen', 'songHistory'];
+function useClaimsGlobals(): { logOpen: boolean; songs: number } {
+  const [g, setG] = useState({ logOpen: false, songs: 0 });
+  useEffect(() => {
+    let alive = true;
+    const read = () => void browser.storage.local.get(GLOBALS).then((raw) => {
+      const songs = raw.songHistory;
+      if (alive) setG({ logOpen: raw.logOpen === true, songs: songs && typeof songs === 'object' && !Array.isArray(songs) ? Object.keys(songs).length : 0 });
+    }).catch((e) => console.error('[ytup] read copyright data', e));
+    const changed = (changes: Record<string, unknown>, area: string) => {
+      if (area === 'local' && GLOBALS.some((k) => k in changes)) read();
+    };
+    read();
+    browser.storage.onChanged.addListener(changed);
+    return () => { alive = false; browser.storage.onChanged.removeListener(changed); };
+  }, []);
+  return g;
 }
 
 const failed = (e: unknown) => {
@@ -43,12 +66,15 @@ export function CopyrightTab() {
   const { send } = usePanel();
   const { state, live, log, shown } = useClaims();
   const data = useClaimsData(state?.channel ?? null);
+  const stored = useClaimsGlobals();
   const [view, setView] = useState<CopyrightView>({ name: 'home' });
   const [openLog, setOpenLog] = useState<boolean | null>(null);
   const home = () => setView({ name: 'home' });
   // A scan started here ended in the bound tab: open its list (showClaims() after scanClaims()).
   useEffect(() => {
-    if (shown) setView({ name: shown.view } as CopyrightView); // claims / ads / collab: each a view with no other field
+    if (!shown) return;
+    const next: CopyrightView = { name: shown.view };
+    setView(next);
   }, [shown]);
 
   if (data && state) {
@@ -62,14 +88,19 @@ export function CopyrightTab() {
   const busy = !!s && (s.busyRun || s.busyScan);
   const scan = () => void send('claims:scan', 'claims').catch(failed);
   const uploads = async () => {
-    const list = (await browser.storage.local.get('uploads')).uploads;
-    downloadCsv(uploadsCsvRows(Array.isArray(list) ? (list as UploadRecordLike[]) : []), `uploads-${new Date().toISOString().slice(0, 10)}.csv`);
+    try {
+      const list = (await browser.storage.local.get('uploads')).uploads;
+      downloadCsv(uploadsCsvRows(Array.isArray(list) ? (list as UploadRecordLike[]) : []), `uploads-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (e) {
+      console.error('[ytup] upload history', e);
+      toast(L(`ส่งออกไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't export (${(e as Error)?.message ?? e})`));
+    }
   };
   // logOpen is stored (6201) and also follows this click at once.
-  const logOpen = openLog ?? data?.logOpen ?? false;
+  const logOpen = openLog ?? stored.logOpen;
   const toggleLog = () => {
     setOpenLog(!logOpen);
-    void claimsWrite({ op: 'set', key: 'logOpen', value: !logOpen }).catch(failed);
+    void claimsWrite({ op: 'set', key: 'logOpen', value: !logOpen }).catch(saveFailed);
   };
   return (
     <div>
@@ -90,7 +121,7 @@ export function CopyrightTab() {
             </Button>
             <Button className="basis-full" onClick={() => setView({ name: 'songs' })} disabled={!data}
               title={L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels')}>
-              <Icon name="music" size={16} />{L(`เพลงที่เคยโดน (${n?.songs ?? 0})`, `Claimed songs (${n?.songs ?? 0})`)}
+              <Icon name="music" size={16} />{L(`เพลงที่เคยโดน (${n?.songs ?? stored.songs})`, `Claimed songs (${n?.songs ?? stored.songs})`)}
             </Button>
           </div>
         )}
@@ -98,7 +129,7 @@ export function CopyrightTab() {
       <Section>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => setView({ name: 'tracklist', videoId: '' })} disabled={!data}><Icon name="note" size={14} />{L('แก้ tracklist', 'Fix tracklist')}</Button>
-          <Button size="sm" onClick={() => void uploads().catch((e) => console.error('[ytup] upload history', e))} title={L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script')}>
+          <Button size="sm" onClick={() => void uploads()} title={L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script')}>
             <Icon name="history" size={14} />{L('ประวัติการอัป', 'Upload history')}
           </Button>
         </div>

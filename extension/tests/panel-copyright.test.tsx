@@ -72,6 +72,38 @@ describe('Copyright tab', () => {
     expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
   });
 
+  it('another tab holding the lock, idle: this tab\'s counts, not that tab\'s', () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }), live: claimsStateWith({ counts: { ...counts, claims: 7, songs: 1 } }) }));
+    expect(screen.getByRole('button', { name: 'Claim list (4)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Claimed songs (9)' })).toBeTruthy();
+  });
+
+  it('the card says its kind: the icon and the edge take the kind\'s colour', () => {
+    const card = (kind: string, icon = '⚠') => {
+      cleanup();
+      renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ status: { icon, kind, title: 'Card', detail: 'More' } }) }));
+      const title = screen.getByText('Card');
+      return { icon: title.previousElementSibling!.className, box: title.parentElement!.parentElement!, detail: screen.getByText('More').className };
+    };
+    for (const [kind, tone] of [['err', 'err'], ['busy', 'info'], ['wait', 'warn'], ['ok', 'ok']] as const) {
+      const c = card(kind);
+      expect(c.icon).toContain(`text-${tone}`);
+      expect(c.box.className).toContain(`border-${tone}/`);
+    }
+    const idle = card('idle', '✓');
+    expect(idle.icon).toContain('text-fg2');
+    expect(idle.box.className).not.toMatch(/border-(err|info|warn|ok)/);
+    expect(idle.detail).toContain('text-fg2'); // the userscript's .de (2825)
+    // the card changes about every 0.8 s during a scan: not a live region
+    expect(idle.box.hasAttribute('role')).toBe(false);
+    expect(idle.box.closest('[aria-live]')).toBe(null);
+  });
+
+  it('a step detail without steps is not shown', () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ status: { icon: '✓', kind: 'idle', title: 'Ready', detail: '', stepDetail: 'Orphan' } }) }));
+    expect(screen.queryByText('Orphan')).toBe(null);
+  });
+
   it('a run shows its steps, the current one marked, and a moving bar when no number is known', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ busyRun: true,
       status: { icon: '✂', kind: 'busy', title: 'Trimming 1 / 2', detail: 'Mix', progress: null, steps: ['Open', 'Trim', 'Save'], stepIdx: 1, stepDetail: 'Waiting for the editor' } }) }));
@@ -94,7 +126,7 @@ describe('Copyright tab', () => {
 
   it('no Studio tab bound: no card, and nothing to scan or open', () => {
     renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined, fakeClaims({ state: null, live: null }));
-    expect(screen.queryByRole('status')).toBe(null);
+    expect(screen.queryByText('Ready')).toBe(null);
     for (const name of [/Scan claims/, /Claim list/, /Claimed songs/, /Fix tracklist/]) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
     }
@@ -108,12 +140,64 @@ describe('Copyright tab', () => {
     await waitFor(() => expect(list.disabled).toBe(false));
   });
 
+  const ready = () => waitFor(() => expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(false));
+
   it('a scan that ended in the bound tab opens its list', async () => {
     const claims = fakeClaims();
     const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
-    await waitFor(() => expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(false));
+    await ready();
     r.rerender(wrap({ ...claims, shown: { view: 'claims', n: 1 } }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null)); // the list's view took the tab
+    expect(await screen.findByRole('heading', { name: 'Copyright claims — Mine' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null); // the list's view took the tab
+  });
+
+  it('each view opens with its title and closes back to the tab', async () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    for (const [button, title] of [
+      [/Claim list/, 'Copyright claims — Mine'], [/Claimed songs/, '🎵 Previously claimed songs'], [/Fix tracklist/, '📝 Choose a video to fix its tracklist'],
+    ] as const) {
+      fireEvent.click(screen.getByRole('button', { name: button }));
+      expect(screen.getByRole('heading', { name: title })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(screen.queryByRole('heading', { name: title })).toBe(null);
+      expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+    }
+  });
+
+  it('follows the channel\'s stored data: a scan stored later shows in the open view', async () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
+    expect(screen.getByRole('heading', { name: 'Copyright claims — Mine' })).toBeTruthy();
+    await act(async () => { await fakeBrowser.storage.local.set({ 'claimScan:UC1': { date: '', total: 0, rows: [], channel: 'UC1', channelName: 'Scanned as' } }); });
+    expect(await screen.findByRole('heading', { name: 'Copyright claims — Scanned as' })).toBeTruthy();
+    // another channel's key is not this tab's
+    await act(async () => { await fakeBrowser.storage.local.set({ 'claimScan:UC2': { date: '', total: 0, rows: [], channel: 'UC2', channelName: 'Other' } }); });
+    await act(async () => {});
+    expect(screen.getByRole('heading', { name: 'Copyright claims — Scanned as' })).toBeTruthy();
+  });
+
+  it('the bound tab moves to another channel: the first channel\'s data is gone at once, and stays gone if the read fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': { date: '', total: 0, rows: [], channel: 'UC1', channelName: 'First' } });
+    const claims = fakeClaims();
+    const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
+    expect(screen.getByRole('heading', { name: 'Copyright claims — First' })).toBeTruthy();
+
+    let fail!: (e: Error) => void;
+    vi.spyOn(fakeBrowser.storage.local, 'get').mockReturnValue(new Promise((_, no) => { fail = no; }) as never);
+    const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
+    r.rerender(wrap({ ...claims, state: moved, live: moved }));
+    // the read of UC2 is pending: no view over UC1's data, and nothing to open
+    expect(screen.queryByRole('heading', { name: /Copyright claims/ })).toBe(null);
+    for (const name of [/Claim list/, /Claimed songs/, /Fix tracklist/]) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { fail(new Error('storage gone')); });
+    expect(screen.queryByRole('heading', { name: /Copyright claims/ })).toBe(null);
+    expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('the activity log opens, and keeps that choice', async () => {
@@ -124,6 +208,7 @@ describe('Copyright tab', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
     expect(screen.getByText(/Scan complete ✓/).className).toContain('text-ok');
+    expect(screen.getByRole('button', { name: 'Hide activity ▴' }).getAttribute('aria-expanded')).toBe('true');
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'set', key: 'logOpen', value: true });
     fireEvent.click(screen.getByRole('button', { name: 'Hide activity ▴' }));
     expect(screen.queryByText(/Scan complete ✓/)).toBe(null);
@@ -135,7 +220,29 @@ describe('Copyright tab', () => {
     const at = new Date(2026, 0, 1, 9, 5).getTime();
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ log: [{ at, msg: 'Scan failed: boom', type: 'err' }, { at, msg: 'Scanning…', type: '' }] }));
     expect((await screen.findByText('09:05 Scan failed: boom')).className).toContain('text-err');
-    expect(screen.getByRole('button', { name: 'Hide activity ▴' })).toBeTruthy();
+    // this panel's click wins over what is stored (the write's echo comes later)
+    vi.spyOn(await import('../lib/messages'), 'sendMessage').mockResolvedValue(undefined as never);
+    fireEvent.click(screen.getByRole('button', { name: 'Hide activity ▴' }));
+    expect(screen.queryByText(/Scan failed: boom/)).toBe(null);
+  });
+
+  it('with no Studio tab bound, the stored log choice and the song count still show', async () => {
+    await fakeBrowser.storage.local.set({ logOpen: true, songHistory: { a: {}, b: {}, c: {} } });
+    renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined,
+      fakeClaims({ state: null, live: null, log: [{ at: 0, msg: 'Scan complete ✓', type: 'ok' }] }));
+    expect(await screen.findByText(/Scan complete ✓/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Claimed songs (3)' })).toBeTruthy();
+    // …and follow storage (another panel window, a scan in some Studio tab)
+    await act(async () => { await fakeBrowser.storage.local.set({ logOpen: false, songHistory: { a: {} } }); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Claimed songs (1)' })).toBeTruthy());
+    expect(screen.queryByText(/Scan complete ✓/)).toBe(null);
+  });
+
+  it('a song history that is not an object counts as none', async () => {
+    await fakeBrowser.storage.local.set({ songHistory: ['x', 'y'] });
+    renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined, fakeClaims({ state: null, live: null }));
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: 'Claimed songs (0)' })).toBeTruthy();
   });
 
   it('a log choice the background never got says so', async () => {
@@ -143,7 +250,8 @@ describe('Copyright tab', () => {
     vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     fireEvent.click(screen.getByRole('button', { name: 'Show activity ▾' }));
-    await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't save (gone)", { id: 'save-failed' }));
+    expect(toast).not.toHaveBeenCalledWith(RELOAD); // a background write: reloading the Studio tab wouldn't help
   });
 
   it('Upload history saves the stored uploads as a CSV', async () => {
@@ -166,6 +274,15 @@ describe('Copyright tab', () => {
     expect((await saved.blob!.text()).split('\n')).toHaveLength(1);
   });
 
+  it('an Upload history that could not be read says so', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    vi.spyOn(fakeBrowser.storage.local, 'get').mockRejectedValue(new Error('quota'));
+    fireEvent.click(screen.getByRole('button', { name: /Upload history/ }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't export (quota)"));
+  });
+
   it('a render error stays inside the pane', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const broken = fakeClaims({ state: claimsStateWith({ status: null as never }) });
@@ -182,6 +299,19 @@ describe('downloadCsv', () => {
     expect(saved.blob!.type).toBe('text/csv');
     expect(await saved.blob!.text()).toBe('﻿"a","b"\n"1",""');
     expect(document.querySelector('a[download]')).toBe(null);
+  });
+
+  it('frees the file\'s URL once the browser has had time to save it', () => {
+    vi.useFakeTimers();
+    try {
+      captureDownload();
+      downloadCsv([['a']], 'x.csv');
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(10_000);
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
