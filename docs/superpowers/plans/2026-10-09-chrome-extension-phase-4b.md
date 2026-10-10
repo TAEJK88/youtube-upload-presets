@@ -26,7 +26,7 @@ Identical to Phase 4a's **Global Constraints** (which include Phase 3's), decisi
 | # | Topic | Decision |
 |---|---|---|
 | D25 | Auto-pilot on alarms | `autopilot:<channelId>` keeps `{ on, next, last }` as the userscript did. The background keeps one one-shot alarm `ap:<channelId>` at `next` for every channel with Auto-pilot on whose `next` is in the future (armed when those keys change, never twice for the same `next`; a due channel gets none) and, when it fires, sends `claims:autopilot(channelId)` to that channel's worker tab only (4a D21). That tab runs its tick at once; the worker's tick also starts the cycle by itself when `next` has passed, as in the userscript. With no Studio tab open, nothing runs: `next` stays in the past ("due"), and the cycle starts as soon as a tab for that channel ticks. Follow-up checks stay on the tab's timer (`fuNext`, every `followUpMinutes`), as in the userscript. |
-| D26 | Copyright work, the worker lease and the lock | `isWorker()` is the background's per-channel worker lease (4a D21): asked every 10 s (at once on a channel change), its answer is trusted for 15 s at most (under the lease's 20 s) — **PENDING USER APPROVAL, call 34**: this slows the takeover after a worker tab closes from "within 5 s" (approved call 9) to "within 10 s"; until the user says yes, implement the fallback 2.5 s / 5 s (see Task 1's glue) — and it is never asked while the channel is `'unknown'`; the alarm's nudge asks afresh before it ticks; `isWorker(true)` takes it, as the userscript's "force" took the tab lease. Only the worker ticks Auto-pilot, follow-ups and run steps. Separately, a trim, ads or Collab step takes the automation lock for `'claims'` right before it changes pages (`claimLock()`); refused, the step waits and the card says "⏸ Waiting for another Studio tab to finish (page change needed)"; after the lock it checks the run is still active (a Stop may have landed). The tab lets the job go after a tick in which no run is active and no step is busy (`settleLock()`); a reload of the same tab keeps it. Scans and Auto-pilot's own scan take no lock, so a queue run in a tab on another channel doesn't stop a cycle: only its page changes wait. |
+| D26 | Copyright work, the worker lease and the lock | `isWorker()` is the background's per-channel worker lease (4a D21): asked every 10 s (at once on a channel change), its answer is trusted for 15 s at most (under the lease's 20 s) (call 34, approved by the user 2026-10-10: after a worker tab closes another tab on the channel takes over in about 10–15 s; a hung worker's lease still frees after 20 s), and it is never asked while the channel is `'unknown'`; the alarm's nudge asks afresh before it ticks; `isWorker(true)` takes it, as the userscript's "force" took the tab lease. Only the worker ticks Auto-pilot, follow-ups and run steps. Separately, a trim, ads or Collab step takes the automation lock for `'claims'` right before it changes pages (`claimLock()`); refused, the step waits and the card says "⏸ Waiting for another Studio tab to finish (page change needed)"; after the lock it checks the run is still active (a Stop may have landed). The tab lets the job go after a tick in which no run is active and no step is busy (`settleLock()`); a reload of the same tab keeps it. Scans and Auto-pilot's own scan take no lock, so a queue run in a tab on another channel doesn't stop a cycle: only its page changes wait. |
 | D27 | Panel → page | `claims:trim(keys)`, `claims:ads(videoIds)`, `claims:collab({ videoIds, handles })`, `claims:stop()` go to the bound tab (Stop: to the lock holder while it runs a copyright job elsewhere). The panel shows the confirmations (`openTrimConfirm`, `toggleAutopilot`) and validates the handles; the page starts the run from its stored scan, as the modal's buttons did. Auto-pilot on/off is a `claims:op` from the panel (no page needed). |
 
 ## Review Focus
@@ -38,6 +38,85 @@ Identical to Phase 4a's **Global Constraints** (which include Phase 3's), decisi
 - **Studio in Thai.** A trim must fail with "Studio is not set to English — switch to English and try again" rather than click blindly (Task 1 test).
 - **Auto-pilot with no Studio tab.** The alarm fires with nothing to wake: no error, no re-arming every 30 s, and the next tab on that channel starts the cycle at once (Task 2 tests + README item).
 - **Stop from another window.** Stop in a panel bound to a different tab of the same channel must stop the holder's run after its current step and cancel queued follow-ups (Task 1 test on `stopAll()`; Task 3 test on routing).
+
+## Parallel execution map
+
+The user wants 4b run in parallel: units that don't touch the same files run at once, each agent in its own git worktree branched from the same base, and the controller merges. This section says what can run together. The task sections below stay the source of each unit's steps, tests and code; a unit is one or more of their steps.
+
+### The limits, plainly
+
+- **The page side is one chain.** Everything ported lives in `lib/claims/claims.ts` and is proved by `scripts/port/claims.mjs`, whose sub counts are checked against the whole file. Two agents editing either file would produce a merge nobody can port-check until it is resolved by hand. So Task 0's two small claims.ts changes (Step 2(b), Step 4's m9) and all of Task 1 are **one unit, one agent**. It is the largest piece of 4b (about 650 ported lines plus its tests) and it is the critical path.
+- **`CopyrightTab.tsx` is the panel's hot file.** Task 0 Steps 1, 2(a) and 4 (m10) and Tasks 3, 4 and 5 all edit it. It gets **one owner**; the Ads, Collab and settings views are made independent of it by landing stub files and their routes first.
+- **Shared one-line files** (`lib/messages.ts`, `scripts/strings/extension-only.mjs`, `entrypoints/background.ts`, `entrypoints/studio.content.ts`, `lib/runner-lock.ts`) are handled by a small serial "contracts" unit first, then by a single named owner per wave.
+- **`README.md`, the spec, `scripts/ui-check.mjs`, `scripts/strings/dropped.mjs` and `tests/panel-i18n.test.tsx`** are touched only by the last, serial unit.
+
+What that leaves: one short serial unit, then **seven units at once**, then one serial unit. Roughly two thirds of the work by line count runs in the middle wave, but its longest unit (the page side) is as long as Task 1 was.
+
+### Units
+
+| Unit | From | Depends on | Creates / modifies (hot files in **bold**) |
+|---|---|---|---|
+| **K** contracts | new (parts of T0 Step 3, T0 Step 4, T1 Step 6, T2 Step 2, T3–T5) | 4a fix round merged | **`lib/messages.ts`**: every 4b message type (`runner:changed`, `claims:trim`, `claims:ads`, `claims:collab`, `claims:stop`, `claims:autopilot`). **`lib/runner-lock.ts`**: `LOCK_KEY` exported, `registerRunnerLock(onChange?)`, `workerOf(ch)`, with their tests in `tests/runner-lock.test.ts` (T0 Step 3's first test, T2 Step 2's three assertions). `entrypoints/sidepanel/save-failed.ts`: `notConnected` + its `panel-imports` pin. **`scripts/strings/extension-only.mjs`**: three marker lines, nothing else — `// 4b P (page)`, `// 4b D (alarms)`, `// 4b Q (panel)`, each followed by a blank comment line `//`. New stub files `tabs/copyright/AdsView.tsx`, `CollabView.tsx`, `CopyrightSettings.tsx` (a `SubView` with the modal's title and Close, props as in Tasks 4–5) and their three routes in **`CopyrightTab.tsx`**'s `sub` expression. |
+| **P** page side | T0 Step 2(b), T0 Step 4 (m9), all of T1 | K | **`lib/claims/claims.ts`**, **`scripts/port/claims.mjs`**, `lib/claims/answers.ts`, `lib/claims/page.ts`, `lib/sync-store.ts`, `lib/claims/store.ts`, **`entrypoints/studio.content.ts`** (one block after the `claims:scan` handler), `extension-only.mjs` (under its marker); tests `claims-trim`, `claims-runs`, `claims-autopilot` (new), `claims-youtubei`, `claims-page`, `claims-status`, `claims-scan`, `sync-store`. |
+| **Q** panel home | T0 Step 1, T0 Step 2(a), T0 Step 4 (m10: `target.ts`, `bus.ts`, callers of `notConnected`), all of T3 | K | **`CopyrightTab.tsx`** (sole owner after K), `ClaimList.tsx`, `AutopilotSwitch.tsx` (new), `App.tsx`, `components/ui/badge.tsx`, `lib/panel/claims-data.ts`, `lib/panel/claims.ts`, `lib/panel/target.ts`, `lib/panel/bus.ts`; tests `panel-copyright`, `panel-copyright-run` (new), `panel-claims`, `panel-claims-data`, `panel-target`, `panel-imports`, `panel-queue`, **`tests/panel-fake.tsx`** (sole owner). Q also writes the home's Ads off / Collab / Copyright settings **buttons** and their tests (T4 Step 5, T5 Step 2's button): the views they open are K's stubs in Q's worktree. |
+| **C** content and background plumbing | T0 Step 2(c), T0 Step 3 (the tab and background side) | K | `lib/studio/queue-view.ts`, `lib/studio/queue-sync.ts`, **`entrypoints/studio.content.ts`** (three spots: after `loadClaimsData()`, the focus handler, the interval), **`entrypoints/background.ts`** (the `registerRunnerLock` callback, one line in `tabs.onUpdated`); tests `queue-view`, `queue-sync`. |
+| **D** alarms and the notification | T2 (without `workerOf`, which is K's, and without `background.ts`) | K | `lib/claims/alarms.ts` (new), `tests/claims-alarms.test.ts` (new), `extension-only.mjs` (under its marker). It exports `registerAutopilotAlarms`, `syncAutopilotAlarms`, `openFromAutopilotNote`; **it does not wire them**: unit Z does. |
+| **E** pins | T0 Step 5 | K | one new file, `tests/wiring-pins.test.ts`. Nothing else. |
+| **H** Ads and Collab views | T4 Steps 1–4 | K | `AdsView.tsx`, `CollabView.tsx` (replacing K's stubs), **new** `lib/panel/claims-runs.ts` (the picks: `adsInitial`, `adsWhere`, `collabWhere` — not in `lib/panel/claims.ts`, which is Q's), **new** tests `panel-ads-collab.test.ts(x)` rendering the two views directly. |
+| **J** Copyright settings view | T5 | K | `CopyrightSettings.tsx` (replacing K's stub), **new** `lib/panel/claims-settings.ts` (`settingsSections`), **new** test `panel-copyright-settings.test.tsx` rendering the view directly. |
+| **Z** integration and exit | T2's `background.ts` wiring, the Thai renders of every new view, all of T6 | everything | **`entrypoints/background.ts`** (alarms + notification click: T2 Step 2 and Step 4's two blocks), **`tests/panel-i18n.test.tsx`** (the claim-list trim question, the Auto-pilot question, Ads, Collab, settings), `scripts/ui-check.mjs`, `scripts/strings/dropped.mjs`, **`README.md`**, the spec, full verification. |
+
+Where a task section says to put something in `lib/panel/claims.ts` or `tests/panel-copyright-run.test.tsx` and this table names another file for unit H or J, **the table wins**: the split files exist so those units don't meet Q.
+
+### Dependency graph
+
+```
+4a fix round ──► K ──┬─► P  (T0 2b, m9, T1)        ──┐
+                     ├─► Q  (T0 1, 2a, m10, T3)     ──┤
+                     ├─► C  (T0 2c, T0 3)           ──┤
+                     ├─► D  (T2 alarms + notice)    ──┼─► Z  (wiring, Thai renders, T6)
+                     ├─► E  (T0 5 pins)             ──┤
+                     ├─► H  (T4 views)              ──┤
+                     └─► J  (T5 view)               ──┘
+```
+No unit in the middle column depends on another one there. What looks like a dependency is covered by K: the message types P and Q speak to each other with, `workerOf` for D, `notConnected` and the view stubs for Q, H and J.
+
+### Waves
+
+**Wave 0 — serial: K.** One agent, small (an hour's work). The controller reviews and merges it before anything else starts; every other worktree branches from the commit that has K.
+
+**Wave 1 — seven agents at once: P, Q, C, D, E, H, J.** Each in its own worktree from K's commit; each runs `npm run check && npm run build` there before it reports. Their reviews can run in parallel too.
+
+Merge order and the conflicts to expect:
+
+| Order | Unit | Conflicts with what is already merged | How it is avoided or resolved |
+|---|---|---|---|
+| 1 | E | none (one new file) | — |
+| 2 | H, J | none (their own view files, replacing stubs nobody else edits; new lib and test files) | Q must not touch K's three stub files. |
+| 3 | D | `extension-only.mjs` | Each unit inserts only under its own marker line; the markers are separated by a comment line, so the hunks don't touch. If git still reports a conflict, keep both sides. |
+| 4 | C | none yet | — |
+| 5 | Q | `extension-only.mjs` (as above; Q adds no pair unless coverage asks) | as above |
+| 6 | P | **`entrypoints/studio.content.ts`** with C | C edits three spots (after `loadClaimsData()`, the focus handler, the 800 ms interval); P adds one contiguous block after the `claims:scan` handler and edits nothing else there (its tick change is in `page.ts`). Merge C first; if the block lands beside one of C's lines, keep both. `extension-only.mjs`: as above. |
+
+After each merge the controller runs `npm run check && npm run build` on the merged branch, and the root `node --test test/*.test.mjs`. Port-check is only affected by P's merge.
+
+Rules every wave-1 agent gets in its brief:
+- Edit only the files in your row. If you need a change elsewhere, stop and tell the controller.
+- No new message types, no edits to `lib/messages.ts`, `lib/runner-lock.ts`, `README.md`, the spec, `tests/panel-i18n.test.tsx`, `scripts/ui-check.mjs`, `scripts/strings/dropped.mjs`.
+- New `L()` pairs go under your own marker in `extension-only.mjs` (P, D, Q); H and J use userscript pairs only.
+- Commit in your worktree; never push or merge.
+
+**Wave 2 — serial: Z.** One agent on the merged branch: wire the alarms and the notification click in `background.ts`, render the new views in Thai in `tests/panel-i18n.test.tsx`, then Task 6 (coverage, `dropped.mjs`, README items 52–74, spec amendments, full verification). Coverage can only be judged with every view merged, which is why it is last.
+
+### Things that only work once merged (Z checks them)
+
+- Q's Stop, trim and Auto-pilot tests use fakes for the tab; P's tests use fakes for the lock and the panel. The first time both sides meet is the merged build: Z's verification is where a mismatch in a message's payload would show, so K's message types are the contract both must compile against.
+- D's notification and nudge are unit-tested but unreachable until Z registers them.
+- H's and J's views are reachable from the home only after Q's buttons merge.
+
+### If seven agents is too many
+
+P and Q are the two long units; C, D, E, H and J are short. With fewer agents, run P and Q first and feed the five short ones to whoever frees up: nothing else changes. The fully serial order of the task sections (0 → 6) remains valid for a single agent.
 
 ---
 
@@ -285,7 +364,7 @@ Run: `npx vitest run tests/panel-claims-data.test.ts tests/sync-store.test.ts te
 
 - [ ] **Step 3: The lock is followed by events, not a 0.8 s poll (review m6) — failing tests first**
 
-Since Phase 3 every Studio tab asks `runner:elsewhere` every 0.8 s, which never lets the service worker idle; call 31 claimed otherwise. Decision: the background tells the Studio tabs when the lock changes, and tabs ask on that, on focus (as today) and every 30 s as a fallback. (The worker lease still asks every 10 s, or every 2.5 s with call 34's fallback — Task 1 — so with a Studio tab open the service worker is woken a few times a minute, not 75; nothing depends on it sleeping. Call 31's sentence is corrected in the planning report.)
+Since Phase 3 every Studio tab asks `runner:elsewhere` every 0.8 s, which never lets the service worker idle; call 31 claimed otherwise. Decision: the background tells the Studio tabs when the lock changes, and tabs ask on that, on focus (as today) and every 30 s as a fallback. (The worker lease still asks every 10 s — Task 1, call 34 — so with a Studio tab open the service worker is woken a few times a minute, not 75; nothing depends on it sleeping. Call 31's sentence is corrected in the planning report.)
 
 `tests/runner-lock.test.ts`:
 ```ts
@@ -627,7 +706,7 @@ describe('stop and the lock', () => {
     const init = C.initClaimsLock();
     answer(true);
     await init;
-    await vi.advanceTimersByTimeAsync(16_000); // the background never answers the renewals (6_000 with call 34's fallback)
+    await vi.advanceTimersByTimeAsync(16_000); // the background never answers the renewals: past the 15 s an answer is trusted
     C.claimsTick();
     expect(ops).toEqual([]); // no cycle on a stale "yes"
     answer(true);
@@ -1069,11 +1148,8 @@ interface ClaimsLock {
   holds(): Promise<boolean>;
 }
 let lockApi: ClaimsLock = { worker: async () => true, acquire: async () => true, release: () => {}, holds: async () => false };
-// PENDING USER APPROVAL (call 34). Two settings; use the FALLBACK unless the controller says the user approved the slower one:
-//   approved-if-yes: WORKER_ASK = 10_000, WORKER_RENEW = 15_000 — fewer service-worker wake-ups; another tab takes over
-//                    within 10 s of the worker tab closing (approved call 9 said 5 s)
-//   FALLBACK:        WORKER_ASK = 2_500,  WORKER_RENEW = 5_000  — call 9 as approved; only the lock poll becomes event-driven (Task 0 Step 3)
-// With the fallback, the "worker answer expires" test advances 6_000 ms instead of 16_000, and README item 52 says "about 5 s".
+// Call 34 (approved 2026-10-10): asked every 10 s, an answer trusted for 15 s. A closed worker tab's lease is
+// dropped at once, so another tab on the channel takes over at its next ask: about 10–15 s. A hung tab: 20 s.
 const WORKER_RENEW = 15_000; // an answer is trusted this long: under the lease's 20 s (runner-lock LEASE_STALE)
 let workerMine = false; // the background's last answer for this tab and channel
 let workerCh = '';
@@ -2327,7 +2403,7 @@ Expected after: `ui-check: ok` with `--coverage`. Update `tests/ui-check.test.mj
     channel. In the service worker console, `await chrome.storage.session.get('claimsWorkers')`
     names one tab for the channel (`{ tabId, at }`, `at` moving every few seconds). One cycle runs,
     not two; during a run the other tab's card shows "↪ Running in another Studio tab". Close the
-    worker tab: within about 10 s the entry names the other tab, and it carries on (about 5 s if call 34's fallback was built). **Record** what
+    worker tab: within about 10–15 s the entry names the other tab, and it carries on. **Record** what
     happens when the worker tab hangs instead (DevTools → pause script execution): the other tab
     takes over after about 20 s.
 53. **Start refused during copyright work.** Start a trim run in Studio tab A (item 57). In tab B
