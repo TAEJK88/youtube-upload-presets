@@ -45,6 +45,16 @@ describe('computeStatus / claimsState', () => {
     expect(C.claimsState().counts).toMatchObject({ hasScan: true, claims: 3, claimVideos: 2, songs: 2 });
   });
 
+  it('counts the claimed songs without copying the history (review m4)', () => {
+    const songHistory = Object.fromEntries(Array.from({ length: 500 }, (_, i) => ['k' + i, { title: 't' + i, videos: {} }]));
+    useMemoryClaims({ songHistory });
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    expect(C.claimsState().counts.songs).toBe(500);
+    // nothing as large as the history went through structuredClone
+    expect(clone.mock.calls.some(([v]) => v && typeof v === 'object' && Object.keys(v as object).length === 500)).toBe(false);
+    clone.mockRestore();
+  });
+
   it('the upload queue holds copyright work back only with waiting or in-flight videos, not failed ones, nor a run in another tab', () => {
     useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: Date.now() + 3600e3 } });
     const item = (status: Q.QueueItem['status']) => ({ id: status, status }) as Q.QueueItem;

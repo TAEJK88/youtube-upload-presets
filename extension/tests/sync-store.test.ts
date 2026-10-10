@@ -336,3 +336,25 @@ describe('expect(): a write someone else makes for us', () => {
     expect(kv.get('cfg')).toEqual({ a: 1 });
   });
 });
+
+describe('peek(): reading without a copy', () => {
+  it('hands the stored value itself to the reader, and returns what it returns', async () => {
+    await browser.storage.local.set({ counters: { a: 1, b: 2 } });
+    const kv = await createSyncStore(['counters', 'uploads']);
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    expect(kv.peek('counters', (v) => Object.keys(v as object).length)).toBe(2);
+    expect(kv.peek('uploads', (v) => v)).toBe(undefined); // a known key that isn't stored
+    expect(clone).not.toHaveBeenCalled();
+    clone.mockRestore();
+    expect(kv.get('counters')).toEqual({ a: 1, b: 2 }); // get() still copies
+  });
+
+  it('an unknown key throws, as for get()', async () => {
+    const kv = await createSyncStore(['counters']);
+    expect(() => kv.peek('other', (v) => v)).toThrow('unknown key');
+  });
+
+  it('the memory store has it too', () => {
+    expect(createMemoryStore({ songHistory: { x: {}, y: {} } }).peek('songHistory', (v) => Object.keys(v as object).length)).toBe(2);
+  });
+});

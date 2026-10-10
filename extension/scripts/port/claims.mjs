@@ -19,6 +19,8 @@ export default {
     ['if (show) showClaims();', 'detailsSkipped(claimed.length);\n        if (show) showClaims();', 1],
     // the answer is page data: an owner id like `constructor` must not read a built-in as its name
     ['const owners = {};', 'const owners = Object.create(null);', 1],
+    // counting the songs without a copy of the whole history (getCounts() runs every 3 s in every Studio tab)
+    ['songs: Object.keys(getSongs()).length,', 'songs: songCount(),', 1],
     // the claim / ads / Collab lists are the side panel's views: it opens them when the scan ends
     ['if (show) showClaims();', "if (show) cui.show('claims');", 1],
     ['if (show) showAds();', "if (show) cui.show('ads');", 1],

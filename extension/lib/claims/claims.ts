@@ -4,7 +4,7 @@ import { cachedCfg, chanLabel, getChannel } from '../studio/channel';
 import { sleep } from '../studio/automation';
 import { otherTabRunning, queue, running, uploadOf } from '../studio/queue-runner';
 import { claimInfo, DEFAULTS, privacyOf, short } from './core';
-import { load, save, write } from './store';
+import { count, load, save, write } from './store';
 import type {
   AdsRow, AdsScan, Autopilot, ClaimRow, ClaimScan, ClaimsCfg, ClaimsCounts, ClaimsState, ClaimsStatus, ClaimsView, FollowUp, ResultEntry, Run, Songs,
 } from './types';
@@ -41,6 +41,9 @@ const renderStatus = () => cui.status();
 //  - waiting and in-flight items do, as in the userscript: their upload needs the page.
 // While it holds, the status card says so ("⏸ Waiting for the upload queue…").
 const uploadBusy = () => running || (!otherTabRunning() && queue.some((i) => ['pending', 'uploading', 'review'].includes(i.status)));
+
+// getCounts() (4646) counted the keys of a copy of the whole song history, every 3 s in every Studio tab.
+const songCount = () => count('songHistory');
 
 type ScanProg = { label: string; done: number; total: number };
 
@@ -79,7 +82,7 @@ function detailsSkipped(claimed: number): void {
       scanDate: scan ? scan.date : '',
       claims: scan ? scan.rows.length : 0,
       claimVideos: scan ? new Set(scan.rows.map((r) => r.videoId)).size : 0,
-      songs: Object.keys(getSongs()).length,
+      songs: songCount(),
       hasAdsScan: !!adsScan,
       adsTodo: adsScan ? adsScan.rows.filter((r) => !(adsResults[r.videoId] || {} as Partial<ResultEntry>).state).length : 0,
     };
