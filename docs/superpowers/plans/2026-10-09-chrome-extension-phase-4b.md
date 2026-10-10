@@ -26,7 +26,7 @@ Identical to Phase 4a's **Global Constraints** (which include Phase 3's), decisi
 | # | Topic | Decision |
 |---|---|---|
 | D25 | Auto-pilot on alarms | `autopilot:<channelId>` keeps `{ on, next, last }` as the userscript did. The background keeps one one-shot alarm `ap:<channelId>` at `next` for every channel with Auto-pilot on whose `next` is in the future (armed when those keys change, never twice for the same `next`; a due channel gets none) and, when it fires, sends `claims:autopilot(channelId)` to that channel's worker tab only (4a D21). That tab runs its tick at once; the worker's tick also starts the cycle by itself when `next` has passed, as in the userscript. With no Studio tab open, nothing runs: `next` stays in the past ("due"), and the cycle starts as soon as a tab for that channel ticks. Follow-up checks stay on the tab's timer (`fuNext`, every `followUpMinutes`), as in the userscript. |
-| D26 | Copyright work, the worker lease and the lock | `isWorker()` is the background's per-channel worker lease (4a D21): asked every 2.5 s (at once on a channel change), its answer is trusted for 5 s at most, and it is never asked while the channel is `'unknown'`; the alarm's nudge asks afresh before it ticks; `isWorker(true)` takes it, as the userscript's "force" took the tab lease. Only the worker ticks Auto-pilot, follow-ups and run steps. Separately, a trim, ads or Collab step takes the automation lock for `'claims'` right before it changes pages (`claimLock()`); refused, the step waits and the card says "⏸ Waiting for another Studio tab to finish (page change needed)"; after the lock it checks the run is still active (a Stop may have landed). The tab lets the job go after a tick in which no run is active and no step is busy (`settleLock()`); a reload of the same tab keeps it. Scans and Auto-pilot's own scan take no lock, so a queue run in a tab on another channel doesn't stop a cycle: only its page changes wait. |
+| D26 | Copyright work, the worker lease and the lock | `isWorker()` is the background's per-channel worker lease (4a D21): asked every 10 s (at once on a channel change), its answer is trusted for 15 s at most (under the lease's 20 s) — **PENDING USER APPROVAL, call 34**: this slows the takeover after a worker tab closes from "within 5 s" (approved call 9) to "within 10 s"; until the user says yes, implement the fallback 2.5 s / 5 s (see Task 1's glue) — and it is never asked while the channel is `'unknown'`; the alarm's nudge asks afresh before it ticks; `isWorker(true)` takes it, as the userscript's "force" took the tab lease. Only the worker ticks Auto-pilot, follow-ups and run steps. Separately, a trim, ads or Collab step takes the automation lock for `'claims'` right before it changes pages (`claimLock()`); refused, the step waits and the card says "⏸ Waiting for another Studio tab to finish (page change needed)"; after the lock it checks the run is still active (a Stop may have landed). The tab lets the job go after a tick in which no run is active and no step is busy (`settleLock()`); a reload of the same tab keeps it. Scans and Auto-pilot's own scan take no lock, so a queue run in a tab on another channel doesn't stop a cycle: only its page changes wait. |
 | D27 | Panel → page | `claims:trim(keys)`, `claims:ads(videoIds)`, `claims:collab({ videoIds, handles })`, `claims:stop()` go to the bound tab (Stop: to the lock holder while it runs a copyright job elsewhere). The panel shows the confirmations (`openTrimConfirm`, `toggleAutopilot`) and validates the handles; the page starts the run from its stored scan, as the modal's buttons did. Auto-pilot on/off is a `claims:op` from the panel (no page needed). |
 
 ## Review Focus
@@ -75,6 +75,355 @@ Userscript line map: see Phase 4a. The regions this plan adds: DOM helpers 4608�
 
 ---
 
+### Task 0: Carry-ins from the 4a whole-branch review
+
+`.superpowers/sdd/p4/final-review-4a.md` ("Carry into 4b"). These come first: they change files the later tasks build on, and three of them matter only once run steps write often and a tab can hold the lock for copyright work.
+
+**Depends on the 4a fix round** (a fix agent is landing it; read `git log` and the files before starting, and skip a step it already did):
+- review I1 / I2 / m12 (the timing test, pins for the entrypoints' guards and the abort guard): if `tests/` has no pin for a guard listed in I2 or m12, add it in Step 5 below;
+- m1 (the panel drops the bound tab's copyright state when the tab stops being linked): Task 3's Stop and Auto-pilot switch assume it, so a stale card can't be acted on;
+- m2 (a scan whose detail calls all failed): Task 1's Auto-pilot test "does nothing after a scan whose detail calls all failed" assumes `scanClaims()` then returns `null` (or whatever the fix chose: adapt the test's expectation to it, not the fix to the test) and that the stored scan is not replaced;
+- m5 (a failed `claims:op` is shown): Task 1's run steps rely on it for the user to see a lost result; "timed out" still means "maybe applied" (Task 1's `settledHere`);
+- m7 (`runnerJobs` and `claimsWorkers` in the debug report): README item 52 reads them.
+
+**Files:**
+- Modify: `extension/entrypoints/sidepanel/tabs/CopyrightTab.tsx`, `extension/lib/panel/claims-data.ts`, `extension/lib/sync-store.ts`, `extension/lib/claims/store.ts`, `extension/lib/claims/claims.ts`, `extension/scripts/port/claims.mjs`, `extension/lib/studio/queue-view.ts`, `extension/lib/runner-lock.ts`, `extension/lib/messages.ts`, `extension/entrypoints/background.ts`, `extension/lib/studio/queue-sync.ts`, `extension/entrypoints/studio.content.ts`, `extension/lib/panel/bus.ts`, `extension/lib/panel/target.ts`
+- Test: `extension/tests/panel-copyright.test.tsx`, `extension/tests/panel-claims-data.test.ts`, `extension/tests/sync-store.test.ts`, `extension/tests/claims-status.test.ts`, `extension/tests/queue-view.test.ts`, `extension/tests/runner-lock.test.ts`, `extension/tests/queue-sync.test.ts`, `extension/tests/claims-scan.test.ts`, `extension/tests/panel-target.test.ts`
+
+**Interfaces:**
+- Produces: `SyncStore.peek<R>(key, fn: (value: unknown) => R): R`; `count(key): number` (`lib/claims/store.ts`); `songCount()` (`claims.ts`); `registerRunnerLock(onChange?: () => void)`; `'runner:changed'(): void` (background → Studio tabs); `createLockFollower(d: { ask(): Promise<unknown>; everyMs?: number }): { tick(): void; now(): void }` (`queue-sync.ts`); `LOCK_KEY` exported from `runner-lock.ts`.
+
+- [ ] **Step 1: Scan stays this tab's button (review carry 3) — failing test, then the fix**
+
+4a hides Scan (and the list buttons) when `live` is busy. From Task 1 on, `live` can be another tab's state, on another channel, while it holds the lock for a trim: Scan would vanish here although scans take no lock. The buttons follow the bound tab's `state`; the status card and Stop (Task 3) follow `live`.
+
+`tests/panel-copyright.test.tsx`:
+```tsx
+  it("another tab's copyright job shows in the card, but this tab's Scan stays", () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({
+      state: claimsStateWith(), // this tab: idle
+      live: claimsStateWith({ channel: 'UC2', busyRun: true, status: { icon: '✂️', kind: 'busy', title: 'Trimming claim 1 of 2', detail: '' } }),
+    }));
+    expect(screen.getByText('Trimming claim 1 of 2')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+  });
+```
+Run: `npx vitest run tests/panel-copyright.test.tsx` — Expected: FAIL (no Scan button). Fix in `CopyrightTab.tsx`: `const busy = !!state && (state.busyRun || state.busyScan);` (was computed from `s = live ?? state`); the card keeps `s`. Task 3's layout uses the same split: `busyRun` / `busyScan` for the buttons from `state`, Stop from `s`.
+
+- [ ] **Step 2: Three cheap fixes before run steps write often (review m4) — failing tests first**
+
+(a) **The panel re-reads only what changed.** `watchClaims` re-reads all 17 keys, the whole song history included, on any change; a run writes a `runItem` op per item. `tests/panel-claims-data.test.ts`:
+```ts
+  it('a change is applied from the event, without reading storage again', async () => {
+    await browser.storage.local.set({ 'claimScan:UC1': { date: 'd', total: 0, rows: [] }, songHistory: { a: {} } });
+    const fn = vi.fn();
+    const off = watchClaims('UC1', fn);
+    await vi.waitFor(() => expect(fn).toHaveBeenCalled()); // the first full read
+    const get = vi.spyOn(browser.storage.local, 'get');
+    await browser.storage.local.set({ 'trimQueue:UC1': ['v:c'] });
+    await vi.waitFor(() => expect(fn.mock.calls.at(-1)![0].trimQueue).toEqual(['v:c']));
+    expect(fn.mock.calls.at(-1)![0].scan?.date).toBe('d'); // the rest kept
+    expect(get).not.toHaveBeenCalled();
+    await browser.storage.local.remove('claimScan:UC1');
+    await vi.waitFor(() => expect(fn.mock.calls.at(-1)![0].scan).toBe(null));
+    off();
+  });
+```
+`lib/panel/claims-data.ts`:
+```ts
+// Follows one channel's keys: one full read, then each change is applied from its event
+// (re-reading 17 keys, the song history among them, per run-item write would cost seconds at size).
+export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void {
+  const keys = new Set(channelKeys(ch));
+  let raw: Record<string, unknown> | null = null;
+  let early: Record<string, { newValue?: unknown }>[] = [];
+  const apply = (changes: Record<string, { newValue?: unknown }>) => {
+    for (const [k, c] of Object.entries(changes)) {
+      if (!keys.has(k)) continue;
+      if (c.newValue === undefined) delete raw![k];
+      else raw![k] = c.newValue;
+    }
+  };
+  const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
+    if (area !== 'local' || !Object.keys(changes).some((k) => keys.has(k))) return;
+    if (!raw) return void early.push(changes); // before the first read lands
+    apply(changes);
+    fn(toClaimsData(ch, raw));
+  };
+  browser.storage.onChanged.addListener(changed);
+  void browser.storage.local.get(channelKeys(ch)).then((got) => {
+    raw = got;
+    early.forEach(apply);
+    early = [];
+    fn(toClaimsData(ch, raw));
+  }).catch((e) => console.error('[ytup] read copyright data', e));
+  return () => browser.storage.onChanged.removeListener(changed);
+}
+```
+(`watchClaims` now also delivers the first read: `useClaimsData` drops its own `readClaims` call and keeps its `data?.ch === ch` gate; update the 4a test that expected no call before a change.)
+
+(b) **Counting songs without copying them.** `getCounts()` clones the whole history every 3 s in every Studio tab to count its keys.
+
+`tests/sync-store.test.ts`:
+```ts
+describe('peek(): reading without a copy', () => {
+  it('hands the stored value itself to the reader, and returns what it returns', async () => {
+    await browser.storage.local.set({ counters: { a: 1, b: 2 } });
+    const kv = await createSyncStore(['counters']);
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    expect(kv.peek('counters', (v) => Object.keys(v as object).length)).toBe(2);
+    expect(kv.peek('uploads' as never, (v) => v)).toBe(undefined); // a known key that isn't stored
+    expect(clone).not.toHaveBeenCalled();
+    clone.mockRestore();
+    expect(kv.get('counters')).toEqual({ a: 1, b: 2 }); // get() still copies
+  });
+
+  it('an unknown key throws, as for get()', async () => {
+    const kv = await createSyncStore(['counters']);
+    expect(() => kv.peek('other', (v) => v)).toThrow('unknown key');
+  });
+
+  it('the memory store has it too', () => {
+    expect(createMemoryStore({ songHistory: { x: {}, y: {} } }).peek('songHistory', (v) => Object.keys(v as object).length)).toBe(2);
+  });
+});
+```
+(The second assertion of the first test needs `'uploads'` in that store's key list: create it with `['counters', 'uploads']`.)
+
+`tests/claims-status.test.ts`:
+```ts
+  it('counts the claimed songs without copying the history (review m4)', () => {
+    const songHistory = Object.fromEntries(Array.from({ length: 500 }, (_, i) => ['k' + i, { title: 't' + i, videos: {} }]));
+    useMemoryClaims({ songHistory });
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    expect(C.claimsState().counts.songs).toBe(500);
+    // nothing as large as the history went through structuredClone
+    expect(clone.mock.calls.some(([v]) => v && typeof v === 'object' && Object.keys(v as object).length === 500)).toBe(false);
+    clone.mockRestore();
+  });
+```
+(`getCounts()` caches for 3 s: call `C.invalidateCounts()` first if an earlier test in the file read the counts.)
+
+Run: `npx vitest run tests/sync-store.test.ts tests/claims-status.test.ts` — Expected: FAIL (`kv.peek is not a function`; the history is cloned). Then:
+- `sync-store.ts`: `peek<R>(key: string, fn: (value: unknown) => R): R` in the interface — "the stored value itself, not a copy: `fn` must only read it" — implemented as `peek: (key, fn) => (check(key), fn(cache.get(key)))` and, in the memory store, `peek: (key, fn) => fn(data.get(key))`;
+- `lib/claims/store.ts`: `export const count = (key: string): number => kv.peek(key, (v) => (v && typeof v === 'object' ? Object.keys(v).length : 0));`
+- `claims.ts` (outside the port): `const songCount = () => count('songHistory');` and in `scripts/port/claims.mjs` one more sub (checked: 1): `['songs: Object.keys(getSongs()).length,', 'songs: songCount(),', 1]`.
+
+(c) **The queue view checks a tracklist once.** `queue-view.ts` clones the history and rebuilds the title index for every card on every `queue:view`.
+
+`tests/queue-view.test.ts` — at the top of the file, a counting wrapper around the real function:
+```ts
+const claimedCalls = vi.hoisted(() => ({ n: 0 }));
+vi.mock('../lib/claims/core', async (orig) => {
+  const real = await orig<typeof import('../lib/claims/core')>();
+  return { ...real, claimedSongsIn: (...a: Parameters<typeof real.claimedSongsIn>) => (claimedCalls.n++, real.claimedSongsIn(...a)) };
+});
+```
+(import `forgetClaimed`, `watchClaimedSongs` from `../lib/studio/queue-view` and `readFileSync` from `node:fs`), and in `describe('queueView', …)`:
+```ts
+  const history = { k: { title: 'Midnight Rain', artists: 'Lena', label: '', claimants: [], types: [], firstSeen: '', lastSeen: '', videos: { a: {} }, trimmed: 0 } };
+
+  it('checks a tracklist against the song history once, not on every view (review m4)', () => {
+    useMemoryClaims({ songHistory: history });
+    forgetClaimed();
+    Q.queue.push(item('a', 'pending', { txt: '00:00 Lena - Midnight Rain' }), item('b', 'pending', { txt: '00:00 Lena - Midnight Rain' }), item('c', 'pending'));
+    claimedCalls.n = 0;
+    const first = queueView(state);
+    queueView(state);
+    queueView(state);
+    expect(claimedCalls.n).toBe(1); // two cards share one tracklist text; three views
+    expect(first.items[0]!.claimed).toHaveLength(1);
+    expect(queueView(state).items[1]!.claimed).toEqual(first.items[0]!.claimed);
+    first.items[0]!.claimed.length = 0; // the panel's copy: the cache is not handed out
+    expect(queueView(state).items[0]!.claimed).toHaveLength(1);
+  });
+
+  it('a changed tracklist is checked again; a changed song history forgets every check', () => {
+    useMemoryClaims({ songHistory: history });
+    forgetClaimed();
+    Q.queue.push(item('a', 'pending', { txt: '00:00 Lena - Midnight Rain' }));
+    queueView(state);
+    claimedCalls.n = 0;
+    Q.queue[0]!.txt = '00:00 Other - Song';
+    expect(queueView(state).items[0]!.claimed).toEqual([]);
+    expect(claimedCalls.n).toBe(1);
+    useMemoryClaims({ songHistory: {} }); // the history changed…
+    forgetClaimed(); // …which is what the store's change listener calls
+    Q.queue[0]!.txt = '00:00 Lena - Midnight Rain';
+    expect(queueView(state).items[0]!.claimed).toEqual([]);
+  });
+
+  // The memory store has no change events, so the link from the store to forgetClaimed() is pinned in the source.
+  it('forgets its checks when the stored song history changes', () => {
+    const src = readFileSync(new URL('../lib/studio/queue-view.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/onClaimsStored\('songHistory',\s*forgetClaimed\)/);
+    const content = readFileSync(new URL('../entrypoints/studio.content.ts', import.meta.url), 'utf8');
+    expect(content).toMatch(/stop\.add\(watchClaimedSongs\(\)\)/);
+  });
+```
+Expected: FAIL (`forgetClaimed` is not exported; `claimedCalls.n` is 6). Fix in `queue-view.ts`:
+```ts
+// claimedSongsIn() per tracklist text, kept until the song history changes: the check clones the
+// whole history and builds its title index, and queue:view runs on every change the panel hears.
+type Claimed = ViewItem['claimed'];
+const claimedCache = new Map<string, Claimed>();
+export const forgetClaimed = () => claimedCache.clear();
+// The content script calls it once the claims store is loaded; returns the undo.
+export const watchClaimedSongs = (): (() => void) => onClaimsStored('songHistory', forgetClaimed);
+function claimedIn(txt: string): Claimed {
+  let hit = claimedCache.get(txt);
+  if (!hit) {
+    hit = claimedSongsIn(txt, getSongs());
+    claimedCache.set(txt, hit);
+  }
+  return hit.map((x) => ({ ...x })); // a copy: the view goes to the panel
+}
+```
+and in `queueView()`: `claimed: it.txt ? claimedIn(it.txt) : [],` (drop the per-view `const songs = getSongs();`). `studio.content.ts`, after `await loadClaimsData();`: `stop.add(watchClaimedSongs());` (`onClaimsStored`'s first caller: review m11).
+
+Run: `npx vitest run tests/panel-claims-data.test.ts tests/sync-store.test.ts tests/claims-status.test.ts tests/queue-view.test.ts` — FAIL first, PASS after.
+
+- [ ] **Step 3: The lock is followed by events, not a 0.8 s poll (review m6) — failing tests first**
+
+Since Phase 3 every Studio tab asks `runner:elsewhere` every 0.8 s, which never lets the service worker idle; call 31 claimed otherwise. Decision: the background tells the Studio tabs when the lock changes, and tabs ask on that, on focus (as today) and every 30 s as a fallback. (The worker lease still asks every 10 s, or every 2.5 s with call 34's fallback — Task 1 — so with a Studio tab open the service worker is woken a few times a minute, not 75; nothing depends on it sleeping. Call 31's sentence is corrected in the planning report.)
+
+`tests/runner-lock.test.ts`:
+```ts
+  it('tells its listener when the lock or its jobs change, also when a stale holder is cleaned up', async () => {
+    const changed = vi.fn();
+    registerRunnerLock(changed);
+    const a = await tab();
+    await acquireRunner(a, 'queue');
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+    await acquireRunner(a, 'claims');
+    await releaseRunner(a, 'all');
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(3));
+    await claimWorker(a, 'UC1', false); // the worker lease is not the lock
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changed).toHaveBeenCalledTimes(3);
+  });
+```
+`tests/queue-sync.test.ts`:
+```ts
+  it('asks about the lock every 30 s from the tick, and at once when told it changed', () => {
+    vi.useFakeTimers();
+    const ask = vi.fn(async () => false);
+    const f = createLockFollower({ ask });
+    for (let i = 0; i < 40; i++) { f.tick(); vi.advanceTimersByTime(800); } // 32 s of ticks
+    expect(ask).toHaveBeenCalledTimes(2);
+    f.now(); // runner:changed, focus
+    expect(ask).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+```
+Implement:
+- `runner-lock.ts`: export `LOCK_KEY` (today's private `KEY`); `registerRunnerLock(onChange?: () => void)` also adds `browser.storage.onChanged.addListener((changes, area) => { if (area === 'session' && (LOCK_KEY in changes || JOBS_KEY in changes)) onChange?.(); })`.
+- `messages.ts`: `'runner:changed'(): void; // background → Studio tabs: the automation lock moved, ask again`.
+- `background.ts`: `registerRunnerLock(() => void tellStudioTabs())`, where `tellStudioTabs` sends `runner:changed` to every tab whose URL is Studio (`tabs.query({})` + `isStudioUrl`, each send with its own `.catch(() => {})`); and in the existing `tabs.onUpdated` listener, `if (info.url) void runnerHeld().catch(() => {});` — a holder that left Studio is cleaned up then, which fires the change.
+- `queue-sync.ts`:
+```ts
+// The lock is followed by events (runner:changed from the background, focus), with a slow poll
+// as the fallback: asking on every 0.8 s tick kept the service worker awake for good.
+export function createLockFollower(d: { ask(): Promise<unknown>; everyMs?: number }) {
+  let at = 0;
+  const now = () => { at = Date.now(); void d.ask().catch(() => {}); };
+  return { now, tick() { if (Date.now() - at >= (d.everyMs ?? 30_000)) now(); } };
+}
+```
+- `studio.content.ts`: `const lockFollower = createLockFollower({ ask: elsewhere });` — the interval calls `lockFollower.tick()` where it called `void elsewhere()`, the focus / visibility handler calls `lockFollower.now()`, and `onMessage('runner:changed', () => lockFollower.now());`.
+
+README item 29 ("the running tab closes… within about a second") still holds: a closed tab frees the lock in `tabs.onRemoved`, which is a change.
+
+- [ ] **Step 4: Clean-ups (review m9, m10) — failing tests first**
+
+**m9.** `tests/claims-scan.test.ts`, in `describe('scanClaims', …)`:
+```ts
+  it("an owner id that names a built-in prints as the id, not as a function (review m9)", async () => {
+    api['creator/list_creator_received_claims'] = () => ({
+      contentOwners: [{ contentOwnerId: 'o1', displayName: 'Label Co' }],
+      receivedClaims: [{ ...claims().receivedClaims[0]!, contentOwnerIds: ['constructor', 'toString', 'o1'] }],
+    });
+    const rows = await run(C.scanClaims({ show: false }));
+    expect(rows![0]!.claimant).toBe('constructor, toString, Label Co');
+  });
+```
+Expected: FAIL (the claimant starts with `function Object() { [native code] }`). Fix: one more sub in `scripts/port/claims.mjs` (checked: 1): `['const owners = {};', 'const owners = Object.create(null);', 1]`, and the same change in `claims.ts`'s port block (typed `const owners: Record<string, string> = Object.create(null);`).
+
+**m10.** Three small de-duplications, each pinned.
+
+`tests/panel-target.test.ts`:
+```ts
+  it('the runner tab is read with the lock module\'s own keys, and a discarded tab is nobody (review m10)', async () => {
+    await browser.storage.session.set({ [LOCK_KEY]: 9, [JOBS_KEY]: ['claims'] });
+    const get = vi.spyOn(browser.tabs, 'get').mockResolvedValue({ id: 9, windowId: 2, url: 'https://studio.youtube.com/', title: 'A', discarded: true } as never);
+    expect(await runnerTab()).toBe(null); // Memory Saver: no script runs there (holder() says the same)
+    get.mockResolvedValue({ id: 9, windowId: 2, url: 'https://studio.youtube.com/', title: 'A', discarded: false } as never);
+    expect(await runnerTab()).toEqual({ tabId: 9, windowId: 2, title: 'A', jobs: ['claims'] });
+    const src = readFileSync(new URL('../lib/panel/target.ts', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/'runnerTabId'|'runnerJobs'/); // no second copy of the key names
+  });
+```
+(imports: `JOBS_KEY`, `LOCK_KEY` from `../lib/runner-lock`; `readFileSync` from `node:fs`.)
+
+`tests/panel-imports.test.ts` (it already reads sources), a new `describe`:
+```ts
+describe('one copy of shared helpers (4a review m10)', () => {
+  const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
+  it('the panel bus uses the lock module\'s studioTab', () => {
+    const src = read('lib/panel/bus.ts');
+    expect(src).toMatch(/import \{[^}]*\bstudioTab\b[^}]*\} from '\.\.\/runner-lock'/);
+    expect(src).not.toMatch(/const studioTab\s*=/);
+  });
+  it('the "not connected" toast is said in one place', () => {
+    const said = ['entrypoints/sidepanel/tabs/CopyrightTab.tsx', 'entrypoints/sidepanel/tabs/copyright/ClaimList.tsx']
+      .filter((f) => read(f).includes('This tab is not connected to the extension yet'));
+    expect(said).toEqual([]);
+    expect(read('entrypoints/sidepanel/save-failed.ts')).toMatch(/export const notConnected\b/);
+  });
+});
+```
+`tests/panel-copyright.test.tsx`:
+```tsx
+  it('a tab that does not answer says so once, through the shared helper', async () => {
+    const toastSpy = vi.spyOn(await import('sonner'), 'toast');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const api = fakePanel({ send: vi.fn(async () => { throw new Error('Could not establish connection'); }) as never });
+    renderPanel(<CopyrightTab />, api, undefined, fakeClaims());
+    fireEvent.click(screen.getByRole('button', { name: /Scan claims/ }));
+    await vi.waitFor(() => expect(toastSpy).toHaveBeenCalledWith('This tab is not connected to the extension yet — reload this tab', { id: 'not-connected' }));
+  });
+```
+Expected: FAIL (a discarded runner tab is returned; `bus.ts` has its own `studioTab`; the toast has no id and two copies). Fix:
+- `lib/panel/target.ts` `runnerTab()`: read `[LOCK_KEY, JOBS_KEY]` (imported from `../runner-lock`), and `const tab = await browser.tabs.get(id).catch(() => undefined); const t = tab?.discarded ? null : asTarget(tab);`; `watchRunner` uses the same two constants.
+- `lib/panel/bus.ts`: `import { studioTab } from '../runner-lock';`, its own copy deleted (the shared one returns `null` where the copy returned `undefined`: the callers' `tabId === undefined` tests become `tabId == null`).
+- `entrypoints/sidepanel/save-failed.ts`:
+```ts
+// The Studio tab didn't take a message (no live script there, or it is reloading).
+export const notConnected = (e: unknown): void => {
+  console.error('[ytup] tab not connected', e);
+  toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'), { id: 'not-connected' });
+};
+```
+  used by `CopyrightTab`, `ClaimList`, and wherever this plan's later samples define a local `failed` helper (Tasks 3–5: use `notConnected` instead).
+- `isPlain` and the `__proto__` set stay duplicated between `answers.ts` and `main-youtubei.ts`: the MAIN-world bundle must not import tab code. (No test: a comment in each names the other.)
+
+- [ ] **Step 5: Pins the 4a fix round may have left (review I2, m12)**
+
+For each line below, check that some test fails when it is removed (try it); where none does, add a source-text pin in the style of `tests/claims-page.test.ts`: `mayWrite('claims:op'` in `background.ts`; `studioTab(sender)` on `runner:acquire` and `runner:worker`; `isChannelId(d?.ch)`; `runnerHeld()` on `backup:write`; `abort: () => abortRun(` and `stop.add(disposeClaimsStore)` in `studio.content.ts`; `if (!runs && running && abortedRun()) return;` in `queue-store.ts`.
+
+- [ ] **Step 6: Verify and commit**
+
+Run: `npm run check && npm run build` (run the full suite twice: the 4a timing test must not flake).
+```bash
+git add extension/entrypoints extension/lib extension/scripts/port/claims.mjs extension/tests
+git commit -m "Before 4b: Scan follows this tab, the panel applies copyright changes from their events, the lock is followed by events instead of a 0.8 s poll, small clean-ups
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+(`git add` by directory here is safe only if `git status` shows nothing else changed under them; otherwise list the files.)
+
+---
+
 ### Task 1: The page side — trim, follow-ups, ads and Collab runs, Auto-pilot cycle, tick
 
 The rest of the Claims IIFE, port-checked, plus the glue: the lock (D26), the entry points the panel calls (D27) and the Auto-pilot nudge.
@@ -83,6 +432,8 @@ The rest of the Claims IIFE, port-checked, plus the glue: the lock (D26), the en
 - Modify: `extension/scripts/port/claims.mjs`, `extension/lib/claims/claims.ts`, `extension/lib/claims/answers.ts`, `extension/lib/claims/page.ts`, `extension/lib/messages.ts`, `extension/entrypoints/studio.content.ts`, `extension/scripts/strings/extension-only.mjs`
 - Create: `extension/tests/claims-trim.test.ts`, `extension/tests/claims-runs.test.ts`, `extension/tests/claims-autopilot.test.ts`
 - Test: `extension/tests/claims-page.test.ts`, `extension/tests/claims-youtubei.test.ts`
+
+**First callers (4a review m11).** 4a added these for 4b and nothing used them: the `runner:worker` and `runner:holds` handlers (this task's `setClaimsLock` wiring), `chMerge` / `chList` / `chRunItem` (the port's result writes), the three `set…Stage` (the steps), `ClaimsState.workerHere` (set by the ported tick from `isWorker()`; until now always `true`). Each gets a test in this task: the wiring test in Step 6 pins `runner:worker` / `runner:holds` in `studio.content.ts`'s source, and `tests/claims-status.test.ts` gains "a tab that isn't the channel's worker reports `workerHere: false` and shows '↪ Running in another Studio tab' for a run" (worker fake answering `false`, then `claimsTick()`).
 
 **Interfaces:**
 - Consumes: 4a's `claims.ts` (`chGet` / `chSet` / `chMerge` / `chList` / `chRunItem`, `log`, `flash`, `computeStatus`, stages, getters, `scanClaims`, `scanAds`), `write`, `yti`, `waitFor` / `sleep` / `shownDialog` / `clickIn` / `clickByText` (`automation.ts`), `inviteCollaborators` (`studio/collab.ts`), `inviteOutcome` / `parseHandles` (`lib/collab.ts`), `SEL`, `TXT`, `settings` / `load as loadState` (`studio/state.ts`); 4a T6's own `uploadBusy()` in `claims.ts`.
@@ -276,7 +627,7 @@ describe('stop and the lock', () => {
     const init = C.initClaimsLock();
     answer(true);
     await init;
-    await vi.advanceTimersByTimeAsync(6000); // the background never answers the renewals
+    await vi.advanceTimersByTimeAsync(16_000); // the background never answers the renewals (6_000 with call 34's fallback)
     C.claimsTick();
     expect(ops).toEqual([]); // no cycle on a stale "yes"
     answer(true);
@@ -503,6 +854,16 @@ describe('apCycle (5847–5873)', () => {
     C.setCfgRefresh(async () => {});
   });
 
+  // 4a whole-branch review m2: Auto-pilot must not act on a scan that read nothing. Depends on the
+  // 4a fix round: if it reports such a scan another way than `null`, expect that instead.
+  it('does nothing after a scan whose detail calls all failed', async () => {
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 }, [`claimScan:${CH}`]: { date: 'old', total: 1, rows: [] } }, async (op) => void ops.push(op));
+    setYoutubei(async (path) => { if (path !== 'creator/list_creator_videos') throw new Error('youtubei: timed out after 30000 ms'); return studioApi(path); });
+    await C.apCycle();
+    expect(load(`trimRun:${CH}`, null)).toBe(null); // no run started
+    expect(load<{ date: string }>(`claimScan:${CH}`, null as never).date).toBe('old'); // the good scan is kept
+  });
+
   it('the alarm nudge asks the background afresh before it ticks (a moved lease runs nothing)', async () => {
     useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
     setYoutubei(studioApi);
@@ -674,6 +1035,10 @@ export default {
     ["const item = run.items.find((i) => i.state === 'pending');", "const item = run.items.find((i) => i.state === 'pending' && !isSettled(run, i));", 3],
     // the cycle reads ytcfg again before it scans (the cached copy may be from page load)
     ['const rows = await scanClaims({ show: false });', 'await freshCfg();\n        const rows = await scanClaims({ show: false });', 1],
+    // Task 0's two (they are in the config since then): counting songs without a copy; owner
+    // names in a null-prototype map
+    ['songs: Object.keys(getSongs()).length,', 'songs: songCount(),', 1],
+    ['const owners = {};', 'const owners = Object.create(null);', 1],
     // the "Confirm changes" click watcher is installed by the content script, and removed with it
     ["    document.addEventListener('click', (e) => {", "    const installConfirmWatch = () => {\n    const ac = new AbortController();\n    document.addEventListener('click', (e) => {", 1],
     ['    }, true);', '    }, { capture: true, signal: ac.signal });\n    return () => ac.abort();\n    };', 1],
@@ -704,7 +1069,12 @@ interface ClaimsLock {
   holds(): Promise<boolean>;
 }
 let lockApi: ClaimsLock = { worker: async () => true, acquire: async () => true, release: () => {}, holds: async () => false };
-const WORKER_RENEW = 5000; // the userscript renewed its lease every 5 s (5051)
+// PENDING USER APPROVAL (call 34). Two settings; use the FALLBACK unless the controller says the user approved the slower one:
+//   approved-if-yes: WORKER_ASK = 10_000, WORKER_RENEW = 15_000 — fewer service-worker wake-ups; another tab takes over
+//                    within 10 s of the worker tab closing (approved call 9 said 5 s)
+//   FALLBACK:        WORKER_ASK = 2_500,  WORKER_RENEW = 5_000  — call 9 as approved; only the lock poll becomes event-driven (Task 0 Step 3)
+// With the fallback, the "worker answer expires" test advances 6_000 ms instead of 16_000, and README item 52 says "about 5 s".
+const WORKER_RENEW = 15_000; // an answer is trusted this long: under the lease's 20 s (runner-lock LEASE_STALE)
 let workerMine = false; // the background's last answer for this tab and channel
 let workerCh = '';
 let workerAt = 0;
@@ -720,13 +1090,13 @@ export const setClaimsLock = (l: ClaimsLock) => {
 
 // isWorker(force): is this tab the channel's worker? The background's answer, never older than
 // WORKER_RENEW: the lease goes stale after 20 s without a renewal (runner-lock LEASE_STALE), and
-// an old "yes" could outlive it (4a T4 review r2). Asked again every WORKER_ASK (half of that), so
+// an old "yes" could outlive it (4a T4 review r2). Asked again every WORKER_ASK (10 s), so
 // in normal running the answer is always fresh; when it isn't (the service worker was slow, the
 // first tick of a page), the tab is not the worker until the answer comes. Not asked on every
 // 0.8 s tick: that would keep the service worker awake. Never asked while the channel is
 // 'unknown' (4a T4 review m8): that lease would name no channel.
 // `force` (a run started from this tab) takes the lease, as the userscript's did.
-const WORKER_ASK = WORKER_RENEW / 2;
+const WORKER_ASK = 10_000; // asked this often: well inside both limits, and not a message every few ticks
 let workerAnswerAt = 0; // when the background last answered for workerCh
 function askWorker(ch: string, force: boolean): Promise<boolean> {
   workerCh = ch;
@@ -1435,9 +1805,10 @@ export function AutopilotSwitch({ data, state }: { data: ClaimsData; state: Clai
 
 Rework the home to `buildPane()`'s rows and `renderStatus()`'s visibility rules (6204–6251), **on top of the file as 4a shipped it**: keep `useClaimsGlobals()`, the `closed` / `data-view` focus return, the scroll-to-top effect, `saveFailed`, the `sub` expression for the views (Tasks 4 and 5 add their views to it), and the wrapping flex rows (`flex flex-wrap gap-2 [&>button]:grow`) in place of the `grid-cols-3` shown below — the panel can be 320px wide. Only the rows' contents and visibility change:
 ```tsx
-  const busyRun = !!s?.busyRun;
-  const busyScan = !!s?.busyScan;
-  const waiting = s?.waiting ?? 0;
+  // Buttons follow the bound tab (`state`); the card and Stop follow `live` (Task 0 Step 1).
+  const busyRun = !!state?.busyRun;
+  const busyScan = !!state?.busyScan;
+  const stoppable = !!s && (s.busyRun || s.waiting > 0);
   // Stop goes to the tab holding the lock while it runs a copyright job elsewhere (D27).
   const stopTo = live && live !== state && runner ? sendTo(runner.tabId) : send;
   const stop = () => void stopTo('claims:stop', undefined).catch(failed);
@@ -1445,10 +1816,10 @@ Rework the home to `buildPane()`'s rows and `renderStatus()`'s visibility rules 
       <Section title={L('สถานะ', 'Status')} icon="shield">
         {s && <StatusCard s={s.status} />}
         {/* row1: Scan · Ads off · Stop; one column while a run is busy (6204, 6251) */}
-        <div className={cn('mt-2.5 grid gap-2', busyRun ? 'grid-cols-1' : 'grid-cols-3')}>
+        <div className={cn('mt-2.5 grid gap-2', busyRun ? 'grid-cols-1' : 'grid-cols-3')}>{/* 4a's wrapping flex row in the real file */}
           {!busyRun && !busyScan && <Button variant="go" onClick={scan} disabled={!state}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>}
           {/* Ads off: Task 4 */}
-          {(busyRun || waiting > 0) && <Button variant="danger" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
+          {stoppable && <Button variant="danger" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
         </div>
         {!busyRun && !busyScan && (
           <div className="mt-2 grid grid-cols-3 gap-2">
@@ -1956,7 +2327,7 @@ Expected after: `ui-check: ok` with `--coverage`. Update `tests/ui-check.test.mj
     channel. In the service worker console, `await chrome.storage.session.get('claimsWorkers')`
     names one tab for the channel (`{ tabId, at }`, `at` moving every few seconds). One cycle runs,
     not two; during a run the other tab's card shows "↪ Running in another Studio tab". Close the
-    worker tab: within about 5 s the entry names the other tab, and it carries on. **Record** what
+    worker tab: within about 10 s the entry names the other tab, and it carries on (about 5 s if call 34's fallback was built). **Record** what
     happens when the worker tab hangs instead (DevTools → pause script execution): the other tab
     takes over after about 20 s.
 53. **Start refused during copyright work.** Start a trim run in Studio tab A (item 57). In tab B
@@ -2071,6 +2442,18 @@ In `docs/superpowers/specs/2026-10-05-chrome-extension-design.md`:
 - **Background → Autopilot (user request)**: "when an alarm fires and no Studio tab can run the cycle, the background shows one 'Auto-pilot is due' notification for that cycle (per channel and `next`, remembered in storage.local); clicking it opens Studio on that channel in a new tab."
 - **Error handling → MAIN world not answering**: "A `getCfg` request times out after 10 s, a `youtubei` request after 30 s (the userscript's fetch had none); a timeout fails that call like any API error."
 - **Side panel UI**: "the copyright pane's modals are views of the Copyright tab; claim and song tables are lists of cards."
+
+And the ten the 4a whole-branch review found missing (its line numbers are the spec's):
+1. **Messaging, content → background** (lines 144–146): add `runner:holds`, `runner:worker`; background → content: `runner:changed`; `claims:op` joins the list of messages refused from senders that may not write (`mayWrite`); `runner:acquire` and `runner:worker` are refused from non-Studio senders.
+2. **"One writer for settings and counters"** (147–153) becomes "settings, counters and the copyright keys": pages and the panel send `claims:op`; the background applies ops one at a time in the same queue; a Studio tab applies the op to its own copy at once and re-reads the key when the background is done; a write unanswered in 30 s counts as failed but may still land, and a failed one is shown.
+3. **Content ↔ MAIN world** (167–169): the MAIN script answers `getCfg` and `youtubei` for an allowlist of four read-only endpoints; its answers are page data, copied as plain data and shape-checked before use; `CHANNEL_ID` names a storage key only when it is a real channel id.
+4. **GM replacements** (line 90): per-channel `key:channelId` layout kept, except `tabLock:<ch>`, which is the worker lease `claimsWorkers` in `storage.session` (`{ tabId, at }`, stale after 20 s, written every 5 s at most, asked every 10 s).
+5. **One runner at a time** (line 160): add "a page restored from the back/forward cache that lost the lock aborts its run at once; scans take no lock; a backup import is refused during any lock job; Studio tabs follow the lock through `runner:changed`, focus and a 30 s poll."
+6. **File intake / queue**: two windows' queue saves are merged per item; the start is bound to a signature of the schedule, thumbnails on/off and the pending presets' visibility ("Settings or presets changed after you confirmed — …"); the scheduled-list refresh before a start is limited to 10 s.
+7. **Error handling, bridge failures** (line 123): a file whose read permission the user blocked ('denied') fails with "The browser blocked reading this file — remove it from the queue and add it again".
+8. **Messaging, page → panel**: `claims:state`, `claims:log`, `claims:show` come from the bound tab, or from the lock holder while it runs copyright work; the activity log is the panel's last 80 lines; the Copyright tab's buttons follow the bound tab.
+9. **Data migration / privacy**: per-channel copyright data is not in the backup; the claimed-songs CSV import is lossy and limited to 16 MB; the debug report contains the copyright data and the lock state.
+10. **Side panel UI**: CSV files (claims, songs, upload history) are saved from the panel; the queue card shows "N song(s) previously claimed".
 
 - [ ] **Step 4: Full verification**
 
