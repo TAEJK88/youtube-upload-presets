@@ -55,7 +55,8 @@ describe('ops', () => {
     expect(isClaimsOp({ op: 'list', key: 'trimQueue:UC1', add: [1] })).toBe(false);
     expect(isClaimsOp({ op: 'runItem', key: 'trimRun:UC1', by: 'title', id: 'x', state: 's', msg: '' })).toBe(false);
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'import', text: 'x', now: 'n' } })).toBe(true);
-    // a songs CSV over the limit never reaches the one writer (T8 review I2)
+    // a songs CSV over the limit never reaches the one writer (T8 review I2); 16 MB (re-review R2)
+    expect(SONGS_CSV_MAX).toBe(16 * 1024 * 1024);
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'import', text: 'x'.repeat(SONGS_CSV_MAX), now: 'n' } })).toBe(true);
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'import', text: 'x'.repeat(SONGS_CSV_MAX + 1), now: 'n' } })).toBe(false);
     expect(isClaimsOp({ op: 'songs', songs: { fn: 'eval' } })).toBe(false);

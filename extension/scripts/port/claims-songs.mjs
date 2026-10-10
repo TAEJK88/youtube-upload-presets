@@ -20,8 +20,9 @@ export default {
     // - the header's columns, first of a repeated name as indexOf gave;
     ['const col = (n) => head.indexOf(n);', 'const cols = new Map(head.map((h, i) => [h, i]).reverse());\n      const col = (n) => cols.get(n) ?? -1;', 1],
     // - per song entry, what it holds already: claimants, types, and how many of its videos have each name
-    //   (a count, because an imported video can replace another under the same key);
-    ['let n = 0;', "let n = 0;\n      const seen = new Map();\n      const hadOf = (e) => {\n        let h = seen.get(e);\n        if (!h) {\n          h = { claimants: new Set(e.claimants), types: new Set(e.types), videos: new Map() };\n          for (const x of Object.values(e.videos)) h.videos.set(x.video, (h.videos.get(x.video) || 0) + 1);\n          seen.set(e, h);\n        }\n        return h;\n      };", 1],
+    //   (a count, because an imported video can replace another under the same key). `e.videos || {}`: a
+    //   stored entry without videos fails only a row that names videos, as the userscript's scan did;
+    ['let n = 0;', "let n = 0;\n      const seen = new Map();\n      const hadOf = (e) => {\n        let h = seen.get(e);\n        if (!h) {\n          h = { claimants: new Set(e.claimants), types: new Set(e.types), videos: new Map() };\n          for (const x of Object.values(e.videos || {})) h.videos.set(x.video, (h.videos.get(x.video) || 0) + 1);\n          seen.set(e, h);\n        }\n        return h;\n      };", 1],
     ["        g('claimants').split(';')", "        const had = hadOf(e);\n        const channel = g('channels').split(';')[0] || '';\n        g('claimants').split(';')", 1],
     ['if (!e.claimants.includes(c)) e.claimants.push(c);', 'if (!had.claimants.has(c)) { had.claimants.add(c); e.claimants.push(c); }', 1],
     ['if (!e.types.includes(c)) e.types.push(c);', 'if (!had.types.has(c)) { had.types.add(c); e.types.push(c); }', 1],

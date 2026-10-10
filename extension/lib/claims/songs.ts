@@ -45,7 +45,7 @@ export type SongRow = Pick<ClaimRow, 'song' | 'artists' | 'label' | 'claimant' |
       let h = seen.get(e);
       if (!h) {
         h = { claimants: new Set(e.claimants), types: new Set(e.types), videos: new Map() };
-        for (const x of Object.values(e.videos)) h.videos.set(x.video, (h.videos.get(x.video) || 0) + 1);
+        for (const x of Object.values(e.videos || {})) h.videos.set(x.video, (h.videos.get(x.video) || 0) + 1);
         seen.set(e, h);
       }
       return h;

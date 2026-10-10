@@ -736,7 +736,7 @@ describe('claimed songs', () => {
     Object.defineProperty(f, 'size', { value: SONGS_CSV_MAX + 1 });
     const text = vi.spyOn(f, 'text');
     await pick(f);
-    await waitFor(() => expect(toast).toHaveBeenCalledWith('This file is too large — the limit is 5 MB'));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('This file is too large — the limit is 16 MB'));
     expect(text).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });

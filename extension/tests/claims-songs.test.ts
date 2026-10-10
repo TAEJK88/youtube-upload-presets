@@ -77,6 +77,26 @@ describe('song history reducers', () => {
       importSongs(db, 'song,artists,song\nFirst,A,Second\n', NOW);
       expect(Object.keys(db)).toEqual(['first|a']);
     });
+    it('a video replaced under its key is no longer counted as there (T8 re-review R1)', () => {
+      const db: Songs = {};
+      // "mix a" takes the key of "Mix A" (same place, same name but for case); "Mix A" is then new again
+      importSongs(db, 'song,videos\nS,Mix A\nS,mix a\nS,x | Mix A\n', NOW);
+      expect(Object.entries(db['s|']!.videos).map(([k, v]) => [k, v.video])).toEqual([['import:mix a:0', 'mix a'], ['import:x:0', 'x'], ['import:mix a:1', 'Mix A']]);
+    });
+    it('two stored videos of one name: replacing one leaves the name there (T8 re-review R1)', () => {
+      const db: Songs = {};
+      importSongs(db, 'song,videos\nS,Same\n', NOW);
+      recordSongs(db, [row('S', 'v1', { video: 'Same', artists: '' })], 'Chan', NOW);
+      importSongs(db, 'song,videos\nS,same\nS,x | Same\n', NOW);
+      expect(Object.entries(db['s|']!.videos).map(([k, v]) => [k, v.video])).toEqual([['import:same:0', 'same'], ['v1', 'Same'], ['import:x:0', 'x']]);
+    });
+    it('a stored song with no videos object fails only a row that names videos, as before (T8 re-review R4)', () => {
+      const broken = () => ({ 's|': { title: 'S', artists: '', label: '', claimants: [], types: [], firstSeen: NOW, lastSeen: NOW, trimmed: 0 } }) as unknown as Songs;
+      const db = broken();
+      expect(importSongs(db, 'song,claimants\nS,Co\nT,\n', NOW)).toBe(2);
+      expect(db['s|']!.claimants).toEqual(['Co']);
+      expect(() => importSongs(broken(), 'song,videos\nS,Mix 1\n', NOW)).toThrow(TypeError);
+    });
     it('still adds each video, claimant and type once: within a row, across rows, and against what is stored', () => {
       const db: Songs = {};
       recordSongs(db, [row('S', 'v1', { video: 'Mix 1', artists: '' })], 'Chan', NOW);

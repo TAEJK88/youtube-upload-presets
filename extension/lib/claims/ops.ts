@@ -20,12 +20,13 @@ export type ClaimsOp =
   | { op: 'runItem'; key: string; by: 'key' | 'videoId'; id: string; state: string; msg: string; onlyActive?: boolean }
   | { op: 'songs'; songs: SongsOp };
 
-// The most a songs CSV may hold, in UTF-16 units (a file's bytes are never fewer). A real export is
-// one row per song: 200,000 short rows are 3.8 MB, and a few thousand songs with their video titles
-// stay well under 1 MB. importSongs is linear, so 5 MB is read twice (panel, then here) in well under a
-// second; the limit keeps a wrong file (a video, a database dump) from being parsed, sent as one
-// message and held in the one writer's queue.
-export const SONGS_CSV_MAX = 5 * 1024 * 1024;
+// The most a songs CSV may hold, in UTF-16 units (a file's bytes are never fewer, so a file the
+// panel accepts by its size is never refused here). The history is every channel's, and Thai is
+// 3 bytes a character: 10,000 songs x 5 videos with Thai titles export to 7.9 MB, 5,000 x 20 to
+// 13 MB (T8 re-review R2). importSongs is linear (13 MB in 0.4 s), so 16 MB costs nothing; the
+// limit keeps a wrong file (a video, a database dump) from being parsed, sent as one message and
+// held in the one writer's queue.
+export const SONGS_CSV_MAX = 16 * 1024 * 1024;
 
 export const opKey = (op: ClaimsOp): string => (op.op === 'songs' ? 'songHistory' : op.key);
 
