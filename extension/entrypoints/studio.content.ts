@@ -30,7 +30,7 @@ import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-
 import { abortRun, installIntercept, isStartBinding, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '@/lib/studio/queue-sync';
-import { queueView, watchClaimedSongs } from '@/lib/studio/queue-view';
+import { queueView } from '@/lib/studio/queue-view';
 import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
@@ -80,7 +80,6 @@ export default defineContentScript({
     stop.add(disposeClaimsStore); // first: a teardown while it loads drops what it loaded
     await loadClaimsData();
     if (ctx.isInvalid) return;
-    stop.add(watchClaimedSongs());
     // Studio's API for the copyright module (its own client: 30 s, the userscript's fetch had no
     // timeout; getCfg keeps 10 s, D22), and the queue's schedule avoids the channel's scheduled
     // videos (refreshChanSched, user.js 1899).

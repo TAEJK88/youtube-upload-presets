@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
@@ -7,7 +6,7 @@ import { disposeClaimsStore, flushClaims, initClaimsStore, useMemoryClaims, writ
 import type { QueueState } from '../lib/messages';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
-import { forgetClaimed, queueView, watchClaimedSongs } from '../lib/studio/queue-view';
+import { forgetClaimed, queueView } from '../lib/studio/queue-view';
 import { settings } from '../lib/studio/state';
 import { claimsOpInOrder } from '../lib/store-writer';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
@@ -111,7 +110,7 @@ describe('queueView', () => {
     expect(queueView(state).items[0]!.claimed).toEqual([]);
     expect(claimedCalls.n).toBe(1);
     useMemoryClaims({ songHistory: {} }); // the history changed…
-    forgetClaimed(); // …which is what the store's change listener calls
+    forgetClaimed(); // …which claimedIn() does itself when the stored history is another object
     Q.queue[0]!.txt = '00:00 Lena - Midnight Rain';
     expect(queueView(state).items[0]!.claimed).toEqual([]);
   });
@@ -155,14 +154,5 @@ describe('queueView', () => {
       expect(await browser.storage.local.get('songHistory')).toEqual({});
       vi.restoreAllMocks();
     });
-  });
-
-  // The memory store has no change events, so the link from the store to forgetClaimed() is pinned in the source.
-  it('forgets its checks when the stored song history changes', () => {
-    expect(watchClaimedSongs).toBeTypeOf('function');
-    const src = readFileSync(new URL('../lib/studio/queue-view.ts', import.meta.url), 'utf8');
-    expect(src).toMatch(/onClaimsStored\('songHistory',\s*forgetClaimed\)/);
-    const content = readFileSync(new URL('../entrypoints/studio.content.ts', import.meta.url), 'utf8');
-    expect(content).toMatch(/stop\.add\(watchClaimedSongs\(\)\)/);
   });
 });
