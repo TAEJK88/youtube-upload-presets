@@ -218,10 +218,12 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       .catch((e) => console.error('[ytup] claims:view failed', e));
     return () => { alive = false; };
   }, [targetId, link]);
-  // The bound tab reloads, changes channel or comes back without our script: what its old page
-  // said is dropped (a scan's progress would stay on the card), until the new page answers above.
+  // The bound tab came back without our script: what its old page said is dropped (a scan's
+  // progress would stay on the card for good). Not while it is only 'loading': Chrome reports an
+  // in-page navigation of Studio (history.pushState) that way too, with the page and its state
+  // still there; after a real reload the new page's answer above replaces the old state.
   useEffect(() => {
-    if (targetId === undefined || link === 'ok') return;
+    if (targetId === undefined || link !== 'noScript') return;
     setClaimStates((m) => {
       if (!m.has(targetId)) return m;
       const next = new Map(m);
@@ -232,12 +234,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     installBus();
     const ours = (tabId: number | undefined): tabId is number => tabId !== undefined && (tabId === targetRef.current?.tabId || tabId === runnerRef.current);
-    const offState = onClaimsState((s, tabId) => {
-      if (!ours(tabId)) return;
-      // Not linked: the page that sent this is on its way out (the new one is asked once linked).
-      if (tabId === targetRef.current?.tabId && linkRef.current !== 'ok') return;
-      setClaimStates((m) => new Map(m).set(tabId, s));
-    });
+    const offState = onClaimsState((s, tabId) => { if (ours(tabId)) setClaimStates((m) => new Map(m).set(tabId, s)); });
     const offLog = onClaimsLog((l, tabId) => { if (ours(tabId)) setLog((cur) => [l, ...cur].slice(0, LOG_MAX)); });
     const offShow = onClaimsShow((view, tabId) => {
       if (tabId !== undefined && tabId === targetRef.current?.tabId) setShown((s) => ({ view, n: (s?.n ?? 0) + 1 }));

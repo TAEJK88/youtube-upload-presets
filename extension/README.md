@@ -564,10 +564,13 @@ with at least one copyright claim.
   toasts "Couldn't save (…)" in the panel and on the Studio page and adds the same line to the
   activity log; the debug log has it too. The tab goes back to what is stored. A write that
   only timed out may still land.
-- **After a reload or a channel switch of the Studio tab** the Copyright tab shows no status and
-  its buttons are off until the new page answers (a few seconds); an open claim list, song list
-  or tracklist editor closes. It stays that way when the tab came back without the extension's
-  script (the "reload this tab" banner says so). The activity log keeps its lines.
+- **After a reload of the Studio tab** the Copyright tab keeps showing what the old page last
+  said (a scan cut short still reads "Scanning…") until the new page answers, a few seconds
+  later; an open claim list, song list or tracklist editor stays open, and closes only when the
+  new page is on another channel. Clicking around inside Studio changes nothing here. When the
+  tab came back without the extension's script (the "reload this tab" banner says so), the
+  Copyright tab shows no status, its buttons are off and an open view closes. The activity log
+  keeps its lines.
 
 ### Known, dev only (note, don't test)
 

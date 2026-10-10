@@ -304,22 +304,66 @@ describe('copyright state routing', () => {
     expect(text('c')).toBe('bound|bound|0|-');
   });
 
-  // Final review m1: a scan's "Scanning… 27%" stayed on the card through a reload of the tab,
-  // and for good when the tab came back without the extension's script.
-  it('a reload of the bound tab drops its state; what the page sent while leaving is not shown; the new page answers', async () => {
+  // Final review m1: a scan's "Scanning… 27%" stayed on the card for good when the tab came back
+  // without the extension's script.
+  it('a bound tab that comes back without the script drops its state', async () => {
+    let script = true;
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => {
+      if (!script) throw new Error('Could not establish connection. Receiving end does not exist.');
+      return type === 'claims:view' ? cs('scanning') : { items: [] };
+    }) as never);
+    render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+    await flush();
+    expect(text('c')).toBe('scanning|scanning|0|-');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      script = false;
+      await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'loading' }, tabs[3] as never); });
+      await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'complete' }, tabs[3] as never); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(text('c')).toBe('scanning|scanning|0|-'); // still within the grace period: the page may be loading
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(text('c')).toBe('-|-|0|-');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Re-review R1: Chrome reports history.pushState as 'loading' with the new address, then
+  // 'complete', with the same page and script. Dropping the state there blinked the card and
+  // closed an open claim list or tracklist editor (CopyrightTab closes its view when the
+  // channel goes away) on every click inside Studio.
+  it("an in-page navigation of Studio keeps the bound tab's state throughout", async () => {
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    const seen: string[] = [];
+    function Seen() {
+      seen.push(useClaims().state?.channelName ?? '-');
+      return null;
+    }
+    render(<PanelProvider><ClaimsProbe /><Seen /></PanelProvider>);
+    await flush();
+    expect(text('c')).toBe('bound|bound|0|-');
+    seen.length = 0;
+    const url = 'https://studio.youtube.com/channel/UC1/analytics';
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'loading', url }, { ...tabs[3], url } as never); });
+    await flush();
+    await deliver('claims:state', cs('bound, later'), 3); // the page is still there and still reports
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'complete' }, { ...tabs[3], url } as never); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); }); // the view is asked 120 ms after the load
+    expect(seen).not.toContain('-');
+    expect(seen).toContain('bound, later');
+  });
+
+  it('a reload of the bound tab: the new page answers once it is linked', async () => {
     let page = 'scanning';
     vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs(page) : { items: [] })) as never);
     render(<PanelProvider><ClaimsProbe /></PanelProvider>);
     await flush();
     expect(text('c')).toBe('scanning|scanning|0|-');
-    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'loading' }, tabs[3] as never); });
-    await flush();
-    expect(text('c')).toBe('-|-|0|-');
-    await deliver('claims:state', cs('scanning'), 3); // the old page's last tick
-    expect(text('c')).toBe('-|-|0|-');
     page = 'reloaded';
+    await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'loading' }, tabs[3] as never); });
     await act(async () => { await fakeBrowser.tabs.onUpdated.trigger(3, { status: 'complete' }, tabs[3] as never); });
-    await act(async () => { await new Promise((r) => setTimeout(r, 200)); }); // the view is asked 120 ms after the load
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     expect(text('c')).toBe('reloaded|reloaded|0|-');
   });
 
