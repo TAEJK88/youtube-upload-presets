@@ -30,7 +30,8 @@ page-side code (the FAB, page toasts) or by dead code passes too.
 the FAB and the reload banner in Thai, and fails on any English pair and on any Latin word
 outside its short, commented allowlist and the presets' own text (whole pieces of a label,
 title, description line or tag, and their artist names; not their words on their own).
-`settings` and `counters` have one writer, the background (`store:patch`, `lib/store-writer.ts`).
+`settings` and `counters` have one writer, the background (`store:patch`, `lib/store-writer.ts`);
+the copyright data has the same writer (`claims:op`).
 Console lines from the extension start with `[ytup]`.
 
 ## Layout
@@ -41,6 +42,9 @@ Console lines from the extension start with `[ytup]`.
   `page-ui.ts` is the seam between the runner and any UI
 - `entrypoints/invite.content.ts` — www.youtube.com: channel switcher and invite accept
 - `lib/studio/txt.ts`, `lib/studio/sel.ts` — the `TXT` / `SEL` tables (see the root README)
+- `lib/claims/` — the copyright module ported from the userscript (`claims.ts`, port-checked); its
+  data: per-channel keys, one writer (`claims:op` in the background)
+- `lib/main-youtubei.ts` — Studio's `/youtubei/v1` calls, run in the MAIN world
 - `entrypoints/sidepanel/` — the side panel (React); `lib/panel/` — its logic; `components/ui/` — shadcn-style components
 - `scripts/ui-check.mjs`, `scripts/strings/` — strings parity with the userscript, 12px floor
 - `tests/*.test.mjs` — tests ported from `../test/` (bodies unchanged); `tests/*.test.ts` — new tests
@@ -60,7 +64,14 @@ packages in the maps' `sources` (Vite strips the licence comments from the minif
 
 In the userscript: Settings → Backup / share → Export. Import that file in the extension
 (Settings → Back up / share settings → Import). Upload history and per-channel copyright data
-aren't part of the backup.
+(claim scans, trim results, follow-up trims, Auto-pilot on/off) aren't part of the backup, as in
+the userscript; the copyright settings are. After moving: rescan each channel and turn Auto-pilot
+on again; let pending follow-up trims finish in the userscript before switching. The
+claimed-songs history can come along as a CSV (userscript: Claimed songs → ⬇ CSV; extension:
+Copyright → Claimed songs → ⬆ Import CSV), but the CSV keeps only titles, artists, claimants,
+counts and the first channel, not which video was which: imported songs count their videos by
+title, and a rescan adds the real videos beside them, so a song's "claimed in N videos" can
+count a video twice. The import takes a file of up to 16 MB.
 
 ## CSV exports
 
@@ -93,8 +104,9 @@ handles and whether the queue uses them. It changes nothing except **Clear log**
 To send a report: **Copy diagnostic report** (paste it into a message) or **Download report
 (.json)** (attach the file). The report holds every section above and the last 300 log entries.
 It contains everything the extension stores: your presets and settings, the queue (video
-titles, descriptions, tracklists and file names), the upload history, channel ids, names and
-avatar links, and the stored file names; the open Studio tabs' titles and URLs (with channel and
+titles, descriptions, tracklists and file names), the upload history, the copyright data (claim
+scans, the trim list and the claimed-songs history: video and song titles, artists and
+claimants), channel ids, names and avatar links, and the stored file names; the open Studio tabs' titles and URLs (with channel and
 video ids); and log messages, which can quote titles. It contains no files and no sign-in data
 (no cookies, tokens or YouTube auth headers: the extension never stores or logs them). Look it
 over before sending it outside your team. The log keeps the newest 300 entries in
@@ -126,7 +138,8 @@ The panel's own console: right-click inside the panel → Inspect.
    - Neither Alt+P closes the panel.
 2. **Look.** Black glass, Thai and English text in IBM Plex Sans Thai, nothing smaller than
    12px, icons on tabs and section headings. Tabs: Upload · Presets · Copyright · Settings; the
-   Copyright tab says "Copyright scan and trim arrive in a later version of the extension".
+   Copyright tab shows the status card and Scan claims, then Claim list, Claimed songs, Fix
+   tracklist and Upload history, and the activity log under "Show activity ▾" (items 46 to 52).
 3. **Language.** Settings → General → Language / ภาษา → ไทย: the whole panel switches at once,
    without a reload, with no English left. The next toast from Studio is Thai too. Switch
    back to English.
@@ -201,6 +214,10 @@ The panel's own console: right-click inside the panel → Inspect.
 12. **Two idle Studio tabs.** Open Studio in windows A and B (nothing running). In A's panel
     edit a card's title; in B's panel change the default preset's title template. A's
     edited title survives (no lost update); the other cards follow the new template.
+    - **Two windows' edits both survive.** Queue 2 clips. Edit clip 1's title in A's panel and,
+      as close to the same moment as you can (within about a third of a second), set clip 2's
+      artists in B's panel. Both edits are in both panels afterwards; neither window's save
+      replaced the other's.
 13. **Scheduling (the schedule box).** Switch "Schedule releases" on: the first release is
     tomorrow 19:00.
     - Quick picks fill "First video releases":
@@ -261,6 +278,13 @@ The panel's own console: right-click inside the panel → Inspect.
     - With it off and no warnings, Start starts at once with no dialog.
     - Click Start, and while the summary is open edit a card's title, then confirm: "The queue
       changed after you confirmed — click Start again to see the new summary".
+    - **Another window changes something.** Open Studio in windows A and B. Click Start in A
+      and leave the summary open. In B's panel switch "Schedule releases" (or change the
+      default preset's visibility), then confirm in A: "Settings or presets changed after you
+      confirmed — click Start again to see the new summary". Again with a card: with A's
+      summary open, change a waiting card's preset or release time in B (or attach a `.txt` or
+      a thumbnail to it), then confirm in A: "The queue changed after you confirmed — …".
+      Nothing runs either time; a second Start shows the new summary and runs.
     - **Record**: with the summary open, switch the browser to another Studio tab (the panel
       rebinds), then confirm: whether any refusal is shown.
     - The footer's look: the disabled Start subtitle is readable; the Stop icon's hover colour
@@ -410,11 +434,15 @@ The panel's own console: right-click inside the panel → Inspect.
       confirm "Leave site?", then press Back. If Chrome restored the page from its
       back/forward cache with the run still going: the run carries on and keeps the lock (in
       another Studio tab the panel shows "Another Studio tab is running the queue — change
-      the queue there"). If another tab started a run meanwhile, the restored page toasts
-      "Another Studio tab is already running the queue or copyright work" and stops at once:
-      its video stays a draft in Studio (the other tab shows it as interrupted), and only
-      the other tab uploads. Start in the restored tab works again once it has read the
-      other tab's results (within a second of that run ending).
+      the queue there").
+    - **Back after another tab took the lock.** As above, but before pressing Back start the
+      queue in another Studio tab. The restored page toasts "Another Studio tab is already
+      running the queue or copyright work" and stops at once: it clicks nothing more, its
+      video stays a draft in Studio (the other tab shows it as interrupted), and only the
+      other tab uploads, each clip once. While the other tab runs, and until the restored tab
+      has read that run's results back (within a second of its end), Start in the restored
+      tab is refused with the same toast; after that it works, and the cards the other tab
+      finished show Done there.
       **Record** whether the page came back from the cache at all (if Studio reloads instead,
       the item comes back as interrupted, as in item 15).
 
@@ -457,6 +485,60 @@ Record what happens; the Phase 0 spike results document
     diagnostic report** and paste: it has every section and the log. **Record** anything a
     section shows as failed. Then, in the service worker console, run `chrome.storage.local.get(
     'debugLog')` to see the same entries.
+
+### Copyright, Phase 4a (scan, lists, one lock)
+
+Trim, Auto-pilot, Ads and Collab arrive in Phase 4b; these check what 4a added. Use a channel
+with at least one copyright claim.
+
+46. **Scan claims and the status card.** Copyright → **Scan claims**: the status card shows the
+    scan with its progress, then "Scan complete"; **Claim list (N)** and **Claimed songs (N)**
+    get their counts; "Show activity ▾" lists the scan's lines, ending "Scan complete ✓ …".
+    With Studio in Thai the tab warns "⚠ Studio is set to Thai — …". **Record** any "Unexpected
+    answer from …" line in the activity log.
+    - **Claim list.** One card per claim; the "Select:" chips tick claims (ticking only builds
+      a list, nothing changes on YouTube); **⬇ CSV**; **↻ Rescan**.
+    - **Claimed songs.** Search, sort, **Remove from history** and **Delete all** (each asks
+      again first). **⬇ CSV**, then **⬆ Import CSV** of that file: "Imported N songs into
+      history". A file over 16 MB toasts "This file is too large — the limit is 16 MB"; a CSV
+      without a song column, "This is not a song history CSV …". The import is lossy (see
+      "Moving from the userscript") and the CSV cells are not neutralised (see "CSV exports").
+    - **Fix tracklist.** Pick a claimed video (its tracklist comes from the upload history, or
+      paste one; a `.txt` dropped on the box stays in the box), tick the trimmed ranges,
+      **📋 Copy new tracklist**: "New tracklist copied — paste it into the video description".
+    - **The chip.** After the scan, drop a clip whose `.txt` names a claimed song: the card
+      shows "N song(s) previously claimed", and its tooltip lists the lines.
+47. **The scheduler avoids a taken slot.** Schedule a video on the channel in Studio for
+    tomorrow 19:00. In the panel set "First video releases" to the same time and queue 2 clips:
+    the schedule box's summary adds "· 1 already scheduled on the channel (next …) — skipped 1
+    slot(s)", and the cards' times start at the next slot. Start: neither clip is scheduled at
+    tomorrow 19:00.
+48. **A scan during an upload.** Start a clip and, while it uploads, press **Scan claims**: the
+    scan runs to "Scan complete" and the upload finishes Done (a scan takes no lock). The
+    activity bar keeps showing the upload.
+49. **Status in a second window and in the activity bar.** With Studio in windows A and B on
+    the same channel and nothing uploading, press Scan claims in A: the activity bar in A's
+    panel shows the copyright status; after the scan, B's Copyright tab shows the same counts
+    without a reload.
+50. **Light and dark, narrow.** Drag the panel to its narrowest (about 320px) and look at the
+    Copyright tab, the claim list (scrolled to its end: the footer stays at the bottom edge),
+    Claimed songs and the tracklist editor, in Chrome's light and dark themes, English and
+    Thai: no sideways scroll, no clipped button, error text readable in light.
+51. **CSV downloads in the real side panel.** **Upload history**, the claim list's **⬇ CSV**
+    and Claimed songs' **⬇ CSV** each save a file from the side panel (no new tab, no blocked
+    download). **Record** the file names and whether Chrome asked anything.
+52. **One worker per channel.** Open two Studio tabs on the same channel, then close the first.
+    In the service worker console, `await chrome.storage.local.get('claimsWorkers')` names one
+    tab for the channel before and the other tab afterwards. Nothing in 4a asks for the lease
+    yet, so before Phase 4b the entry is empty: run this item with 4b's Auto-pilot (the closed
+    worker's tab is replaced at once; a tab that hangs, after about 20 s).
+53. **Start refused during copyright work (complete in 4b).** While another Studio tab holds
+    the lock for copyright work, this tab's panel shows "Another Studio tab is busy with
+    copyright work — wait for it, or press Stop in the Copyright tab", Start is disabled, and
+    a forced Start (item 16's way) toasts "Another Studio tab is already running the queue or
+    copyright work". Nothing in 4a takes the lock for copyright work (a scan takes none), so
+    this can only be run in full with 4b's trim; until then it is covered by unit tests
+    (`tests/panel-shell.test.tsx`, `tests/runner-lock.test.ts`).
 
 ### Known, dev only (note, don't test)
 
