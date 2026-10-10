@@ -1,13 +1,24 @@
+import { PROTOCOL, sendMessage } from '../messages';
 import type { QueueView } from '../studio/queue-view';
 
 // Keeps the panel's copy of the bound tab's QueueView fresh: fetched at once when the panel
 // binds to a tab, then again (coalesced) whenever something pokes it — a queue:state
 // broadcast, a storage change, the minute timer. 'noScript': the tab has no live content
-// script (opened before the extension was installed or reloaded). A tab that is still
+// script (opened before the extension was installed or reloaded), or one of another build
+// (fetchView). A tab that is still
 // loading has none yet either: for a grace period after a bind or a load-complete a failed
 // fetch stays 'loading' and is retried. Any other failure is the handler's, not a missing
 // script: it goes to onError and never shows "reload this tab".
 export type LinkStatus = 'noTab' | 'loading' | 'ok' | 'noScript';
+
+// queue:view of a tab running this build. A tab loaded before the build was updated still
+// answers, in the shape of its own build: that is taken as no answer, so the panel asks for a
+// reload ('noScript') instead of rendering fields that are not there.
+export const fetchView = (tabId: number): Promise<QueueView> =>
+  sendMessage('queue:view', undefined, tabId).then((v) => {
+    if (v?.proto !== PROTOCOL) throw new Error('No response (another build)');
+    return v;
+  });
 
 export interface ViewSync {
   bind(tabId: number | null): void;
@@ -52,7 +63,9 @@ export function createViewSync(o: {
       if (g !== gen) return;
       const msg = String((e as Error)?.message ?? e);
       // No receiver, or a navigation tearing the tab down under the request: all "no script (yet)".
-      if (!/Receiving end does not exist|Could not establish connection|message port closed before a response|No tab with id/i.test(msg)) {
+      // "No response" is what @webext-core/messaging makes of every failed send to a tab (it never
+      // reads chrome.runtime.lastError there), so Chrome's own texts only come from elsewhere.
+      if (!/No response|Receiving end does not exist|Could not establish connection|message port closed before a response|No tab with id/i.test(msg)) {
         if (msg !== lastError) {
           lastError = msg;
           console.error('[ytup] queue:view failed', e);

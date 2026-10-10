@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createViewSync, type LinkStatus } from '../lib/panel/view-sync';
+import { PROTOCOL } from '../lib/messages';
+import { createViewSync, fetchView, type LinkStatus } from '../lib/panel/view-sync';
 import type { QueueView } from '../lib/studio/queue-view';
 
 const view = (n: number) => ({ items: [], current: null, n }) as unknown as QueueView;
@@ -11,7 +12,7 @@ beforeEach(() => {
   statuses = [];
   views = [];
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 const make = (fetch: (id: number) => Promise<QueueView>) =>
   createViewSync({ fetch, onView: (v) => views.push(v), onStatus: (s) => statuses.push(s), delayMs: 100 });
@@ -178,6 +179,65 @@ describe('createViewSync', () => {
       up = true;
       await vi.advanceTimersByTimeAsync(500);
       expect(statuses.at(-1)).toBe('ok');
+    });
+  });
+
+  // 4b final review I1 / I2: nothing faked between the sync and Chrome. @webext-core/messaging
+  // never reads chrome.runtime.lastError for a send to a tab: Chrome calls back with undefined
+  // (no script, a script orphaned by an extension reload, no handler for the type, a closed tab)
+  // and the library throws "No response". Chrome's own texts never reach the panel.
+  describe('through the real sendMessage', () => {
+    const chromeAnswers = (answer: (message: { type: string }) => unknown) =>
+      vi.stubGlobal('chrome', { runtime: {}, tabs: { sendMessage: (_id: number, m: { type: string }, _o: unknown, cb: (r: unknown) => void) => cb(answer(m)) } });
+    const mk = (errors: unknown[]) =>
+      createViewSync({ fetch: fetchView, onView: (v) => views.push(v), onStatus: (s) => statuses.push(s), onError: (e) => errors.push(e), delayMs: 100, graceMs: 2000, retryMs: 300 });
+
+    it('a tab that does not answer is retried within the grace, then noScript; nothing is reported', async () => {
+      const errors: unknown[] = [];
+      chromeAnswers(() => undefined);
+      await expect(fetchView(7)).rejects.toThrow('No response');
+      const s = mk(errors);
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(statuses).toEqual(['loading']);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(statuses).toEqual(['loading', 'noScript']);
+      expect(errors).toEqual([]);
+    });
+
+    it('a tab running another build (no proto, or a different one) is noScript: its view never reaches the panel', async () => {
+      for (const res of [{ items: [{ id: 'a' }], current: null }, { items: [], proto: PROTOCOL + 1 }, null]) {
+        statuses = [];
+        views = [];
+        const errors: unknown[] = [];
+        chromeAnswers(() => ({ res }));
+        const s = mk(errors);
+        s.bind(7);
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(statuses).toEqual(['loading', 'noScript']);
+        expect(views).toEqual([null]); // bind's reset only
+        expect(errors).toEqual([]);
+        s.dispose();
+      }
+    });
+
+    it('a tab running this build is ok', async () => {
+      chromeAnswers(() => ({ res: { items: [], proto: PROTOCOL } }));
+      const s = mk([]);
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(statuses).toEqual(['loading', 'ok']);
+      expect(views.at(-1)).toEqual({ items: [], proto: PROTOCOL });
+    });
+
+    it("the handler's own error is still reported, not noScript", async () => {
+      const errors: unknown[] = [];
+      chromeAnswers(() => ({ err: { name: 'Error', message: 'boom' } }));
+      const s = mk(errors);
+      s.bind(7);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(statuses).toEqual(['loading']);
+      expect(errors).toHaveLength(1);
     });
   });
 });

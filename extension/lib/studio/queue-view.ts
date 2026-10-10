@@ -2,7 +2,7 @@ import { fixChapters, type TracklistCheck } from '../chapters';
 import { getSongs } from '../claims/claims';
 import { claimedSongsIn } from '../claims/core';
 import { storedRef } from '../claims/store';
-import type { QueueState } from '../messages';
+import { PROTOCOL, type QueueState } from '../messages';
 import { chanLabel, channelProblem, getChannel, type Channel } from './channel';
 import {
   currentItemId, effectiveStart, itemPublishAt, itemTracklist, itemVars, queue, queueSlots, refreshChanSched,
@@ -46,6 +46,7 @@ export interface QueueView {
   schedule: ScheduleView;
   channel: ChannelView;
   state: QueueState;
+  proto: number; // PROTOCOL: the panel shows a view of its own build only
 }
 
 // claimedSongsIn() per tracklist text, kept until the song history changes: the check clones the
@@ -99,5 +100,6 @@ export function queueView(state: QueueState): QueueView {
     },
     channel: channelView(),
     state,
+    proto: PROTOCOL,
   };
 }

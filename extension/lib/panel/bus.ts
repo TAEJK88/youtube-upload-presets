@@ -1,5 +1,5 @@
 import type { ClaimsLogLine, ClaimsState, ClaimsView } from '../claims/types';
-import { onMessage, type QueueState } from '../messages';
+import { onMessage, PROTOCOL, type QueueState } from '../messages';
 import { studioTab } from '../runner-lock';
 
 // @webext-core/messaging allows one listener per message type in a context; the panel's
@@ -13,11 +13,15 @@ const claimShows = new Set<Fn<ClaimsView>>();
 let installed = false;
 
 // The copyright broadcasts (D24) are passed on only from a tab on Studio (the www.youtube.com
-// content script never sends them), and only in the shape a Studio tab sends.
+// content script never sends them), and only in the shape a Studio tab sends. A tab of another
+// build (messages.ts PROTOCOL) broadcasts too: its queue state is dropped by its number.
 interface Sender { tab?: { id?: number; url?: string }; url?: string }
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isLogLine = (v: unknown): v is ClaimsLogLine => isObj(v) && typeof v.at === 'number' && typeof v.msg === 'string' && typeof v.type === 'string';
 const isView = (v: unknown): v is ClaimsView => v === 'claims' || v === 'ads' || v === 'collab';
+const isQueueState = (v: unknown): v is QueueState => isObj(v) && v.proto === PROTOCOL;
+// Also the check of a claims:view answer (panel.tsx): what the Copyright tab reads without asking.
+export const isClaimsState = (v: unknown): v is ClaimsState => isObj(v) && isObj(v.status) && isObj(v.counts);
 function pass<T>(fns: Set<Fn<T>>, ok: (v: unknown) => v is T) {
   return ({ data, sender }: { data: unknown; sender: Sender }) => {
     const tabId = studioTab(sender);
@@ -29,9 +33,9 @@ function pass<T>(fns: Set<Fn<T>>, ok: (v: unknown) => v is T) {
 export function installBus(): void {
   if (installed) return;
   installed = true;
-  onMessage('queue:state', ({ data, sender }) => { for (const fn of states) fn(data, sender.tab?.id); });
+  onMessage('queue:state', ({ data, sender }) => { if (isQueueState(data)) for (const fn of states) fn(data, sender.tab?.id); });
   onMessage('queue:toast', ({ data, sender }) => { for (const fn of toasts) fn(data, sender.tab?.id); });
-  onMessage('claims:state', pass(claimStates, (v): v is ClaimsState => isObj(v) && isObj(v.status)));
+  onMessage('claims:state', pass(claimStates, isClaimsState));
   onMessage('claims:log', pass(claimLogs, isLogLine));
   onMessage('claims:show', pass(claimShows, isView));
 }

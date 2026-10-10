@@ -4,10 +4,10 @@ import { browser } from 'wxt/browser';
 import type { ClaimsLogLine, ClaimsState, ClaimsView } from '@/lib/claims/types';
 import { getLang, L, setLang, watchLang } from '@/lib/i18n';
 import { sendMessage, type ProtocolMap, type QueueState } from '@/lib/messages';
-import { installBus, onClaimsLog, onClaimsShow, onClaimsState, onQueueState, onQueueToast } from '@/lib/panel/bus';
+import { installBus, isClaimsState, onClaimsLog, onClaimsShow, onClaimsState, onQueueState, onQueueToast } from '@/lib/panel/bus';
 import { readPanelData, watchPanelData, type PanelData } from '@/lib/panel/data';
 import { activeStudioTab, runnerTab, watchRunner, watchTabs, type RunnerTab, type Target } from '@/lib/panel/target';
-import { createViewSync, type LinkStatus } from '@/lib/panel/view-sync';
+import { createViewSync, fetchView, type LinkStatus } from '@/lib/panel/view-sync';
 import { writes, type Writes } from '@/lib/panel/writes';
 import type { QueueView } from '@/lib/studio/queue-view';
 
@@ -86,7 +86,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const linkRef = useRef<LinkStatus>('noTab');
   const sync = useMemo(
     () => createViewSync({
-      fetch: (id) => sendMessage('queue:view', undefined, id),
+      fetch: fetchView,
       onView: setView,
       onStatus: (s) => { linkRef.current = s; setLink(s); },
       onError: (e) => toast(L(`อ่านคิวจากแท็บ Studio ไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't read the queue from the Studio tab (${(e as Error)?.message ?? e})`)),
@@ -209,15 +209,20 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   const [log, setLog] = useState<ClaimsLogLine[]>([]);
   const [shown, setShown] = useState<ClaimsApi['shown']>(null);
   const addLog = useCallback((msg: string, type = '') => setLog((l) => [{ at: Date.now(), msg, type }, ...l].slice(0, LOG_MAX)), []);
-  // The bound tab's copyright state at bind time (later changes come as broadcasts).
-  useEffect(() => {
-    if (targetId === undefined || link !== 'ok') return;
+  // A tab's copyright state when the panel starts following it (later changes come as broadcasts);
+  // an answer in another shape is not taken (as for the broadcasts, bus.ts).
+  const askClaims = useCallback((tabId: number) => {
     let alive = true;
-    void sendMessage('claims:view', undefined, targetId)
-      .then((s) => { if (alive && s) setClaimStates((m) => new Map(m).set(targetId, s)); })
+    void sendMessage('claims:view', undefined, tabId)
+      .then((s) => { if (alive && isClaimsState(s)) setClaimStates((m) => new Map(m).set(tabId, s)); })
       .catch((e) => console.error('[ytup] claims:view failed', e));
     return () => { alive = false; };
-  }, [targetId, link]);
+  }, []);
+  // The bound tab's, at bind time.
+  useEffect(() => {
+    if (targetId === undefined || link !== 'ok') return;
+    return askClaims(targetId);
+  }, [targetId, link, askClaims]);
   // The bound tab came back without our script: what its old page said is dropped (a scan's
   // progress would stay on the card for good). Not while it is only 'loading': Chrome reports an
   // in-page navigation of Studio (history.pushState) that way too, with the page and its state
