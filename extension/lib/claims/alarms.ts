@@ -12,6 +12,7 @@ import { isChannelId, splitKey } from './keys';
 // or the tab waits for the upload queue) is the tab's own tick's job, not a service worker that
 // wakes every 30 s. With no Studio tab nothing runs; the next tab on that channel starts the cycle.
 export const AP_ALARM = 'ap:';
+export const AP_NOTE = 'apdue:';
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 export async function armAutopilot(ch: string, value: unknown, now = Date.now()): Promise<void> {
@@ -22,7 +23,10 @@ export async function armAutopilot(ch: string, value: unknown, now = Date.now())
     if (cur) await browser.alarms.clear(name);
     return;
   }
-  if (cur?.scheduledTime !== next) await browser.alarms.create(name, { when: next });
+  if (cur?.scheduledTime === next) return;
+  await browser.alarms.create(name, { when: next });
+  // A new cycle: the last one started or ran, so its "is due" notice is out of date.
+  await browser.notifications.clear(AP_NOTE + ch).catch(() => {});
 }
 
 // At service worker start. It reads all of storage once to find the autopilot:<ch> keys (they
@@ -57,12 +61,15 @@ export async function nudgeAutopilot(alarmName: string, send: typeof sendMessage
 }
 
 // "Auto-pilot is due" (user request, call 33): the alarm went off and no Studio tab could run the
-// cycle. Once per channel and due `next`, kept in storage.local so no restart repeats it.
-export const AP_NOTE = 'apdue:';
+// cycle. Once per channel and due `next`, kept in storage.local so no restart repeats it. Not
+// for a channel whose Auto-pilot is off (an alarm that outlived a switch-off).
 export const NOTIFIED_KEY = 'apNotified';
+const LATE = 60_000;
 
 export async function notifyAutopilotDue(ch: string, next: number): Promise<boolean> {
-  const got = await browser.storage.local.get([NOTIFIED_KEY, 'claimScan:' + ch]);
+  const got = await browser.storage.local.get([NOTIFIED_KEY, 'claimScan:' + ch, 'autopilot:' + ch]);
+  const ap = got['autopilot:' + ch];
+  if (!isObj(ap) || ap.on !== true) return false;
   const seen = isObj(got[NOTIFIED_KEY]) ? got[NOTIFIED_KEY] : {};
   if (seen[ch] === next) return false;
   await browser.storage.local.set({ [NOTIFIED_KEY]: { ...seen, [ch]: next } });
@@ -78,12 +85,15 @@ export async function notifyAutopilotDue(ch: string, next: number): Promise<bool
 
 // The click opens Studio on that channel in a new tab: tabs.create needs no `tabs` permission.
 // (No existing tab to focus: the notification only exists when no Studio tab could run the cycle.)
-// The new tab's first tick on that channel starts the due cycle.
+// The new tab's first tick on that channel starts the due cycle. With no Chrome window open
+// (macOS) tabs.create fails: a new window then, which needs no permission either.
 export async function openFromAutopilotNote(id: string): Promise<boolean> {
   if (!id.startsWith(AP_NOTE)) return false;
   const ch = id.slice(AP_NOTE.length);
   const url = isChannelId(ch) && ch !== 'unknown' ? `https://studio.youtube.com/channel/${ch}` : 'https://studio.youtube.com/';
-  await browser.tabs.create({ url }).catch((e) => console.error('[ytup] open Studio from notification', e));
+  await browser.tabs.create({ url })
+    .catch(() => browser.windows.create({ url }))
+    .catch((e) => console.error('[ytup] open Studio from notification', e));
   await browser.notifications.clear(id).catch(() => {});
   return true;
 }
@@ -93,9 +103,12 @@ export function registerAutopilotAlarms(send: typeof sendMessage = sendMessage):
   browser.alarms.onAlarm.addListener((a) => {
     if (!a.name.startsWith(AP_ALARM)) return;
     const ch = a.name.slice(AP_ALARM.length);
-    // a.scheduledTime is the cycle's `next`: the alarm was armed at exactly that time.
+    // a.scheduledTime is the cycle's `next`: the alarm was armed at exactly that time. An alarm
+    // more than LATE after it means Chrome was closed past the cycle: a restored Studio tab is
+    // probably still loading and starts the cycle on its own tick, so no notice (call 36).
+    const late = Date.now() - a.scheduledTime > LATE;
     void nudgeAutopilot(a.name, send)
-      .then((reached) => (reached ? false : notifyAutopilotDue(ch, a.scheduledTime)))
+      .then((reached) => (reached || late ? false : notifyAutopilotDue(ch, a.scheduledTime)))
       .catch((e) => console.error('[ytup] autopilot nudge', e));
   });
   browser.storage.onChanged.addListener((changes, area) => {

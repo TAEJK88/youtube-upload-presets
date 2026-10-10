@@ -17,6 +17,8 @@ describe('Auto-pilot alarms', () => {
       'autopilot:UC1': { on: true, next: NOW + 3600e3 },
       'autopilot:UC2': { on: false, next: NOW + 3600e3 },
       'autopilot:UC3': { on: true, next: 0 }, // due: the tab's own tick runs it (no alarm to re-fire)
+      'autopilot:UC4': { on: 1, next: NOW + 3600e3 }, // not a stored switch: off
+      'autopilot:UC6': { on: true, next: NOW }, // due this very millisecond
     });
     await browser.alarms.create('ap:UC9', { when: NOW + 1 }); // a channel switched off since
     await browser.alarms.create('other', { when: NOW + 1 }); // not ours
@@ -37,6 +39,19 @@ describe('Auto-pilot alarms', () => {
     expect(create).toHaveBeenCalledTimes(2);
     await armAutopilot('UC1', { on: false, next: 0 }, NOW + 3600e3 + 3);
     expect(await alarms()).toEqual([]);
+  });
+
+  it('a new cycle withdraws the "is due" notice of the last one; a channel that stays due keeps it', async () => {
+    const clear = vi.spyOn(browser.notifications, 'clear');
+    await armAutopilot('UC1', { on: true, next: NOW - 1 }, NOW); // still due (the page wrote something else in the key)
+    expect(clear).not.toHaveBeenCalled();
+    await armAutopilot('UC1', { on: true, next: NOW + 3600e3 }, NOW); // the cycle started or ran: next time
+    expect(clear.mock.calls).toEqual([['apdue:UC1']]);
+    await armAutopilot('UC1', { on: true, next: NOW + 3600e3 }, NOW + 1); // the same cycle: nothing to do
+    expect(clear).toHaveBeenCalledTimes(1);
+    clear.mockRejectedValue(new Error('gone'));
+    await armAutopilot('UC1', { on: true, next: NOW + 7200e3 }, NOW + 2); // a failed clear is not an error
+    expect(await alarms()).toEqual([['ap:UC1', NOW + 7200e3]]);
   });
 
   it('a change of autopilot:<ch> arms or clears that channel, in storage.local only', async () => {
@@ -84,14 +99,15 @@ describe('"Auto-pilot is due" notification', () => {
 
   it('the alarm with no Studio tab to run the cycle notifies once, naming the channel', async () => {
     registerAutopilotAlarms();
-    await browser.storage.local.set({ 'claimScan:UC1': { channelName: 'Lofi Beats' } });
+    const NOW = Date.now() - 5_000; // an alarm on time (Chrome may fire a few seconds late)
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW }, 'claimScan:UC1': { channelName: 'Lofi Beats' } });
     const create = vi.spyOn(browser.notifications, 'create');
     vi.spyOn(browser.tabs, 'get').mockRejectedValue(new Error('No tab'));
     await fire('ap:UC1', NOW);
     await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-    expect(create).toHaveBeenCalledWith('apdue:UC1', expect.objectContaining({ type: 'basic', title: 'Auto-pilot is due', message: MSG }));
+    expect(create).toHaveBeenCalledWith('apdue:UC1', expect.objectContaining({ type: 'basic', silent: true, title: 'Auto-pilot is due', message: MSG }));
     expect((await browser.storage.local.get('apNotified')).apNotified).toEqual({ UC1: NOW });
-    await fire('other', NOW); // not ours
+    await fire('xx:UC1', NOW + 1); // not ours
     await fire('ap:UC1', NOW); // the same cycle again
     await new Promise((r) => setTimeout(r, 0));
     expect(create).toHaveBeenCalledTimes(1);
@@ -100,6 +116,8 @@ describe('"Auto-pilot is due" notification', () => {
   it('a lease whose tab is gone, or whose tab has no script to take the message, notifies once', async () => {
     const sent = vi.fn(async () => { throw new Error('Receiving end does not exist'); });
     registerAutopilotAlarms(sent as never);
+    const NOW = Date.now();
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW }, 'autopilot:UC2': { on: true, next: NOW } });
     await browser.storage.session.set({ claimsWorkers: { UC1: { tabId: 3, at: Date.now() }, UC2: { tabId: 4, at: Date.now() } } });
     const create = vi.spyOn(browser.notifications, 'create');
     const get = vi.spyOn(browser.tabs, 'get').mockRejectedValue(new Error('No tab'));
@@ -119,6 +137,7 @@ describe('"Auto-pilot is due" notification', () => {
   });
 
   it('once per due cycle: a second alarm or a service-worker restart for the same next says nothing; a new next may', async () => {
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW }, 'autopilot:UC2': { on: true, next: NOW } });
     const create = vi.spyOn(browser.notifications, 'create');
     expect(await notifyAutopilotDue('UC1', NOW)).toBe(true);
     expect(await notifyAutopilotDue('UC1', NOW)).toBe(false); // same cycle (state is in storage.local, not memory)
@@ -132,6 +151,8 @@ describe('"Auto-pilot is due" notification', () => {
   it('no notification when a tab took the nudge, fresh lease or stale', async () => {
     const sent = vi.fn(async () => undefined);
     registerAutopilotAlarms(sent as never);
+    const NOW = Date.now();
+    await browser.storage.local.set({ 'autopilot:UC5': { on: true, next: NOW } });
     await browser.storage.session.set({ claimsWorkers: { UC1: { tabId: 3, at: Date.now() }, UC5: { tabId: 4, at: Date.now() - 60_000 } } });
     liveTabs();
     const create = vi.spyOn(browser.notifications, 'create');
@@ -144,8 +165,56 @@ describe('"Auto-pilot is due" notification', () => {
     expect((await browser.storage.local.get('apNotified')).apNotified).toBeUndefined();
   });
 
+  it('a late alarm (Chrome was closed past the cycle) still nudges, and says nothing (call 36)', async () => {
+    const sent = vi.fn(async () => { throw new Error('Receiving end does not exist'); });
+    registerAutopilotAlarms(sent as never);
+    const late = Date.now() - 61_000;
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: late }, 'autopilot:UC2': { on: true, next: late } });
+    await browser.storage.session.set({ claimsWorkers: { UC2: { tabId: 4, at: Date.now() } } });
+    liveTabs();
+    const create = vi.spyOn(browser.notifications, 'create');
+    await fire('ap:UC1', late); // no lease: a restored Studio tab is probably still loading
+    await fire('ap:UC2', late); // a tab is there: nudged all the same
+    await vi.waitFor(() => expect(sent.mock.calls).toEqual([['claims:autopilot', 'UC2', 4]]));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(create).not.toHaveBeenCalled();
+    expect((await browser.storage.local.get('apNotified')).apNotified).toBeUndefined(); // not counted as said
+    await fire('ap:UC1', Date.now() - 30_000); // on time, no lease: the notice
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+  });
+
+  it('no notice for a channel whose Auto-pilot is off (an alarm left over from a switch-off)', async () => {
+    const create = vi.spyOn(browser.notifications, 'create');
+    expect(await notifyAutopilotDue('UC1', NOW)).toBe(false); // no setting at all
+    await browser.storage.local.set({ 'autopilot:UC1': { on: false, next: NOW } });
+    expect(await notifyAutopilotDue('UC1', NOW)).toBe(false);
+    await browser.storage.local.set({ 'autopilot:UC1': { on: 1, next: NOW } });
+    expect(await notifyAutopilotDue('UC1', NOW)).toBe(false);
+    expect(create).not.toHaveBeenCalled();
+    expect((await browser.storage.local.get('apNotified')).apNotified).toBeUndefined();
+    await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW } });
+    expect(await notifyAutopilotDue('UC1', NOW)).toBe(true);
+  });
+
+  it('a click with no Chrome window open opens one; if that fails too, no error and the notice goes', async () => {
+    const createTab = vi.spyOn(browser.tabs, 'create').mockRejectedValue(new Error('No current window'));
+    const createWin = vi.spyOn(browser.windows, 'create').mockResolvedValue({ id: 1 } as never);
+    const clear = vi.spyOn(browser.notifications, 'clear');
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await openFromAutopilotNote('apdue:UC1')).toBe(true);
+    expect(createTab).toHaveBeenCalledTimes(1);
+    expect(createWin.mock.calls).toEqual([[{ url: 'https://studio.youtube.com/channel/UC1' }]]);
+    expect(logged).not.toHaveBeenCalled();
+    createWin.mockRejectedValue(new Error('no'));
+    clear.mockRejectedValue(new Error('gone'));
+    expect(await openFromAutopilotNote('apdue:UC1')).toBe(true);
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(clear).toHaveBeenCalledTimes(2);
+  });
+
   it("a click opens Studio on that channel's page in a new tab and clears the notification", async () => {
     const createTab = vi.spyOn(browser.tabs, 'create').mockResolvedValue({ id: 9 } as never);
+    const createWin = vi.spyOn(browser.windows, 'create');
     const clear = vi.spyOn(browser.notifications, 'clear');
     expect(await openFromAutopilotNote('apdue:UC1')).toBe(true);
     expect(createTab).toHaveBeenCalledWith({ url: 'https://studio.youtube.com/channel/UC1' });
@@ -156,5 +225,6 @@ describe('"Auto-pilot is due" notification', () => {
     expect(createTab).toHaveBeenLastCalledWith({ url: 'https://studio.youtube.com/' });
     expect(await openFromAutopilotNote('queue:5')).toBe(false); // not ours
     expect(createTab).toHaveBeenCalledTimes(3);
+    expect(createWin).not.toHaveBeenCalled();
   });
 });
