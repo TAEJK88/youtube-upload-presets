@@ -1233,11 +1233,23 @@ function markSongTrimmed(item: { song?: string; videoId: string }): void {
   invalidateCounts();
 }
 
-// The content script's 0.8 s tick (6361): the ported tick, then the lock.
+// The content script's 0.8 s tick (6361): the ported tick, then the lock. A tick that throws
+// (a stored run in a shape it doesn't expect) stops runs, follow-ups and Auto-pilot: said once
+// per page, as the userscript did (6363–6371); the caller logs each one.
+let tickFailed = false;
 export function claimsTick(): void {
-  resendSettled();
-  tick();
-  settleLock();
+  try {
+    resendSettled();
+    tick();
+    settleLock();
+  } catch (e) {
+    if (!tickFailed) {
+      tickFailed = true;
+      const m = (e as Error)?.message;
+      cui.toast(L(`⚠ ส่วนลิขสิทธิ์หยุดทำงาน: ${m} — ลองรีโหลดหน้า`, `⚠ The copyright section stopped: ${m} — try reloading the page`));
+    }
+    throw e;
+  }
 }
 
 const strList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');

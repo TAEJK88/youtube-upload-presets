@@ -106,6 +106,7 @@ export default [
   // 4b P (page)
   { th: '⏸ รอแท็บ Studio อื่นทำงานเสร็จก่อน (ต้องเปลี่ยนหน้า)', en: '⏸ Waiting for another Studio tab to finish (page change needed)', why: "one automation lock (D21/D26): a copyright step that changes pages waits while another tab drives Studio; the userscript's lease was per channel and per tab" },
   { th: 'ไม่พบคลิปที่เลือกในผลสแกนล่าสุด — สแกนใหม่แล้วลองอีกครั้ง', en: 'The chosen videos are not in the latest scan — scan again and try again', why: "the panel picks the videos and the tab starts the Ads or Collab run from its own stored scan, which may hold none of them (replaced since, or the page does not know its channel yet); the userscript's modal held the scan it had shown, so its go button could not miss" },
+  { th: '⚠ ส่วนลิขสิทธิ์หยุดทำงาน: ${} — ลองรีโหลดหน้า', en: '⚠ The copyright section stopped: ${} — try reloading the page', why: "the userscript's own toast when the copyright tick throws (6369–6370), same text: it is written there with + around e.message, which this check does not read as a pair, so the template form here has to be listed" },
   //
   // 4b D (alarms)
   { th: 'Auto-pilot ถึงรอบแล้ว', en: 'Auto-pilot is due', why: 'user request (Phase 4 Q7): desktop notice when an Auto-pilot cycle is due and no Studio tab can run it' },

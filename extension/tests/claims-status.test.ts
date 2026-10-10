@@ -77,6 +77,16 @@ describe('computeStatus / claimsState', () => {
   });
 
   // 4a review m11: workerHere's first writer is the ported tick, from the worker lease
+  it('a tick that throws tells the user once per page (userscript 6363–6371) and still throws for the caller to log', () => {
+    useMemoryClaims();
+    const toast = vi.fn();
+    C.setClaimsUi({ show() {}, log() {}, toast, status() { throw new Error('boom'); } }); // the tick ends in renderStatus()
+    expect(() => C.claimsTick()).toThrow('boom');
+    expect(() => C.claimsTick()).toThrow('boom');
+    expect(toast.mock.calls).toEqual([['⚠ The copyright section stopped: boom — try reloading the page']]);
+    C.setClaimsUi(null);
+  });
+
   it("a tab that isn't the channel's worker reports workerHere: false and shows where a run is running", async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     useMemoryClaims({ [`trimRun:${CH}`]: { active: true, started: '', items: [{ key: 'v:1', videoId: 'v', video: 'Mix', song: 'S1', state: 'pending', msg: '' }] } });
