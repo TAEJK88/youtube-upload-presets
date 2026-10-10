@@ -36,6 +36,7 @@ export interface ClaimsStatus {
 export interface ClaimsCounts { hasScan: boolean; scanDate: string; claims: number; claimVideos: number; songs: number; hasAdsScan: boolean; adsTodo: number }
 // What renderStatus() (6219–6256) read, as the Studio tab sends it (claims:state / claims:view).
 export interface ClaimsState {
+  proto: number; // messages.ts PROTOCOL of the tab's build
   channel: string; // currentChannel(): the suffix of this channel's keys
   channelName: string;
   ready: boolean; // Studio's INNERTUBE_CONTEXT is there (scans can start)

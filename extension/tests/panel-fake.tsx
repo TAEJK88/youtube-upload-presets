@@ -58,7 +58,7 @@ export const fakeLive = (over: Partial<LiveApi> = {}): LiveApi => ({ state: stat
 
 // The copyright module's state as a Studio tab sends it (claims:state), and the panel's ClaimsApi.
 export const claimsStateWith = (over: Partial<ClaimsState> = {}): ClaimsState => ({
-  channel: 'UC1', channelName: 'Mine', ready: true, english: true, uploadBusy: false,
+  proto: PROTOCOL, channel: 'UC1', channelName: 'Mine', ready: true, english: true, uploadBusy: false,
   status: { icon: '✓', kind: 'idle', title: 'Ready', detail: 'Click "Scan claims" to check this channel' },
   counts: { hasScan: false, scanDate: '', claims: 0, claimVideos: 0, songs: 0, hasAdsScan: false, adsTodo: 0 },
   busyRun: false, busyScan: false, waiting: 0, workerHere: true, ...over,

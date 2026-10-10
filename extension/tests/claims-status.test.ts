@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as C from '../lib/claims/claims';
 import { useMemoryClaims } from '../lib/claims/store';
+import { PROTOCOL } from '../lib/messages';
 import { refreshCfg, resetCfg } from '../lib/studio/channel';
 import * as Q from '../lib/studio/queue-runner';
 
@@ -18,6 +19,7 @@ describe('computeStatus / claimsState', () => {
   it('idle, never scanned', () => {
     useMemoryClaims();
     expect(C.computeStatus()).toEqual({ icon: '✓', kind: 'idle', title: 'Ready', detail: 'Click "Scan claims" to check this channel' });
+    expect(C.claimsState().proto).toBe(PROTOCOL); // the panel takes a state of its own build only
     expect(C.claimsState()).toMatchObject({ channel: CH, ready: true, english: true, busyRun: false, busyScan: false, waiting: 0 });
   });
 

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- Studio's answers, as the userscript read them */
 import { inviteOutcome, parseHandles } from '../collab';
 import { L, locale } from '../i18n';
+import { PROTOCOL } from '../messages';
 import { cachedCfg, chanLabel, getChannel } from '../studio/channel';
 import { clickByText, clickIn, shownDialog, sleep as sleepFor, waitFor as waitUntil } from '../studio/automation';
 import { inviteCollaborators } from '../studio/collab';
@@ -1347,6 +1348,7 @@ async function freshCfg(): Promise<boolean> {
 export function claimsState(): ClaimsState {
   const active = (r: Run | null) => !!(r && r.active);
   return {
+    proto: PROTOCOL,
     channel: currentChannel(),
     channelName: channelName(),
     ready: !!ycfg('INNERTUBE_CONTEXT'),

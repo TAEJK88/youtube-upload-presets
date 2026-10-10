@@ -193,8 +193,9 @@ The panel's own console: right-click inside the panel → Inspect.
 6. **Reload this tab.** With a Studio tab open, reload the extension in `chrome://extensions`.
    Within about a second the page shows "The extension was updated or reloaded — reload this
    tab to keep using it" and the FAB goes away; the panel on that tab shows "This tab is not
-   connected to the extension yet — reload this tab". Either button reloads the tab, and the
-   panel works again.
+   connected to the extension yet — reload this tab". The same banner shows when the tab still
+   runs an older build of the extension (the build folder was updated and this tab not
+   reloaded): reload the tab. Either button reloads the tab, and the panel works again.
 7. **FAB.** Bottom right in Studio: the channel and the default preset; the badge shows how
    many videos wait. Drag it elsewhere and reload: it stays there. Click it with the panel
    closed: **record whether the side panel opens.** If Chrome refuses the gesture, copy the

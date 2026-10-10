@@ -14,14 +14,14 @@ let installed = false;
 
 // The copyright broadcasts (D24) are passed on only from a tab on Studio (the www.youtube.com
 // content script never sends them), and only in the shape a Studio tab sends. A tab of another
-// build (messages.ts PROTOCOL) broadcasts too: its queue state is dropped by its number.
+// build (messages.ts PROTOCOL) broadcasts too: its states are dropped by their number.
 interface Sender { tab?: { id?: number; url?: string }; url?: string }
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isLogLine = (v: unknown): v is ClaimsLogLine => isObj(v) && typeof v.at === 'number' && typeof v.msg === 'string' && typeof v.type === 'string';
 const isView = (v: unknown): v is ClaimsView => v === 'claims' || v === 'ads' || v === 'collab';
 const isQueueState = (v: unknown): v is QueueState => isObj(v) && v.proto === PROTOCOL;
 // Also the check of a claims:view answer (panel.tsx): what the Copyright tab reads without asking.
-export const isClaimsState = (v: unknown): v is ClaimsState => isObj(v) && isObj(v.status) && isObj(v.counts);
+export const isClaimsState = (v: unknown): v is ClaimsState => isObj(v) && v.proto === PROTOCOL && isObj(v.status) && isObj(v.counts);
 function pass<T>(fns: Set<Fn<T>>, ok: (v: unknown) => v is T) {
   return ({ data, sender }: { data: unknown; sender: Sender }) => {
     const tabId = studioTab(sender);

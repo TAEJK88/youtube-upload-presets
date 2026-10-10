@@ -241,7 +241,7 @@ describe('copyright state routing', () => {
   const STUDIO = 'https://studio.youtube.com/channel/UC1';
   const deliver = (type: string, data: unknown, tabId: number, url = STUDIO) =>
     act(async () => { handlers.get(type)!({ data, sender: { tab: { id: tabId, url }, url } }); });
-  const cs = (name: string, busyRun = false) => ({ channelName: name, busyRun, status: { icon: '✓', kind: 'idle', title: 'Ready', detail: '' }, counts: {} }) as unknown as ClaimsState;
+  const cs = (name: string, busyRun = false) => ({ channelName: name, busyRun, status: { icon: '✓', kind: 'idle', title: 'Ready', detail: '' }, counts: {}, proto: PROTOCOL }) as unknown as ClaimsState;
   const text = (id: string) => screen.getByTestId(id).textContent;
 
   it('the bound tab, and the lock holder while it runs a copyright job; other tabs ignored', async () => {
@@ -490,6 +490,22 @@ describe('a tab running another build of the extension', () => {
     expect(screen.getByTestId('c').textContent).toBe('-');
   });
 
+  it('a copyright state without proto is not taken: pushed, answered by the bound tab, answered by the lock holder', async () => {
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+    const old = (name: string) => ({ channelName: name, status: { icon: '✓', kind: 'idle', title: 'Ready', detail: '' }, counts: {} }); // as 4a and 4b sent it
+    vi.mocked(sendMessage).mockClear();
+    vi.mocked(sendMessage).mockImplementation((async (type: string, _d: unknown, tabId: number) => (type === 'claims:view' ? old(`answer ${tabId}`) : VIEW)) as never);
+    function C() { const c = useClaims(); return <div data-testid="c">{`${c.state?.channelName ?? '-'}|${c.live?.channelName ?? '-'}`}</div>; }
+    render(<PanelProvider><C /></PanelProvider>);
+    await later(500);
+    expect(vi.mocked(sendMessage).mock.calls.filter(([t]) => t === 'claims:view').map(([, , id]) => id).sort()).toEqual([3, 9]);
+    await act(async () => {
+      handlers.get('claims:state')!({ data: old('push 3'), sender: STUDIO });
+      handlers.get('claims:state')!({ data: old('push 9'), sender: { ...STUDIO, tab: { ...STUDIO.tab, id: 9 } } });
+    });
+    expect(screen.getByTestId('c').textContent).toBe('-|-');
+  });
+
   it('its broadcasts (queue:state without this proto, claims:state in another shape) are dropped', async () => {
     await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['queue', 'claims'] });
     vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'queue:view' ? VIEW : undefined)) as never);
@@ -502,12 +518,14 @@ describe('a tab running another build of the extension', () => {
       handlers.get('queue:state')!({ data: { running: true, stopping: false, prog: null, rev: 0, channel }, sender: from9 });
       handlers.get('queue:state')!({ data: { proto: PROTOCOL + 1, running: true, stopping: false, prog: null, rev: 0, channel }, sender: from9 });
       handlers.get('queue:state')!({ data: null, sender: from9 });
-      handlers.get('claims:state')!({ data: { channelName: 'old', status: {} }, sender: from9 });
+      handlers.get('claims:state')!({ data: { channelName: 'old', status: {}, counts: {} }, sender: from9 });
+      handlers.get('claims:state')!({ data: { channelName: 'other', status: {}, counts: {}, proto: PROTOCOL + 1 }, sender: from9 });
+      handlers.get('claims:state')!({ data: { channelName: 'no status', counts: {}, proto: PROTOCOL }, sender: from9 });
     });
     expect(screen.getByTestId('x').textContent).toBe('-|-');
     await act(async () => {
       handlers.get('queue:state')!({ data: { proto: PROTOCOL, running: true, stopping: false, prog: null, rev: 0, channel }, sender: from9 });
-      handlers.get('claims:state')!({ data: { channelName: 'now', status: {}, counts: {} }, sender: from9 });
+      handlers.get('claims:state')!({ data: { channelName: 'now', status: {}, counts: {}, proto: PROTOCOL }, sender: from9 });
     });
     expect(screen.getByTestId('x').textContent).toBe('true|now');
   });
