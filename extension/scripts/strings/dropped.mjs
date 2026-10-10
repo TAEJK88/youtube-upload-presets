@@ -14,7 +14,7 @@ export default [
   // Phase 4: the copyright module's pane and modals became the Copyright tab; its tables are lists of cards (D23)
   { th: 'ยังไม่ได้สแกน', en: 'Not scanned yet', why: 'claimsCSV() without a scan (4841): the CSV button is in the claim list, which only shows it with a scan' },
   { th: 'ตัด', en: 'Trim', why: "the claim table's header (4881): a card's checkbox is named by its song, not by a column" },
-  { th: 'วิดีโอ', en: 'Video', why: 'table header (4881, 5303, 5507): the claim, Ads and Collab views are cards with no header row' },
+  { th: 'วิดีโอ', en: 'Video', why: 'table header (4881, 5303, 5505): the claim, Ads and Collab views are cards with no header row' },
   { th: 'เพลงที่โดน claim', en: 'Claimed song', why: "the claim table's header (4881): cards" },
   { th: 'ผู้ claim', en: 'Claimant', why: "the claim table's header (4881): cards" },
   { th: 'ช่วงที่โดน', en: 'Claimed range', why: "the claim table's header (4881): cards" },
@@ -24,8 +24,8 @@ export default [
   { th: 'ศิลปิน', en: 'Artist', why: "the claimed-songs table's header (5240): cards" },
   { th: 'โดนใน', en: 'Claimed in', why: "the claimed-songs table's header (5240): cards" },
   { th: 'ช่อง', en: 'Channel', why: "the claimed-songs table's header (5240): cards" },
-  { th: 'การเปิดเผย', en: 'Visibility', why: 'table header of the Ads and Collab modals (5303, 5507): cards' },
+  { th: 'การเปิดเผย', en: 'Visibility', why: 'table header of the Ads and Collab modals (5303, 5505): cards' },
   { th: 'สถานะจาก YouTube', en: 'YouTube status', why: "the Ads modal's table header (5303): cards" },
-  { th: 'ผล', en: 'Result', why: 'table header of the Ads and Collab modals (5303, 5507): cards' },
+  { th: 'ผล', en: 'Result', why: "the Ads modal's table header (5303): cards" },
   { th: 'เพลงที่เคยโดน', en: 'Claimed songs', why: "the button's text before the pane's first status (6191): the panel's button always shows its count (6246)" },
 ];
