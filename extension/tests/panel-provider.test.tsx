@@ -8,16 +8,19 @@ vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()),
 const handlers = vi.hoisted(() => new Map<string, (m: unknown) => void>());
 vi.mock('../lib/messages', async (orig) => ({
   ...(await orig<object>()),
-  sendMessage: vi.fn(async () => ({ items: [] })),
+  sendMessage: vi.fn(async () => ({ items: [], proto: (await orig<typeof import('../lib/messages')>()).PROTOCOL })),
   onMessage: (type: string, fn: (m: unknown) => void) => { handlers.set(type, fn); return () => {}; },
 }));
 
 import { toast } from 'sonner';
 import { setLang } from '../lib/i18n';
-import { sendMessage } from '../lib/messages';
+import { PROTOCOL, sendMessage } from '../lib/messages';
 import { PanelProvider, useClaims, useLive, usePanel } from '../entrypoints/sidepanel/panel';
 import type { ClaimsState } from '../lib/claims/types';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
+import { QueueTab } from '../entrypoints/sidepanel/tabs/QueueTab';
+import { AskProvider } from '../entrypoints/sidepanel/ask';
+import { viewWith } from './panel-fake';
 
 const studio = (id: number, windowId: number) => ({ id, windowId, url: 'https://studio.youtube.com/channel/UC1', title: `T${id}`, active: true });
 let tabs: Record<number, ReturnType<typeof studio> | undefined>;
@@ -27,6 +30,7 @@ function Probe() {
   return <div data-testid="p">{`${p.target?.tabId ?? '-'}|${p.runner?.tabId ?? '-'}|${p.elsewhere}`}</div>;
 }
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+const VIEW = { items: [], proto: PROTOCOL }; // queue:view from a tab running this build
 
 beforeEach(async () => {
   fakeBrowser.reset();
@@ -114,13 +118,13 @@ describe('the "reload this tab" banner', () => {
     let up = true;
     vi.mocked(sendMessage).mockImplementation((async (type: string) => {
       if (type === 'queue:view' && !up) throw new Error('Could not establish connection. Receiving end does not exist.');
-      return { items: [] };
+      return VIEW;
     }) as never);
     function Link() { return <div data-testid="link">{usePanel().link}</div>; }
     render(<PanelProvider><Link /></PanelProvider>);
     await flush();
     const onState = handlers.get('queue:state')!;
-    const s = { running: false, stopping: false, prog: null, rev: 0, channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '', label: 'Mine', problem: '' } };
+    const s = { proto: PROTOCOL, running: false, stopping: false, prog: null, rev: 0, channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '', label: 'Mine', problem: '' } };
     await act(async () => onState({ data: s, sender: { tab: { id: 3 } } }));
     await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     expect(screen.getByTestId('link').textContent).toBe('ok');
@@ -147,7 +151,7 @@ describe("the lock holder's jobs", () => {
     const live = useLive();
     return <div data-testid="j">{`${p.elsewhere}|${p.busyElsewhere}|${live.liveState?.running ?? '-'}`}</div>;
   }
-  const queueState = (running: boolean) => ({ running, stopping: false, prog: null, rev: 0, channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '', label: 'Mine', problem: '' } });
+  const queueState = (running: boolean) => ({ proto: PROTOCOL, running, stopping: false, prog: null, rev: 0, channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '', label: 'Mine', problem: '' } });
 
   it('another tab doing copyright work only: busy, not running the queue, and its queue state is not the live one', async () => {
     await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
@@ -184,7 +188,7 @@ describe('a failing queue:view', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(sendMessage).mockImplementation((async (type: string) => {
       if (type === 'queue:view') throw new Error('boom');
-      return { items: [] };
+      return VIEW;
     }) as never);
     setLang('th');
     render(<PanelProvider><Probe /></PanelProvider>);
@@ -237,12 +241,12 @@ describe('copyright state routing', () => {
   const STUDIO = 'https://studio.youtube.com/channel/UC1';
   const deliver = (type: string, data: unknown, tabId: number, url = STUDIO) =>
     act(async () => { handlers.get(type)!({ data, sender: { tab: { id: tabId, url }, url } }); });
-  const cs = (name: string, busyRun = false) => ({ channelName: name, busyRun, status: { icon: '✓', kind: 'idle', title: 'Ready', detail: '' } }) as unknown as ClaimsState;
+  const cs = (name: string, busyRun = false) => ({ channelName: name, busyRun, status: { icon: '✓', kind: 'idle', title: 'Ready', detail: '' }, counts: {} }) as unknown as ClaimsState;
   const text = (id: string) => screen.getByTestId(id).textContent;
 
   it('the bound tab, and the lock holder while it runs a copyright job; other tabs ignored', async () => {
     await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
-    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : VIEW)) as never);
     render(<PanelProvider><ClaimsProbe /></PanelProvider>);
     await flush();
     await deliver('claims:state', cs('other'), 5);
@@ -258,7 +262,7 @@ describe('copyright state routing', () => {
 
   it("the holder's state is not the live one while it only runs the queue", async () => {
     await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['queue'] });
-    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : VIEW)) as never);
     render(<PanelProvider><ClaimsProbe /></PanelProvider>);
     await flush();
     await deliver('claims:state', cs('holder'), 9);
@@ -276,7 +280,7 @@ describe('copyright state routing', () => {
   });
 
   it('messages from a tab that is not on Studio, or that are not what a Studio tab sends, are ignored', async () => {
-    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : VIEW)) as never);
     render(<PanelProvider><ClaimsProbe /></PanelProvider>);
     await flush();
     await deliver('claims:state', cs('forged'), 3, 'https://www.youtube.com/watch?v=x');
@@ -298,7 +302,7 @@ describe('copyright state routing', () => {
     await flush();
     const asked = () => vi.mocked(sendMessage).mock.calls.filter(([t]) => t === 'claims:view').length;
     expect(asked()).toBe(0);
-    await act(async () => { answer({ items: [] }); });
+    await act(async () => { answer(VIEW); });
     await flush();
     expect(asked()).toBe(1);
     expect(text('c')).toBe('bound|bound|0|-');
@@ -310,7 +314,7 @@ describe('copyright state routing', () => {
     let script = true;
     vi.mocked(sendMessage).mockImplementation((async (type: string) => {
       if (!script) throw new Error('Could not establish connection. Receiving end does not exist.');
-      return type === 'claims:view' ? cs('scanning') : { items: [] };
+      return type === 'claims:view' ? cs('scanning') : VIEW;
     }) as never);
     render(<PanelProvider><ClaimsProbe /></PanelProvider>);
     await flush();
@@ -334,7 +338,7 @@ describe('copyright state routing', () => {
   // closed an open claim list or tracklist editor (CopyrightTab closes its view when the
   // channel goes away) on every click inside Studio.
   it("an in-page navigation of Studio keeps the bound tab's state throughout", async () => {
-    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : VIEW)) as never);
     const seen: string[] = [];
     function Seen() {
       seen.push(useClaims().state?.channelName ?? '-');
@@ -356,7 +360,7 @@ describe('copyright state routing', () => {
 
   it('a reload of the bound tab: the new page answers once it is linked', async () => {
     let page = 'scanning';
-    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs(page) : { items: [] })) as never);
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs(page) : VIEW)) as never);
     render(<PanelProvider><ClaimsProbe /></PanelProvider>);
     await flush();
     expect(text('c')).toBe('scanning|scanning|0|-');
@@ -367,9 +371,72 @@ describe('copyright state routing', () => {
     expect(text('c')).toBe('reloaded|reloaded|0|-');
   });
 
+  // 4b final review m2: the holder only broadcasts changes, and review mode waiting for the user's
+  // Save changes nothing. On another channel that left the panel with no Stop.
+  describe('the lock holder in another tab is asked for its state', () => {
+    let holder: string;
+    const perTab = () => vi.mocked(sendMessage).mockImplementation((async (type: string, _d: unknown, tabId: number) =>
+      (type === 'claims:view' ? cs(tabId === 9 ? holder : 'bound', tabId === 9) : VIEW)) as never);
+    const askedHolder = () => vi.mocked(sendMessage).mock.calls.filter(([t, , id]) => t === 'claims:view' && id === 9).length;
+    beforeEach(() => { holder = 'holder'; vi.mocked(sendMessage).mockClear(); });
+
+    it('while it does copyright work: known without waiting for a broadcast', async () => {
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+      perTab();
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|holder|0|-');
+      expect(askedHolder()).toBe(1);
+    });
+
+    it('not while it only runs the queue, and not when it is the bound tab', async () => {
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['queue'] });
+      perTab();
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(askedHolder()).toBe(0);
+      expect(text('c')).toBe('bound|bound|0|-');
+    });
+
+    it('an answer that is not a copyright state (an older build) is not taken; a holder that does not answer is only logged', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+      vi.mocked(sendMessage).mockImplementation((async (type: string, _d: unknown, tabId: number) =>
+        (type !== 'claims:view' ? VIEW : tabId === 9 ? { channelName: 'old holder' } : cs('bound'))) as never);
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|bound|0|-');
+      cleanup();
+      vi.mocked(sendMessage).mockImplementation((async (type: string, _d: unknown, tabId: number) => {
+        if (type !== 'claims:view') return VIEW;
+        if (tabId === 9) throw new Error('No response');
+        return cs('bound');
+      }) as never);
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|bound|0|-');
+      expect(err).toHaveBeenCalledWith('[ytup] claims:view failed', expect.any(Error));
+    });
+
+    it("a holder that let the lock go and took it again is asked again: its old state is not shown", async () => {
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+      perTab();
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|holder|0|-');
+      await act(async () => { await browser.storage.session.remove(['runnerTabId', 'runnerJobs']); });
+      await flush();
+      expect(text('c')).toBe('bound|bound|0|-');
+      holder = 'holder, next run';
+      await act(async () => { await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] }); });
+      await flush();
+      expect(text('c')).toBe('bound|holder, next run|0|-');
+    });
+  });
+
   it("a holder that let the lock go and took it again doesn't show its old state", async () => {
     await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
-    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : { items: [] })) as never);
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : VIEW)) as never);
     render(<PanelProvider><ClaimsProbe /></PanelProvider>);
     await flush();
     await deliver('claims:state', cs('holder', true), 9);
@@ -379,6 +446,69 @@ describe('copyright state routing', () => {
     expect(text('c')).toBe('bound|bound|0|-');
     await act(async () => { await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] }); });
     await flush();
-    expect(text('c')).toBe('bound|bound|0|-'); // until it broadcasts again
+    expect(text('c')).toBe('bound|bound|0|-'); // what it answers now (here: the same as the bound tab), not 'holder'
+  });
+});
+
+// 4b final review I2: the build folder was updated and the extension not reloaded, so a panel read
+// from the new files talks to a tab still running the old content script. That tab answers, in its
+// own shape; on the 4a build the Upload pane then crashed on a field the old view did not have.
+describe('a tab running another build of the extension', () => {
+  const RELOAD = 'This tab is not connected to the extension yet — reload this tab';
+  const STUDIO = { tab: { id: 3, url: 'https://studio.youtube.com/channel/UC1' }, url: 'https://studio.youtube.com/channel/UC1' };
+  const later = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] }); vi.mocked(toast).mockClear(); });
+  afterEach(() => vi.useRealTimers());
+
+  it('its queue view (no proto) is not rendered: the "reload this tab" banner, no crash, no toast', async () => {
+    const old = viewWith([{ title: 'From the old build' }]) as unknown as Record<string, unknown>;
+    delete old.proto;
+    for (const it of old.items as Record<string, unknown>[]) delete it.claimed; // the field 4a added (QueueCard read it.claimed.length)
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'queue:view' ? old : undefined)) as never);
+    render(<PanelProvider><AskProvider><Banners /><QueueTab /></AskProvider></PanelProvider>);
+    await later(3000);
+    expect(screen.getByText(RELOAD)).toBeTruthy();
+    expect(screen.queryByText('From the old build')).toBeNull();
+    expect(toast).not.toHaveBeenCalled();
+    expect(vi.mocked(sendMessage).mock.calls.some(([t]) => t === 'claims:view')).toBe(false); // only asked of a linked tab
+  });
+
+  it('a view of this build is rendered', async () => {
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'queue:view' ? viewWith([{ title: 'From this build' }]) : undefined)) as never);
+    render(<PanelProvider><AskProvider><Banners /><QueueTab /></AskProvider></PanelProvider>);
+    await later(3000);
+    expect(screen.queryByText(RELOAD)).toBeNull();
+    expect(screen.getByText('From this build')).toBeTruthy();
+  });
+
+  it('its claims:view answer in another shape is not taken', async () => {
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? { channelName: 'old', status: 'Ready' } : VIEW)) as never);
+    function C() { return <div data-testid="c">{useClaims().state?.channelName ?? '-'}</div>; }
+    render(<PanelProvider><C /></PanelProvider>);
+    await later(500);
+    expect(vi.mocked(sendMessage).mock.calls.some(([t]) => t === 'claims:view')).toBe(true);
+    expect(screen.getByTestId('c').textContent).toBe('-');
+  });
+
+  it('its broadcasts (queue:state without this proto, claims:state in another shape) are dropped', async () => {
+    await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['queue', 'claims'] });
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'queue:view' ? VIEW : undefined)) as never);
+    function P() { return <div data-testid="x">{`${useLive().liveState?.running ?? '-'}|${useClaims().live?.channelName ?? '-'}`}</div>; }
+    render(<PanelProvider><P /></PanelProvider>);
+    await later(500);
+    const channel = { id: 'UC1', name: 'Mine', avatar: '', handle: '', label: 'Mine', problem: '' };
+    const from9 = { ...STUDIO, tab: { ...STUDIO.tab, id: 9 } };
+    await act(async () => {
+      handlers.get('queue:state')!({ data: { running: true, stopping: false, prog: null, rev: 0, channel }, sender: from9 });
+      handlers.get('queue:state')!({ data: { proto: PROTOCOL + 1, running: true, stopping: false, prog: null, rev: 0, channel }, sender: from9 });
+      handlers.get('queue:state')!({ data: null, sender: from9 });
+      handlers.get('claims:state')!({ data: { channelName: 'old', status: {} }, sender: from9 });
+    });
+    expect(screen.getByTestId('x').textContent).toBe('-|-');
+    await act(async () => {
+      handlers.get('queue:state')!({ data: { proto: PROTOCOL, running: true, stopping: false, prog: null, rev: 0, channel }, sender: from9 });
+      handlers.get('claims:state')!({ data: { channelName: 'now', status: {}, counts: {} }, sender: from9 });
+    });
+    expect(screen.getByTestId('x').textContent).toBe('true|now');
   });
 });

@@ -3,7 +3,7 @@ import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { ClaimsOp } from '../lib/claims/ops';
 import { disposeClaimsStore, flushClaims, initClaimsStore, useMemoryClaims, write } from '../lib/claims/store';
-import type { QueueState } from '../lib/messages';
+import { PROTOCOL, type QueueState } from '../lib/messages';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
 import { forgetClaimed, queueView } from '../lib/studio/queue-view';
@@ -43,6 +43,10 @@ afterEach(() => {
 });
 
 describe('queueView', () => {
+  it("says which build's shape it is (the panel refuses another)", () => {
+    expect(queueView(state).proto).toBe(PROTOCOL);
+  });
+
   it('copies the items and adds what only the runner knows', () => {
     Q.queue.push(item('a', 'pending', { txt: '0:00 A - One\n3:00 B - Two\n6:00 C - Three' }), item('b', 'done'));
     const v = queueView(state);

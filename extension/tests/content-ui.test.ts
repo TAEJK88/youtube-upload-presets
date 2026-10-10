@@ -54,6 +54,7 @@ describe('content ui', () => {
     const states = send.mock.calls.filter(([t]) => t === 'queue:state').map(([, s]) => s as messages.QueueState);
     expect(states.map((s) => s.channel.id)).toEqual(['', 'UCaaaaaaaaaaaaaaaaaaaaaa']);
     expect(ui.state()).toEqual(states[1]);
+    expect(states.map((s) => s.proto)).toEqual([messages.PROTOCOL, messages.PROTOCOL]); // the panel drops another build's
   });
 
   // uploadOne() reads the draft id while waiting for Save without telling the UI; a reload

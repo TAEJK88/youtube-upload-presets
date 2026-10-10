@@ -9,10 +9,18 @@ import type { QueueEdit } from './studio/queue-edit';
 import type { StartBinding, StartSummary } from './studio/queue-runner';
 import type { ChannelView, QueueView } from './studio/queue-view';
 
+// The shape of what a Studio tab tells the side panel. The two can be of different builds: the
+// panel is read from disk when it opens, a tab keeps the content script it was loaded with. The
+// panel takes a queue view or state only from a tab with its own number, and otherwise asks for
+// that tab to be reloaded. Raise it whenever QueueView, QueueState or ClaimsState gains, loses or
+// changes a field.
+export const PROTOCOL = 2;
+
 // What the side panel needs to follow a run live; the items themselves are in
 // chrome.storage.local ('queue'). `rev` goes up whenever the page changed something the
 // panel shows (items, numbering, schedule, counters), so the panel knows to re-read.
 export interface QueueState {
+  proto: number; // PROTOCOL of the tab's build
   running: boolean;
   stopping: boolean;
   prog: { pct: number | null; text: string } | null;

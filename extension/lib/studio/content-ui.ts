@@ -1,5 +1,5 @@
 import { L } from '../i18n';
-import { sendMessage, type QueueState } from '../messages';
+import { PROTOCOL, sendMessage, type QueueState } from '../messages';
 import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
@@ -27,7 +27,7 @@ export function createContentUi() {
   const mark = (m: string) => {
     if (!tornDown()) setTitleMark(m);
   };
-  const state = (): QueueState => ({ running, stopping: running && stopReq, prog: uploadProg, rev, channel: channelView() });
+  const state = (): QueueState => ({ proto: PROTOCOL, running, stopping: running && stopReq, prog: uploadProg, rev, channel: channelView() });
   const broadcast = () => {
     const s = state();
     const sig = JSON.stringify(s);

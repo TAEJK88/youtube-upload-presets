@@ -5,12 +5,12 @@ import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { ClaimsContext, LiveContext, PanelContext, type ClaimsApi, type LiveApi, type PanelApi } from '../entrypoints/sidepanel/panel';
 import type { ClaimsState } from '../lib/claims/types';
 import { toPanelData } from '../lib/panel/data';
-import type { QueueState } from '../lib/messages';
+import { PROTOCOL, type QueueState } from '../lib/messages';
 import type { QueueView, ViewItem } from '../lib/studio/queue-view';
 
 // A PanelApi / LiveApi for component tests (shared by the panel tests in 3a and 3b).
 export const state = (over: Partial<QueueState> = {}): QueueState => ({
-  running: false, stopping: false, prog: null, rev: 1,
+  proto: PROTOCOL, running: false, stopping: false, prog: null, rev: 1,
   channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '@mine', label: 'Mine', problem: '' }, ...over,
 });
 
@@ -24,6 +24,7 @@ export const viewWith = (items: Partial<ViewItem>[] = [], over: Partial<QueueVie
   schedule: { on: false, set: false, start: 0, late: false, times: [], skipped: 0, taken: [] },
   channel: state().channel,
   state: state(),
+  proto: PROTOCOL,
   ...over,
 });
 
