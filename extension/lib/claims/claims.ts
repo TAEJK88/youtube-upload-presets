@@ -44,6 +44,16 @@ const uploadBusy = () => running || (!otherTabRunning() && queue.some((i) => ['p
 
 type ScanProg = { label: string; done: number; total: number };
 
+// The userscript skips a video whose claims it can't read and stores the scan as complete (4785,
+// 4823), over the scan before it. Its fetch had no time limit and read any answer; here the 30 s
+// limit (D22) and the answer check (answers.ts) can fail every detail call, which would read as
+// "0 claims". The stored scan stays the userscript's; the last log line and the status card say
+// how many videos are missing from it.
+let skipped = 0;
+function detailsSkipped(claimed: number): void {
+  if (skipped) log(L(`อ่านรายละเอียด claim ไม่ได้ ${skipped} จาก ${claimed} คลิป — ผลสแกนนี้ไม่ครบ`, `Couldn't read the claim details of ${skipped} of ${claimed} videos — this scan is incomplete`), 'err');
+}
+
 // @port-begin
   const cfg = (): ClaimsCfg => Object.assign({}, DEFAULTS, load('cfg', {}));
   const saveCfg = (c: ClaimsCfg) => save('cfg', c);
@@ -143,6 +153,7 @@ type ScanProg = { label: string; done: number; total: number };
       log(L(`สแกน: ${claimed.length} จาก ${vids.length} คลิปมี claim — กำลังอ่านรายละเอียด…`, `Scan: ${claimed.length} of ${vids.length} videos have a claim — reading details…`));
 
       const rows: ClaimRow[] = [];
+      skipped = 0;
       for (let i = 0; i < claimed.length; i++) {
         const v = claimed[i];
         const impacts = (((v.allRestrictions || {}).summary || {}).impacts || []).map(short)
@@ -150,8 +161,8 @@ type ScanProg = { label: string; done: number; total: number };
         let j: any;
         try {
           j = await yti('creator/list_creator_received_claims', { videoId: v.videoId, criticalRead: false, includeLicensingOptions: false, isCreatorMusicV2: true });
-        } catch (e: any) { log(`${v.title}: ${e.message}`, 'err'); continue; }
-        const owners: Record<string, string> = {};
+        } catch (e: any) { log(`${v.title}: ${e.message}`, 'err'); skipped++; continue; }
+        const owners: Record<string, string> = Object.create(null);
         (j.contentOwners || []).forEach((o: any) => { owners[o.contentOwnerId] = o.displayName; });
         const up = uploadOf(v.videoId);
 
@@ -192,6 +203,7 @@ type ScanProg = { label: string; done: number; total: number };
       recordSongs(rows, chName);
       log(L(`สแกนเสร็จ ✓ ${chName}: ${rows.length} claim ใน ${claimed.length} คลิป`, `Scan complete ✓ ${chName}: ${rows.length} claims in ${claimed.length} videos`), 'ok');
       flash(L('สแกนเสร็จแล้ว', 'Scan complete'), L(`${rows.length} claim ใน ${claimed.length} จาก ${vids.length} คลิป`, `${rows.length} claims in ${claimed.length} of ${vids.length} videos`));
+      detailsSkipped(claimed.length);
       if (show) cui.show('claims');
       return rows;
     } catch (e: any) {

@@ -124,6 +124,25 @@ describe('scanClaims', () => {
     }
   });
 
+  // Final review m2: the 30 s limit and the answer check can fail every detail call. The scan is
+  // stored as the userscript stored it (a video whose claims can't be read is skipped, 4785), and
+  // the last line and the status card say it is incomplete.
+  it('videos whose claim details could not be read: stored as before, and the scan says it is incomplete', async () => {
+    api['creator/list_creator_received_claims'] = () => { throw new Error('youtubei: timed out after 30000 ms'); };
+    const scan = C.scanClaims({ show: false });
+    await vi.advanceTimersByTimeAsync(3000); // not run(): the card's 12 s must not be over yet
+    expect(await scan).toEqual([]);
+    const set = ops.find((o) => o.op === 'set') as Extract<ClaimsOp, { op: 'set' }>;
+    expect(set.value).toMatchObject({ total: 2, rows: [] });
+    const msg = "Couldn't read the claim details of 1 of 1 videos — this scan is incomplete";
+    expect(lastLog()).toEqual([msg, 'err']);
+    expect(C.computeStatus()).toMatchObject({ kind: 'err', title: 'Needs attention', detail: msg }); // not the green "Scan complete"
+    // counted per scan
+    api['creator/list_creator_received_claims'] = () => claims();
+    expect(await run(C.scanClaims({ show: false }))).toHaveLength(1);
+    expect(lastLog()![0]).toMatch(/^Scan complete ✓/);
+  });
+
   it('a write that timed out may still land: the scan is done, and the copy keeps what it wrote', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     useMemoryClaims({}, () => new Promise<void>(() => {})); // the background never answers
@@ -190,6 +209,14 @@ describe('scanClaims with forged answers', () => {
       const set = ops.find((o) => o.op === 'set') as Extract<ClaimsOp, { op: 'set' }>;
       expect((set.value as ClaimScan).rows).toEqual([]);
     }
+  });
+
+  // Final review m9: owner ids are only checked to be strings; the names were looked up in a plain {}.
+  it('an owner id naming a built-in is shown as the id, like any owner without a name', async () => {
+    api['creator/list_creator_received_claims'] = () => ({ ...claims(), contentOwners: [],
+      receivedClaims: [{ ...claims().receivedClaims[0], contentOwnerIds: ['constructor', 'toString', 'o9'] }] });
+    const rows = await run(C.scanClaims({ show: false }));
+    expect(rows![0]!.claimant).toBe('constructor, toString, o9');
   });
 
   it("a forged CHANNEL_ID isn't used for the keys: the channel comes from the address", async () => {

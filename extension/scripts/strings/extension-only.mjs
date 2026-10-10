@@ -101,4 +101,6 @@ export default [
   { th: 'ไฟล์ใหญ่เกินไป — นำเข้าได้ไม่เกิน ${} MB', en: 'This file is too large — the limit is ${} MB', why: 'the songs CSV import has a size limit, in the panel and in the background (T8 review I2); the userscript read any file' },
   { th: 'อ่านไฟล์ไม่สำเร็จ (${})', en: "Couldn't read the file (${})", why: 'the songs CSV is read in the panel before it is sent to the background, and the read can fail; the userscript left the rejection unhandled' },
   { th: 'คัดลอก tracklist ไม่สำเร็จ (${})', en: "Couldn't copy the tracklist (${})", why: "the panel copies with navigator.clipboard, which can refuse; the userscript's GM_setClipboard could not fail" },
+  // Phase 4a final review
+  { th: 'อ่านรายละเอียด claim ไม่ได้ ${} จาก ${} คลิป — ผลสแกนนี้ไม่ครบ', en: "Couldn't read the claim details of ${} of ${} videos — this scan is incomplete", why: "a scan skips a video whose claim details can't be read and is stored as complete, as in the userscript; its fetch had no time limit and no answer check, so here every detail call can fail (D22) and the scan would read as 0 claims without this line" },
 ];

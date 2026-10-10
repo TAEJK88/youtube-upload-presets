@@ -12,6 +12,13 @@ export default {
     { lines: '6177-6179', to: '      cui.log(msg, type);' },
   ],
   subs: [
+    // a video whose claim details can't be read is skipped, as before; they are counted, and the
+    // scan's last line says how many (the 30 s limit and the answer check can fail them all)
+    ["'err'); continue; }", "'err'); skipped++; continue; }", 1],
+    ['const rows = [];', 'const rows = [];\n        skipped = 0;', 1],
+    ['if (show) showClaims();', 'detailsSkipped(claimed.length);\n        if (show) showClaims();', 1],
+    // the answer is page data: an owner id like `constructor` must not read a built-in as its name
+    ['const owners = {};', 'const owners = Object.create(null);', 1],
     // the claim / ads / Collab lists are the side panel's views: it opens them when the scan ends
     ['if (show) showClaims();', "if (show) cui.show('claims');", 1],
     ['if (show) showAds();', "if (show) cui.show('ads');", 1],
