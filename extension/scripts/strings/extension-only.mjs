@@ -82,7 +82,7 @@ export default [
   { th: 'อยู่ในคิว', en: 'In the queue', why: 'debug page (user request)' },
   { th: 'ไม่อยู่ในคิว', en: 'Not in the queue', why: 'debug page (user request)' },
   { th: 'ไม่มีไฟล์ที่เก็บไว้', en: 'No stored files', why: 'debug page (user request)' },
-  { th: 'คัดลอกไม่สำเร็จ', en: "Couldn't copy", why: 'debug page (user request)' },
+  { th: 'คัดลอกไม่สำเร็จ', en: "Couldn't copy", why: "debug page (user request); also the Collab view's invite-link Copy: the panel copies with navigator.clipboard, which can refuse; the userscript's GM_setClipboard could not fail" },
   { th: 'การทำงาน', en: 'Actions', why: 'debug page (user request)' },
   { th: 'คัดลอกรายงานวินิจฉัย', en: 'Copy diagnostic report', why: 'debug page (user request)' },
   { th: 'ดาวน์โหลดรายงาน (.json)', en: 'Download report (.json)', why: 'debug page (user request)' },
