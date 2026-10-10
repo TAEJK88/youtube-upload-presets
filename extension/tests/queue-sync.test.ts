@@ -178,12 +178,18 @@ describe('following the lock by events (4a review m6)', () => {
   });
 
   it('an ask that fails is not an unhandled rejection, and the next one still goes out', async () => {
-    const ask = vi.fn(async () => { throw new Error('no answer'); });
+    const asked: ReturnType<typeof vi.spyOn>[] = [];
+    const ask = vi.fn(() => {
+      const p = Promise.reject(new Error('no answer'));
+      asked.push(vi.spyOn(p, 'catch')); // the follower must take the rejection itself
+      return p;
+    });
     const f = createLockFollower({ ask, everyMs: 0 });
     f.now();
     f.tick();
-    await Promise.resolve();
     expect(ask).toHaveBeenCalledTimes(2);
+    expect(asked.map((c) => c.mock.calls.length)).toEqual([1, 1]);
+    await Promise.resolve();
   });
 
   // The entrypoints run under WXT only, so their side of the link is pinned in the source.
@@ -195,13 +201,14 @@ describe('following the lock by events (4a review m6)', () => {
     expect(src).toMatch(/ctx\.setInterval\(\(\) => \{\s*lockFollower\.tick\(\);/);
   });
 
-  it('the background tells every Studio tab when the lock changes, and looks at the holder when a tab leaves Studio or is discarded', () => {
+  it('the background tells every Studio tab when the lock changes, and looks at the holder when a tab changes page or is discarded', () => {
     const src = readFileSync(new URL('../entrypoints/background.ts', import.meta.url), 'utf8');
     expect(src).toMatch(/registerRunnerLock\(\(\) => void tellStudioTabs\(\)\)/);
     const tell = src.slice(src.indexOf('const tellStudioTabs'), src.indexOf('registerRunnerLock('));
     expect(tell).toMatch(/isStudioUrl\(t\.url\)/);
     expect(tell).toMatch(/sendMessage\('runner:changed', undefined, t\.id\)\.catch\(/);
     expect(tell).not.toMatch(/storage|acquireRunner|releaseRunner|runnerHeld|claimWorker/); // it only sends: a write to the lock from here would loop
-    expect(src).toMatch(/if \(info\.url \|\| info\.discarded\) void runnerHeld\(\)\.catch\(/);
+    // 'complete' too: without the tabs permission a move to a site the extension can't read carries no url
+    expect(src).toMatch(/if \(info\.url \|\| info\.status === 'complete' \|\| info\.discarded\) void runnerHeld\(\)\.catch\(/);
   });
 });

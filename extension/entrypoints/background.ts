@@ -24,8 +24,9 @@ export default defineBackground(() => {
 
   browser.tabs.onUpdated.addListener((tabId, info, tab) => {
     if (info.url || info.status === 'complete') scope(tabId, tab.url);
-    // A holder that left Studio or was discarded is cleaned up here, which is a change of the lock.
-    if (info.url || info.discarded) void runnerHeld().catch(() => {});
+    // A holder that left Studio or was discarded is cleaned up here, which is a change of the lock
+    // ('complete' too: a move to a site the extension can't read carries no url).
+    if (info.url || info.status === 'complete' || info.discarded) void runnerHeld().catch(() => {});
   });
   browser.tabs.query({}).then((tabs) => tabs.forEach((t) => t.id !== undefined && scope(t.id, t.url)));
 
