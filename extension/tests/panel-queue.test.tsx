@@ -129,6 +129,11 @@ describe('queue card', () => {
     one({ txt: 'x', claimed: [{ line: 'Lena - Midnight Rain', song: 'Midnight Rain', artists: 'Lena', times: 2 }] });
     const chip = screen.getByText('1 song(s) previously claimed');
     expect(chip.closest('[title]')!.getAttribute('title')).toBe('Tracklist songs previously claimed:\n• Lena - Midnight Rain  (claimed on 2 video(s))');
+    // 4a T8 m11: amber text on the amber tint was 3.8:1 in light; the text is the foreground, the amber stays on the icon
+    const cls = chip.closest('[data-slot="badge"]')!.className.split(' ');
+    expect(cls).toContain('text-fg');
+    expect(cls).not.toContain('text-warn');
+    expect(cls).toContain('[&>svg]:text-warn');
   });
 
   it('the chip\'s tooltip has one line per song', () => {

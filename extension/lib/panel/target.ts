@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import { isStudioUrl } from '../panel-scope';
-import { isJob, type Job } from '../runner-lock';
+import { isJob, JOBS_KEY, LOCK_KEY, type Job } from '../runner-lock';
 
 // The panel works with the Studio tab active in its own window (the background enables it
 // on Studio tabs only).
@@ -43,15 +43,17 @@ export function watchTabs(windowId: number, fn: (e: TabEvent) => void): () => vo
 
 // The tab holding the automation lock (lib/runner-lock.ts, storage.session), and what for.
 // Stop goes there; the panel says so when it isn't the bound tab. A tab that is gone or left
-// Studio is nobody. A lock written before jobs existed was the queue's.
+// Studio is nobody, and so is a discarded one (no script runs there). A lock written before jobs
+// existed was the queue's.
 export interface RunnerTab { tabId: number; windowId: number; title: string; jobs: Job[] }
 
 export async function runnerTab(): Promise<RunnerTab | null> {
-  const got = await browser.storage.session.get(['runnerTabId', 'runnerJobs']);
-  const id = got.runnerTabId;
+  const got = await browser.storage.session.get([LOCK_KEY, JOBS_KEY]);
+  const id = got[LOCK_KEY];
   if (typeof id !== 'number') return null;
-  const t = asTarget(await browser.tabs.get(id).catch(() => undefined));
-  const jobs = Array.isArray(got.runnerJobs) ? (got.runnerJobs as unknown[]).filter(isJob) : ['queue' as Job];
+  const tab = await browser.tabs.get(id).catch(() => undefined);
+  const t = tab?.discarded ? null : asTarget(tab);
+  const jobs = Array.isArray(got[JOBS_KEY]) ? (got[JOBS_KEY] as unknown[]).filter(isJob) : ['queue' as Job];
   return t && { tabId: t.tabId, windowId: t.windowId, title: t.title, jobs };
 }
 
@@ -59,7 +61,7 @@ export async function runnerTab(): Promise<RunnerTab | null> {
 // tab may have left Studio or be gone, and runnerTab() re-checks it.
 export function watchRunner(fn: () => void): () => void {
   const changed = (changes: Record<string, unknown>, area: string) => {
-    if (area === 'session' && ('runnerTabId' in changes || 'runnerJobs' in changes)) fn();
+    if (area === 'session' && (LOCK_KEY in changes || JOBS_KEY in changes)) fn();
   };
   const updated = (_id: number, info: { url?: string }) => {
     if (info.url) fn();

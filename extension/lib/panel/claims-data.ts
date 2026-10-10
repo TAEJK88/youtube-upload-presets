@@ -58,13 +58,44 @@ export function toClaimsData(ch: string, raw: Record<string, unknown>): ClaimsDa
 
 export const readClaims = async (ch: string) => toClaimsData(ch, await browser.storage.local.get(channelKeys(ch)));
 
+// Follows one channel's keys: one full read, then each change is applied from its event
+// (re-reading 17 keys, the song history among them, per run-item write would cost seconds at size).
 export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void {
   const keys = new Set(channelKeys(ch));
-  const changed = (changes: Record<string, unknown>, area: string) => {
+  let raw: Record<string, unknown> | null = null;
+  let early: Record<string, { newValue?: unknown }>[] = [];
+  let failed = false; // the read was refused: the next change tries again
+  const apply = (changes: Record<string, { newValue?: unknown }>) => {
+    for (const [k, c] of Object.entries(changes)) {
+      if (!keys.has(k)) continue;
+      if (c.newValue === undefined) delete raw![k];
+      else raw![k] = c.newValue;
+    }
+  };
+  const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
     if (area !== 'local' || !Object.keys(changes).some((k) => keys.has(k))) return;
-    void readClaims(ch).then(fn, (e) => console.error('[ytup] claims read', e));
+    if (!raw) {
+      early.push(changes); // before the first read lands
+      if (failed) read();
+      return;
+    }
+    apply(changes);
+    fn(toClaimsData(ch, raw));
+  };
+  const read = () => {
+    failed = false;
+    void browser.storage.local.get(channelKeys(ch)).then((got) => {
+      raw = got;
+      early.forEach(apply);
+      early = [];
+      fn(toClaimsData(ch, raw));
+    }).catch((e) => {
+      failed = true;
+      console.error('[ytup] read copyright data', e);
+    });
   };
   browser.storage.onChanged.addListener(changed);
+  read();
   return () => browser.storage.onChanged.removeListener(changed);
 }
 

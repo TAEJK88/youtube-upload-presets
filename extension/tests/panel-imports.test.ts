@@ -49,4 +49,15 @@ describe('one copy of shared helpers (4a review m10)', () => {
   it('the "not connected" toast has one shared helper', () => {
     expect(read('entrypoints/sidepanel/save-failed.ts')).toMatch(/export const notConnected\b/);
   });
+  it('the panel bus uses the lock module\'s studioTab', () => {
+    const src = read('lib/panel/bus.ts');
+    expect(src).toMatch(/import \{[^}]*\bstudioTab\b[^}]*\} from '\.\.\/runner-lock'/);
+    expect(src).not.toMatch(/const studioTab\s*=/);
+  });
+  it('the "not connected" toast is said in one place', () => {
+    const tabs = 'entrypoints/sidepanel/tabs/';
+    const said = ['CopyrightTab.tsx', 'copyright/ClaimList.tsx', 'copyright/AdsView.tsx', 'copyright/CollabView.tsx', 'copyright/CopyrightSettings.tsx']
+      .filter((f) => read(tabs + f).includes('This tab is not connected to the extension yet'));
+    expect(said).toEqual([]);
+  });
 });

@@ -49,12 +49,12 @@ describe('Copyright tab', () => {
     expect(api.send).toHaveBeenCalledWith('claims:scan', 'claims');
   });
 
-  it('a scan the tab never got says so', async () => {
+  it('a scan the tab never got says so once, through the shared helper (review m10)', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const api = fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never });
     renderPanel(<CopyrightTab />, api, undefined, fakeClaims());
     fireEvent.click(screen.getByRole('button', { name: /Scan claims/ }));
-    await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD, { id: 'not-connected' }));
   });
 
   it('while scanning, the buttons hide and the card shows the progress', () => {
@@ -66,11 +66,16 @@ describe('Copyright tab', () => {
     expect(screen.getByRole('button', { name: /Fix tracklist/ })).toBeTruthy(); // the second row stays
   });
 
-  it('another tab running copyright work: its card shows, with this tab\'s counts', () => {
-    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }), live: { ...scanning, busyScan: false, busyRun: true } }));
-    expect(screen.getByText("Scanning this channel's claims")).toBeTruthy();
+  // Scans take no lock (D26): the buttons follow the bound tab, the card follows the tab that works.
+  it("another tab's copyright job shows in the card, but this tab's Scan stays, with this tab's counts", () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({
+      state: claimsStateWith({ counts }), // this tab: idle
+      live: claimsStateWith({ channel: 'UC2', busyRun: true, status: { icon: '✂️', kind: 'busy', title: 'Trimming claim 1 of 2', detail: '' } }),
+    }));
+    expect(screen.getByText('Trimming claim 1 of 2')).toBeTruthy();
     expect(screen.queryByText('Ready')).toBe(null);
-    expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
+    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Claim list (4)' })).toBeTruthy();
   });
 
   it('another tab holding the lock, idle: this tab\'s counts, not that tab\'s', () => {
@@ -337,6 +342,17 @@ describe('views', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view: 'collab', n: 1 } }));
     expect(await screen.findByText(/Collab — Mine/)).toBeTruthy();
   });
+
+  // The views read data.adsScan / data.collabScan: without a stored list there is nothing to open (K review m3).
+  it('an ads or Collab list asked for with no stored scan stays on the tab', async () => {
+    for (const view of ['ads', 'collab'] as const) {
+      const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view, n: 1 } }));
+      await waitFor(() => expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(false));
+      expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+      expect(screen.queryByRole('heading', { level: 3 })).toBe(null);
+      r.unmount();
+    }
+  });
 });
 
 describe('moving between the tab and its views', () => {
@@ -598,7 +614,7 @@ describe('claim list', () => {
     await stored();
     await open(/Claim list/, fakeClaims(), fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never }));
     fireEvent.click(screen.getByRole('button', { name: '↻ Rescan' }));
-    await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD, { id: 'not-connected' }));
   });
 
   it('the video\'s title opens its claims page in Studio', async () => {

@@ -3,7 +3,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L } from '@/lib/i18n';
 import { Icon } from './Icon';
-import { usePanel } from './panel';
+import { useClaims, usePanel } from './panel';
 import { PaneBoundary } from './PaneBoundary';
 import { ActivityBar } from './shell/ActivityBar';
 import { Banners } from './shell/Banners';
@@ -35,6 +35,7 @@ export function App() {
   const [tab, setTab] = useState<TabKey>('queue');
   // usePanel() also carries `lang`: a language change re-renders App, so the labels follow it.
   const { view } = usePanel();
+  const { live } = useClaims();
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (body.current) body.current.scrollTop = 0; // showTab(): each tab opens at its top
@@ -49,12 +50,15 @@ export function App() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="mx-[18px] mt-3">
           {tabDefs().map(([k, label, ic]) => (
-            <TabsTrigger key={k} value={k}>
+            <TabsTrigger key={k} value={k} className="relative">
               <Icon name={ic} size={17} />
               {label}
               {k === 'queue' && total > 0 && (
                 <span className="rounded-full bg-tint/[0.18] px-1.5 text-xs text-tint group-data-[state=active]:bg-on-fg">{total}</span>
               )}
+              {/* a copyright run is active, in any tab (tabCount.claims, 6255): a dot in the corner, in the
+                  label's colour; the four columns have no room for it beside the label */}
+              {k === 'claims' && live?.busyRun && <span data-run="" className="absolute top-1 right-1 size-1.5 rounded-full bg-current" />}
             </TabsTrigger>
           ))}
         </TabsList>
