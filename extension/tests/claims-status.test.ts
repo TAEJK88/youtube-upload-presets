@@ -76,6 +76,24 @@ describe('computeStatus / claimsState', () => {
     expect(C.claimsState().english).toBe(false);
   });
 
+  // 4a review m11: workerHere's first writer is the ported tick, from the worker lease
+  it("a tab that isn't the channel's worker reports workerHere: false and shows where a run is running", async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    useMemoryClaims({ [`trimRun:${CH}`]: { active: true, started: '', items: [{ key: 'v:1', videoId: 'v', video: 'Mix', song: 'S1', state: 'pending', msg: '' }] } });
+    const lock = (mine: boolean) => ({ worker: async () => mine, acquire: async () => false, release: () => {}, holds: async () => false });
+    C.setClaimsLock(lock(false)); // another tab is this channel's worker
+    await C.initClaimsLock();
+    C.claimsTick();
+    expect(C.claimsState().workerHere).toBe(false);
+    expect(C.computeStatus()).toMatchObject({ stepIdx: -1, stepDetail: '↪ Running in another Studio tab' });
+    C.setClaimsLock(lock(true)); // the lease is this tab's
+    await C.initClaimsLock();
+    useMemoryClaims(); // no run: the tick starts no step
+    C.claimsTick();
+    expect(C.claimsState().workerHere).toBe(true);
+    vi.restoreAllMocks();
+  });
+
   it('claimsStatus() for the FAB never throws', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     useMemoryClaims({ [`trimRun:${CH}`]: { active: true, items: 'broken' } });
