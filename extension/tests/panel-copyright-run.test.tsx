@@ -216,6 +216,17 @@ describe('Copyright tab, runs', () => {
     expect(claims.addLog).not.toHaveBeenCalled();
   });
 
+  it("the Auto-pilot switch is off limits while the tab's channel is 'unknown'", async () => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined as never);
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ channel: 'unknown' }) }));
+    const sw = (await screen.findByRole('switch', { name: /Auto-pilot/ })) as HTMLButtonElement;
+    expect(sw.disabled).toBe(true);
+    fireEvent.click(sw);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText(/Turn on Auto-pilot/)).toBe(null);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('with no Studio tab bound there is no Auto-pilot switch', () => {
     renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined, fakeClaims({ state: null, live: null }));
     expect(screen.queryByRole('switch')).toBe(null);

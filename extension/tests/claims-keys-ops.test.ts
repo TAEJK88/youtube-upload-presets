@@ -46,6 +46,13 @@ describe('ops', () => {
     expect(opKey({ op: 'songs', songs: { fn: 'clear' } })).toBe('songHistory');
   });
 
+  it("isClaimsOp refuses Auto-pilot for 'unknown': a tab that doesn't know its channel yet has none to run", () => {
+    expect(isClaimsOp({ op: 'set', key: 'autopilot:unknown', value: { on: true, next: 0 } })).toBe(false);
+    expect(isClaimsOp({ op: 'merge', key: 'autopilot:unknown', entries: { on: true } })).toBe(false);
+    expect(isClaimsOp({ op: 'set', key: 'autopilot:UC1', value: { on: true, next: 0 } })).toBe(true);
+    expect(isClaimsOp({ op: 'set', key: 'claimScan:unknown', value: {} })).toBe(true); // the userscript's own key before ytcfg (4625)
+  });
+
   it('isClaimsOp refuses other keys, the wrong op for a key, and prototype keys', () => {
     expect(isClaimsOp({ op: 'set', key: 'claimScan:UC1', value: {} })).toBe(true);
     expect(isClaimsOp({ op: 'set', key: 'settings', value: {} })).toBe(false);

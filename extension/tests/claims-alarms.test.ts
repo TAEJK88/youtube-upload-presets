@@ -26,6 +26,15 @@ describe('Auto-pilot alarms', () => {
     expect(await alarms()).toEqual([['ap:UC1', NOW + 3600e3], ['other', NOW + 1]]);
   });
 
+  it("no alarm for 'unknown', whatever is stored under it", async () => {
+    await browser.storage.local.set({ 'autopilot:unknown': { on: true, next: NOW + 3600e3 } });
+    await browser.alarms.create('ap:unknown', { when: NOW + 3600e3 }); // armed by an older build
+    await syncAutopilotAlarms(NOW);
+    expect(await alarms()).toEqual([]);
+    await armAutopilot('unknown', { on: true, next: NOW + 7200e3 }, NOW);
+    expect(await alarms()).toEqual([]);
+  });
+
   it('never re-arms the same cycle: a service worker start or a second sync creates nothing', async () => {
     await browser.storage.local.set({ 'autopilot:UC1': { on: true, next: NOW + 3600e3 } });
     const create = vi.spyOn(browser.alarms, 'create');

@@ -97,6 +97,8 @@ export function isClaimsOp(v: unknown): v is ClaimsOp {
   if (!isObj(v)) return false;
   if (v.op === 'songs') return isSongsOp(v.songs);
   if (!isClaimsKey(v.key)) return false;
+  // No Auto-pilot for a tab that doesn't know its channel yet: no tab could ever run that cycle.
+  if (v.key === 'autopilot:unknown') return false;
   const name = nameOf(v.key);
   switch (v.op) {
     case 'set': return true; // no value: it was undefined before JSON, a removal
