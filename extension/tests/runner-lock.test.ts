@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { acquireRunner, claimWorker, JOBS_KEY, LOCK_KEY, registerRunnerLock, releaseRunner, runnerElsewhere, runnerHeld, runnerHolds, studioTab, workerOf, WORKERS_KEY } from '../lib/runner-lock';
+import { acquireRunner, claimWorker, JOBS_KEY, leasedTab, LOCK_KEY, registerRunnerLock, releaseRunner, runnerElsewhere, runnerHeld, runnerHolds, studioTab, workerOf, WORKERS_KEY } from '../lib/runner-lock';
 
 beforeEach(() => fakeBrowser.reset());
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -226,6 +226,13 @@ describe('runner lock', () => {
     await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(4));
     expect(await runnerHeld()).toBe(false); // cleaned up: one more change
     await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(5));
+    await browser.storage.session.set({ [JOBS_KEY]: ['claims'] }); // one job let go: the jobs alone
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(6));
+    await browser.storage.session.set({ [LOCK_KEY]: 5 });
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(7));
+    await browser.storage.local.set({ [LOCK_KEY]: 5 }); // the same name in another area is not the lock
+    await new Promise((r) => setTimeout(r, 0));
+    expect(changed).toHaveBeenCalledTimes(7);
   });
 
   it("workerOf: the channel's worker tab while its lease is fresh", async () => {
@@ -233,8 +240,23 @@ describe('runner lock', () => {
     await claimWorker(a, 'UC1', false);
     expect(await workerOf('UC1')).toBe(a);
     expect(await workerOf('UC9')).toBe(null);
+    const get = vi.spyOn(browser.tabs, 'get').mockResolvedValue({ id: a, url: 'https://studio.youtube.com/', discarded: true } as never);
+    expect(await workerOf('UC1')).toBe(null); // Memory Saver: no script runs there
+    get.mockRestore();
     await browser.storage.session.set({ [WORKERS_KEY]: { UC1: { tabId: a, at: Date.now() - 21_000 } } });
     expect(await workerOf('UC1')).toBe(null);
+  });
+
+  // A hidden tab's timers run about once a minute, so its lease is stale most of the time.
+  it("leasedTab: the lease's tab whatever the lease's age, while that tab is live", async () => {
+    const a = await tab();
+    expect(await leasedTab('UC1')).toBe(null); // no lease
+    await browser.storage.session.set({ [WORKERS_KEY]: { UC1: { tabId: a, at: Date.now() - 60_000 }, UC2: { tabId: 999, at: Date.now() } } });
+    expect(await workerOf('UC1')).toBe(null);
+    expect(await leasedTab('UC1')).toBe(a);
+    expect(await leasedTab('UC2')).toBe(null); // the tab is gone
+    vi.spyOn(browser.tabs, 'get').mockResolvedValue({ id: a, url: 'https://studio.youtube.com/', discarded: true } as never);
+    expect(await leasedTab('UC1')).toBe(null);
   });
 
   it('only a Studio tab may ask for the lock or the lease', () => {

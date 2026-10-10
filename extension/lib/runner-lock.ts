@@ -129,6 +129,14 @@ export const workerOf = (ch: string) =>
     const l = (await readLeases())[ch];
     return l && Date.now() - l.at <= LEASE_STALE && (await liveStudio(l.tabId)) ? l.tabId : null;
   });
+// The tab the channel's lease names, however old the lease, if it is still a live Studio tab: a
+// hidden tab's timers run about once a minute, so its lease is stale most of the time, and the
+// Auto-pilot alarm nudges it all the same (the tab asks for the lease afresh before it ticks).
+export const leasedTab = (ch: string) =>
+  serial(async () => {
+    const l = (await readLeases())[ch];
+    return l && (await liveStudio(l.tabId)) ? l.tabId : null;
+  });
 const dropWorker = (tabId: number) =>
   serial(async () => {
     const w = await readLeases();
