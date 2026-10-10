@@ -8,6 +8,7 @@ import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { ClaimsContext, PanelContext } from '../entrypoints/sidepanel/panel';
 import { CopyrightTab } from '../entrypoints/sidepanel/tabs/CopyrightTab';
 import type { ClaimsState } from '../lib/claims/types';
+import type { LinkStatus } from '../lib/panel/view-sync';
 import * as messages from '../lib/messages';
 import { claimsStateWith, fakeClaims, fakePanel, renderPanel } from './panel-fake';
 
@@ -70,6 +71,29 @@ describe('Copyright tab, runs', () => {
     expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
   });
 
+  // ask() answers null to a question another one replaced: only a pressed "Start trim" starts it.
+  it('a trim question replaced by a newer one starts nothing', async () => {
+    const api = await openTrim();
+    fireEvent.click(await screen.findByRole('button', { name: '✂ Trim selected (1)' }));
+    await screen.findByText('Trim 1 claims in 1 videos?');
+    fireEvent.click(screen.getByRole('button', { name: '✂ Trim selected (1)', hidden: true })); // the first answers null
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.send).not.toHaveBeenCalled();
+    expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy(); // and the list stays
+  });
+
+  it('only the picks that are in the scan and not done are sent', async () => {
+    vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined as never);
+    const api = await openTrim({
+      'claimScan:UC1': { ...scan, rows: [row, { ...row, claimId: 'c2' }] },
+      'trimQueue:UC1': ['v1:c1', 'v1:c2', 'old:claim'], // c2 is trimmed already; the last is from an older scan
+      'trimResults:UC1': { 'v1:c2': { state: 'saved', msg: '', date: '' } },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: '✂ Trim selected (1)' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start trim' }));
+    await vi.waitFor(() => expect(api.send).toHaveBeenCalledWith('claims:trim', ['v1:c1']));
+  });
+
   it('with nothing picked the button is off; a pick already trimmed is not counted', async () => {
     await openTrim({ 'trimQueue:UC1': [] });
     expect((await screen.findByRole('button', { name: '✂ Trim selected (0)' }) as HTMLButtonElement).disabled).toBe(true);
@@ -115,6 +139,16 @@ describe('Copyright tab, runs', () => {
     expect(screen.queryByRole('button', { name: 'Stop' })).toBe(null);
   });
 
+  // The holder's tab is asked only while it runs a copyright job: a queue run elsewhere is not ours to stop.
+  it('follow-ups waiting here while another tab runs the queue: Stop goes to this tab, never to the queue\'s', () => {
+    const queueTab = vi.fn(async () => undefined);
+    const api = fakePanel({ runner: { tabId: 9, windowId: 1, title: 'B', jobs: ['queue'] }, elsewhere: true, sendTo: vi.fn(() => queueTab) as never });
+    renderPanel(<CopyrightTab />, api, undefined, fakeClaims({ state: claimsStateWith({ waiting: 2 }) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(api.send).toHaveBeenCalledWith('claims:stop', undefined);
+    expect(queueTab).not.toHaveBeenCalled();
+  });
+
   it('a Stop the tab never got says so', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     renderPanel(<CopyrightTab />, deaf(), undefined, fakeClaims({ state: trimming }));
@@ -155,6 +189,18 @@ describe('Copyright tab, runs', () => {
     fireEvent.click(sw);
     await vi.waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'set', key: 'autopilot:UC1', value: { on: false, next: 0 } }));
     await vi.waitFor(() => expect(claims.addLog).toHaveBeenCalledWith('🤖 Auto-pilot turned off for Mine', 'ok'));
+  });
+
+  it('an Auto-pilot question replaced by a newer one writes nothing', async () => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined as never);
+    const claims = fakeClaims();
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
+    fireEvent.click(await screen.findByRole('switch', { name: /Auto-pilot/ }));
+    await screen.findByText('Turn on Auto-pilot for channel Mine?');
+    fireEvent.click(screen.getByRole('switch', { name: /Auto-pilot/, hidden: true })); // the first answers null
+    await new Promise((r) => setTimeout(r, 0));
+    expect(send).not.toHaveBeenCalled();
+    expect(claims.addLog).not.toHaveBeenCalled();
   });
 
   it('an Auto-pilot switch the background never got says so, and logs nothing', async () => {
@@ -233,8 +279,8 @@ describe('Copyright tab, the home buttons of the Ads, Collab and settings views'
 // A trim, ads or Collab step loads a new page each time: the bound tab's state is null for a moment,
 // or says 'unknown' before ytcfg is there (4a T8 review R3, 4a re-review R1 and (a)).
 describe('Copyright tab, an open view through a page load of the bound tab', () => {
-  const tabView = (state: ClaimsState | null, tabId: number | null = 1) => (
-    <PanelContext.Provider value={fakePanel({ target: tabId === null ? null : { tabId, windowId: 1, url: 'https://studio.youtube.com/', title: 'Studio' } })}>
+  const tabView = (state: ClaimsState | null, tabId: number | null = 1, link: LinkStatus = 'ok') => (
+    <PanelContext.Provider value={fakePanel({ link, target: tabId === null ? null : { tabId, windowId: 1, url: 'https://studio.youtube.com/', title: 'Studio' } })}>
       <ClaimsContext.Provider value={fakeClaims({ state, live: state })}>
         <AskProvider><CopyrightTab /></AskProvider>
       </ClaimsContext.Provider>
@@ -295,16 +341,51 @@ describe('Copyright tab, an open view through a page load of the bound tab', () 
     expect(screen.getByText('Ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Claim list (1)' })).toBeTruthy();
     expect(screen.getByRole('switch', { name: /Auto-pilot/ })).toBeTruthy();
+    // the counts a page gives before it knows its channel are nobody's
+    rerender(tabView(claimsStateWith({ channel: 'unknown', counts: { ...counts, claims: 7 } })));
+    expect(screen.getByRole('button', { name: 'Claim list (1)' })).toBeTruthy();
+  });
+
+  // The link says 'noScript' for a moment in a slow page load, and for good after the extension was
+  // reloaded: the panel can't tell which. The channel, its data and an open view are kept; the
+  // tab's card and buttons are not what a page that is gone last said (4a m1; 4b Q review m1).
+  it('a tab without its script: no card of the old page, Scan there and off; an open view stays', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan });
+    const busy = claimsStateWith({ counts, busyScan: true, status: { icon: '🔍', kind: 'busy', title: 'Scanning 27%', detail: '' } });
+    const { rerender } = render(tabView(busy));
+    expect(screen.getByText('Scanning 27%')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
+    rerender(tabView(null, 1, 'noScript'));
+    expect(screen.queryByText('Scanning 27%')).toBe(null);
+    expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBe(null);
+    rerender(tabView(busy)); // the page answered after all
+    expect(screen.getByText('Scanning 27%')).toBeTruthy();
+    cleanup();
+    const list = await openList();
+    list.rerender(tabView(null, 1, 'noScript'));
+    expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
   });
 });
 
 describe('the Copyright tab in the tab bar', () => {
-  const dot = () => screen.getByRole('tab', { name: /Copyright/ }).textContent!.includes('●');
+  const tab = () => screen.getByRole('tab', { name: /Copyright/ });
+  const dot = () => !!tab().querySelector('[data-run]');
   it('shows ● while a copyright run is active, here or in the tab holding the lock (tabCount.claims, 6255)', () => {
     const r = renderPanel(<App />, fakePanel(), undefined, fakeClaims());
     expect(dot()).toBe(false);
     r.unmount();
     renderPanel(<App />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith(), live: trimming }));
     expect(dot()).toBe(true);
+  });
+
+  // The tab bar is four equal columns the label already fills: a dot in the row pushed the label out
+  // of its pill at 320px. It sits in the corner instead, in the label's own colour (4b Q review I1).
+  it('the mark takes no room in the tab\'s row and has the label\'s colour', () => {
+    renderPanel(<App />, fakePanel(), undefined, fakeClaims({ state: trimming }));
+    const mark = tab().querySelector('[data-run]')!;
+    expect(mark.className.split(' ')).toEqual(expect.arrayContaining(['absolute', 'bg-current']));
+    expect(mark.textContent).toBe('');
+    expect(tab().className.split(' ')).toContain('relative');
   });
 });

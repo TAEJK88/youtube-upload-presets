@@ -64,6 +64,7 @@ export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void
   const keys = new Set(channelKeys(ch));
   let raw: Record<string, unknown> | null = null;
   let early: Record<string, { newValue?: unknown }>[] = [];
+  let failed = false; // the read was refused: the next change tries again
   const apply = (changes: Record<string, { newValue?: unknown }>) => {
     for (const [k, c] of Object.entries(changes)) {
       if (!keys.has(k)) continue;
@@ -73,17 +74,28 @@ export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void
   };
   const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
     if (area !== 'local' || !Object.keys(changes).some((k) => keys.has(k))) return;
-    if (!raw) return void early.push(changes); // before the first read lands
+    if (!raw) {
+      early.push(changes); // before the first read lands
+      if (failed) read();
+      return;
+    }
     apply(changes);
     fn(toClaimsData(ch, raw));
   };
+  const read = () => {
+    failed = false;
+    void browser.storage.local.get(channelKeys(ch)).then((got) => {
+      raw = got;
+      early.forEach(apply);
+      early = [];
+      fn(toClaimsData(ch, raw));
+    }).catch((e) => {
+      failed = true;
+      console.error('[ytup] read copyright data', e);
+    });
+  };
   browser.storage.onChanged.addListener(changed);
-  void browser.storage.local.get(channelKeys(ch)).then((got) => {
-    raw = got;
-    early.forEach(apply);
-    early = [];
-    fn(toClaimsData(ch, raw));
-  }).catch((e) => console.error('[ytup] read copyright data', e));
+  read();
   return () => browser.storage.onChanged.removeListener(changed);
 }
 

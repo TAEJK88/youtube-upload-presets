@@ -82,6 +82,26 @@ describe('the Copyright tab data', () => {
     off();
   });
 
+  it('after a failed first read, the next change reads again (4b Q review m2)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await browser.storage.local.set({ 'claimScan:UC1': { date: 'd', total: 0, rows: [] } });
+    const get = vi.spyOn(browser.storage.local, 'get').mockRejectedValueOnce(new Error('context invalidated'));
+    const fn = vi.fn();
+    const off = watchClaims('UC1', fn);
+    await vi.waitFor(() => expect(err).toHaveBeenCalled());
+    await browser.storage.local.set({ 'trimQueue:UC1': ['v:c'] });
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(1));
+    expect(fn.mock.calls[0]![0].scan?.date).toBe('d'); // the whole channel, not only what changed
+    expect(fn.mock.calls[0]![0].trimQueue).toEqual(['v:c']);
+    expect(get).toHaveBeenCalledTimes(2);
+    await browser.storage.local.set({ 'trimQueue:UC1': [] }); // and from here on from the events again
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+    expect(get).toHaveBeenCalledTimes(2);
+    get.mockRestore();
+    err.mockRestore();
+    off();
+  });
+
   it('writes go to the background as ops', async () => {
     const spy = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined as never);
     await claimsWrite({ op: 'list', key: 'trimQueue:UC1', add: ['a'] });

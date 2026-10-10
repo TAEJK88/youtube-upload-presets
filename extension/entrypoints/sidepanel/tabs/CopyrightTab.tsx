@@ -63,7 +63,7 @@ function useClaimsGlobals(): { logOpen: boolean; songs: number } {
 }
 
 export function CopyrightTab() {
-  const { send, sendTo, runner, target } = usePanel();
+  const { send, sendTo, runner, target, link } = usePanel();
   const { state, live, log, shown: opened } = useClaims();
   // What the bound tab last said for real: its channel and state survive a page load of that tab
   // (state null, or 'unknown' before ytcfg), which every trim / ads / Collab step is. Another bound
@@ -114,9 +114,12 @@ export function CopyrightTab() {
 
   // The buttons follow the bound tab; the card and Stop follow the tab that works (`live`): another
   // tab's trim holds the lock, but scans take none (D26).
-  const s = live ?? shown;
-  const n = shown?.counts;
-  const idle = !shown?.busyRun && !shown?.busyScan; // renderStatus()'s row visibility (6251)
+  // A tab without its script (for a moment in a slow load, or for good): what its old page last
+  // said is not shown as its card or counts (4a m1); the views above keep `shown`.
+  const here = link === 'noScript' ? state : shown;
+  const s = live ?? here;
+  const n = here?.counts;
+  const idle = !here?.busyRun && !here?.busyScan; // renderStatus()'s row visibility (6251)
   const stoppable = !!s && (s.busyRun || s.waiting > 0);
   const scan = (what: 'claims' | 'ads' | 'collab') => void send('claims:scan', what).catch(notConnected);
   // Stop goes to the tab holding the lock while it runs a copyright job elsewhere (D27).
@@ -150,7 +153,7 @@ export function CopyrightTab() {
         {/* row1 (6204): Scan · Ads off · Stop */}
         {(idle || stoppable) && (
           <div className="mt-2.5 flex flex-wrap gap-2 [&>button]:grow">
-            {idle && <Button variant="go" onClick={() => scan('claims')} disabled={!shown}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>}
+            {idle && <Button variant="go" onClick={() => scan('claims')} disabled={!here}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>}
             {idle && (
               <Button data-view="ads" onClick={() => (data?.adsScan ? setView({ name: 'ads' }) : scan('ads'))} disabled={!data}
                 title={L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on')}>
