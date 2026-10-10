@@ -18,13 +18,22 @@ vi.mock('../lib/studio/automation', async (orig) => ({ ...(await orig<typeof imp
 import * as C from '../lib/claims/claims';
 
 // 4b Z: the panel's views and the page's handlers were each tested against a fake of the other.
-// Here they meet: the real Copyright tab sends, the payload crosses a message boundary (JSON),
-// the real handlers of the Studio tab act on what is stored, and their writes go through the
-// background's one writer into the storage the panel reads.
+// Here they meet, so a payload or a storage key one side writes and the other can't read fails.
+// Real: the Copyright tab and its views; the page's functions (claimsState, trimFromPanel,
+// adsFromPanel, collabFromPanel, stopAll, autopilotDue, claimsTick); the claims store; the
+// background's one writer (claimsOpInOrder with its isClaimsOp check) on fakeBrowser's storage;
+// the worker lease (claimWorker); the alarms (registerAutopilotAlarms).
+// Faked, so not covered here:
+//  - the transport: `toTab` calls a hand-copied table of the content script's handlers, and
+//    sendMessage is replaced. The messaging library, which tab a message goes to, and a tab
+//    that does not answer ("No response") are not in it; payloads cross as JSON only.
+//  - PanelProvider: fakePanel / fakeClaims stand in, so the bus checks and the kept state are not in it.
+//  - the background's sender check (mayWrite): claimsOpInOrder is called directly.
+//  - the automation lock: always refused, so a run is started and stored but no step runs.
 const CH = 'UCaaaaaaaaaaaaaaaaaaaaaa';
 const TAB = 3;
 const wire = <T,>(v: T): T => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
-// studio.content.ts's handlers (pinned there by claims-page.test.ts).
+// A copy of studio.content.ts's handlers (pinned there by claims-page.test.ts), in place of the messaging library.
 const page: Record<string, (d: unknown) => unknown> = {
   'claims:view': () => C.claimsState(),
   'claims:trim': (d) => C.trimFromPanel(d),
@@ -43,7 +52,7 @@ const date = '2026-10-01T00:00:00Z';
 async function start(data: Record<string, unknown>) {
   await browser.storage.local.set(data);
   await initClaimsStore((op) => claimsOpInOrder(wire(op)));
-  // The lease is the background's; the lock is refused, so no step changes pages here.
+  // The lease is the background's (real); the lock is a fake that always refuses, so no step changes pages here.
   C.setClaimsLock({ worker: (ch, force) => claimWorker(TAB, ch, force), acquire: async () => false, release: vi.fn(), holds: async () => false });
   await C.initClaimsLock();
 }
@@ -76,7 +85,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('panel → Studio tab → background, with nothing faked in between', () => {
+describe('panel views → page handlers → the background writer: payloads and stored keys agree (transport, provider, sender check and lock faked)', () => {
   it('claims:trim starts a run of the ticked claims, and Stop ends it', async () => {
     await start({ [`claimScan:${CH}`]: { date, total: 2, channel: CH, channelName: 'Mine', rows: [row(1), row(2)] }, [`trimQueue:${CH}`]: ['v2:c2'] });
     const first = await panel();
