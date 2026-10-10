@@ -127,6 +127,8 @@ describe('a run aborted coming back from the back/forward cache', () => {
   it('the other tab finishes and lets the lock go first: its results survive the aborted run, then this tab reads them', async () => {
     const { run, file, other } = await abortedMidItem();
     await followOtherTab(false); // the tick: the other tab's run is over
+    // still a mirror while the aborted run leaves: the intercept keeps off Studio's file dialog (final review m12)
+    expect(Q.otherTabRunning()).toBe(true);
     file.resolve(new File(['x'], 'A.mp4'));
     await expect(run).rejects.toThrow(MSG);
     await settle();
