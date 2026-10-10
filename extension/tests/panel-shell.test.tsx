@@ -315,11 +315,12 @@ describe('shell', () => {
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['อัปโหลด3', 'พรีเซ็ต', 'ลิขสิทธิ์', 'ตั้งค่า']);
   });
 
-  it('the Copyright tab is a placeholder; the activity bar goes back to Upload', () => {
+  it('the Copyright tab opens on its status; the activity bar goes back to Upload', () => {
     renderPanel(<App />, fakePanel({ view: viewWith([{ status: 'uploading' }]) }), fakeLive({ liveState: state({ running: true }) }));
     fireEvent.mouseDown(screen.getByRole('tab', { name: /Copyright/ }));
     expect(screen.getByRole('tab', { name: /Copyright/ }).getAttribute('data-state')).toBe('active');
-    expect(screen.getByText('Copyright scan and trim arrive in a later version of the extension')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+    expect(screen.getByText('Ready')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Uploading 1\/1/ }));
     expect(screen.getByRole('tab', { name: /Upload/ }).getAttribute('data-state')).toBe('active');
   });

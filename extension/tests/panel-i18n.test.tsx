@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { App } from '../entrypoints/sidepanel/App';
 import { PresetsFooter } from '../entrypoints/sidepanel/tabs/PresetsTab';
 import { setLang } from '../lib/i18n';
@@ -13,7 +14,7 @@ import { showReloadBanner } from '../lib/studio/reload-banner';
 import { userscriptPairs } from '../scripts/ui-check.mjs';
 // @ts-expect-error -- untyped list, shared with npm run ui-check
 import extensionOnly from '../scripts/strings/extension-only.mjs';
-import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
+import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
 // The Re-grant banner asks IndexedDB for each queued handle's permission; the fake has none.
 vi.mock('../lib/panel/regrant', async (orig) => ({ ...(await orig<typeof import('../lib/panel/regrant')>()), needingGrant: vi.fn(async () => []) }));
@@ -24,8 +25,9 @@ beforeEach(() => {
   vi.mocked(needingGrant).mockReset().mockResolvedValue([]);
   vi.mocked(runnerTab).mockReset().mockResolvedValue(null);
 });
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await fakeBrowser.storage.local.remove('logOpen');
   document.querySelector('#ytup-fab')?.remove();
   document.querySelector('#ytup-reload')?.remove();
   setLang('en');
@@ -134,9 +136,19 @@ const thData = (over: Record<string, unknown> = {}) => {
 };
 const thView = (over: Parameters<typeof viewWith>[1] = {}) => viewWith(items, { schedule, channel, state: state({ channel }), ...over });
 
-async function renderThai(api: ReturnType<typeof fakePanel>, live = fakeLive({ state: state({ channel }), liveState: state({ channel }) })) {
+// The Copyright tab as a Studio tab in Thai feeds it: the language warning, counts, the card and
+// the activity log (its lines are made by the page, in the page's language).
+const thCounts = { hasScan: true, scanDate: '', claims: 2, claimVideos: 1, songs: 3, hasAdsScan: false, adsTodo: 0 };
+const thClaims = (status = { icon: '✓', kind: 'idle', title: 'พร้อม', detail: 'กด "สแกน claim" เพื่อเช็กช่องนี้' }, over: Parameters<typeof claimsStateWith>[0] = {}) =>
+  fakeClaims({
+    state: claimsStateWith({ channelName: 'ช่องฉัน', english: false, counts: thCounts, status, ...over }),
+    log: [{ at: AT, msg: 'สแกนเสร็จ ✓ ช่องฉัน: 2 claim ใน 1 คลิป', type: 'ok' }],
+  });
+
+async function renderThai(api: ReturnType<typeof fakePanel>, live = fakeLive({ state: state({ channel }), liveState: state({ channel }) }), claims = thClaims()) {
   setLang('th');
-  const r = renderPanel(<><App /><PresetsFooter /></>, { ...api, lang: 'th' }, live);
+  await fakeBrowser.storage.local.set({ logOpen: true }); // the activity log starts open
+  const r = renderPanel(<><App /><PresetsFooter /></>, { ...api, lang: 'th' }, live, claims);
   await act(async () => {}); // the Re-grant banner's permission check
   // Open what starts folded: the cards and the channel list.
   const expand = screen.queryByRole('button', { name: /ขยายทั้งหมด/ });
@@ -153,6 +165,12 @@ describe('the panel in Thai', () => {
     const root = await renderThai(fakePanel({ data: thData(), view: thView() }));
     expect(screen.getByRole('button', { name: /ย่อทั้งหมด/ })).toBeTruthy(); // the cards are open
     expect(screen.getByPlaceholderText(/UC/)).toBeTruthy(); // the channel list is open
+    // the Copyright tab: the Studio-language warning, the card, the counts, the open log
+    expect(root.textContent).toContain('Studio ตั้งเป็นภาษาไทยอยู่');
+    expect(screen.getByText('พร้อม')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'รายการ claim (2)', hidden: true })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'เพลงที่เคยโดน (3)', hidden: true })).toBeTruthy();
+    expect(await screen.findByText(/สแกนเสร็จ ✓ ช่องฉัน/)).toBeTruthy();
     clean(document.body); // with what renders outside the container
     expect(root.textContent).toContain('ช่องฉัน');
   });
@@ -212,7 +230,11 @@ describe('the panel in Thai', () => {
         runner: { tabId: 2, windowId: 1, title: 'สตูดิโออื่น', jobs: ['queue'] } as never,
       }),
       fakeLive({ state: running, liveState: running }),
+      // a trim run's card: steps and their detail, and no buttons
+      thClaims({ icon: '✂', kind: 'busy', title: 'กำลังตัด 1 / 2', detail: 'ชื่อ 1', progress: 0.5, steps: ['เปิดคลิป', 'ตัด', 'บันทึก'], stepIdx: 1, stepDetail: 'รอหน้าตัดต่อ' } as never, { busyRun: true }),
     );
+    expect(root.textContent).toContain('● ตัด');
+    expect(screen.queryByRole('button', { name: /สแกน claim/, hidden: true })).toBe(null);
     expect(root.textContent).toContain('แท็บ Studio อื่นกำลังอัปโหลดคิวอยู่'); // the runner-elsewhere banner
     clean(document.body);
   });

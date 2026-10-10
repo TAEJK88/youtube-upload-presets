@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 // The side panel must not load the Studio page's modules: lib/studio/state.ts there holds
 // defaults that never sync, so panel code reading it would get silent wrong values.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const FORBIDDEN = ['lib/studio/state.ts', 'lib/studio/queue-runner.ts'];
+const FORBIDDEN = ['lib/studio/state.ts', 'lib/studio/queue-runner.ts', 'lib/claims/claims.ts', 'lib/claims/store.ts'];
 
 function resolveImport(from: string, spec: string): string | null {
   const base = spec.startsWith('@/') ? join(ROOT, spec.slice(2)) : spec.startsWith('.') ? resolve(dirname(from), spec) : null;
@@ -36,7 +36,7 @@ function reachable(entry: string): Map<string, string[]> {
 }
 
 describe('side panel bundle', () => {
-  it('does not import the Studio state or the queue runner', () => {
+  it('does not import the Studio state, the queue runner or the copyright page code', () => {
     const paths = reachable(join(ROOT, 'entrypoints/sidepanel/main.tsx'));
     const hits = [...paths].filter(([f]) => FORBIDDEN.includes(relative(ROOT, f))).map(([f, p]) => [...p, relative(ROOT, f)].join(' → '));
     expect(paths.size).toBeGreaterThan(10); // the walk did find the panel's modules

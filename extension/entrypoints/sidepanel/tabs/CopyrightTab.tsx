@@ -1,12 +1,111 @@
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { browser } from 'wxt/browser';
+import { Button } from '@/components/ui/button';
+import { uploadsCsvRows, type UploadRecordLike } from '@/lib/claims/core';
 import { L } from '@/lib/i18n';
+import { claimsWrite, readClaims, watchClaims, type ClaimsData } from '@/lib/panel/claims-data';
+import { downloadCsv } from '@/lib/panel/download';
+import { Section } from '../fields';
 import { Icon } from '../Icon';
+import { useClaims, usePanel } from '../panel';
+import { ActivityLog } from './copyright/ActivityLog';
+import { ClaimList } from './copyright/ClaimList';
+import { Songs } from './copyright/Songs';
+import { StatusCard } from './copyright/StatusCard';
+import { TracklistFix } from './copyright/TracklistFix';
 
-// The copyright scanner / trimmer / autopilot arrive in Phase 4.
+// The drawer's "ลิขสิทธิ์" pane (buildPane 6183–6216, renderStatus 6219–6256) and its modals as
+// views (D23). Status and counts come from the Studio tab (useClaims, D24); lists and results
+// from storage, for the channel that tab is on.
+export type CopyrightView =
+  | { name: 'home' } | { name: 'claims' } | { name: 'songs' } | { name: 'tracklist'; videoId: string }
+  | { name: 'ads' } | { name: 'collab' } | { name: 'settings' };
+
+export function useClaimsData(ch: string | null): ClaimsData | null {
+  const [data, setData] = useState<ClaimsData | null>(null);
+  useEffect(() => {
+    if (!ch) return void setData(null);
+    let alive = true;
+    void readClaims(ch).then((d) => { if (alive) setData(d); }).catch((e) => console.error('[ytup] read copyright data', e));
+    const off = watchClaims(ch, (d) => { if (alive) setData(d); });
+    return () => { alive = false; off(); };
+  }, [ch]);
+  return data;
+}
+
+const failed = (e: unknown) => {
+  console.error('[ytup] copyright', e);
+  toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
+};
+
 export function CopyrightTab() {
+  const { send } = usePanel();
+  const { state, live, log, shown } = useClaims();
+  const data = useClaimsData(state?.channel ?? null);
+  const [view, setView] = useState<CopyrightView>({ name: 'home' });
+  const [openLog, setOpenLog] = useState<boolean | null>(null);
+  const home = () => setView({ name: 'home' });
+  // A scan started here ended in the bound tab: open its list (showClaims() after scanClaims()).
+  useEffect(() => {
+    if (shown) setView({ name: shown.view } as CopyrightView); // claims / ads / collab: each a view with no other field
+  }, [shown]);
+
+  if (data && state) {
+    if (view.name === 'claims') return <ClaimList data={data} state={state} onClose={home} onTracklist={(videoId) => setView({ name: 'tracklist', videoId })} />;
+    if (view.name === 'songs') return <Songs data={data} onClose={home} />;
+    if (view.name === 'tracklist') return <TracklistFix data={data} videoId={view.videoId} onPick={(videoId) => setView({ name: 'tracklist', videoId })} onClose={home} />;
+  }
+
+  const s = live ?? state;
+  const n = state?.counts;
+  const busy = !!s && (s.busyRun || s.busyScan);
+  const scan = () => void send('claims:scan', 'claims').catch(failed);
+  const uploads = async () => {
+    const list = (await browser.storage.local.get('uploads')).uploads;
+    downloadCsv(uploadsCsvRows(Array.isArray(list) ? (list as UploadRecordLike[]) : []), `uploads-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+  // logOpen is stored (6201) and also follows this click at once.
+  const logOpen = openLog ?? data?.logOpen ?? false;
+  const toggleLog = () => {
+    setOpenLog(!logOpen);
+    void claimsWrite({ op: 'set', key: 'logOpen', value: !logOpen }).catch(failed);
+  };
   return (
-    <div className="flex flex-col items-center gap-2 py-10 text-center text-fg3">
-      <Icon name="shield" size={24} />
-      <span>{L('การสแกนและตัดส่วนที่ติดลิขสิทธิ์จะมาในเวอร์ชันถัดไปของส่วนขยาย', 'Copyright scan and trim arrive in a later version of the extension')}</span>
+    <div>
+      {state && !state.english && (
+        <div className="mb-3 rounded-[12px] border border-err/35 bg-err/[0.08] px-3 py-2 text-xs text-err">
+          {L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language')}
+        </div>
+      )}
+      <Section title={L('สถานะ', 'Status')} icon="shield">
+        {s && <StatusCard s={s.status} />}
+        {!busy && (
+          // The side panel can be 320px wide: a button that doesn't fit beside its neighbour takes the next line.
+          <div className="mt-2.5 flex flex-wrap gap-2 [&>button]:grow">
+            <Button variant="go" onClick={scan} disabled={!state}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>
+            <Button onClick={() => setView({ name: 'claims' })} disabled={!data}>
+              <Icon name="queue" size={16} />
+              {n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list')}
+            </Button>
+            <Button className="basis-full" onClick={() => setView({ name: 'songs' })} disabled={!data}
+              title={L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels')}>
+              <Icon name="music" size={16} />{L(`เพลงที่เคยโดน (${n?.songs ?? 0})`, `Claimed songs (${n?.songs ?? 0})`)}
+            </Button>
+          </div>
+        )}
+      </Section>
+      <Section>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => setView({ name: 'tracklist', videoId: '' })} disabled={!data}><Icon name="note" size={14} />{L('แก้ tracklist', 'Fix tracklist')}</Button>
+          <Button size="sm" onClick={() => void uploads().catch((e) => console.error('[ytup] upload history', e))} title={L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script')}>
+            <Icon name="history" size={14} />{L('ประวัติการอัป', 'Upload history')}
+          </Button>
+        </div>
+      </Section>
+      <Section>
+        <ActivityLog open={logOpen} lines={log} onToggle={toggleLog} />
+      </Section>
     </div>
   );
 }

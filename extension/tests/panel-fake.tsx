@@ -62,7 +62,11 @@ export const claimsStateWith = (over: Partial<ClaimsState> = {}): ClaimsState =>
   counts: { hasScan: false, scanDate: '', claims: 0, claimVideos: 0, songs: 0, hasAdsScan: false, adsTodo: 0 },
   busyRun: false, busyScan: false, waiting: 0, workerHere: true, ...over,
 });
-export const fakeClaims = (over: Partial<ClaimsApi> = {}): ClaimsApi => ({ state: claimsStateWith(), live: claimsStateWith(), log: [], shown: null, addLog: vi.fn(), ...over });
+// `live` is the bound tab's state unless another tab runs copyright work (panel.tsx `holder ?? state`).
+export function fakeClaims(over: Partial<ClaimsApi> = {}): ClaimsApi {
+  const state = over.state !== undefined ? over.state : claimsStateWith();
+  return { state, live: state, log: [], shown: null, addLog: vi.fn(), ...over };
+}
 
 export const renderPanel = (ui: ReactElement, api: PanelApi = fakePanel(), live: LiveApi = fakeLive(), claims: ClaimsApi = fakeClaims()) =>
   render(
