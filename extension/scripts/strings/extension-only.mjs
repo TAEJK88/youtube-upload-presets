@@ -106,6 +106,8 @@ export default [
   // 4b P (page)
   //
   // 4b D (alarms)
+  { th: 'Auto-pilot ถึงรอบแล้ว', en: 'Auto-pilot is due', why: 'user request (Phase 4 Q7): desktop notice when an Auto-pilot cycle is due and no Studio tab can run it' },
+  { th: 'ไม่มีแท็บ YouTube Studio ของช่อง ${} เปิดอยู่ — คลิกเพื่อเปิด แล้ว Auto-pilot จะสแกนและตัดให้', en: 'No YouTube Studio tab for ${} is open — click to open one and Auto-pilot will scan and trim', why: 'user request (Phase 4 Q7)' },
   //
   // 4b Q (panel)
   //
