@@ -371,6 +371,69 @@ describe('copyright state routing', () => {
     expect(text('c')).toBe('reloaded|reloaded|0|-');
   });
 
+  // 4b final review m2: the holder only broadcasts changes, and review mode waiting for the user's
+  // Save changes nothing. On another channel that left the panel with no Stop.
+  describe('the lock holder in another tab is asked for its state', () => {
+    let holder: string;
+    const perTab = () => vi.mocked(sendMessage).mockImplementation((async (type: string, _d: unknown, tabId: number) =>
+      (type === 'claims:view' ? cs(tabId === 9 ? holder : 'bound', tabId === 9) : VIEW)) as never);
+    const askedHolder = () => vi.mocked(sendMessage).mock.calls.filter(([t, , id]) => t === 'claims:view' && id === 9).length;
+    beforeEach(() => { holder = 'holder'; vi.mocked(sendMessage).mockClear(); });
+
+    it('while it does copyright work: known without waiting for a broadcast', async () => {
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+      perTab();
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|holder|0|-');
+      expect(askedHolder()).toBe(1);
+    });
+
+    it('not while it only runs the queue, and not when it is the bound tab', async () => {
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['queue'] });
+      perTab();
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(askedHolder()).toBe(0);
+      expect(text('c')).toBe('bound|bound|0|-');
+    });
+
+    it('an answer that is not a copyright state (an older build) is not taken; a holder that does not answer is only logged', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+      vi.mocked(sendMessage).mockImplementation((async (type: string, _d: unknown, tabId: number) =>
+        (type !== 'claims:view' ? VIEW : tabId === 9 ? { channelName: 'old holder' } : cs('bound'))) as never);
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|bound|0|-');
+      cleanup();
+      vi.mocked(sendMessage).mockImplementation((async (type: string, _d: unknown, tabId: number) => {
+        if (type !== 'claims:view') return VIEW;
+        if (tabId === 9) throw new Error('No response');
+        return cs('bound');
+      }) as never);
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|bound|0|-');
+      expect(err).toHaveBeenCalledWith('[ytup] claims:view failed', expect.any(Error));
+    });
+
+    it("a holder that let the lock go and took it again is asked again: its old state is not shown", async () => {
+      await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
+      perTab();
+      render(<PanelProvider><ClaimsProbe /></PanelProvider>);
+      await flush();
+      expect(text('c')).toBe('bound|holder|0|-');
+      await act(async () => { await browser.storage.session.remove(['runnerTabId', 'runnerJobs']); });
+      await flush();
+      expect(text('c')).toBe('bound|bound|0|-');
+      holder = 'holder, next run';
+      await act(async () => { await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] }); });
+      await flush();
+      expect(text('c')).toBe('bound|holder, next run|0|-');
+    });
+  });
+
   it("a holder that let the lock go and took it again doesn't show its old state", async () => {
     await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] });
     vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'claims:view' ? cs('bound') : VIEW)) as never);
@@ -383,7 +446,7 @@ describe('copyright state routing', () => {
     expect(text('c')).toBe('bound|bound|0|-');
     await act(async () => { await browser.storage.session.set({ runnerTabId: 9, runnerJobs: ['claims'] }); });
     await flush();
-    expect(text('c')).toBe('bound|bound|0|-'); // until it broadcasts again
+    expect(text('c')).toBe('bound|bound|0|-'); // what it answers now (here: the same as the bound tab), not 'holder'
   });
 });
 

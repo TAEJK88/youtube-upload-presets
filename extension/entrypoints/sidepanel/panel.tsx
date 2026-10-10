@@ -254,6 +254,12 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     });
   }, [targetId, runnerId]);
   const runsClaims = !!runner?.jobs.includes('claims');
+  // The lock holder's, when another tab does the copyright work: it may be standing still (review
+  // mode waiting for the user's Save) and then broadcasts nothing, and Stop needs its state.
+  useEffect(() => {
+    if (runnerId === undefined || runnerId === targetId || !runsClaims) return;
+    return askClaims(runnerId);
+  }, [runnerId, targetId, runsClaims, askClaims]);
   const claims = useMemo<ClaimsApi>(() => {
     const state = targetId !== undefined ? claimStates.get(targetId) ?? null : null;
     const holder = runnerId !== undefined && runnerId !== targetId && runsClaims ? claimStates.get(runnerId) ?? null : null;
