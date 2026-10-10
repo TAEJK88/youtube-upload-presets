@@ -59,6 +59,41 @@ describe('youtubei in the MAIN world', () => {
   });
 });
 
+// Any page script can answer on the MAIN world's channel first (Task 5 review m4).
+describe('answers are page data', () => {
+  it('comes back as a plain copy: no __proto__ / constructor keys, non-finite numbers as null', async () => {
+    const forged = JSON.parse('{"videos":[{"videoId":"v1","__proto__":{"polluted":1},"lengthSeconds":1}],"constructor":{"x":1}}');
+    forged.videos[0].lengthSeconds = Infinity;
+    setYoutubei(async () => forged);
+    const a = await yti('creator/list_creator_videos', {});
+    expect(a).not.toBe(forged);
+    expect(Object.keys(a)).toEqual(['videos']);
+    expect(a.videos[0]).toEqual({ videoId: 'v1', lengthSeconds: null });
+    expect(Object.getPrototypeOf(a.videos[0])).toBe(Object.prototype);
+  });
+
+  it('deep, huge or non-JSON answers are refused', async () => {
+    let deep: Record<string, unknown> = {};
+    const top = deep;
+    for (let i = 0; i < 40; i++) deep = (deep.x = {}) as Record<string, unknown>;
+    for (const answer of [{ videos: [], x: top }, { videos: [], x: Array.from({ length: 300 }, () => Array(900).fill(0)) }, { videos: [], f: () => 1 }, { videos: [], m: new Map() }]) {
+      setYoutubei(async () => answer);
+      await expect(yti('creator/list_creator_videos', {})).rejects.toThrow(/^Unexpected answer from creator\/list_creator_videos/);
+    }
+  });
+
+  it('an endpoint with no answer check yet is refused (4b adds its check with its use)', async () => {
+    setYoutubei(async () => ({ videos: [] }));
+    await expect(yti('creator/get_creator_videos', {})).rejects.toThrow('Unexpected answer from creator/get_creator_videos (no check)');
+  });
+
+  it('listScheduled never hands the queue a title that is not text', async () => {
+    const at = String((NOW + 3600e3) / 1000);
+    setYoutubei(async () => ({ videos: [{ videoId: 'v1', title: { toString: () => 'x' }, scheduledPublishingDetails: { scheduledPublishings: [{ scheduledTimeSeconds: at, status: 'X_SCHEDULED' }] } }] }));
+    await expect(listScheduled()).rejects.toThrow(/^Unexpected answer from creator\/list_creator_videos \(videos\[0\]\.title/);
+  });
+});
+
 describe('listScheduled (the queue avoids these slots)', () => {
   it("lists the channel's future scheduled videos, earliest first", async () => {
     const call = vi.fn(async (_path: string, body: Record<string, unknown>) => (body.pageToken ? { videos: [] } : {

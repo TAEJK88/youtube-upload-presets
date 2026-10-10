@@ -31,7 +31,7 @@ const PROTO = new Set(['__proto__', 'constructor', 'prototype']);
 // (__proto__, toString, …) would read and write the shared built-ins in the background.
 // (The song keys always hold a '|', so they can't be one.)
 const ROW = ['song', 'artists', 'label', 'claimant', 'type', 'videoId', 'video', 'impact'] as const;
-const okId = (s: unknown) => typeof s === 'string' && !PROTO.has(s) && !(s in Object.prototype);
+export const okId = (s: unknown): s is string => typeof s === 'string' && !PROTO.has(s) && !(s in Object.prototype);
 const isRow = (r: unknown) => isObj(r) && ROW.every((f) => r[f] === undefined || typeof r[f] === 'string') && okId(r.videoId);
 const nameOf = (key: string) => splitKey(key)?.name ?? '';
 
