@@ -11,9 +11,10 @@ export function SubView({ title, sub, children, footer, onClose }: { title: stri
         <h3 className="min-w-0 flex-1 text-[15px] font-semibold break-words">{title}</h3>
         <Button size="sm" onClick={onClose}>{L('ปิด', 'Close')}</Button>
       </div>
-      {sub && <div className="text-xs text-fg3">{sub}</div>}
+      {sub && <div className="text-xs break-words text-fg3">{sub}</div>}
       {children}
-      {footer && <div className="flex flex-wrap items-center gap-2 border-t border-tint/[0.08] pt-3">{footer}</div>}
+      {/* A modal's button row stayed in sight under its scrolling table; here it sticks to the pane's bottom edge (the pane's own padding is covered). */}
+      {footer && <div className="sticky -bottom-[18px] -mx-[18px] -mb-[18px] flex flex-wrap items-center gap-2 border-t border-line bg-bg px-[18px] py-3">{footer}</div>}
     </div>
   );
 }

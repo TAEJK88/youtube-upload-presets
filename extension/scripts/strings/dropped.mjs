@@ -11,7 +11,4 @@ export default [
   { th: '.txt คำอธิบาย', en: '.txt description', why: 'hidden in Design B' },
   { th: '.jpg ภาพปก', en: '.jpg thumbnail', why: 'hidden in Design B' },
   { th: ' เปิด/ปิดแผง · ', en: ' toggle panel · ', why: 'Alt+P opens the side panel but cannot close it; replaced by " open the panel · "' },
-  { th: 'เพลงใน tracklist ที่เคยโดน claim:\n', en: 'Tracklist songs previously claimed:\n', why: 'claim history comes with the copyright module (Phase 4)' },
-  { th: '• ${}  (เคยโดน ${} คลิป)', en: '• ${}  (claimed on ${} video(s))', why: 'Phase 4' },
-  { th: '${} เพลงเคยโดน claim', en: '${} song(s) previously claimed', why: 'Phase 4' },
 ];

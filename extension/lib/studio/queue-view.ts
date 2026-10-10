@@ -1,4 +1,6 @@
 import { fixChapters, type TracklistCheck } from '../chapters';
+import { getSongs } from '../claims/claims';
+import { claimedSongsIn } from '../claims/core';
 import type { QueueState } from '../messages';
 import { chanLabel, channelProblem, getChannel, type Channel } from './channel';
 import {
@@ -24,6 +26,7 @@ export type ViewItem = QueueItem & {
   usesArtists: boolean; // the preset mentions {artists}: the card shows the Artists field
   tracklist: TracklistCheck | null; // the chapter check of the description it will get
   fixChanges: string[]; // what "Fix tracklist" would change (only offered while there are errors)
+  claimed: { line: string; song: string; artists: string; times: number }[]; // claimedSongsIn(txt): songs claimed before (4010)
 };
 
 export interface ScheduleView {
@@ -47,6 +50,7 @@ export interface QueueView {
 export function queueView(state: QueueState): QueueView {
   const set = scheduleOn();
   if (set) void refreshChanSched(); // as onScheduleChange() did; cached 5 min, ends in ui.schedule()
+  const songs = getSongs();
   const items = queue.map((it): ViewItem => {
     const editable = it.status === 'pending' || it.status === 'error';
     const p = presetById(it.presetId);
@@ -60,6 +64,7 @@ export function queueView(state: QueueState): QueueView {
       usesArtists: `${p.title} ${p.description} ${(p.tags || []).join(' ')}`.includes('{artists}'),
       tracklist,
       fixChanges: tracklist && tracklist.errors.length && editable ? fixChapters(it.txt).changes : [],
+      claimed: it.txt ? claimedSongsIn(it.txt, songs) : [],
     };
   });
   return {

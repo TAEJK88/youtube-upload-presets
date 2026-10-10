@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   cleanup();
-  await fakeBrowser.storage.local.remove('logOpen');
+  await fakeBrowser.storage.local.remove(['logOpen', 'claimScan:UC1', 'trimQueue:UC1', 'trimResults:UC1', 'songHistory', 'uploads']);
   document.querySelector('#ytup-fab')?.remove();
   document.querySelector('#ytup-reload')?.remove();
   setLang('en');
@@ -61,8 +61,8 @@ const LATIN_OK = new Set([
   'Alt', // the shortcut chips (kbd) name the keys
 ]);
 // Literals the userscript shows the same in both languages (no L()): its language picker
-// (4496, 4500) and Studio's own option names (4518, 4530).
-const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above']);
+// (4496, 4500), Studio's own option names (4518, 4530) and the CSV download buttons (4931, 5248).
+const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above', '⬇ CSV']);
 const LATIN_IGNORE: RegExp[] = [
   /\{[a-z_0-9]+\}/g, // template variables: {n}, {title}, {track1}
   /\.(mp4|mov|txt|jpg|png|json)\b/gi, // file extensions
@@ -236,6 +236,71 @@ describe('the panel in Thai', () => {
     expect(root.textContent).toContain('● ตัด');
     expect(screen.queryByRole('button', { name: /สแกน claim/, hidden: true })).toBe(null);
     expect(root.textContent).toContain('แท็บ Studio อื่นกำลังอัปโหลดคิวอยู่'); // the runner-elsewhere banner
+    clean(document.body);
+  });
+
+  it('…nor in the Copyright tab\'s views: the claim list in every result state, the tracklist editor and picker, the claimed songs', async () => {
+    const row = (n: number, over: Record<string, unknown> = {}) => ({
+      videoId: 'v' + (n < 3 ? 1 : n), video: `มิกซ์ ${n}`, privacy: 'สาธารณะ', length: 600, claimId: 'c' + n, song: `เพลง ${n}`, artists: 'ศิลปิน', label: 'ค่าย',
+      claimant: 'ผู้ถือสิทธิ์', type: 'เสียง', status: '', impact: 'บล็อก', segments: [[60, 90]], claimedSec: 30, canTrim: true, options: '', own: false,
+      hasImpact: true, publishAt: 0, ...over,
+    });
+    const states = ['pending', 'saved', 'gone', 'failed', 'skipped', 'later'];
+    const res = (state: string) => ({ state, msg: 'ข้อความ', date: '' });
+    await fakeBrowser.storage.local.set({
+      'claimScan:UC1': { date: '2026-10-01T00:00:00Z', total: 9, channel: 'UC1', channelName: 'ช่องฉัน', rows: [
+        row(1, { own: true, claimedSec: 400, publishAt: AT }), row(2, { canTrim: false, impact: '', segments: [] }), ...states.map((_, i) => row(i + 3)),
+      ] },
+      'trimQueue:UC1': ['v1:c1'],
+      'trimResults:UC1': Object.fromEntries(states.map((st, i) => [`v${i + 3}:c${i + 3}`, res(st)])),
+      songHistory: {
+        ก: { title: 'เพลง 1', artists: 'ศิลปิน', label: 'ค่าย', claimants: ['ผู้ถือสิทธิ์'], types: ['เสียง'], firstSeen: '2026-01-01T00:00:00Z', lastSeen: '2026-01-02T00:00:00Z',
+          videos: { v1: { video: 'มิกซ์ 1', channel: 'ช่องฉัน', status: 'trimmed' } }, trimmed: 1 },
+        ข: { title: 'เพลง 2', artists: '', label: '', claimants: [], types: [], firstSeen: '2026-01-01T00:00:00Z', lastSeen: '2026-01-02T00:00:00Z', videos: {}, trimmed: 0 },
+      },
+      uploads: [{ videoId: 'v1', txt: '00:00 ก - ข\n01:00 ค - ง\n01:20 จ - ฉ' }],
+    });
+    const root = await renderThai(fakePanel({ data: thData(), view: thView() }));
+    const tap = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name, hidden: true }).at(-1)!));
+    const pane = () => root.querySelector('[role=tabpanel][id$=claims]')!;
+    await vi.waitFor(() => expect((screen.getByRole('button', { name: 'รายการ claim (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
+
+    await tap('รายการ claim (2)');
+    expect(pane().textContent).toContain('8 claim ใน 7 คลิป (จากทั้งหมด 9)');
+    expect(pane().textContent).toContain('1 รายการดูเหมือนเป็นเพลงของคุณเอง');
+    for (const t of ['⏳ รอ', '✅ ตัดแล้ว', '✅ claim หายไปแล้ว', '❌ ไม่สำเร็จ', '⏭ ข้าม', '⏳ รอคิว', 'ไม่มีผลกระทบ', 'ไม่มีตัวเลือก Trim', '★ เพลงของคุณเอง', '⏰ ตั้งเวลาปล่อย', '(67% ของคลิป)']) {
+      expect(pane().textContent).toContain(t);
+    }
+    clean(document.body);
+
+    await tap('📝 tracklist หลังตัด'); // the last video's: no upload history
+    expect(pane().textContent).toContain('ติ๊กช่วงที่ถูกตัด');
+    clean(document.body);
+    await tap('ปิด');
+
+    await tap('แก้ tracklist');
+    expect(pane().textContent).toContain('ต้องวาง tracklist เอง');
+    await vi.waitFor(() => expect(pane().textContent).toContain('มี tracklist จากประวัติการอัป'));
+    clean(document.body);
+    await tap(/มิกซ์ 2/); // video v1: from upload history, a range ticked
+    await act(async () => {});
+    await act(async () => fireEvent.click(pane().querySelector('input[type=checkbox]')!));
+    expect(pane().textContent).toContain('ดึง tracklist จากประวัติการอัปโหลด');
+    expect(pane().textContent).toContain('ตัด 1 ช่วง · ลบ 1 เพลง: ค - ง · เหลือ 2 เพลง');
+    clean(document.body);
+    await tap('ปิด');
+
+    await tap('เพลงที่เคยโดน (3)');
+    expect(pane().textContent).toContain('2 เพลง');
+    expect(pane().textContent).toContain('✂ ตัดแล้ว 1');
+    await tap('ลบออกจากประวัติ'); // armed: "Sure?"
+    await tap('ลบทั้งหมด');
+    expect(pane().textContent).toContain('แน่ใจ?');
+    expect(pane().textContent).toContain('กดอีกครั้งเพื่อลบทั้งหมด');
+    clean(document.body);
+    await act(async () => fireEvent.change(pane().querySelector('input[type=text], input:not([type])')!, { target: { value: 'ไม่มี' } }));
+    expect(pane().textContent).toContain('ไม่พบเพลงที่ค้นหา');
+    expect(pane().textContent).toContain('0 จาก 2 เพลง');
     clean(document.body);
   });
 

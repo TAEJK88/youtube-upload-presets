@@ -124,6 +124,17 @@ describe('queue card', () => {
       fakeLive({ liveState: state({ running: true, prog: { pct: 0.42 } as never }) }));
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('42');
   });
+
+  it('a card whose tracklist has songs claimed before shows the chip with them', () => {
+    one({ txt: 'x', claimed: [{ line: 'Lena - Midnight Rain', song: 'Midnight Rain', artists: 'Lena', times: 2 }] });
+    const chip = screen.getByText('1 song(s) previously claimed');
+    expect(chip.closest('[title]')!.getAttribute('title')).toBe('Tracklist songs previously claimed:\n• Lena - Midnight Rain  (claimed on 2 video(s))');
+  });
+
+  it('no chip when none of its songs was claimed before', () => {
+    one({ txt: 'x' });
+    expect(screen.queryByText(/previously claimed/)).toBe(null);
+  });
 });
 
 describe('queue card: attach failures', () => {

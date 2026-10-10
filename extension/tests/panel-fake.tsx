@@ -18,7 +18,7 @@ export const viewWith = (items: Partial<ViewItem>[] = [], over: Partial<QueueVie
   items: items.map((it, i) => ({
     id: `i${i}`, src: 'bridge', file: { name: `Clip ${i + 1}.mp4`, size: 2e8, type: 'video/mp4' }, presetId: 'trapsoul', n: i + 1,
     title: `Title ${i + 1}`, titleEdited: false, status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: 0,
-    at: null, timeProblem: '', artists: '', usesArtists: true, tracklist: null, fixChanges: [], ...it,
+    at: null, timeProblem: '', artists: '', usesArtists: true, tracklist: null, fixChanges: [], claimed: [], ...it,
   }) as ViewItem),
   current: null,
   schedule: { on: false, set: false, start: 0, late: false, times: [], skipped: 0, taken: [] },

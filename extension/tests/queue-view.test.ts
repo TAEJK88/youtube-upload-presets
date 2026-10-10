@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useMemoryClaims } from '../lib/claims/store';
 import type { QueueState } from '../lib/messages';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
@@ -24,7 +25,10 @@ beforeEach(() => {
   Q.queue.splice(0);
   settings.schedule = { on: false, start: '', every: 1, unit: 'day' };
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useMemoryClaims();
+});
 
 describe('queueView', () => {
   it('copies the items and adds what only the runner knows', () => {
@@ -58,5 +62,12 @@ describe('queueView', () => {
     const [a, b] = queueView(state).items;
     expect(a!.timeProblem).toBe('Release time must be at least 15 minutes in the future');
     expect(b!.timeProblem).toBe('');
+  });
+  it('marks tracklist songs claimed before (Claims.claimedSongsIn)', () => {
+    useMemoryClaims({ songHistory: { k: { title: 'Midnight Rain', artists: 'Lena', label: '', claimants: [], types: [], firstSeen: '', lastSeen: '', videos: { a: {}, b: {} }, trimmed: 0 } } });
+    Q.queue.push(item('a', 'pending', { txt: '00:00 Lena - Midnight Rain\n03:00 X - Y' }), item('b', 'pending'));
+    const [a, b] = queueView(state).items;
+    expect(a!.claimed).toEqual([{ line: 'Lena - Midnight Rain', song: 'Midnight Rain', artists: 'Lena', times: 2 }]);
+    expect(b!.claimed).toEqual([]); // no tracklist
   });
 });

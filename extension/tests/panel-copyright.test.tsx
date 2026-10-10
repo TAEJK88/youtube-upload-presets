@@ -291,6 +291,439 @@ describe('Copyright tab', () => {
   });
 });
 
+// The pane's modals as views (D23): showClaims 4860–4936, showSongs 5190–5251, showTracklistFix 4980–5040.
+const row = (videoId: string, claimId: string, over: Record<string, unknown> = {}) => ({
+  videoId, video: 'Mix ' + videoId, privacy: 'public', length: 600, claimId, song: 'Song ' + claimId, artists: 'A', label: 'Lab', claimant: 'Co',
+  type: 'audio', status: 'active', impact: 'blocked', segments: [[60, 90]], claimedSec: 30, canTrim: true, options: 'trim', own: false, hasImpact: true, publishAt: 0, ...over,
+});
+const scanOf = (rows: unknown[]) => ({ date: '2026-10-01T00:00:00Z', total: 5, channel: 'UC1', channelName: 'Mine', rows });
+const scan = scanOf([row('v1', 'c1')]);
+const mockSend = async () => vi.spyOn(await import('../lib/messages'), 'sendMessage').mockResolvedValue(undefined as never);
+const open = async (name: RegExp, claims = fakeClaims(), api = fakePanel()) => {
+  renderPanel(<CopyrightTab />, api, undefined, claims);
+  const b = screen.getByRole('button', { name }) as HTMLButtonElement;
+  await waitFor(() => expect(b.disabled).toBe(false));
+  fireEvent.click(b);
+  return api;
+};
+const SAVE_FAILED = ["Couldn't save (gone)", { id: 'save-failed' }] as const;
+
+describe('views', () => {
+  it('the claim list ticks through the background', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan });
+    const send = await mockSend();
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts: { hasScan: true, scanDate: '', claims: 1, claimVideos: 1, songs: 0, hasAdsScan: false, adsTodo: 0 } }) }));
+    fireEvent.click(await screen.findByRole('button', { name: /Claim list \(1\)/ }));
+    fireEvent.click(await screen.findByTitle('Add to trim list'));
+    expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v1:c1'] });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+  });
+
+  it('a finished scan from this panel opens the list', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan });
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view: 'claims', n: 1 } }));
+    expect(await screen.findByText(/Copyright claims — Mine/)).toBeTruthy();
+  });
+});
+
+describe('claim list', () => {
+  const rows = [
+    row('v1', 'c1', { own: true, claimedSec: 330, publishAt: Date.now() + 864e5 }), row('v1', 'c2', { canTrim: false, impact: '' }),
+    row('v2', 'c3'), row('v2', 'c4', { segments: [] }),
+  ];
+  const stored = (over: Record<string, unknown> = {}) => fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf(rows), ...over });
+  const boxes = () => screen.getAllByRole('checkbox') as HTMLInputElement[];
+
+  it('before a scan it says so, with the channel\'s name', async () => {
+    await open(/Claim list/);
+    expect(screen.getByText('Channel Mine not scanned yet — press "Scan claims" first')).toBeTruthy();
+    expect(screen.queryByRole('checkbox')).toBe(null);
+  });
+
+  it('a scan without claims says so', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([]) });
+    await open(/Claim list/);
+    expect(screen.getByText('No claims found 🎉')).toBeTruthy();
+    expect(screen.getByText(/0 claims in 0 videos \(of 5 total\) · scanned /)).toBeTruthy();
+  });
+
+  it('one card per claim: the video, the song, the range, the impact', async () => {
+    await stored();
+    await open(/Claim list/);
+    expect(screen.getByText(/4 claims in 2 videos \(of 5 total\) · scanned /)).toBeTruthy();
+    expect(screen.getByText(/1 look like your own songs \(★\)/)).toBeTruthy();
+    expect(boxes()).toHaveLength(4);
+    const first = boxes()[0]!.closest('[data-claim]') as HTMLElement;
+    expect(first.dataset.claim).toBe('v1:c1');
+    expect(first.textContent).toContain('Mix v1');
+    expect(first.textContent).toContain('public · 10:00');
+    expect(first.textContent).toContain('⏰ Scheduled ');
+    expect(first.textContent).toContain('Song c1 · A · Lab');
+    expect(first.textContent).toContain('★ Your own song');
+    expect(first.textContent).toContain('1:00–1:30');
+    expect(screen.getByText('5:30 (55% of video)').className).toContain('text-err'); // half or more of the video
+    expect(screen.getAllByText('0:30 (5% of video)')[0]!.className).not.toContain('text-err');
+    expect(first.textContent).toContain('blocked');
+    const second = boxes()[1]!.closest('[data-claim]') as HTMLElement;
+    expect(second.textContent).toContain('No impact');
+    expect(second.textContent).toContain('No Trim option');
+    expect(second.textContent).not.toContain('⏰'); // this claim's row has no release time
+    expect(boxes()[3]!.closest('[data-claim]')!.textContent).toContain('?'); // no range known
+    // the checkbox is named by what it does, and described by its video and song
+    const desc = boxes()[0]!.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)!.textContent).join(' | ');
+    expect(desc).toBe('Mix v1 | Song c1 · A · Lab');
+  });
+
+  it('a claim that can\'t be trimmed, or is done, can\'t be ticked, and says why', async () => {
+    await stored({ 'trimQueue:UC1': ['v2:c3', 'v2:c4'], 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' }, 'v2:c4': { state: 'failed', msg: 'no button', date: '' } } });
+    await mockSend();
+    await open(/Claim list/);
+    const [a, b, c, d] = boxes();
+    expect([a!.disabled, b!.disabled, c!.disabled, d!.disabled]).toEqual([false, true, true, false]);
+    expect(b!.title).toBe('YouTube offers no Trim option for this claim');
+    expect(c!.title).toBe('Already handled');
+    expect([a!.checked, c!.checked, d!.checked]).toEqual([false, false, true]); // a done claim shows unticked even while still on the stored list
+    expect(screen.getByText('✅ Trimmed').className).toContain('text-ok');
+    const failed = screen.getByText(/❌ Failed/);
+    expect(failed.textContent).toBe('❌ Failed — no button');
+    expect(failed.className).toContain('text-err');
+  });
+
+  it('unticking takes the claim off the list', async () => {
+    await stored({ 'trimQueue:UC1': ['v2:c3'] });
+    const send = await mockSend();
+    await open(/Claim list/);
+    fireEvent.click(boxes()[2]!);
+    expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] });
+  });
+
+  it('a pick chip ticks what matches and unticks the rest, among the claims that can be ticked', async () => {
+    await stored();
+    const send = await mockSend();
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: 'Not my own songs' }));
+    expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v2:c3', 'v2:c4'], del: ['v1:c1'] });
+    fireEvent.click(screen.getByRole('button', { name: '⏰ Scheduled + affected' }));
+    expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v1:c1'], del: ['v2:c3', 'v2:c4'] });
+    fireEvent.click(screen.getByRole('button', { name: 'None' }));
+    expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: [], del: ['v1:c1', 'v2:c3', 'v2:c4'] });
+    for (const name of ['All trimmable', 'Affects video (revenue/restricted/blocked)', 'Claimed range < 20%']) expect(screen.getByRole('button', { name })).toBeTruthy();
+  });
+
+  it('picks that are done already leave the stored list when it opens', async () => {
+    await stored({ 'trimQueue:UC1': ['v1:c1', 'v2:c3'], 'trimResults:UC1': { 'v2:c3': { state: 'gone', msg: '', date: '' } } });
+    const send = await mockSend();
+    await open(/Claim list/);
+    await waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] }));
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('a tick the background never got says so', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await stored();
+    vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
+    await open(/Claim list/);
+    fireEvent.click(boxes()[0]!);
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(...SAVE_FAILED));
+  });
+
+  it('the list is the bound tab\'s channel\'s: ticks are written under that channel only', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': scanOf([row('w1', 'k1')]) });
+    const send = await mockSend();
+    const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
+    await open(/Claim list/, fakeClaims({ state: moved }));
+    expect(screen.queryByText('Mix v1')).toBe(null);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC2', add: ['w1:k1'] });
+  });
+
+  it('⬇ CSV saves the scan, named by its date', async () => {
+    await stored();
+    const saved = captureDownload();
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '⬇ CSV' }));
+    expect(saved.name).toBe('youtube-claims-2026-10-01.csv');
+    const lines = (await saved.blob!.text()).split('\n');
+    expect(lines).toHaveLength(5);
+    expect(lines[1]).toContain('"Mix v1","https://studio.youtube.com/video/v1/claims","public","10:00","Song c1"');
+  });
+
+  it('Rescan closes the list and asks the bound tab', async () => {
+    await stored();
+    const api = await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '↻ Rescan' }));
+    expect(api.send).toHaveBeenCalledWith('claims:scan', 'claims');
+    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+  });
+
+  it('a rescan the tab never got says so', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await stored();
+    await open(/Claim list/, fakeClaims(), fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never }));
+    fireEvent.click(screen.getByRole('button', { name: '↻ Rescan' }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD));
+  });
+
+  it('the video\'s title opens its claims page in Studio', async () => {
+    await stored();
+    const create = vi.spyOn(fakeBrowser.tabs, 'create').mockResolvedValue({} as never);
+    await open(/Claim list/);
+    const link = screen.getAllByRole('link', { name: 'Mix v1' })[0]!;
+    expect(link.getAttribute('href')).toBe('https://studio.youtube.com/video/v1/claims');
+    fireEvent.click(link);
+    expect(create).toHaveBeenCalledWith({ url: 'https://studio.youtube.com/video/v1/claims' });
+  });
+
+  it('"Tracklist after trim" is offered once per video and opens that video\'s tracklist', async () => {
+    await stored();
+    await open(/Claim list/);
+    const buttons = screen.getAllByRole('button', { name: '📝 Tracklist after trim' });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[1]!);
+    expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
+    expect(screen.getByText(/Mix v2 · original length 10:00/)).toBeTruthy();
+  });
+});
+
+describe('claimed songs', () => {
+  const song = (title: string, over: Record<string, unknown> = {}) => ({
+    title, artists: 'Lena', label: 'Lab', claimants: ['Co'], types: ['audio'], firstSeen: '2026-01-01T00:00:00Z', lastSeen: '2026-01-02T00:00:00Z',
+    videos: { v1: { video: 'Mix 1', channel: 'Mine', status: 'claimed' } }, trimmed: 0, ...over,
+  });
+  const songs = {
+    'beta|lena': song('Beta', { videos: { v1: { video: 'Mix 1', channel: 'Mine', status: 'trimmed' }, v2: { video: 'Mix 2', channel: 'Other', status: 'claimed' } }, trimmed: 1 }),
+    'alpha|ann': song('Alpha', { artists: 'Ann', label: '', claimants: [], types: [], lastSeen: '2026-03-01T00:00:00Z' }),
+  };
+  const stored = () => fakeBrowser.storage.local.set({ songHistory: songs });
+  const titles = () => [...document.querySelectorAll('[data-song] > div > b')].map((b) => b.textContent);
+  const csv = (text: string) => new File([text], 'claimed-songs.csv', { type: 'text/csv' });
+  const pick = (f: File) => act(async () => { fireEvent.change(document.querySelector<HTMLInputElement>('input[type=file]')!, { target: { files: [f] } }); });
+
+  it('with no history it says how to get one', async () => {
+    await open(/Claimed songs/);
+    expect(screen.getByText('No data yet — press "Scan claims" or import a CSV from the old script')).toBeTruthy();
+    expect(screen.getByText('0 songs')).toBeTruthy();
+  });
+
+  it('one card per song, most claimed first', async () => {
+    await stored();
+    await open(/Claimed songs/);
+    expect(titles()).toEqual(['Beta', 'Alpha']);
+    expect(screen.getByText('2 songs')).toBeTruthy();
+    const beta = document.querySelector('[data-song="beta|lena"]')!;
+    expect(beta.textContent).toContain('audio');
+    expect(beta.textContent).toContain('Lena · Lab');
+    expect(beta.textContent).toContain('Co');
+    expect(beta.textContent).toContain('2 videos');
+    expect(beta.textContent).toContain('✂ Trimmed 1');
+    expect(beta.textContent).toContain('Mine, Other · ');
+    const alpha = document.querySelector('[data-song="alpha|ann"]')!;
+    expect(alpha.textContent).toContain('Ann');
+    expect(alpha.textContent).toContain('—'); // no claimant known
+    expect(alpha.textContent).not.toContain('✂');
+  });
+
+  it('sorts by the chosen order and searches song, artist, label and claimant', async () => {
+    await stored();
+    await open(/Claimed songs/);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort by' }), { target: { value: 'title' } });
+    expect(titles()).toEqual(['Alpha', 'Beta']);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search song, artist, label or claimant…' }), { target: { value: 'co' } });
+    expect(titles()).toEqual(['Beta']);
+    expect(screen.getByText('1 of 2 songs')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'zzz' } });
+    expect(screen.getByText('No matching songs')).toBeTruthy();
+  });
+
+  it('removing a song asks once, then goes through the background', async () => {
+    await stored();
+    const send = await mockSend();
+    await open(/Claimed songs/);
+    const del = screen.getAllByRole('button', { name: 'Remove from history' });
+    fireEvent.click(del[0]!);
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(del[1]!); // another song: the first is no longer armed
+    expect(screen.getAllByRole('button', { name: 'Sure?' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Sure?' }));
+    expect(send).toHaveBeenCalledWith('claims:op', { op: 'songs', songs: { fn: 'delete', key: 'alpha|ann' } });
+    expect(screen.queryByRole('button', { name: 'Sure?' })).toBe(null);
+  });
+
+  it('Delete all asks once, then clears through the background', async () => {
+    await stored();
+    const send = await mockSend();
+    await open(/Claimed songs/);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all' }));
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Press again to delete all' }));
+    expect(send).toHaveBeenCalledWith('claims:op', { op: 'songs', songs: { fn: 'clear' } });
+    expect(screen.getByRole('button', { name: 'Delete all' })).toBeTruthy();
+  });
+
+  it('a removal the background never got says so', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await stored();
+    vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
+    await open(/Claimed songs/);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Press again to delete all' }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(...SAVE_FAILED));
+  });
+
+  it('the list follows the stored history', async () => {
+    await stored();
+    await open(/Claimed songs/);
+    await act(async () => { await fakeBrowser.storage.local.set({ songHistory: { 'alpha|ann': songs['alpha|ann'] } }); });
+    await waitFor(() => expect(titles()).toEqual(['Alpha']));
+  });
+
+  it('Import CSV hands the file\'s text to the background and says how many songs it holds', async () => {
+    const send = await mockSend();
+    await open(/Claimed songs/);
+    const text = 'song,artists\nOne,A\nTwo,B\n,C\n';
+    await pick(csv(text));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('Imported 2 songs into history'));
+    expect(send).toHaveBeenCalledWith('claims:op', { op: 'songs', songs: { fn: 'import', text, now: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) } });
+  });
+
+  it('a file that is not a song history is refused, and nothing is written', async () => {
+    const send = await mockSend();
+    await open(/Claimed songs/);
+    await pick(csv('video,url\nA,B\n'));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('This is not a song history CSV (needs a song column)'));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('an import the background never got says so, and does not claim it worked', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
+    await open(/Claimed songs/);
+    await pick(csv('song\nOne\n'));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(...SAVE_FAILED));
+    expect(toast).toHaveBeenCalledTimes(1);
+  });
+
+  it('⬇ CSV saves the history', async () => {
+    await stored();
+    const saved = captureDownload();
+    await open(/Claimed songs/);
+    fireEvent.click(screen.getByRole('button', { name: '⬇ CSV' }));
+    expect(saved.name).toMatch(/^claimed-songs-\d{4}-\d\d-\d\d\.csv$/);
+    const lines = (await saved.blob!.text()).split('\n');
+    expect(lines[0]).toContain('"song","artists","label","claimants"');
+    expect(lines[1]).toContain('"Beta","Lena","Lab","Co","audio","2","1","Mine; Other"');
+  });
+});
+
+describe('tracklist fix', () => {
+  const rows = [row('v1', 'c1', { segments: [[180, 360]] }), row('v1', 'c2', { segments: [[400, 420]] }), row('v2', 'c3')];
+  const TXT = '00:00 A - One\n03:00 B - Two\n06:00 C - Three';
+  const stored = (over: Record<string, unknown> = {}) => fakeBrowser.storage.local.set({
+    'claimScan:UC1': scanOf(rows), uploads: [{ videoId: 'v1', txt: TXT }], ...over,
+  });
+  const out = () => (screen.getByRole('textbox', { name: 'New tracklist' }) as HTMLTextAreaElement).value;
+  const src = () => screen.getByRole('textbox', { name: 'Original tracklist' }) as HTMLTextAreaElement;
+  const toEditor = async (name = /Mix v1/) => {
+    await open(/Fix tracklist/);
+    fireEvent.click(await screen.findByRole('button', { name }));
+    await act(async () => {});
+  };
+
+  it('with no claimed video it says to scan first', async () => {
+    await open(/Fix tracklist/);
+    expect(screen.getByText('No claimed videos yet — press "Scan claims" first')).toBeTruthy();
+  });
+
+  it('lists each claimed video once, and says where its tracklist will come from', async () => {
+    await stored();
+    await open(/Fix tracklist/);
+    const picks = await screen.findAllByRole('button', { name: /^Mix v/ });
+    expect(picks).toHaveLength(2);
+    await waitFor(() => expect(picks[0]!.textContent).toContain('10:00 · Tracklist from upload history'));
+    expect(picks[1]!.textContent).toContain('10:00 · Paste tracklist manually');
+  });
+
+  it('the editor starts from the uploaded tracklist; ticking a range shows the tracklist after the cut', async () => {
+    await stored();
+    await toEditor();
+    expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
+    expect(screen.getByText(/Mix v1 · original length 10:00/)).toBeTruthy();
+    expect(screen.getByText(/tracklist pulled from upload history/)).toBeTruthy();
+    expect(src().value).toBe(TXT);
+    expect(screen.getByText('Tick the trimmed (or to-be-trimmed) ranges to see the result')).toBeTruthy();
+    const ranges = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(ranges.map((c) => c.checked)).toEqual([false, false]);
+    expect(ranges[0]!.closest('label')!.textContent).toBe('3:00–6:00 · Song c1');
+    fireEvent.click(ranges[0]!);
+    expect(out()).toBe('00:00 A - One\n03:00 C - Three');
+    expect(screen.getByText('Trim 1 ranges · remove 1 songs: B - Two · 2 songs left')).toBeTruthy();
+  });
+
+  it('ranges already trimmed start ticked', async () => {
+    await stored({ 'trimResults:UC1': { 'v1:c1': { state: 'saved', msg: '', date: '' } } });
+    await toEditor();
+    const ranges = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(ranges.map((c) => c.checked)).toEqual([true, false]);
+    expect(ranges[0]!.closest('label')!.textContent).toBe('3:00–6:00 · Song c1 (trimmed)');
+    expect(out()).toBe('00:00 A - One\n03:00 C - Three');
+  });
+
+  it('a video never uploaded from here: paste the tracklist, or drop a .txt', async () => {
+    await stored();
+    await toEditor(/Mix v2/);
+    expect(screen.queryByText(/pulled from upload history/)).toBe(null);
+    expect(src().value).toBe('');
+    fireEvent.change(src(), { target: { value: '00:00 X - Y' } });
+    expect(out()).toBe('00:00 X - Y');
+    await act(async () => { fireEvent.drop(src(), { dataTransfer: { files: [new File([TXT], 'list.txt', { type: 'text/plain' })] } }); });
+    await waitFor(() => expect(out()).toBe(TXT));
+    await waitFor(() => expect(src().value).toBe(TXT));
+  });
+
+  it('a claim with no range known says to rescan', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([row('v1', 'c1', { segments: [] })]) });
+    await toEditor();
+    expect(screen.getByText('No time range data — rescan claims first')).toBeTruthy();
+  });
+
+  it('Copy puts the new tracklist on the clipboard and says so', async () => {
+    await stored();
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    try {
+      await toEditor();
+      fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+      fireEvent.click(screen.getByRole('button', { name: '📋 Copy new tracklist' }));
+      expect(writeText).toHaveBeenCalledWith('00:00 A - One\n03:00 C - Three');
+      await waitFor(() => expect(toast).toHaveBeenCalledWith('New tracklist copied — paste it into the video description'));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('upload history that could not be read leaves the editor usable', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await stored();
+    await open(/Fix tracklist/);
+    const get = fakeBrowser.storage.local.get.bind(fakeBrowser.storage.local);
+    vi.spyOn(fakeBrowser.storage.local, 'get').mockImplementation(((k: unknown) => (k === 'uploads' ? Promise.reject(new Error('quota')) : get(k as never))) as never);
+    fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
+    await act(async () => {});
+    expect(err).toHaveBeenCalledWith('[ytup] upload history', expect.any(Error));
+    expect(src().value).toBe('');
+    fireEvent.change(src(), { target: { value: '00:00 X - Y' } });
+    expect(out()).toBe('00:00 X - Y');
+  });
+
+  it('Close returns to the tab', async () => {
+    await stored();
+    await toEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+  });
+});
+
 describe('downloadCsv', () => {
   it('saves the rows under the name, through a link that is removed again', async () => {
     const saved = captureDownload();

@@ -89,6 +89,23 @@ describe('runner elsewhere', () => {
   });
 });
 
+describe('the queue view follows storage', () => {
+  const views = () => vi.mocked(sendMessage).mock.calls.filter((c) => c[0] === 'queue:view').length;
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+  it('is asked for again when the song history changes (the cards\' "previously claimed" chips), not for other keys', async () => {
+    render(<PanelProvider><Probe /></PanelProvider>);
+    await settle();
+    await settle(); // the bind's fetch, then the one the stored data pokes
+    const before = views();
+    await act(async () => { await browser.storage.local.set({ logOpen: true }); });
+    await settle();
+    expect(views()).toBe(before);
+    await act(async () => { await browser.storage.local.set({ songHistory: { k: {} } }); });
+    await settle();
+    expect(views()).toBe(before + 1);
+  });
+});
+
 describe('the "reload this tab" banner', () => {
   it('a reload whose first broadcast looks like the old page\'s still re-checks the tab', async () => {
     const now = vi.spyOn(Date, 'now');

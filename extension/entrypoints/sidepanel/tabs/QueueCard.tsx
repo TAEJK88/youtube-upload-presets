@@ -22,7 +22,6 @@ import { useLive, usePanel } from '../panel';
 
 // One queue item: the drawer's buildCard() / updateItemUI() / renderAttachments()
 // (3752–4023). The data is the Studio tab's (QueueView); every control sends queue:*.
-// The "previously claimed" chip waits for the Copyright tab (Phase 4).
 const MSG_ICON: Record<ItemStatus, string> = { pending: 'alert', uploading: 'upload', review: 'alert', done: 'check', error: 'alert' };
 const TONE: Record<string, string> = { muted: 'text-fg3', info: 'text-info', warn: 'text-warn', ok: 'text-ok', err: 'text-err' };
 const waiting = (x?: ViewItem) => !!x && (x.status === 'pending' || x.status === 'error');
@@ -208,6 +207,15 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         onClick={() => { if (videoId) openTab(`https://studio.youtube.com/video/${videoId}/edit`); }}>
         <Icon name="alert" size={13} /><span>{L(`เคยอัปแล้ว ${when}`, `Already uploaded ${when}`)}</span>
       </Chip>,
+    );
+  }
+  // renderAttachments()'s claim warning (4010–4016)
+  if (it.claimed.length) {
+    chips.push(
+      <Badge key="claimed" tone="bad"
+        title={L('เพลงใน tracklist ที่เคยโดน claim:\n', 'Tracklist songs previously claimed:\n') + it.claimed.map((x) => L(`• ${x.line}  (เคยโดน ${x.times} คลิป)`, `• ${x.line}  (claimed on ${x.times} video(s))`)).join('\n')}>
+        <Icon name="alert" size={13} /><span>{L(`${it.claimed.length} เพลงเคยโดน claim`, `${it.claimed.length} song(s) previously claimed`)}</span>
+      </Badge>,
     );
   }
   if (editable && (!it.txt || !it.thumb)) {

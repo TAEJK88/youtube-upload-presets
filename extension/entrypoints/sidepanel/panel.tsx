@@ -102,7 +102,8 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     // and the new `lang` re-renders every usePanel() consumer.
     const offLang = watchLang(setLangState);
     const queueChanged = (changes: Record<string, unknown>, area: string) => {
-      if (area === 'local' && 'queue' in changes) sync.poke();
+      // songHistory: the cards' "previously claimed" chips (refreshClaimWarnings, 5188)
+      if (area === 'local' && ('queue' in changes || 'songHistory' in changes)) sync.poke();
     };
     browser.storage.onChanged.addListener(queueChanged);
     return () => {
