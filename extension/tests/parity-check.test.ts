@@ -146,7 +146,7 @@ describe('parity rows', () => {
   it('a home is a source file of the extension and a test is a test file: no other file that happens to exist', () => {
     const more: Record<string, string> = {
       ...files, 'scripts/parity/rows/pre-ui.mjs': 'store:settings', 'package.json': 'settings', '../docs/spec.md': 'settings', 'lib/../package.json': 'settings',
-      'entrypoints/background.ts': 'settings', 'components/ui/switch.tsx': 'settings', 'public/icon/16.png': 'settings', 'wxt.config.ts': 'settings', 'tests/panel.test.tsx': '',
+      'entrypoints/background.ts': 'settings', 'components/ui/switch.tsx': 'settings', 'public/icon/16.png': 'settings', 'wxt.config.ts': 'settings', 'tests/panel.test.tsx': '', 'tests/ported.test.mjs': '',
     };
     const c = { ...ctx, read: (p: string) => more[p] ?? null };
     for (const home of ['scripts/parity/rows/pre-ui.mjs', 'package.json', 'tests/settings.test.ts', '../docs/spec.md', 'lib/../package.json', 'README.md']) {
@@ -159,6 +159,7 @@ describe('parity rows', () => {
       expect(problems([{ ...ok[0], readme: undefined, test }, ok[1]], c), test).toMatch(/store:settings: test .* is not a test file/);
     }
     expect(problems([{ ...ok[0], readme: undefined, test: 'tests/panel.test.tsx' }, ok[1]], c)).toBe('');
+    expect(problems([{ ...ok[0], readme: undefined, test: 'tests/ported.test.mjs' }, ok[1]], c)).toBe(''); // vitest runs these too
   });
 
   it('a row needs an id or lines, a known status, and a home when it is same or changed', () => {

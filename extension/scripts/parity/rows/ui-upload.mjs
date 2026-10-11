@@ -37,7 +37,7 @@ export default [
   { id: "section:Publishing", status: 'same', home: PRESETS, test: T_PRESETS, readme: [34] },
   { id: "section:Queue upload", status: 'same', home: SETTINGS, test: T_SETTINGS, readme: [35] },
   { id: "section:Safety", status: 'same', home: SETTINGS, test: T_SETTINGS, readme: [35] },
-  { id: "section:Single-file upload (YouTube's normal dialog)", status: 'missing', note: "nothing is lacking: the section is in entrypoints/sidepanel/tabs/SettingsTab.tsx with the same three switches (README item 35). Left missing only because the checker's key rule looks for the title with a plain apostrophe and the source writes it as YouTube\\'s; the rule needs to read the escaped form too" },
+  { id: "section:Single-file upload (YouTube's normal dialog)", status: 'same', home: 'entrypoints/sidepanel/tabs/SettingsTab.tsx', readme: [35], note: 'the same three switches' },
   { id: "section:Troubleshooting", status: 'same', home: SETTINGS, test: T_SETTINGS, readme: [22], note: 'also holds "Open debug page", which the userscript did not have' },
   { id: "section:Video details", status: 'same', home: PRESETS, test: T_PRESETS, readme: [34] },
   { id: "section:YouTube preview", status: 'same', home: PRESETS, test: T_PRESETS, readme: [34] },

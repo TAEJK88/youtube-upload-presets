@@ -88,7 +88,7 @@ const namesHeading = (what, hs) => hs.some((h) => h === what || (what.length >= 
 // A home is a source file of the extension, a test a test file; neither may leave extension/.
 const inside = (p) => !p.split('/').includes('..');
 const isHome = (p) => inside(p) && (/^(lib|entrypoints|components|public)\/./.test(p) || p === 'wxt.config.ts');
-const isTest = (p) => inside(p) && /^tests\/.+\.test\.tsx?$/.test(p);
+const isTest = (p) => inside(p) && /^tests\/.+\.test\.(tsx?|mjs)$/.test(p); // vitest runs the hand-ported .test.mjs files too
 // cite: '<kind>: <text>'. Each kind resolves against a tracked file.
 function citeProblem(cite, c) {
   const m = /^(dropped\.mjs|extension-only\.mjs|README|spec|decision): (.+)$/.exec(cite ?? '');
@@ -141,9 +141,11 @@ export function check(rows, inv, ctx) {
         else if (t === null) out.push(`${name}: home ${h} does not exist`);
       }
       const key = r.id ? needle(r.id) : null;
-      if (key && homes.length && !texts.some(([, t]) => t?.includes(key))) out.push(`${name}: "${key}" does not occur in its home`);
+      // a title with an apostrophe may be written escaped in a single-quoted string
+      const escaped = key?.replaceAll("'", "\\'");
+      if (key && homes.length && !texts.some(([, t]) => t?.includes(key) || t?.includes(escaped))) out.push(`${name}: "${key}" does not occur in its home`);
       for (const t of list(r.test)) {
-        if (!isTest(t)) out.push(`${name}: test ${t} is not a test file (tests/….test.ts)`);
+        if (!isTest(t)) out.push(`${name}: test ${t} is not a test file (tests/….test.ts, .tsx or .mjs)`);
         else if (ctx.read(t) === null) out.push(`${name}: test ${t} does not exist`);
       }
       if (!list(r.readme).length && !list(r.test).length && !r.unseen?.trim()) out.push(`${name}: ${r.status} needs a proof: a README item (readme), a test file (test), or unseen: '<why nothing can be seen or tested>'`);

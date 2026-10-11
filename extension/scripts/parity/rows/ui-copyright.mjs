@@ -38,8 +38,8 @@ export default [
     note: 'the claim list\'s frame: title, the counts line, "No claims found", the "Ticking only builds a list" line, Rescan and Close. A view, its button row at the bottom edge' },
 
   // the tracklist after a trim
-  { lines: ['4939-4978'], status: 'same', home: 'lib/tracklist.ts', test: T_TAB, readme: [68],
-    note: 'parseTime() and fixTracklist(): the tracklist after a trim (cut songs removed, later times moved up, the first one at 00:00). Its own tests are tests/tracklist.test.mjs' },
+  { lines: ['4939-4978'], status: 'same', home: 'lib/tracklist.ts', test: ['tests/tracklist.test.mjs', T_TAB], readme: [68],
+    note: 'parseTime() and fixTracklist(): the tracklist after a trim (cut songs removed, later times moved up, the first one at 00:00)' },
   { lines: ['4980-4982', '4984', '4986-4992'], status: 'changed', home: [VIEW + 'TracklistFix.tsx', 'lib/panel/claims.ts'], cite: 'decision: P4-17', test: [T_TAB, T_PICK], readme: [46, 68],
     note: 'Fix tracklist, choosing a video: each claimed video once, with its length and where its tracklist will come from. A view' },
   { lines: ['4985'], status: 'missing',
