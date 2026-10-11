@@ -1,12 +1,17 @@
 import { browser } from 'wxt/browser';
+import { isChannelId } from './claims/keys';
 import { VISIBILITIES, type Visibility } from './constants';
 import { fixLegacyTrapsoulTitles, runMigrations } from './migrations';
 import type { Preset } from './presets';
 import type { Settings } from './settings';
+import type { StoredChannel } from './studio/channels';
+import type { UploadRecord } from './studio/queue-runner';
 
 // Backup file = presets + settings, JSON. Same format as the userscript's
 // Settings → Backup / share, so a userscript export imports here unchanged.
 // Excluded: locked channel, language, upload history, copyright history.
+// The last userscript version also exports a "move file": the same file with a `move`
+// part holding the language, the upload history and the channel list (call 8).
 // Personal values (producer, schedule, own artist names, EP numbers) are only
 // imported when the user confirms the file is their own.
 export const BACKUP_APP = 'yt-upload-presets';
@@ -38,6 +43,59 @@ export function cleanPresets(list: unknown): Preset[] | null {
   return out;
 }
 
+const str = (v: unknown) => (typeof v === 'string' ? v : '');
+// A value from the file that ends up as an id: never the name of something every object has.
+const plainId = (v: unknown): v is string => isChannelId(v) && !(v in Object.prototype);
+const ISO_DATE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/; // toISOString(), which is what logUpload writes
+
+// The move file's upload history ('uploads': newest first, 1000 at most, as the runner keeps it).
+// A row needs a date, a channel and a file name: the "already uploaded" warning goes by file,
+// size and channel (user.js 1809), and a row's video id is often '' (2055). The same upload is
+// taken once: by video id when it has one, otherwise by date, channel, file and size. Rows
+// already stored win. Each row is built field by field: nothing else in the file comes along.
+const uploadKey = (u: { videoId: string; date: string; channel: string; file: string; size: number }) =>
+  (u.videoId ? 'v:' + u.videoId : `f:${u.date}|${u.channel}|${u.file}|${u.size}`);
+export function cleanUploads(list: unknown, have: UploadRecord[] = []): UploadRecord[] {
+  const seen = new Set(have.map(uploadKey));
+  const out = [...have];
+  for (const u of Array.isArray(list) ? list : []) {
+    if (!isObj(u) || !ISO_DATE.test(str(u.date)) || !plainId(u.channel) || !str(u.file)) continue;
+    const row: UploadRecord = {
+      date: str(u.date), channel: u.channel, channelName: str(u.channelName), videoId: plainId(u.videoId) ? u.videoId : '', title: str(u.title),
+      file: str(u.file), size: Number.isFinite(u.size) ? (u.size as number) : 0, txt: str(u.txt), description: str(u.description),
+      publishAt: Number.isFinite(u.publishAt) ? (u.publishAt as number) : null, visibility: str(u.visibility),
+    };
+    if (seen.has(uploadKey(row))) continue;
+    seen.add(uploadKey(row));
+    out.push(row);
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)).slice(0, 1000);
+}
+
+// The move file's channel list. The avatar becomes an <img src> in the panel: https only,
+// and stored as the URL parser read it.
+const httpsUrl = (v: unknown) => {
+  const u = typeof v === 'string' && URL.canParse(v) ? new URL(v) : null;
+  return u?.protocol === 'https:' ? u.href : '';
+};
+export function cleanChannels(list: unknown, have: StoredChannel[] = []): StoredChannel[] {
+  const seen = new Set(have.map((c) => c.id));
+  const out = [...have];
+  for (const c of Array.isArray(list) ? list : []) {
+    if (!isObj(c) || !plainId(c.id) || !str(c.name) || seen.has(c.id)) continue;
+    seen.add(c.id);
+    out.push({ id: c.id, name: str(c.name), avatar: httpsUrl(c.avatar), handle: str(c.handle) });
+  }
+  return out;
+}
+
+// What the import question tells the user about a move file: what would pass the cleaning.
+export function movePreview(data: Record<string, unknown>): { uploads: number; channels: number; lang: 'th' | 'en' | null } | null {
+  if (!isObj(data.move)) return null;
+  const m = data.move;
+  return { uploads: cleanUploads(m.uploads).length, channels: cleanChannels(m.channels).length, lang: m.lang === 'th' || m.lang === 'en' ? m.lang : null };
+}
+
 export type ParsedBackup =
   | { ok: true; data: Record<string, unknown>; presets: Preset[] }
   | { ok: false; reason: 'json' | 'notBackup' | 'newerFormat'; format?: number };
@@ -64,13 +122,16 @@ export interface BackupWrites {
   settings?: Settings;
   cfg?: Record<string, unknown>;
   counters?: Record<string, number>;
+  uploads?: UploadRecord[];
+  channels?: StoredChannel[];
 }
 
 // cur.settings must come from loadSettings() (not a raw storage read): lang is always
-// the current one, taken from cur.settings and never from the file (see the `lang` skip below).
+// the current one, taken from cur.settings and never from the file (see the `lang` skip below),
+// except from the move part of the user's own file (call 18).
 export function applyBackup(
   data: Record<string, unknown>, presets: Preset[], own: boolean,
-  cur: { settings: Settings; cfg: Record<string, unknown> },
+  cur: { settings: Settings; cfg: Record<string, unknown>; uploads?: UploadRecord[]; channels?: StoredChannel[] },
 ): BackupWrites {
   const w: BackupWrites = {
     presets: fixLegacyTrapsoulTitles(presets),
@@ -101,6 +162,13 @@ export function applyBackup(
   }
   if (own && isObj(data.counters)) {
     w.counters = Object.fromEntries(Object.entries(data.counters).filter(([, v]) => Number.isFinite(v))) as Record<string, number>;
+  }
+  // The last userscript's "everything for the extension" export (call 8): personal, own file only.
+  if (own && isObj(data.move)) {
+    const m = data.move;
+    if (Array.isArray(m.uploads)) w.uploads = cleanUploads(m.uploads, cur.uploads);
+    if (Array.isArray(m.channels)) w.channels = cleanChannels(m.channels, cur.channels);
+    if (m.lang === 'th' || m.lang === 'en') w.settings = { ...(w.settings ?? cur.settings), lang: m.lang };
   }
   return w;
 }

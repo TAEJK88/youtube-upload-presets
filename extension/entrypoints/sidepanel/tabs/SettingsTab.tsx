@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Switch } from '@/components/ui/switch';
+import { movePreview } from '@/lib/backup';
 import { L, type Lang } from '@/lib/i18n';
 import { exportBackup, importBackup, readImport } from '@/lib/panel/backup-io';
 import { runnerTab } from '@/lib/panel/target';
@@ -111,13 +112,26 @@ export function SettingsTab() {
       const step = readImport(await file.text());
       if (step.kind === 'error') return void toast(step.message);
       const n = step.presets.length;
+      // A move file from the last userscript version (call 8): say what "My file" brings along.
+      const mv = movePreview(step.data);
+      const mvLang = mv?.lang === 'th' ? 'ไทย' : 'English';
       const own = await ask({
         title: L(`นำเข้าพรีเซ็ต ${n} รายการ`, `Import ${n} presets`),
         icon: 'download',
         body: (
           <div>
             <div><b>{step.presets.map((p) => p.label).join(', ')}</b></div>
-            <div className="mt-2">{L('พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน)', 'Existing presets and settings on this device will be replaced (locked channel and language stay unchanged).')}</div>
+            <div className="mt-2">
+              {mv?.lang
+                ? L('พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน)', 'Existing presets and settings on this device will be replaced (the locked channel stays unchanged).')
+                : L('พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้และภาษาไม่เปลี่ยน)', 'Existing presets and settings on this device will be replaced (locked channel and language stay unchanged).')}
+            </div>
+            {mv && (
+              <div className="mt-2">
+                {L(`เมื่อเลือก "ไฟล์ของฉัน" ไฟล์นี้จะเพิ่มประวัติการอัปโหลด ${mv.uploads} รายการ และช่อง ${mv.channels} ช่องจากสคริปต์ Tampermonkey`, `With "My file" this file also adds ${mv.uploads} upload history rows and ${mv.channels} channels from the Tampermonkey script`)}
+                {mv.lang && ' ' + L(`และเปลี่ยนภาษาของแผงเป็น ${mvLang}`, `and sets the panel's language to ${mvLang}`)}
+              </div>
+            )}
             <div className="mt-2.5"><b>{L('เป็นไฟล์สำรองของช่องคุณเองไหม?', 'Is this a backup of your own channel?')}</b></div>
             <div className="text-xs text-fg3">{L('ของฉัน = นำเข้าค่าส่วนตัวด้วย (ชื่อโปรดิวเซอร์, ตั้งเวลาปล่อย, ชื่อศิลปินของตัวเอง, เลข EP)\nของคนอื่น = นำเข้าแค่พรีเซ็ตและการตั้งค่าทั่วไป ค่าส่วนตัวของคุณไม่เปลี่ยน', 'Mine = also import personal values (producer name, schedule, your own artist names, EP numbers)\nSomeone else\'s = only presets and general settings; your personal values stay unchanged')}</div>
           </div>
