@@ -136,6 +136,51 @@ describe('parity rows', () => {
     expect(problems([{ lines: ['100-999'], status: 'missing' }], ctx, big)).toBe(''); // a seeded row may be large
   });
 
+  it('a README or spec cite names a heading, or its leading words: not any text found inside one', () => {
+    for (const cite of ['spec: a', 'README: e', 'spec: GM', 'spec: replacements', 'spec: GM replacement', 'README: Known behaviour, Pha', 'README: behaviour, Phase 4b']) {
+      expect(problems([ok[0], { ...ok[1], cite }]), cite).toMatch(/10-50: dropped cite .* resolves to nothing/);
+    }
+    expect(problems([ok[0], { ...ok[1], cite: 'README: Known behaviour' }])).toBe('');
+  });
+
+  it('a home is a source file of the extension and a test is a test file: no other file that happens to exist', () => {
+    const more: Record<string, string> = {
+      ...files, 'scripts/parity/rows/pre-ui.mjs': 'store:settings', 'package.json': 'settings', '../docs/spec.md': 'settings', 'lib/../package.json': 'settings',
+      'entrypoints/background.ts': 'settings', 'components/ui/switch.tsx': 'settings', 'public/icon/16.png': 'settings', 'wxt.config.ts': 'settings', 'tests/panel.test.tsx': '',
+    };
+    const c = { ...ctx, read: (p: string) => more[p] ?? null };
+    for (const home of ['scripts/parity/rows/pre-ui.mjs', 'package.json', 'tests/settings.test.ts', '../docs/spec.md', 'lib/../package.json', 'README.md']) {
+      expect(problems([{ ...ok[0], home }, ok[1]], c), home).toMatch(/store:settings: home .* is not a source file of the extension/);
+    }
+    for (const home of ['entrypoints/background.ts', 'components/ui/switch.tsx', 'public/icon/16.png', 'wxt.config.ts', ['lib/settings.ts', 'wxt.config.ts']]) {
+      expect(problems([{ ...ok[0], home }, ok[1]], c), String(home)).toBe('');
+    }
+    for (const test of ['package.json', 'lib/settings.ts', 'tests/../package.json', '../docs/spec.md']) {
+      expect(problems([{ ...ok[0], readme: undefined, test }, ok[1]], c), test).toMatch(/store:settings: test .* is not a test file/);
+    }
+    expect(problems([{ ...ok[0], readme: undefined, test: 'tests/panel.test.tsx' }, ok[1]], c)).toBe('');
+  });
+
+  it('a row needs an id or lines, a known status, and a home when it is same or changed', () => {
+    expect(problems([...ok, { status: 'same' }])).toMatch(/a row has neither id nor lines/);
+    expect(problems([{ ...ok[0], status: 'ported' }, ok[1]])).toMatch(/store:settings: status must be one of same \/ changed \/ dropped \/ missing/);
+    expect(problems([{ ...ok[0], home: undefined }, ok[1]])).toMatch(/store:settings: same needs a home/);
+  });
+
+  it('a blank note or a blank unseen is none at all', () => {
+    expect(problems([ok[0], { ...ok[1], note: ' ' }])).toMatch(/needs a note/);
+    expect(problems([{ ...ok[0], readme: undefined, unseen: ' ' }, ok[1]])).toMatch(/needs a proof/);
+  });
+
+  it('every range of a row must be well formed and hit the inventory, also beside a good one', () => {
+    const row = (...more: string[]) => [ok[0], { lines: ['10-50', ...more], status: 'missing' }];
+    expect(problems(row('oops'))).toMatch(/range "oops" is not a line or <first>-<last>/);
+    expect(problems(row('60–70'))).toMatch(/range "60–70" is not a line or/);
+    expect(problems(row('50-41'))).toMatch(/range "50-41" is not a line or/);
+    expect(problems(row('9000-9999'))).toMatch(/range "9000-9999" covers no line of the inventory/);
+    expect(problems([ok[0], { lines: ['10-20', '40'], status: 'missing' }])).toBe('');
+  });
+
   it('missing rows pass the structure check and fail the release check', () => {
     const rows = [{ id: 'store:settings', status: 'missing' }, ok[1]];
     expect(problems(rows)).toBe('');

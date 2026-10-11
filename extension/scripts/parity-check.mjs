@@ -7,7 +7,7 @@
 //   node scripts/parity-check.mjs            structure: every item has one row, rows hold up
 //   node scripts/parity-check.mjs --release  also: no `missing` row, PARITY.md is fresh; prints
 //                                            every changed and dropped row for the owner to read
-//   node scripts/parity-check.mjs --write    writes PARITY.md
+//   node scripts/parity-check.mjs --write    writes PARITY.md (not when a row has a problem)
 //   node scripts/parity-check.mjs --seed     prints a `missing` row for every named item without one
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -81,6 +81,14 @@ function needle(id) {
   if (!m) return null;
   return m[2].replace(/:<channel>$/, '').replace(/^\{(.+)\}$/, '$1');
 }
+// A README or spec cite names a heading: all of it, or its leading words (MIN_HEADING characters
+// or more, ending where a word ends). Text merely found inside a heading names nothing.
+const MIN_HEADING = 10;
+const namesHeading = (what, hs) => hs.some((h) => h === what || (what.length >= MIN_HEADING && h.startsWith(what) && !/\w/.test(h[what.length])));
+// A home is a source file of the extension, a test a test file; neither may leave extension/.
+const inside = (p) => !p.split('/').includes('..');
+const isHome = (p) => inside(p) && (/^(lib|entrypoints|components|public)\/./.test(p) || p === 'wxt.config.ts');
+const isTest = (p) => inside(p) && /^tests\/.+\.test\.tsx?$/.test(p);
 // cite: '<kind>: <text>'. Each kind resolves against a tracked file.
 function citeProblem(cite, c) {
   const m = /^(dropped\.mjs|extension-only\.mjs|README|spec|decision): (.+)$/.exec(cite ?? '');
@@ -89,8 +97,8 @@ function citeProblem(cite, c) {
   const found =
     kind === 'dropped.mjs' ? c.dropped.has(what)
     : kind === 'extension-only.mjs' ? c.extensionOnly.has(what)
-    : kind === 'README' ? c.readmeHeadings.some((h) => h.includes(what))
-    : kind === 'spec' ? c.specHeadings.some((h) => h.includes(what))
+    : kind === 'README' ? namesHeading(what, c.readmeHeadings)
+    : kind === 'spec' ? namesHeading(what, c.specHeadings)
     : c.decisions.has(what);
   return found ? null : `cite "${cite}" resolves to nothing`;
 }
@@ -109,11 +117,16 @@ export function check(rows, inv, ctx) {
     else if (r.id && !(r.manual && r.id.startsWith('feature:'))) out.push(`${name}: not in the inventory (a hand-listed row is manual: true with an id starting "feature:")`);
     if (r.lines) {
       const spans = r.lines.map(span);
-      const covered = inv.filter((id) => isLine(id) && inAny(lineOf(id), spans));
+      const lineIds = inv.filter(isLine);
+      const covered = lineIds.filter((id) => inAny(lineOf(id), spans));
       covered.forEach(bump);
       if (!covered.length) out.push(`${name}: covers no line of the inventory`);
+      r.lines.forEach((l, i) => {
+        if (!/^\d+(-\d+)?$/.test(l) || spans[i][0] > spans[i][1]) out.push(`${name}: range "${l}" is not a line or <first>-<last>`);
+        else if (covered.length && !lineIds.some((id) => inAny(lineOf(id), [spans[i]]))) out.push(`${name}: range "${l}" covers no line of the inventory`);
+      });
       if (r.status !== 'missing') {
-        if (!r.note) out.push(`${name}: a lines row needs a note naming the one feature it covers`);
+        if (!r.note?.trim()) out.push(`${name}: a lines row needs a note naming the one feature it covers`);
         const handlers = covered.filter((id) => id.startsWith('ui:')).length;
         if (covered.length > MAX_LINES) out.push(`${name}: ${covered.length} lines in one row (at most ${MAX_LINES}): split it by feature`);
         if (handlers > MAX_HANDLERS) out.push(`${name}: ${handlers} handler lines in one row (at most ${MAX_HANDLERS}): split it by feature`);
@@ -123,11 +136,17 @@ export function check(rows, inv, ctx) {
       const homes = list(r.home);
       if (!homes.length) out.push(`${name}: ${r.status} needs a home (a file under extension/)`);
       const texts = homes.map((h) => [h, ctx.read(h)]);
-      for (const [h, t] of texts) if (t === null) out.push(`${name}: home ${h} does not exist`);
+      for (const [h, t] of texts) {
+        if (!isHome(h)) out.push(`${name}: home ${h} is not a source file of the extension (lib/, entrypoints/, components/, public/ or wxt.config.ts)`);
+        else if (t === null) out.push(`${name}: home ${h} does not exist`);
+      }
       const key = r.id ? needle(r.id) : null;
       if (key && homes.length && !texts.some(([, t]) => t?.includes(key))) out.push(`${name}: "${key}" does not occur in its home`);
-      for (const t of list(r.test)) if (ctx.read(t) === null) out.push(`${name}: test ${t} does not exist`);
-      if (!list(r.readme).length && !list(r.test).length && !r.unseen) out.push(`${name}: ${r.status} needs a proof: a README item (readme), a test file (test), or unseen: '<why nothing can be seen or tested>'`);
+      for (const t of list(r.test)) {
+        if (!isTest(t)) out.push(`${name}: test ${t} is not a test file (tests/….test.ts)`);
+        else if (ctx.read(t) === null) out.push(`${name}: test ${t} does not exist`);
+      }
+      if (!list(r.readme).length && !list(r.test).length && !r.unseen?.trim()) out.push(`${name}: ${r.status} needs a proof: a README item (readme), a test file (test), or unseen: '<why nothing can be seen or tested>'`);
     }
     if (r.status === 'changed' || r.status === 'dropped') {
       const p = citeProblem(r.cite, ctx.cites);
@@ -210,7 +229,7 @@ async function main() {
   };
   const problems = check(rows, inv, ctx);
   const md = render(rows);
-  if (args.has('--write')) writeFileSync(join(EXT, 'PARITY.md'), md);
+  if (args.has('--write')) { if (!problems.length) writeFileSync(join(EXT, 'PARITY.md'), md); } // never from rows that don't hold up
   else if (ctx.release && read('PARITY.md') !== md) problems.push('PARITY.md is missing or out of date: run `npm run parity -- --write`');
   if (problems.length) {
     console.error(`parity-check: ${problems.length} problem(s)\n` + problems.map((p) => '  ' + p).join('\n'));
