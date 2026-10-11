@@ -231,7 +231,7 @@ export default defineContentScript({
     stop.add(installUnloadGuard());
     // The userscript appends its root after this script may have answered a first queue:view,
     // or taken a Start: the panel is told at once (its banner, QueueView.userscript), and a
-    // queue that runs by then stops after its current video (userscript-here userscriptWatch).
+    // queue found running with it there stops after its current video (userscript-here userscriptWatch).
     const watchUserscript = userscriptWatch({ running: () => running, stop: requestStop, said: sayUserscript, changed: () => ui.schedule() });
     ctx.setInterval(() => {
       lockFollower.tick();

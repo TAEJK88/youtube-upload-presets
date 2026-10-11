@@ -113,6 +113,29 @@ describe('heldAcquire', () => {
     await Promise.resolve();
     expect(release).toHaveBeenCalledTimes(1);
   });
+  // Re-review R2: nor does an old answer settle a later release. The userscript went and came
+  // back while a check was on its way: the release sent on its return still gets its own check.
+  it('an answer to a check from before the userscript went and came back settles nothing', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let here = true;
+    const release = vi.fn();
+    const answer: ((v: boolean) => void)[] = [];
+    const holds = vi.fn(() => new Promise<boolean>((r) => { answer.push(r); }));
+    const acquire = heldAcquire(async () => true, () => here, () => {}, release, holds);
+    await acquire();
+    vi.advanceTimersByTime(30_000);
+    await acquire(); // check 1 is on its way
+    here = false;
+    await acquire();
+    here = true;
+    await acquire(); // back: let go again
+    expect(release).toHaveBeenCalledTimes(2);
+    answer[0]!(false); // the old answer
+    await Promise.resolve();
+    vi.advanceTimersByTime(30_000);
+    await acquire();
+    expect(holds).toHaveBeenCalledTimes(2); // the second release is still checked
+  });
   it('asks again as soon as the userscript is gone', async () => {
     let here = true;
     const ask = vi.fn(async () => true);
@@ -165,9 +188,34 @@ describe('userscriptWatch', () => {
     expect(d.changed).toHaveBeenCalledTimes(1);
     expect(d.stop).not.toHaveBeenCalled();
     expect(d.said).not.toHaveBeenCalled();
-    d.running = true; // a run that is going later is not this function's to stop: no Start gets through by then
+  });
+  // Re-review R1: a Start that passed the guard is not running yet (it reads ytcfg, asks the file
+  // bridge and the lock first). The root may land in that time: the tick sees the change with no
+  // run going, and the run that then starts must still be stopped.
+  it('it appears while a Start is still on its way: the run is stopped as soon as it is running, once', () => {
+    const { d, tick } = setup(false);
+    d.here = true;
+    tick();
     tick();
     expect(d.stop).not.toHaveBeenCalled();
+    d.running = true;
+    tick();
+    tick();
+    tick();
+    expect(d.stop).toHaveBeenCalledTimes(1);
+    expect(d.said).toHaveBeenCalledTimes(1);
+    expect(d.changed).toHaveBeenCalledTimes(1); // the panel was told when the root appeared, not again
+  });
+  it('one stop per run: a later run found going with the userscript there is stopped too', () => {
+    const { d, tick } = setup(true);
+    d.here = true;
+    tick();
+    d.running = false; // that run ended
+    tick();
+    d.running = true;
+    tick();
+    tick();
+    expect(d.stop).toHaveBeenCalledTimes(2);
   });
   it('it goes: the panel is told, a run is left alone', () => {
     const { d, tick } = setup(true);

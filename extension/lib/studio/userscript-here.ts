@@ -61,20 +61,26 @@ export const sayOnce = (say: (msg: string) => void) => {
 
 // For the content script's 800 ms tick. The userscript appends its root after this script may
 // have answered a first queue:view, so a change is told to the panel at once (`changed`). It may
-// also come after a Start got through (Tampermonkey injected late): an upload run that is going
-// when the root appears is asked to stop after its current video, and the page is told why.
+// also come after a Start got through (Tampermonkey injected late), while that run is going or
+// while it is still on its way to running. So the stop follows the state, not the change: an
+// upload run found going with the root in the page is asked to stop after its current video,
+// once per run, and the page is told why. Every later Start is refused, so no other run is hit.
 export function userscriptWatch(d: {
   here?: () => boolean; running(): boolean; stop(): void; said(msg: string): void; changed(): void;
 }): () => void {
   const here = d.here ?? userscriptHere;
   let seen = false;
+  let asked = false; // this run was asked to stop
   return () => {
-    if (here() === seen) return;
-    seen = !seen;
-    if (seen && d.running()) {
+    const h = here();
+    if (!(h && d.running())) asked = false;
+    else if (!asked) {
+      asked = true;
       d.stop();
       d.said(USERSCRIPT_HERE());
     }
+    if (h === seen) return;
+    seen = h;
     d.changed();
   };
 }

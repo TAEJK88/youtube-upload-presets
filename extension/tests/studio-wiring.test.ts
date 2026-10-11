@@ -52,5 +52,10 @@ describe('the Studio content script', () => {
   it('watches for the userscript on every tick: tells the panel, and stops a queue that got started before it appeared', () => {
     expect(studio).toMatch(/const watchUserscript = userscriptWatch\(\{ running: \(\) => running, stop: requestStop, said: sayUserscript, changed: \(\) => ui\.schedule\(\) \}\);/);
     expect(studio).toMatch(/lockFollower\.tick\(\);\s*watchUserscript\(\);\s*\/\/ Its own try/); // in the interval, outside every try
+    // The watch stops a run it finds running. That stop can't be lost: the run clears an old stop
+    // request in the same synchronous step in which it becomes `running`, so no tick falls between.
+    const runner = readFileSync(join(__dirname, '..', 'lib/studio/queue-runner.ts'), 'utf8');
+    expect(runner).toMatch(/\n  running = true;\n  stopReq = false;\n/);
+    expect(runner.match(/^\s+stopReq = false;/gm)).toHaveLength(1); // cleared nowhere else
   });
 });
