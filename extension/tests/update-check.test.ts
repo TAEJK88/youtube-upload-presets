@@ -10,7 +10,10 @@ const REL = 'https://github.com/TAEJK88/youtube-upload-presets/releases/tag/';
 const answer = (body: unknown, status = 200) =>
   vi.fn(async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })) as unknown as typeof fetch;
 const stored = async () => (await browser.storage.local.get(UPDATE_KEY))[UPDATE_KEY];
-beforeEach(() => { fakeBrowser.reset(); vi.restoreAllMocks(); });
+// What a check with no fetchFn of its own would reach (the alarm's): never the real fetch.
+const net = vi.fn(async (..._req: Parameters<typeof fetch>) => new Response(JSON.stringify({ tag_name: 'v5.1.0', html_url: REL + 'v5.1.0' })));
+vi.stubGlobal('fetch', net);
+beforeEach(() => { fakeBrowser.reset(); vi.restoreAllMocks(); net.mockClear(); });
 
 describe('newer', () => {
   it('compares dotted numbers, not text', () => {
@@ -52,6 +55,14 @@ describe('checkForUpdate', () => {
     expect(Object.keys(init.headers as object).map((h) => h.toLowerCase())).toEqual(['accept']);
   });
 
+  it('gives up after 10 seconds: the request carries a time limit', async () => {
+    const limit = vi.spyOn(AbortSignal, 'timeout');
+    const f = answer({ tag_name: 'v5.1.0', html_url: REL + 'v5.1.0' });
+    await checkForUpdate(NOW, f);
+    expect(limit).toHaveBeenCalledWith(10_000);
+    expect((vi.mocked(f).mock.calls[0]![1] as RequestInit).signal).toBe(limit.mock.results[0]!.value);
+  });
+
   it('a stored time in the future (the clock was set back) does not stop the check for ever', async () => {
     await browser.storage.local.set({ [UPDATE_KEY]: { at: NOW + 10 * DAY, latest: '5.0.0', url: REL + 'v5.0.0' } });
     const f = answer({ tag_name: 'v5.1.0', html_url: REL + 'v5.1.0' });
@@ -65,6 +76,8 @@ describe('checkForUpdate', () => {
     ['not JSON', () => answer('<html>', 200)],
     ['a tag that is not a version', () => answer({ tag_name: 'userscript-4.29.0', html_url: REL + 'userscript-4.29.0' })],
     ['a link that is not this repo\'s release page', () => answer({ tag_name: 'v9.0.0', html_url: 'https://evil.example/releases/tag/v9.0.0' })],
+    ['a link that leaves the release pages through ..', () => answer({ tag_name: 'v9.0.0', html_url: REL + '../../../../evil/repo' })],
+    ['a link that is not a URL', () => answer({ tag_name: 'v9.0.0', html_url: 'releases/tag/v9.0.0' })],
     ['offline', () => vi.fn(async () => { throw new TypeError('Failed to fetch'); }) as unknown as typeof fetch],
   ])('%s: the last good answer stays, nothing throws, and the next try waits a day', async (_name, make) => {
     const f = make();
@@ -90,7 +103,8 @@ describe('updateAvailable', () => {
     expect(updateAvailable(info, '5.2.0')).toBeNull();
   });
   it('nothing for a stored value in another shape, or with a link from elsewhere', () => {
-    for (const bad of [undefined, null, 'x', {}, { latest: '9.0.0' }, { ...info, url: 'javascript:alert(1)' }, { ...info, url: 'https://github.com/other/repo/releases/tag/v9' }]) {
+    for (const bad of [undefined, null, 'x', {}, { latest: '9.0.0' }, { ...info, url: 'javascript:alert(1)' }, { ...info, url: 'https://github.com/other/repo/releases/tag/v9' },
+      { ...info, url: REL + '../../../../evil/repo' }, { ...info, url: 'releases/tag/v9' }]) {
       expect(updateAvailable(bad, '5.0.0'), JSON.stringify(bad)).toBeNull();
     }
   });
@@ -105,5 +119,21 @@ describe('registerUpdateCheck', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect((await browser.alarms.get(UPDATE_ALARM))!.scheduledTime).toBe(first);
     expect((await browser.alarms.getAll()).filter((a) => a.name === UPDATE_ALARM)).toHaveLength(1);
+  });
+
+  it('the alarm comes back every 24 hours', async () => {
+    registerUpdateCheck();
+    await vi.waitFor(async () => expect(await browser.alarms.get(UPDATE_ALARM)).toBeTruthy());
+    expect((await browser.alarms.get(UPDATE_ALARM))!.periodInMinutes).toBe(24 * 60);
+  });
+
+  it('its own alarm runs one check; another alarm (Auto-pilot) runs none', async () => {
+    registerUpdateCheck();
+    await fakeBrowser.alarms.onAlarm.trigger({ name: 'ap:UC' + 'a'.repeat(22), scheduledTime: Date.now() } as never);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(net).not.toHaveBeenCalled();
+    await fakeBrowser.alarms.onAlarm.trigger({ name: UPDATE_ALARM, scheduledTime: Date.now(), periodInMinutes: 24 * 60 } as never);
+    await vi.waitFor(async () => expect(await stored()).toMatchObject({ latest: '5.1.0' }));
+    expect(net).toHaveBeenCalledTimes(1);
   });
 });

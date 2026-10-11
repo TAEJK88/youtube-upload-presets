@@ -34,9 +34,21 @@ const asInfo = (v: unknown): UpdateInfo | null =>
     ? { at: v.at, latest: v.latest, url: v.url }
     : null;
 
+// The link as the browser would open it ('..' resolved), if it is one of this repo's release
+// pages; null for any other link and for text that is not a URL.
+function releasePage(url: string): string | null {
+  try {
+    const href = new URL(url).href;
+    return href.startsWith(RELEASES) ? href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function updateAvailable(info: unknown, current: string): UpdateInfo | null {
   const i = asInfo(info);
-  return i && i.url.startsWith(RELEASES) && newer(i.latest, current) ? i : null;
+  const url = i && releasePage(i.url);
+  return i && url && newer(i.latest, current) ? { ...i, url } : null;
 }
 
 async function latestRelease(fetchFn: typeof fetch): Promise<{ latest: string; url: string }> {
@@ -46,8 +58,9 @@ async function latestRelease(fetchFn: typeof fetch): Promise<{ latest: string; u
   const body: unknown = await res.json();
   if (!isObj(body) || typeof body.tag_name !== 'string' || typeof body.html_url !== 'string') throw new Error('unexpected answer');
   const latest = body.tag_name.replace(/^v/, '');
-  if (!VERSION.test(latest) || !body.html_url.startsWith(RELEASES)) throw new Error('not a release of this extension: ' + body.tag_name);
-  return { latest, url: body.html_url };
+  const url = releasePage(body.html_url);
+  if (!VERSION.test(latest) || !url) throw new Error('not a release of this extension: ' + body.tag_name);
+  return { latest, url };
 }
 
 export async function checkForUpdate(now = Date.now(), fetchFn: typeof fetch = fetch): Promise<UpdateInfo | null> {

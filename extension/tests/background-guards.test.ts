@@ -13,6 +13,22 @@ vi.mock('../lib/messages', async (orig) => ({
   onMessage: (type: string, fn: Handler) => { handlers.set(type, fn); return () => {}; },
 }));
 vi.mock('../lib/debug-capture/background', () => ({}));
+// The background's update checks, as it starts them: each test waits for its own to finish, and
+// `before` is what was stored at the moment the check was called.
+const checks = vi.hoisted(() => [] as { done: Promise<unknown>; before: Promise<Record<string, unknown>> }[]);
+vi.mock('../lib/update-check', async (orig) => {
+  const real = await orig<typeof import('../lib/update-check')>();
+  const { browser } = await import('wxt/browser');
+  return {
+    ...real,
+    checkForUpdate: (...a: Parameters<typeof real.checkForUpdate>) => {
+      const before = browser.storage.local.get(null);
+      const done = real.checkForUpdate(...a);
+      checks.push({ done: done.catch(() => {}), before });
+      return done;
+    },
+  };
+});
 
 import background from '../entrypoints/background';
 import { BACKUP_SCHEMA } from '../lib/backup';
@@ -23,22 +39,31 @@ const studio = (id: number) => ({ tab: { id, url: 'https://studio.youtube.com/ch
 const watchPage = (id: number) => ({ tab: { id, url: 'https://www.youtube.com/watch?v=x' }, url: 'https://www.youtube.com/watch?v=x' });
 const panel = () => ({ url: browser.runtime.getURL('/sidepanel.html' as never) });
 const ask = async (type: string, data: unknown, sender: unknown) => handlers.get(type)!({ data, sender });
-// The background checks for updates when it starts: every test here gets this answer, never GitHub's.
+// The background checks for updates when it starts: every test here gets this answer, never
+// GitHub's. The stub stays for the whole file, and no test ends before its own checks have
+// (a check still on its way when the stub came off would call the real fetch).
 const LATEST = 'https://api.github.com/repos/TAEJK88/youtube-upload-presets/releases/latest';
 const github = vi.fn(async (..._req: Parameters<typeof fetch>) => new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 }));
+vi.stubGlobal('fetch', github);
+let starts = 0;
+const start = () => { starts++; background.main!(); };
 
 beforeEach(() => {
   github.mockClear();
-  vi.stubGlobal('fetch', github);
+  checks.length = 0;
+  starts = 0;
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   fakeBrowser.reset();
   handlers.clear();
   const sidePanel = { setPanelBehavior: async () => {}, setOptions: async () => {}, open: async () => {} };
   Object.assign(browser, { sidePanel });
   vi.spyOn(browser.tabs, 'get').mockImplementation(async (id) => ({ id, url: 'https://studio.youtube.com/', discarded: false }) as never);
-  background.main!();
+  start();
 });
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(async () => {
+  await vi.waitFor(() => expect(checks).toHaveLength(starts));
+  await Promise.all(checks.map((c) => c.done));
+});
 
 describe('the background refuses', () => {
   it('claims:op from a page that is not Studio', async () => {
@@ -88,7 +113,7 @@ describe('the background wires Auto-pilot', () => {
 
   it('at start the alarms are brought in line with what is stored', async () => {
     await browser.alarms.create('ap:UCgone', { when: Date.now() + 3600e3 }); // a channel with no key (any more)
-    background.main!();
+    start();
     await vi.waitFor(async () => expect(await alarms()).toEqual(['update-check'])); // the update check's own alarm stays
   });
 
@@ -113,9 +138,17 @@ describe('the update check', () => {
     await vi.waitFor(() => expect(github).toHaveBeenCalledTimes(1));
     expect(github.mock.calls[0]![0]).toBe(LATEST);
     handlers.clear();
-    background.main!(); // the service worker was stopped and started again
+    start(); // the service worker was stopped and started again
     await new Promise((r) => setTimeout(r, 20));
     expect(github).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the stored data to be ready (the migrations) before it asks', async () => {
+    await vi.waitFor(() => expect(checks).toHaveLength(1));
+    expect(await checks[0]!.before).toHaveProperty('schemaVersion');
+    const src = readFileSync(new URL('../entrypoints/background.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/\n  void ready\.then\(\(\) => checkForUpdate\(\)\)\.catch\(/);
+    expect(src.match(/checkForUpdate\(/g)).toHaveLength(1);
   });
 
   it('is registered at the top level, and is the only user of api.github.com', () => {
