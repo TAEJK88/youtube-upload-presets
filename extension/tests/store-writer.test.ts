@@ -113,6 +113,16 @@ describe('writeBackupInOrder', () => {
     expect(got.settings).toMatchObject({ lang: 'th', delay: 5 });
   });
 
+  it('a move import still works when the stored history and channel list are damaged', async () => {
+    await browser.storage.local.set({ settings: { lang: 'en' }, uploads: 'junk', channels: [null] });
+    const { data, presets } = file({ delay: 5 });
+    data.move = { uploads: [{ date: '2026-10-01T00:00:00.000Z', channel: 'UC1', file: 'a.mp4' }], channels: [{ id: 'UC2', name: 'Two' }] };
+    await writeBackupInOrder({ data, presets, own: true });
+    const got = await browser.storage.local.get(['uploads', 'channels']);
+    expect((got.uploads as { file: string }[]).map((u) => u.file)).toEqual(['a.mp4']);
+    expect(got.channels).toEqual([{ id: 'UC2', name: 'Two', avatar: '', handle: '' }]);
+  });
+
   it('ensureMigrated never sees the backup\'s schemaVersion while an import is being written', async () => {
     await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: [], settings: { lang: 'en' } });
     const seen: Promise<number>[] = [];

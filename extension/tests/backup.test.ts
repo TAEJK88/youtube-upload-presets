@@ -104,11 +104,17 @@ describe('the move file', () => {
   };
 
   it('my file: upload history is added to what is there, newest first, 1000 at most', () => {
-    const r = move({ uploads: [up('b.mp4', '2026-10-02T00:00:00.000Z'), up('a.mp4', '2026-10-01T00:00:00.000Z')] });
+    // the file's rows are out of order, and one is newer than what is stored
+    const r = move({ uploads: [up('a.mp4', '2026-10-01T00:00:00.000Z'), up('d.mp4', '2026-10-04T00:00:00.000Z'), up('b.mp4', '2026-10-02T00:00:00.000Z')] });
     const w = applyBackup(r.data, r.presets, true, { ...cur(), uploads: [up('c.mp4', '2026-10-03T00:00:00.000Z')] as never });
-    expect(w.uploads!.map((u) => u.file)).toEqual(['c.mp4', 'b.mp4', 'a.mp4']);
+    expect(w.uploads!.map((u) => u.file)).toEqual(['d.mp4', 'c.mp4', 'b.mp4', 'a.mp4']);
     const many = move({ uploads: Array.from({ length: 1200 }, (_, i) => up(`v${i}.mp4`, new Date(Date.UTC(2020, 0, 1) + i * 1000).toISOString())) });
-    expect(applyBackup(many.data, many.presets, true, cur()).uploads).toHaveLength(1000);
+    // v0 is the oldest and comes first in the file: the oldest 200 are the ones cut
+    const kept = applyBackup(many.data, many.presets, true, cur()).uploads!;
+    expect(kept).toHaveLength(1000);
+    expect(kept[0]!.file).toBe('v1199.mp4');
+    expect(kept.at(-1)!.file).toBe('v200.mp4');
+    expect(kept.some((u) => u.file === 'v0.mp4')).toBe(false);
   });
 
   it('a row without a video id is kept: the "already uploaded" warning goes by file, size and channel', () => {
@@ -144,6 +150,7 @@ describe('the move file', () => {
     const d = '2026-10-01T00:00:00.000Z';
     const r = move({ uploads: [
       up('tomorrow.mp4', 'tomorrow'), up('zzz.mp4', 'zzzz'), up('local.mp4', '10/1/2026, 9:00:00 AM'), // would sort above every real date
+      up('month99.mp4', '2026-99-99T99:99:99.999Z'), up('feb30.mp4', '2026-02-30T00:00:00.000Z'), up('zero.mp4', '0000-00-00T00:00:00.000Z'), // the right shape, not a date
       up('ch.mp4', d, { channel: 'not an id!' }), up('proto.mp4', d, { channel: '__proto__' }), up('ctor.mp4', d, { channel: 'constructor' }),
       up('vid.mp4', d, { videoId: 'x"><script>' }), up('vidproto.mp4', d, { videoId: '__proto__' }),
     ] });
@@ -168,7 +175,7 @@ describe('the move file', () => {
       { id: 'UC2', name: 'Two', avatar: 'https://yt3.ggpht.com/x', handle: '@two' },
       { id: 'UC1', name: 'One, from the file', avatar: '', handle: '' },
       { id: 'UC3', name: 'Three', avatar: 'javascript:alert(1)', handle: 7 },
-      { id: 'not an id!', name: 'Bad' }, { id: 'UC4' }, null,
+      { id: 'not an id!', name: 'Bad' }, null,
     ] });
     const w = applyBackup(r.data, r.presets, true, { ...cur(), channels: [{ id: 'UC1', name: 'One', avatar: '', handle: '@one' }] });
     expect(w.channels).toEqual([
@@ -176,6 +183,48 @@ describe('the move file', () => {
       { id: 'UC2', name: 'Two', avatar: 'https://yt3.ggpht.com/x', handle: '@two' },
       { id: 'UC3', name: 'Three', avatar: '', handle: '' },
     ]);
+  });
+
+  // The userscript's "add a channel by id" stores a channel with no name (user.js 3373), and so
+  // does the panel's (panel/channels.ts withChannel); it gets its name when opened in Studio.
+  it('a channel without a name is kept, as the panel itself stores one; a named one in the file fills in a nameless stored one', () => {
+    const r = move({ channels: [{ id: 'UC4' }, { id: 'UC5', name: '', avatar: '' }, { id: 'UC6', name: 7 }, { id: 'UC1', name: 'One', avatar: 'https://yt3.ggpht.com/1', handle: '@one' }, { id: 'UC2' }] });
+    const have = [{ id: 'UC1', name: '', avatar: '', handle: '' }, { id: 'UC2', name: 'Two', avatar: '', handle: '@two' }];
+    expect(applyBackup(r.data, r.presets, true, { ...cur(), channels: have }).channels).toEqual([
+      { id: 'UC1', name: 'One', avatar: 'https://yt3.ggpht.com/1', handle: '@one' }, // filled in, in its place
+      { id: 'UC2', name: 'Two', avatar: '', handle: '@two' },                        // a stored name is never emptied
+      { id: 'UC4', name: '', avatar: '', handle: '' }, { id: 'UC5', name: '', avatar: '', handle: '' }, { id: 'UC6', name: '', avatar: '', handle: '' },
+    ]);
+    expect(movePreview(r.data)!.channels).toBe(5);
+  });
+
+  it('a publish time that is not a date is dropped, the row kept', () => {
+    const d = '2026-10-01T00:00:00.000Z';
+    const r = move({ uploads: [up('a.mp4', d, { publishAt: 1e300 }), up('b.mp4', d, { publishAt: -8.64e15 - 1 }), up('c.mp4', d, { publishAt: 8.64e15 }), up('d.mp4', d, { publishAt: 1790000000000 })] });
+    const w = applyBackup(r.data, r.presets, true, cur());
+    expect(w.uploads!.map((u) => [u.file, u.publishAt])).toEqual([['a.mp4', null], ['b.mp4', null], ['c.mp4', 8.64e15], ['d.mp4', 1790000000000]]);
+  });
+
+  it('a row dated more than a day after now is refused: it would sit on top for ever', () => {
+    const now = Date.parse('2026-10-12T12:00:00.000Z');
+    const r = move({ uploads: [up('far.mp4', '9999-12-31T23:59:59.999Z'), up('late.mp4', '2026-10-13T12:00:00.001Z'), up('edge.mp4', '2026-10-13T12:00:00.000Z'), up('past.mp4', '2026-10-01T00:00:00.000Z')] });
+    expect(applyBackup(r.data, r.presets, true, cur(), now).uploads!.map((u) => u.file)).toEqual(['edge.mp4', 'past.mp4']);
+    expect(movePreview(r.data, now)!.uploads).toBe(2);
+    expect(movePreview(r.data, Date.parse('2026-09-01T00:00:00.000Z'))!.uploads).toBe(0);
+  });
+
+  it('damaged stored history or channels do not stop the import: a non-list counts as empty, a row of the wrong shape is skipped', () => {
+    const d = '2026-10-01T00:00:00.000Z';
+    const r = move({ uploads: [up('a.mp4', d)], channels: [{ id: 'UC2', name: 'Two' }] });
+    const two = { id: 'UC2', name: 'Two', avatar: '', handle: '' };
+    let w = applyBackup(r.data, r.presets, true, { ...cur(), uploads: 'junk' as never, channels: { 0: 'x' } as never });
+    expect(w.uploads).toEqual([up('a.mp4', d)]);
+    expect(w.channels).toEqual([two]);
+    const stored = up('s.mp4', '2026-10-02T00:00:00.000Z');
+    const one = { id: 'UC1', name: 'One', avatar: '', handle: '' };
+    w = applyBackup(r.data, r.presets, true, { ...cur(), uploads: [null, 'x', 7, { videoId: 'v' }, { date: 5, channel: 'UC1', file: 'n.mp4' }, stored] as never, channels: [null, 'x', { name: 'no id' }, { id: 7 }, one] as never });
+    expect(w.uploads).toEqual([stored, up('a.mp4', d)]);
+    expect(w.channels).toEqual([one, two]);
   });
 
   it('an avatar is a link that parses as https, stored as parsed, nothing else; a channel id is never a prototype name', () => {

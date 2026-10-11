@@ -48,24 +48,34 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '');
 // constructor…): assigning to one would change the object, not add a value to it.
 const inherited = (k: string) => k in Object.prototype;
 const plainId = (v: unknown): v is string => isChannelId(v) && !inherited(v);
-const ISO_DATE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/; // toISOString(), which is what logUpload writes
+// A date exactly as toISOString() gives it, which is what logUpload writes: the right shape
+// alone ("2026-99-99T…") would make the queue card throw when it formats the date.
+const isoTime = (v: unknown) => {
+  const t = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isFinite(t) && new Date(t).toISOString() === v ? t : NaN;
+};
+const DAY = 86_400_000;
+const MAX_TIME = 8.64e15; // the largest time a Date holds
 
 // The move file's upload history ('uploads': newest first, 1000 at most, as the runner keeps it).
 // A row needs a date, a channel and a file name: the "already uploaded" warning goes by file,
 // size and channel (user.js 1809), and a row's video id is often '' (2055). The same upload is
 // taken once: by video id when it has one, otherwise by date, channel, file and size. Rows
 // already stored win. Each row is built field by field: nothing else in the file comes along.
+// A row dated more than a day after `now` is refused: it would stay on top, and in the 1000,
+// for ever. Stored rows are not cleaned, but one that is not a row at all is skipped.
 const uploadKey = (u: { videoId: string; date: string; channel: string; file: string; size: number }) =>
   (u.videoId ? 'v:' + u.videoId : `f:${u.date}|${u.channel}|${u.file}|${u.size}`);
-export function cleanUploads(list: unknown, have: UploadRecord[] = []): UploadRecord[] {
-  const seen = new Set(have.map(uploadKey));
-  const out = [...have];
+const isRow = (u: unknown): u is UploadRecord => isObj(u) && typeof u.date === 'string' && typeof u.channel === 'string' && typeof u.file === 'string';
+export function cleanUploads(list: unknown, have: UploadRecord[] = [], now = Date.now()): UploadRecord[] {
+  const out = Array.isArray(have) ? have.filter(isRow) : [];
+  const seen = new Set(out.map(uploadKey));
   for (const u of Array.isArray(list) ? list : []) {
-    if (!isObj(u) || !ISO_DATE.test(str(u.date)) || !plainId(u.channel) || !str(u.file)) continue;
+    if (!isObj(u) || !(isoTime(u.date) <= now + DAY) || !plainId(u.channel) || !str(u.file)) continue;
     const row: UploadRecord = {
       date: str(u.date), channel: u.channel, channelName: str(u.channelName), videoId: plainId(u.videoId) ? u.videoId : '', title: str(u.title),
       file: str(u.file), size: Number.isFinite(u.size) ? (u.size as number) : 0, txt: str(u.txt), description: str(u.description),
-      publishAt: Number.isFinite(u.publishAt) ? (u.publishAt as number) : null, visibility: str(u.visibility),
+      publishAt: Number.isFinite(u.publishAt) && Math.abs(u.publishAt as number) <= MAX_TIME ? (u.publishAt as number) : null, visibility: str(u.visibility),
     };
     if (seen.has(uploadKey(row))) continue;
     seen.add(uploadKey(row));
@@ -75,27 +85,33 @@ export function cleanUploads(list: unknown, have: UploadRecord[] = []): UploadRe
 }
 
 // The move file's channel list. The avatar becomes an <img src> in the panel: https only,
-// and stored as the URL parser read it.
+// and stored as the URL parser read it. A channel added by its id has no name until it is
+// opened in Studio (user.js 3373, panel/channels.ts withChannel): it is kept, and a stored
+// one without a name takes the file's entry.
 const httpsUrl = (v: unknown) => {
   const u = typeof v === 'string' && URL.canParse(v) ? new URL(v) : null;
   return u?.protocol === 'https:' ? u.href : '';
 };
 export function cleanChannels(list: unknown, have: StoredChannel[] = []): StoredChannel[] {
-  const seen = new Set(have.map((c) => c.id));
-  const out = [...have];
+  const out = Array.isArray(have) ? have.filter((c) => isObj(c) && typeof c.id === 'string') : [];
+  const seen = new Set(out.map((c) => c.id));
   for (const c of Array.isArray(list) ? list : []) {
-    if (!isObj(c) || !plainId(c.id) || !str(c.name) || seen.has(c.id)) continue;
-    seen.add(c.id);
-    out.push({ id: c.id, name: str(c.name), avatar: httpsUrl(c.avatar), handle: str(c.handle) });
+    if (!isObj(c) || !plainId(c.id)) continue;
+    const ch: StoredChannel = { id: c.id, name: str(c.name), avatar: httpsUrl(c.avatar), handle: str(c.handle) };
+    const at = out.findIndex((x) => x.id === ch.id && !x.name && ch.name);
+    if (at >= 0) out[at] = ch;
+    if (seen.has(ch.id)) continue;
+    seen.add(ch.id);
+    out.push(ch);
   }
   return out;
 }
 
 // What the import question tells the user about a move file: what would pass the cleaning.
-export function movePreview(data: Record<string, unknown>): { uploads: number; channels: number; lang: 'th' | 'en' | null } | null {
+export function movePreview(data: Record<string, unknown>, now = Date.now()): { uploads: number; channels: number; lang: 'th' | 'en' | null } | null {
   if (!isObj(data.move)) return null;
   const m = data.move;
-  return { uploads: cleanUploads(m.uploads).length, channels: cleanChannels(m.channels).length, lang: m.lang === 'th' || m.lang === 'en' ? m.lang : null };
+  return { uploads: cleanUploads(m.uploads, [], now).length, channels: cleanChannels(m.channels).length, lang: m.lang === 'th' || m.lang === 'en' ? m.lang : null };
 }
 
 export type ParsedBackup =
@@ -134,6 +150,7 @@ export interface BackupWrites {
 export function applyBackup(
   data: Record<string, unknown>, presets: Preset[], own: boolean,
   cur: { settings: Settings; cfg: Record<string, unknown>; uploads?: UploadRecord[]; channels?: StoredChannel[] },
+  now = Date.now(),
 ): BackupWrites {
   const w: BackupWrites = {
     presets: fixLegacyTrapsoulTitles(presets),
@@ -168,7 +185,7 @@ export function applyBackup(
   // The last userscript's "everything for the extension" export (call 8): personal, own file only.
   if (own && isObj(data.move)) {
     const m = data.move;
-    if (Array.isArray(m.uploads)) w.uploads = cleanUploads(m.uploads, cur.uploads);
+    if (Array.isArray(m.uploads)) w.uploads = cleanUploads(m.uploads, cur.uploads, now);
     if (Array.isArray(m.channels)) w.channels = cleanChannels(m.channels, cur.channels);
     if (m.lang === 'th' || m.lang === 'en') w.settings = { ...(w.settings ?? cur.settings), lang: m.lang };
   }
