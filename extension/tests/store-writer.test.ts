@@ -93,6 +93,36 @@ describe('writeBackupInOrder', () => {
     expect(got).not.toHaveProperty('glassV2');
   });
 
+  it('a move file of your own adds its upload history and channels to what storage holds', async () => {
+    const row = (file: string, date: string) => ({ date, channel: 'UC1', channelName: 'One', videoId: '', title: file, file, size: 10, txt: '', description: '', publishAt: null, visibility: 'PUBLIC' });
+    const one = { id: 'UC1', name: 'One', avatar: '', handle: '@one' };
+    const two = { id: 'UC2', name: 'Two', avatar: 'https://yt3.ggpht.com/x', handle: '@two' };
+    await browser.storage.local.set({ settings: { lang: 'en' }, uploads: [row('new.mp4', '2026-10-03T00:00:00.000Z')], channels: [one] });
+    const { data, presets } = file({ delay: 5 });
+    data.move = { lang: 'th', uploads: [row('old.mp4', '2026-10-01T00:00:00.000Z')], channels: [two] };
+    await writeBackupInOrder({ data, presets, own: false });
+    let got = await browser.storage.local.get(['uploads', 'channels', 'settings']);
+    expect(got.uploads).toEqual([row('new.mp4', '2026-10-03T00:00:00.000Z')]); // someone else's file: untouched
+    expect(got.channels).toEqual([one]);
+    expect(got.settings).toMatchObject({ lang: 'en' });
+    await writeBackupInOrder({ data, presets, own: true });
+    await writeBackupInOrder({ data, presets, own: true }); // a second import adds nothing twice
+    got = await browser.storage.local.get(['uploads', 'channels', 'settings']);
+    expect(got.uploads).toEqual([row('new.mp4', '2026-10-03T00:00:00.000Z'), row('old.mp4', '2026-10-01T00:00:00.000Z')]);
+    expect(got.channels).toEqual([one, two]);
+    expect(got.settings).toMatchObject({ lang: 'th', delay: 5 });
+  });
+
+  it('a move import still works when the stored history and channel list are damaged', async () => {
+    await browser.storage.local.set({ settings: { lang: 'en' }, uploads: 'junk', channels: [null] });
+    const { data, presets } = file({ delay: 5 });
+    data.move = { uploads: [{ date: '2026-10-01T00:00:00.000Z', channel: 'UC1', file: 'a.mp4' }], channels: [{ id: 'UC2', name: 'Two' }] };
+    await writeBackupInOrder({ data, presets, own: true });
+    const got = await browser.storage.local.get(['uploads', 'channels']);
+    expect((got.uploads as { file: string }[]).map((u) => u.file)).toEqual(['a.mp4']);
+    expect(got.channels).toEqual([{ id: 'UC2', name: 'Two', avatar: '', handle: '' }]);
+  });
+
   it('ensureMigrated never sees the backup\'s schemaVersion while an import is being written', async () => {
     await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, presets: [], settings: { lang: 'en' } });
     const seen: Promise<number>[] = [];

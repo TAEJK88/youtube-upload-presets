@@ -5,6 +5,8 @@ import { getLang } from './i18n';
 import { isStudioUrl } from './panel-scope';
 import { applySettingsPatch, defaultSettings, loadSettings, type SettingsPatch } from './settings';
 import { load } from './storage';
+import type { StoredChannel } from './studio/channels';
+import type { UploadRecord } from './studio/queue-runner';
 
 // settings and counters are written by the side panel and by the Studio page. Each side
 // sends only what it changed, and the background applies the changes one at a time, so
@@ -81,7 +83,10 @@ export const writeBackupInOrder = async ({ data, presets, own }: BackupImport) =
   const list = cleanPresets(presets);
   if (!isObj(data) || !list) throw new Error('backup:write: not a usable backup');
   return serial(async () => {
-    const cur = { settings: await loadSettings(), cfg: await load<Record<string, unknown>>('cfg', {}) };
+    const cur = {
+      settings: await loadSettings(), cfg: await load<Record<string, unknown>>('cfg', {}),
+      uploads: await load<UploadRecord[]>('uploads', []), channels: await load<StoredChannel[]>('channels', []),
+    };
     await writeBackup(applyBackup(data, list, own === true, cur));
   });
 };
