@@ -44,8 +44,10 @@ export function cleanPresets(list: unknown): Preset[] | null {
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
-// A value from the file that ends up as an id: never the name of something every object has.
-const plainId = (v: unknown): v is string => isChannelId(v) && !(v in Object.prototype);
+// A key or an id from the file is never the name of something every object has (__proto__,
+// constructor…): assigning to one would change the object, not add a value to it.
+const inherited = (k: string) => k in Object.prototype;
+const plainId = (v: unknown): v is string => isChannelId(v) && !inherited(v);
 const ISO_DATE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/; // toISOString(), which is what logUpload writes
 
 // The move file's upload history ('uploads': newest first, 1000 at most, as the runner keeps it).
@@ -143,7 +145,7 @@ export function applyBackup(
     const base = cur.settings as unknown as Record<string, unknown>;
     const next: Record<string, unknown> = { ...base };
     for (const [k, v] of Object.entries(data.settings)) {
-      if (!(k in base) || k === 'lockChannel' || k === 'lang' || (!own && PERSONAL_SETTINGS.includes(k))) continue;
+      if (!Object.hasOwn(base, k) || k === 'lockChannel' || k === 'lang' || (!own && PERSONAL_SETTINGS.includes(k))) continue;
       if (k === 'schedule') {
         if (isObj(v)) next.schedule = { ...cur.settings.schedule, on: !!v.on, start: typeof v.start === 'string' ? v.start : '', every: Math.max(1, parseInt(String(v.every), 10) || 1), unit: v.unit === 'hour' ? 'hour' : 'day' };
         continue;
@@ -155,13 +157,13 @@ export function applyBackup(
   if (isObj(data.claimsCfg)) {
     const c = { ...cur.cfg };
     for (const [k, v] of Object.entries(data.claimsCfg)) {
-      if (!own && k === 'ownNames') continue;
+      if (inherited(k) || (!own && k === 'ownNames')) continue;
       if (['string', 'boolean', 'number'].includes(typeof v)) c[k] = v;
     }
     w.cfg = c;
   }
   if (own && isObj(data.counters)) {
-    w.counters = Object.fromEntries(Object.entries(data.counters).filter(([, v]) => Number.isFinite(v))) as Record<string, number>;
+    w.counters = Object.fromEntries(Object.entries(data.counters).filter(([k, v]) => !inherited(k) && Number.isFinite(v))) as Record<string, number>;
   }
   // The last userscript's "everything for the extension" export (call 8): personal, own file only.
   if (own && isObj(data.move)) {

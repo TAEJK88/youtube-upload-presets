@@ -75,6 +75,19 @@ describe('applyBackup', () => {
     expect(applyBackup(r.data, r.presets, true, cur()).activeId).toBe('mine');
   });
 
+  it('a key every object has (__proto__, constructor…) is not taken as a setting, a copyright setting or an EP number', () => {
+    const text = exported().replace('"settings":{', '"settings":{"__proto__":{"polluted":1},"constructor":{"x":1},')
+      .replace('"claimsCfg":{', '"claimsCfg":{"__proto__":"x","constructor":"x","toString":"x",')
+      .replace('"counters":{', '"counters":{"__proto__":5,"constructor":6,');
+    const r = parseBackup(text);
+    if (!r.ok) throw new Error('fixture');
+    const w = applyBackup(r.data, r.presets, true, cur());
+    expect(Object.getPrototypeOf(w.settings)).toBe(Object.prototype);
+    expect(Object.keys(w.settings!).sort()).toEqual(Object.keys(cur().settings).sort());
+    expect(Object.getOwnPropertyNames(w.cfg)).toEqual(['ownNames', 'apEveryHours']);
+    expect(Object.getOwnPropertyNames(w.counters)).toEqual(['mine']);
+  });
+
   it('keeps cur.settings.lang and ignores the file\'s lang', () => {
     const { data, presets } = parsed();
     expect(applyBackup(data, presets, true, cur()).settings?.lang).toBe('en'); // file says 'th'
