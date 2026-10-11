@@ -77,8 +77,8 @@ function main() {
   console.log([
     `release-check: ok — ${files.length} files, ${(statSync(zip).size / 1024).toFixed(0)} KB`,
     `zip:        ${zip}`,
-    `zip sha256: ${sha(zip)}   (changes with every build: a zip stores times)`,
-    `content:    ${content.hash}   (the same for two builds of the same source; the list is .output/release-files.txt)`,
+    `zip sha256: ${sha(zip)}   (this zip file)`,
+    `content:    ${content.hash}   (the files inside, by path: the same for two builds of the same source; the list is .output/release-files.txt)`,
     `commit:     ${run('git', ['rev-parse', 'HEAD']).trim()}`,
     '',
     'To publish (the owner runs these; nothing here does):',
