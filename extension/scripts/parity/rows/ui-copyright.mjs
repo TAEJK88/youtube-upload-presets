@@ -13,7 +13,7 @@ export default [
   { lines: ['4592', '6356'], status: 'changed', home: ['lib/claims/claims.ts', 'lib/claims/page.ts', 'lib/claims/wiring.ts'], cite: 'spec: Modules (cut along the seams already in the IIFE)', test: 'tests/claims-page.test.ts',
     note: "the Claims module's wrapper and what it hands out: an ES module now. tick is claimsTick, status is claimsStatus, renderStatus is the claims:state broadcast, listScheduled is wired in wiring.ts; claimedSongsIn is in lib/claims/core.ts, fixTracklist in lib/tracklist.ts, buildPane is the Copyright tab" },
   { lines: ['4621-4622'], status: 'changed', home: ['lib/claims/claims.ts', 'lib/studio/channel.ts'], cite: 'decision: P4-16', test: ['tests/claims-page.test.ts', 'tests/claims-scan.test.ts'], readme: [55],
-    note: "ycfg(): Studio's ytcfg is read from the copy the MAIN world hands over (no unsafeWindow), again every 10 s while the context is missing; a CHANNEL_ID that is not a channel id is not taken" },
+    note: "ycfg(): Studio's ytcfg is read from the copy the MAIN world hands over (no unsafeWindow), again every 10 s while the context is missing. A CHANNEL_ID that is not a real channel id is not taken (spec: Messaging)" },
 
   // the claim list's CSV
   { lines: ['4839-4840', '4842-4848', '4931'], status: 'changed', home: ['lib/claims/core.ts', VIEW + 'ClaimList.tsx', 'lib/panel/download.ts'], cite: 'decision: P4-19', test: ['tests/claims-core.test.ts', T_TAB], readme: [46, 51],
@@ -25,8 +25,8 @@ export default [
     note: 'openModal() / closeModal(): a modal is a view of the Copyright tab with its title and Close. A click beside the box closed a modal; a view has no outside to click' },
 
   // the claim list (showClaims)
-  { lines: ['4860-4862'], status: 'changed', home: VIEW + 'ClaimList.tsx', cite: 'decision: P4-17', test: T_TAB,
-    note: 'Claim list before a scan: the userscript opened nothing and wrote "Channel … not scanned yet" to the activity log; the view opens and says it there' },
+  { lines: ['4860-4862'], status: 'missing',
+    note: 'Claim list before a scan: the userscript opened nothing and wrote "Channel … not scanned yet" to the activity log (closed by default, so usually nothing was seen); the panel opens the view and says it there (entrypoints/sidepanel/tabs/copyright/ClaimList.tsx, pinned by tests/panel-copyright.test.tsx). One decision can close this row with 4985 and 5496: a message raised by a button shows where the user is looking. Nothing to port; needs one decision line' },
   { lines: ['4863-4868', '4875-4877', '4879-4880', '4882-4911'], status: 'changed', home: [VIEW + 'ClaimList.tsx', 'lib/panel/claims.ts'], cite: 'decision: P4-17', test: T_TAB, readme: [46, 54, 56],
     note: 'the claim list\'s rows: one card per claim instead of a table row, with the same texts (video link, privacy and length, scheduled time, song, claimant, ranges and % of the video, impact, result), the tick box with its three tooltips and "Tracklist after trim" once per video. A tick is one write through the background (P4-6); picks that are done leave the stored list; the open list follows what is stored' },
   { lines: ['4881'], status: 'dropped', cite: 'dropped.mjs: Claimed song', note: "the claim table's header row (Trim, Video, Claimed song, Claimant, Claimed range, Impact / Result): cards have no header" },
@@ -42,8 +42,8 @@ export default [
     note: 'parseTime() and fixTracklist(): the tracklist after a trim (cut songs removed, later times moved up, the first one at 00:00). Its own tests are tests/tracklist.test.mjs' },
   { lines: ['4980-4982', '4984', '4986-4992'], status: 'changed', home: [VIEW + 'TracklistFix.tsx', 'lib/panel/claims.ts'], cite: 'decision: P4-17', test: [T_TAB, T_PICK], readme: [46, 68],
     note: 'Fix tracklist, choosing a video: each claimed video once, with its length and where its tracklist will come from. A view' },
-  { lines: ['4985'], status: 'changed', home: VIEW + 'TracklistFix.tsx', cite: 'decision: P4-17', test: T_TAB,
-    note: 'Fix tracklist with no claimed video: the userscript opened nothing and toasted "No claimed videos yet"; the view opens and says it there' },
+  { lines: ['4985'], status: 'missing',
+    note: 'Fix tracklist with no claimed video: the userscript opened nothing and toasted "No claimed videos yet — press "Scan claims" first"; the panel opens the view that lists the videos and says it there, with no toast (entrypoints/sidepanel/tabs/copyright/TracklistFix.tsx, pinned by tests/panel-copyright.test.tsx). One decision can close this row with 4860-4862 and 5496. Nothing to port; needs one decision line' },
   { lines: ['4993-4997', '5006-5033', '5038-5040'], status: 'changed', home: VIEW + 'TracklistFix.tsx', cite: 'decision: P4-17', test: T_TAB, readme: [46, 50, 68],
     note: 'the tracklist editor: the uploaded tracklist filled in, a tick per trimmed range (already trimmed ones ticked), the new tracklist and its summary line. A view' },
   { lines: ['4998-5005'], status: 'same', home: VIEW + 'TracklistFix.tsx', test: T_TAB, readme: [46, 68], note: "a .txt dropped on the tracklist editor's box replaces its text" },
@@ -96,8 +96,8 @@ export default [
     note: "the Collab list's title search and its chips (All shown, Public only, Not invited yet, Failed only, None), which act on the rows the search shows" },
   { lines: ['5494-5495', '5497-5502'], status: 'changed', home: [VIEW + 'CollabView.tsx', 'lib/claims/claims.ts'], cite: NOT_IN_SCAN, test: [T_ADS, 'tests/claims-runs.test.ts'], readme: [66],
     note: '"Invite (N videos)": the panel sends the ticked videos and the handles (checked again in the tab) and the tab starts the run from its own stored scan; videos that scan no longer has are said in the activity log' },
-  { lines: ['5496'], status: 'changed', home: VIEW + 'CollabView.tsx', cite: 'decision: P4-17', test: T_ADS,
-    note: 'Invite with no handle: "Enter the @handle of the channel to invite first" was a red line on the status card (behind the modal); it is a toast in the panel, and the view stays open' },
+  { lines: ['5496'], status: 'missing',
+    note: 'Invite with no handle: the userscript showed "Enter the @handle of the channel to invite first" as a red line on the status card for 8 s, behind the Collab modal; the panel shows it as a toast and the view stays open (entrypoints/sidepanel/tabs/copyright/CollabView.tsx, pinned by tests/panel-ads-collab.test.tsx). One decision can close this row with 4860-4862 and 4985. Nothing to port; needs one decision line' },
   { lines: ['5503-5504', '5506-5516'], status: 'changed', home: VIEW + 'CollabView.tsx', cite: 'decision: P4-17', test: T_ADS, readme: [66],
     note: "the Collab list's rows: one card per video instead of a table row, with the same texts (video link, length, privacy, the invite's result)" },
   { lines: ['5505'], status: 'dropped', cite: 'dropped.mjs: Visibility', note: "the Collab table's header row (Video, Visibility, Collab): cards have no header" },
@@ -109,13 +109,13 @@ export default [
 
   // questions
   { lines: ['5672-5696'], status: 'changed', home: [VIEW + 'ClaimList.tsx', 'lib/panel/claims.ts', 'lib/claims/claims.ts'], cite: 'decision: P4-17', test: [T_RUN, T_PICK, 'tests/claims-trim.test.ts'], readme: [57],
-    note: 'the trim question (openTrimConfirm): asked with ask() in the panel, the same texts and warnings (own music, a busy upload queue, Studio not in English, automatic or review mode); "Start trim" sends the picks and the tab starts the run from its stored scan' },
+    note: 'the trim question (openTrimConfirm): asked with ask() in the panel, the same texts and warnings (own music, a busy upload queue, Studio not in English, automatic or review mode); "Start trim" sends the picks and the tab starts the run from its stored scan; ask() selects the main button when the question opens and Enter answers yes (ask.tsx, pinned by tests/panel-ask.test.tsx), where the box of the userscript had no focus and no key handler, so "Start trim" needed a click (read from the code, not watched in Chrome)' },
   { lines: ['5875-5904'], status: 'changed', home: [VIEW + 'AutopilotSwitch.tsx', 'lib/panel/claims.ts'], cite: 'decision: P4-17', test: [T_RUN, T_PICK], readme: [69],
-    note: 'toggleAutopilot(): off at once, on after a question that lists the rules, asked with ask() in the panel. On and off are one write of autopilot:<channel>; the "Auto-pilot turned on / off for …" line is added to the log of the panel that clicked' },
+    note: 'toggleAutopilot(): off at once, on after a question that lists the rules, asked with ask() in the panel. On and off are one write of autopilot:<channel>; the "Auto-pilot turned on / off for …" line is added to the log of the panel that clicked; ask() selects the main button when the question opens and Enter answers yes (ask.tsx, pinned by tests/panel-ask.test.tsx), where the box of the userscript had no focus and no key handler, so "Turn on" needed a click (read from the code, not watched in Chrome)' },
 
   // the pane (buildPane)
   { lines: ['6173', '6184'], status: 'changed', home: [VIEW + 'ActivityLog.tsx', 'entrypoints/sidepanel/panel.tsx'], cite: 'decision: P4-18', test: T_TAB, readme: [74],
-    note: 'the activity log\'s box: the lines are kept by the panel (the last 80, from the bound tab and the tab holding the lock) and survive a trim\'s page changes; it starts open or closed as stored (logOpen)' },
+    note: 'the activity log\'s box: the lines are kept by the panel (the last 80, from the bound tab and the tab holding the lock) and survive a trim\'s page changes; it starts open or closed as stored (logOpen). A line logged while no panel is open on the tab is not kept (the tab only broadcasts it, nothing is stored); the userscript kept up to 80 lines with the drawer closed, until the next page load. After a night of Auto-pilot with the panel closed the log is empty' },
   { lines: ['6182-6183', '6185', '6204-6211', '6215-6216'], status: 'same', home: TAB, test: T_TAB, readme: [46, 50],
     note: "the pane's layout: Status (the card, Scan · Ads off · Stop, then Claim list · Claimed songs · Collab), the Auto-pilot switch with the three small buttons, Activity. Buttons that don't fit a narrow panel wrap to the next line" },
   { lines: ['6186-6187', '6254'], status: 'same', home: TAB, test: [T_TAB, 'tests/claims-status.test.ts'], readme: [46, 61], note: 'the red "Studio is set to Thai" warning, shown while Studio is not in English' },
@@ -143,7 +143,8 @@ export default [
   { lines: ['6248-6251'], status: 'changed', home: TAB, cite: 'decision: P4-29', test: [T_TAB, T_RUN], readme: [60, 64],
     note: "which buttons show: Scan, Ads off and the three lists hide during a run or a scan; Stop shows during a run and while follow-up trims wait. Stop also shows for a run in the tab holding the lock, another channel's included" },
   { lines: ['6252-6253'], status: 'same', home: VIEW + 'AutopilotSwitch.tsx', test: T_RUN, readme: [69], note: 'the Auto-pilot switch follows what is stored; its line says "On · scan + trim every N h" or "Off · …"' },
-  { lines: ['6255-6256'], status: 'same', home: 'entrypoints/sidepanel/App.tsx', test: T_RUN, readme: [66], note: "the dot on the Copyright tab's name while a copyright run is active" },
+  { lines: ['6255-6256'], status: 'changed', home: 'entrypoints/sidepanel/App.tsx', cite: 'spec: Messaging', test: T_RUN, readme: [66],
+    note: "the dot on the Copyright tab's name while a copyright run is active, in this tab or in the tab holding the lock (the userscript: this tab's run only)" },
 
   // copyright settings
   { lines: ['6259-6274'], status: 'same', home: 'lib/panel/claims-settings.ts', test: T_SET, readme: [62], note: 'SETTINGS: the ten copyright settings in two groups, with their labels and help texts' },
