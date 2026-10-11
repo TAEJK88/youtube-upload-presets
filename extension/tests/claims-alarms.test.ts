@@ -104,6 +104,29 @@ describe('Auto-pilot alarms', () => {
     expect(await alarms()).toEqual([['ap:UC1', next], ['ap:UC2', next + 1]]);
   });
 
+  it('two calls for one channel run one after the other: the later value wins', async () => {
+    const t1 = NOW + 3600e3;
+    const t2 = NOW + 7200e3;
+    await stored('UC1', { on: true, next: t1 });
+    // The first call's read of its key is slow; the second call starts while it waits.
+    const read = browser.storage.local.get.bind(browser.storage.local);
+    let release = () => {};
+    const held = new Promise<void>((r) => { release = r; });
+    const spy = vi.spyOn(browser.storage.local, 'get').mockImplementationOnce((async (keys: unknown) => {
+      const got = await read(keys as never);
+      await held;
+      return got;
+    }) as never);
+    const first = armAutopilot('UC1', NOW);
+    await stored('UC1', { on: true, next: t2 });
+    const second = armAutopilot('UC1', NOW);
+    await new Promise((r) => setTimeout(r, 20)); // without the chain the second call finishes here
+    release();
+    await Promise.all([first, second]);
+    spy.mockRestore();
+    expect(await alarms()).toEqual([['ap:UC1', t2]]);
+  });
+
   it("the alarm reaches the channel's tab only; no lease, nothing sent", async () => {
     const send = vi.fn(async () => undefined);
     await browser.storage.session.set({ claimsWorkers: { UC1: { tabId: 3, at: Date.now() }, UC2: { tabId: 1, at: Date.now() }, UC5: { tabId: 4, at: Date.now() - 60_000 } } });

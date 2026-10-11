@@ -69,6 +69,12 @@ describe('applyBackup', () => {
     expect(applyBackup(r.data, r.presets, false, cur()).activeId).toBe('mine');
   });
 
+  it('a v4.28.0 export whose main preset is a pattern learnt from a video lands on the first preset', () => {
+    const r = parseBackup(exported({ version: '4.28.0', activeId: 'v:dQw4w9WgXcQ' }));
+    if (!r.ok) throw new Error('fixture');
+    expect(applyBackup(r.data, r.presets, true, cur()).activeId).toBe('mine');
+  });
+
   it('keeps cur.settings.lang and ignores the file\'s lang', () => {
     const { data, presets } = parsed();
     expect(applyBackup(data, presets, true, cur()).settings?.lang).toBe('en'); // file says 'th'

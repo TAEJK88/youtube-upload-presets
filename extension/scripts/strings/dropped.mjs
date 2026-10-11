@@ -16,7 +16,7 @@ export default [
   { th: 'ตัด', en: 'Trim', why: "the claim table's header (4881): a card's checkbox is named by its song, not by a column" },
   { th: 'วิดีโอ', en: 'Video', why: 'table header (4881, 5303, 5505): the claim, Ads and Collab views are cards with no header row' },
   { th: 'เพลงที่โดน claim', en: 'Claimed song', why: "the claim table's header (4881): cards" },
-  { th: 'ผู้ claim', en: 'Claimant', why: "the claim table's header (4881): cards" },
+  { th: 'ผู้ claim', en: 'Claimant', why: "header of the claim table (4881) and of the claimed-songs table (5240): both are cards" },
   { th: 'ช่วงที่โดน', en: 'Claimed range', why: "the claim table's header (4881): cards" },
   { th: 'ผลกระทบ / ผล', en: 'Impact / Result', why: "the claim table's header (4881): cards" },
   { th: '${} · ${}', en: '${} · ${}', why: "the tracklist picker's line (4989) was one template around its two texts; the panel shows the length and the text apart (the texts are in extension-only.mjs)" },

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
+import { channelKeys } from '../lib/claims/keys';
 import * as messages from '../lib/messages';
-import { claimsWrite, readClaims, toClaimsData, watchClaims } from '../lib/panel/claims-data';
+import { claimsWrite, toClaimsData, watchClaims } from '../lib/panel/claims-data';
 
 beforeEach(() => fakeBrowser.reset());
 
@@ -19,7 +20,7 @@ describe('the Copyright tab data', () => {
 
   it("reads one channel's keys, and follows only those", async () => {
     await browser.storage.local.set({ 'claimScan:UC1': { date: 'd', total: 0, rows: [] }, 'claimScan:UC2': { date: 'x' }, cfg: { ownNames: 'Me' } });
-    const d = await readClaims('UC1');
+    const d = toClaimsData('UC1', await browser.storage.local.get(channelKeys('UC1')));
     expect(d.scan?.date).toBe('d');
     expect(d.cfg.ownNames).toBe('Me');
     const fn = vi.fn();

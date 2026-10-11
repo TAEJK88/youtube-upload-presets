@@ -56,8 +56,6 @@ export function toClaimsData(ch: string, raw: Record<string, unknown>): ClaimsDa
   };
 }
 
-export const readClaims = async (ch: string) => toClaimsData(ch, await browser.storage.local.get(channelKeys(ch)));
-
 // Follows one channel's keys: one full read, then each change is applied from its event
 // (re-reading 17 keys, the song history among them, per run-item write would cost seconds at size).
 export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void {

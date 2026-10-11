@@ -52,7 +52,6 @@ export const count = (key: string): number => kv.peek(key, (v) => (v && typeof v
 // The stored value itself, not a copy, for telling whether it changed: every change (a write
 // here, its result, a change from elsewhere, a new store) puts another object there. Never edit it.
 export const storedRef = (key: string): unknown => kv.peek(key, (v) => v);
-export const onClaimsStored = (key: string, fn: (value: unknown) => void) => kv.onChange(key, fn);
 export const flushClaims = () => kv.flush();
 
 // The background answers an op in milliseconds; it may wait behind a settings import in the
