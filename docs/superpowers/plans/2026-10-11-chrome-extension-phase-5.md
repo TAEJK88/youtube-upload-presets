@@ -844,8 +844,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   If the list has more than five ports, or any port larger than one task, say so at the top and ask the owner to choose between (a) porting all of them and releasing later, and (b) releasing 5.0.0 with the chosen rows recorded as known gaps. A known gap is still an owner decision: it gets a line in `DECISIONS.md` ("not in 5.0.0, planned"), its row becomes `dropped` citing it, and the CHANGELOG's "Not in the extension yet" list names it.
 
 - [ ] **Step 2 (controller): act on each answer.**
-  1. **Port it.** One agent per port, in its own worktree. Two run at once only if they touch different code files. Brief: the userscript lines; the test to write first (the behaviour, in the module's existing test file); if the code is ported text, the `scripts/port/*.mjs` config it extends (`node scripts/port-check.mjs --print <name>` gives the starting text; a new region takes lines out of the inventory, so the agent updates the pinned count and hash in `tests/parity-check.test.ts` and says which lines moved); the new string pairs **in its report**, not in `extension-only.mjs`; the text of a README item if the feature can be seen. After each merge the controller registers the strings, sets the row to `same` with its `home` and proof, and runs `npm run check`.
-  2. **Drop it, or leave it as a known gap.** The controller adds the line to `DECISIONS.md` under `## Phase 5` (`- **P5-row-<n>** <date>: <the owner's words>`), sets the row to `dropped` citing `decision: P5-row-<n>`, and adds the strings to `dropped.mjs` if `ui-check --coverage` then asks for them.
+  1. **Port it.** One agent per port, in its own worktree. Two run at once only if they touch different code files. Brief: the userscript lines; the test to write first (the behaviour, in the module's existing test file); if the code is ported text, the `scripts/port/*.mjs` config it extends (`node scripts/port-check.mjs --print <name>` gives the starting text; a new region takes lines out of the inventory, so the pinned count and hash in `tests/parity-check.test.ts` change: the agent says in its report which lines moved and leaves the two numbers alone on its branch if another port is running, since the hash depends on every port's regions together); the new string pairs **in its report**, not in `extension-only.mjs`; the text of a README item if the feature can be seen. After each merge the controller registers the strings, sets the row to `same` with its `home` and proof, **recomputes the pinned inventory count and hash** (run the test, read the new numbers from its failure, check that the lines that left are the port's new regions, update both) and runs `npm run check`.
+  2. **Drop it, or leave it as a known gap.** The controller adds the line to `DECISIONS.md` under `## Phase 5` (`- **P5-row-<n>** <date>: <the owner's words>`), sets the row to `dropped` citing `decision: P5-row-<n>` (for a known gap the row's `note` **starts with "not in 5.0.0, planned"**, so the list the owner reads for item 81 tells "gone for good" from "comes later"), and adds the strings to `dropped.mjs` if `ui-check --coverage` then asks for them.
   3. **Already decided.** The agent's note names where. The controller checks it, adds the missing `DECISIONS.md` line (or uses a `spec:` / `README:` cite) and fixes the row.
 
 - [ ] **Step 3: gate.** `node scripts/parity-check.mjs` exits 0 with `0 missing`. (`--release` also wants `PARITY.md`, which Z writes in Task 8.)
@@ -1221,7 +1221,7 @@ Both installed is the likeliest cutover mistake. Each has its own storage, so ea
 |---|---|
 | A queue Start | `queue:preflight` answers `{ error }` (so no summary is shown first) and `queue:start` refuses with the same sentence |
 | A trim / ads / Collab run asked from the panel | the three handlers refuse with the sentence |
-| Any copyright step that changes pages, whoever started it (a run that began before the userscript's root appeared, an Auto-pilot cycle's trims, a follow-up trim) | the tab's `acquire` for the `claims` job answers `false` without asking the background, so the step waits exactly as it waits for another tab (`claimLock()`, `lib/claims/claims.ts:159`); the lock is never taken, so nothing is held from other tabs |
+| Any copyright step that changes pages, whoever started it (a run that began before the userscript's root appeared, an Auto-pilot cycle's trims, a follow-up trim) | the tab's `acquire` for the `claims` job answers `false` without asking the background, so the step waits exactly as it waits for another tab (`claimLock()`, `lib/claims/claims.ts:159`); on the first refusal the tab also releases the `claims` job in case it already held it, so nothing is held from other tabs |
 
 **Not held** (so the tab stays honest and nothing freezes): the 800 ms tick itself (the status card, the worker lease, the ytcfg re-read, "press Save for me" on a manual trim), scans (read-only; an Auto-pilot cycle that comes due still scans and then waits at its first page change), every edit and setting, and **Stop**.
 
@@ -1232,7 +1232,7 @@ Both installed is the likeliest cutover mistake. Each has its own storage, so ea
 - Modify: `extension/lib/messages.ts` (`PROTOCOL` 2 → 3), `extension/lib/studio/queue-view.ts` (`QueueView.userscript`), `extension/entrypoints/studio.content.ts`, `extension/entrypoints/sidepanel/shell/Banners.tsx`, `extension/tests/studio-wiring.test.ts`, `extension/tests/queue-view.test.ts`, `extension/tests/panel-shell.test.tsx`, `extension/scripts/strings/extension-only.mjs`; any test that pins the number 2 for `PROTOCOL` (`grep -rn "proto: 2\|PROTOCOL" tests`)
 
 **Interfaces:**
-- Produces: `userscriptHere(doc?: Document): boolean`; `USERSCRIPT_HERE(): string` (a lazy `L()`, as Phase 4's call 23 requires); `heldAcquire(ask: () => Promise<boolean>, here?: () => boolean, said?: (msg: string) => void): () => Promise<boolean>`; `QueueView.userscript: boolean`; `PROTOCOL = 3`.
+- Produces: `userscriptHere(doc?: Document): boolean`; `USERSCRIPT_HERE(): string` (a lazy `L()`, as Phase 4's call 23 requires); `heldAcquire(ask: () => Promise<boolean>, here?: () => boolean, said?: (msg: string) => void, release?: () => void): () => Promise<boolean>`; `QueueView.userscript: boolean`; `PROTOCOL = 3`.
 
 **`PROTOCOL` goes to 3 (call 16).** `lib/messages.ts:12-17` says to raise it whenever `QueueView` gains a field. The effect: after this build is loaded, a Studio tab still running the previous build shows "This tab is not connected to the extension yet — reload this tab" until it is reloaded, which the update steps require anyway.
 
@@ -1270,19 +1270,34 @@ describe('heldAcquire', () => {
     expect(await heldAcquire(ask, () => false)()).toBe(true);
     expect(ask).toHaveBeenCalledTimes(1);
   });
-  it('answers false without asking while it is there, and says why once a minute at most', async () => {
-    vi.useFakeTimers();
+  it('answers false without asking while it is there, and says why once per page load', async () => {
     const ask = vi.fn(async () => true);
     const said = vi.fn();
-    const acquire = heldAcquire(ask, () => true, said);
+    let here = true;
+    const acquire = heldAcquire(ask, () => here, said);
     expect(await acquire()).toBe(false);
     expect(await acquire()).toBe(false);
-    expect(ask).not.toHaveBeenCalled(); // the lock is never taken: other tabs are not held up
+    expect(ask).not.toHaveBeenCalled(); // the lock is not asked for
     expect(said).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(60_001);
+    here = false; await acquire(); here = true; await acquire(); // gone and back: not said again on this page
+    expect(said).toHaveBeenCalledTimes(1);
+  });
+  // R1: claimLock() takes a refusal as "not mine" and never lets go by itself (settleLock returns
+  // on !lockMine). A tab that held the lock when the userscript appeared would keep it until closed.
+  it('a tab that held the lock lets it go on the first refusal, once', async () => {
+    let here = true;
+    const release = vi.fn();
+    const acquire = heldAcquire(async () => true, () => here, () => {}, release);
     await acquire();
-    expect(said).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
+    await acquire();
+    await acquire();
+    expect(release).toHaveBeenCalledTimes(1);
+    here = false; // the script was turned off: the lock is asked for and taken again
+    expect(await acquire()).toBe(true);
+    expect(release).toHaveBeenCalledTimes(1);
+    here = true; // and on again: let go again
+    await acquire();
+    expect(release).toHaveBeenCalledTimes(2);
   });
   it('asks again as soon as the userscript is gone', async () => {
     let here = true;
@@ -1308,7 +1323,8 @@ In `tests/studio-wiring.test.ts` (source pins of the content script, in that fil
     expect(studio).toMatch(/onMessage\('queue:preflight', \(\) => \(userscriptHere\(\) \? \{ error: USERSCRIPT_HERE\(\) \} : startSummary\(\)\)\)/);
     expect(studio).toMatch(/onMessage\('queue:start', \(\{ data: seen \}\) => \{\s*if \(userscriptHere\(\)\) return void ui\.toast\(USERSCRIPT_HERE\(\)\);/);
     for (const m of ['trim', 'ads', 'collab']) expect(studio).toMatch(new RegExp(`onMessage\\('claims:${m}', \\(\\{ data \\}\\) => unlessUserscript\\(`));
-    expect(studio).toMatch(/acquire: heldAcquire\(\(\) => sendMessage\('runner:acquire', 'claims'\)/);
+    expect(studio).toMatch(/acquire: heldAcquire\(\(\) => sendMessage\('runner:acquire', 'claims'\), userscriptHere, \(m\) => ui\.toast\(m\), releaseClaims\)/);
+    expect(studio).toMatch(/release: releaseClaims,/); // the same release the copyright module itself uses
   });
   it('holds neither the tick, nor a scan, nor Stop', () => {
     expect(studio).toMatch(/^\s*claims\.tick\(\);$/m); // unconditional
@@ -1340,13 +1356,20 @@ export const USERSCRIPT_HERE = () => L(
   'The Tampermonkey script is still on in this tab — turn it off in Tampermonkey, then reload this tab. Uploads, trims and Auto-pilot wait until then');
 
 // The copyright module's way to the automation lock (setClaimsLock's `acquire`). Refused here,
-// a step waits as it waits for another tab; the background is not asked, so no lock is held.
-// `said` tells the page why, once a minute at most (a waiting step asks on every tick).
-export function heldAcquire(ask: () => Promise<boolean>, here: () => boolean = userscriptHere, said: (msg: string) => void = () => {}): () => Promise<boolean> {
-  let last = -Infinity;
+// a step waits as it waits for another tab; the background is not asked. claimLock() takes a
+// refusal as "the lock is not mine" and then never releases it, so a tab that already held the
+// lock (a run begun before the userscript's root appeared, or kept across a reload) lets it go
+// here, once per time the userscript is there. `said` tells the page why, once per page load.
+export function heldAcquire(
+  ask: () => Promise<boolean>, here: () => boolean = userscriptHere,
+  said: (msg: string) => void = () => {}, release: () => void = () => {},
+): () => Promise<boolean> {
+  let held = false;
+  let told = false;
   return async () => {
-    if (!here()) return ask();
-    if (Date.now() - last > 60_000) { last = Date.now(); said(USERSCRIPT_HERE()); }
+    if (!here()) { held = false; return ask(); }
+    if (!held) { held = true; release(); }
+    if (!told) { told = true; said(USERSCRIPT_HERE()); }
     return false;
   };
 }
@@ -1361,8 +1384,11 @@ Register the pair under `// 5 G (userscript in the tab)` with `why: 'cutover: th
 `entrypoints/studio.content.ts` (five places; the pins in Step 1 give the exact text):
 
 ```ts
+    // above setClaimsLock: one release for both users
+    const releaseClaims = () => void sendMessage('runner:release', 'claims').catch(() => {});
     // in setClaimsLock({ … })
-      acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, (m) => ui.toast(m)),
+      acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, (m) => ui.toast(m), releaseClaims),
+      release: releaseClaims,
 ```
 
 ```ts
@@ -1399,11 +1425,11 @@ with `let userscriptSeen = false;` declared beside the interval. `ui.schedule()`
 
 (`alert` is in `lib/studio/dom.ts` `ICONS`.)
 
-- [ ] **Step 3: While held, a scan's end and a Stop still reach the panel (tests).** In `tests/claims-runs.test.ts` (or the file where the lock glue is tested: `grep -ln "setClaimsLock" tests`), with `setClaimsLock({ acquire: heldAcquire(ask, () => true), … })`:
+- [ ] **Step 3: While held, a scan's end and a Stop still reach the panel (tests).** In `tests/claims-runs.test.ts` (or the file where the lock glue is tested: `grep -ln "setClaimsLock" tests`), with `setClaimsLock({ acquire: heldAcquire(ask, () => true, () => {}, release), release, holds: async () => true, … })` (`holds` answers `true`: this tab held the lock when the page loaded, which is what `initClaimsLock` then believes):
   1. start a scan with the fake youtubei answers that file already uses, run the ticks, and expect the status to reach "Scan complete" and the `claims:state` broadcast to carry it;
-  2. with an active trim run stored, tick: the step's stage is the lock-wait line, `ask` was never called, no `location.href` change was made; then `stopAll()`: the run is inactive, "You stopped it" is logged, and the follow-ups are cancelled.
+  2. with an active trim run stored, tick several times: the step's stage is the lock-wait line, `ask` was never called, no `location.href` change was made, and **`release` was called exactly once** (R1: the lock this tab held is given back, so other tabs are not kept waiting); then `stopAll()`: the run is inactive, "You stopped it" is logged, and the follow-ups are cancelled.
 
-- [ ] **Step 4: Remove each guard in turn and see a test fail** (five mutants: preflight, start, the three run handlers as one, `heldAcquire`, the rev bump). List them in the report.
+- [ ] **Step 4: Remove each guard in turn and see a test fail** (six mutants: preflight, start, the three run handlers as one, `heldAcquire`'s refusal, its release, the rev bump). List them in the report.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -2095,7 +2121,9 @@ Add to "Known behaviour" a `### Known behaviour, Phase 5 (note, don't test)` lis
   quick-action bars and multi-file pick also still work beside the extension's. Turn the
   script off.
 - **With the script on and no panel open,** an Auto-pilot cycle that comes due still scans and
-  then waits; the Studio page shows a toast with the reason, once a minute at most.
+  then waits; the Studio page shows a toast with the reason once, when the page first has to wait
+  (not again until the tab is reloaded). The status card reads "Waiting for another Studio tab
+  to finish"; the banner gives the real reason.
 - **Importing a move file twice** adds nothing twice, and sets the language to the file's again.
 ```
 
@@ -2289,7 +2317,7 @@ gh release create v5.0.0 "<zip path>" --draft --title "v5.0.0" --notes-file "<no
 
 - [ ] **Step 6: Confirm from the outside** (read-only): `curl -s https://api.github.com/repos/TAEJK88/youtube-upload-presets/releases/latest | grep -E '"tag_name"|"html_url"' | head -2`. Expected: `"tag_name": "v5.0.0"`. An installed 5.0.0 shows no banner (equal versions).
 
-- [ ] **Step 7 [owner]: the owner and one pilot only — not the team yet (call 20).** The owner installs from the release (README item 75 again, this time with the real download), and one teammate of the owner's choice does the same. Nobody else is told yet: the README's "Moving" starts with userscript v4.29.0, which does not exist until Task 11. A teammate who moved today would export without history, channels or language, and could get them later only by an import that also replaces their presets and settings with the script's older ones. The team announcement is Task 11 Step 11.
+- [ ] **Step 7 [owner]: the owner and one pilot only — not the team yet (call 20).** The owner installs from the release (README item 75 again, this time with the real download), and one teammate of the owner's choice does the same **to try it, not to move**: the pilot keeps working in the script and does their real move after Task 11, with v4.29.0's export, like everyone else (or knowingly moves now without history, channel list and language). Nobody else is told yet: the README's "Moving" starts with userscript v4.29.0, which does not exist until Task 11. A teammate who moved today would export without history, channels or language, and could get them later only by an import that also replaces their presets and settings with the script's older ones. The team announcement is Task 11 Step 11.
 
 ---
 
