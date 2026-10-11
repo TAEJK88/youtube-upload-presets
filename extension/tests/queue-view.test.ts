@@ -28,9 +28,11 @@ const item = (id: string, status: Q.QueueItem['status'], extra: Partial<Q.QueueI
   titleEdited: false, status, msg: '', txt: '', txtName: '', thumb: null, duration: 0, ...extra,
 });
 const state = { running: false, stopping: false, prog: null, rev: 1 } as unknown as QueueState;
+let userscriptRoot = false; // the page has the Tampermonkey userscript's #ytp-root
 
 beforeEach(() => {
-  vi.stubGlobal('document', makeDocument());
+  userscriptRoot = false;
+  vi.stubGlobal('document', Object.assign(makeDocument(), { getElementById: (id: string) => (userscriptRoot && id === 'ytp-root' ? {} : null) }));
   vi.stubGlobal('location', { pathname: '/channel/UCaaaaaaaaaaaaaaaaaaaaaa/videos' });
   setPageUi(ui);
   Q.queue.splice(0);
@@ -45,6 +47,16 @@ afterEach(() => {
 describe('queueView', () => {
   it("says which build's shape it is (the panel refuses another)", () => {
     expect(queueView(state).proto).toBe(PROTOCOL);
+    // 3 since the view has `userscript` (call 16): a tab of an older build would send none, and
+    // the panel would read that as "no userscript here" instead of asking for a reload.
+    expect(PROTOCOL).toBe(3);
+  });
+
+  // Call 7: the panel's banner reads this; the page's guards read the same check.
+  it('says whether the Tampermonkey userscript is in the page', () => {
+    expect(queueView(state).userscript).toBe(false);
+    userscriptRoot = true;
+    expect(queueView(state).userscript).toBe(true);
   });
 
   it('copies the items and adds what only the runner knows', () => {

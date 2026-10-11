@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClaimsOp } from '../lib/claims/ops';
+import { createClaimsPage } from '../lib/claims/page';
 import { load, useMemoryClaims } from '../lib/claims/store';
+import type { ClaimsState } from '../lib/claims/types';
 import { setYoutubei } from '../lib/claims/youtubei';
 import { refreshCfg, resetCfg } from '../lib/studio/channel';
 import { save as saveState, settings } from '../lib/studio/state';
+import { heldAcquire } from '../lib/studio/userscript-here';
 
 vi.mock('../lib/studio/automation', async (orig) => ({
   ...(await orig<typeof import('../lib/studio/automation')>()),
@@ -192,6 +195,71 @@ describe('Collab run', () => {
     C.stopAll();
     expect(ops).toContainEqual({ op: 'merge', key: `collabRun:${CH}`, entries: { active: false } });
     expect(load<{ active: boolean }>(`collabRun:${CH}`, null as never).active).toBe(false);
+  });
+});
+
+// Call 7: while the Tampermonkey userscript is in the page the tab's `acquire` refuses without
+// asking the background (userscript-here heldAcquire). What must go on all the same: a scan and
+// its status, and Stop. `holds` answers yes: this tab held the lock when the page loaded.
+describe('while the Tampermonkey userscript is in the page', () => {
+  const ask = vi.fn(async () => true);
+  const release = vi.fn();
+  beforeEach(async () => {
+    ask.mockClear();
+    release.mockClear();
+    vi.stubGlobal('location', { pathname: '/channel/x/videos', href: '' });
+    document.body.innerHTML = '<div id="ytp-root"></div>';
+    C.setClaimsLock({ worker: async () => true, acquire: heldAcquire(ask, undefined, () => {}, release), release, holds: async () => true });
+  });
+  afterEach(() => { document.body.innerHTML = ''; vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it('a scan still ends, and the panel is told', async () => {
+    useMemoryClaims({}, async (op) => void ops.push(op));
+    await refreshCfg(async () => ({ CHANNEL_ID: CH, INNERTUBE_CONTEXT: { client: {} } }));
+    await C.initClaimsLock();
+    setYoutubei(async (path) => (path === 'creator/list_creator_videos'
+      ? { videos: [{ videoId: 'v1', title: 'Mix', privacy: 'VIDEO_PRIVACY_PUBLIC', lengthSeconds: '600', copyrightSummary: { activeThirdPartyClaimsCount: '1' } }] }
+      : path === 'creator/list_creator_received_claims'
+        ? { receivedClaims: [{ claimId: 'c1', type: 'CLAIM_TYPE_AUDIO', status: 'RECEIVED_CLAIM_STATUS_ACTIVE', asset: { metadata: { soundRecording: { title: 'Song', artists: ['A'] } } }, nontakedownClaimActions: { options: ['NON_TAKEDOWN_CLAIM_OPTION_TRIM'] } }] }
+        : { matches: { claimMatches: [{ videoSegment: { startMillis: '60000', endMillis: '90000' } }] } }));
+    const send = vi.fn(async (..._: unknown[]) => undefined);
+    const page = createClaimsPage({ send: send as never, toast: () => {}, refreshCfg: async () => {} });
+    C.setClaimsUi(page.ui);
+    await page.scan('claims');
+    await vi.waitFor(() => { page.tick(); expect(C.computeStatus()).toMatchObject({ title: 'Scan complete' }); });
+    const states = send.mock.calls.filter(([t]) => t === 'claims:state').map(([, s]) => s as ClaimsState);
+    expect(states.at(-1)!.status).toMatchObject({ title: 'Scan complete', detail: '1 claims in 1 of 1 videos' });
+    expect(send).toHaveBeenCalledWith('claims:show', 'claims');
+    expect(load<{ rows: unknown[] }>(`claimScan:${CH}`, null as never).rows).toHaveLength(1);
+    expect(ask).not.toHaveBeenCalled(); // a scan changes no page: it never asks for the lock
+    page.dispose();
+  });
+
+  // R1: the lock this tab held is given back at the first refusal, so no other tab waits for it.
+  it('an active trim run waits at its first page change, gives the lock back once, and Stop still ends it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    useMemoryClaims({
+      [`trimRun:${CH}`]: { active: true, mode: 'auto', started: 's1', items: [{ key: 'v1:c1', videoId: 'v1', claimId: 'c1', song: 'S', video: 'Mix', state: 'pending', msg: '' }] },
+      [`followUp:${CH}`]: { v1: { video: 'Mix', pending: [{ key: 'v1:c2', claimId: 'c2', song: 'S2', tries: 0 }], lastClaimId: 'c1', lastSavedAt: 0 } },
+    }, async (op) => void ops.push(op));
+    await C.initClaimsLock();
+    for (let i = 0; i < 20; i++) { C.claimsTick(); await vi.advanceTimersByTimeAsync(800); }
+    // the card names the userscript, not another tab (review 3)
+    expect(C.trimStage.detail).toBe('⏸ The Tampermonkey script is still on in this tab — turn it off in Tampermonkey, then reload this tab. Uploads, trims and Auto-pilot wait until then');
+    expect(C.claimsState().status).toMatchObject({ stepDetail: C.trimStage.detail });
+    expect(ask).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(location.href).toBe('');
+    expect(load<{ active: boolean }>(`trimRun:${CH}`, null as never).active).toBe(true); // waits; not ended, not failed
+    ui.log.mockClear();
+    C.stopAll();
+    expect(load<{ active: boolean }>(`trimRun:${CH}`, null as never).active).toBe(false);
+    expect(ui.log).toHaveBeenCalledWith('You stopped it: Trimmed 0 · Not done 1', 'ok');
+    expect(ui.log).toHaveBeenCalledWith('Cancelled 1 queued follow-up trims', 'warn');
+    expect(load(`followUp:${CH}`, null)).toEqual({});
+    for (let i = 0; i < 5; i++) { C.claimsTick(); await vi.advanceTimersByTimeAsync(800); }
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(location.href).toBe('');
   });
 });
 

@@ -9,6 +9,7 @@ import {
   scheduleOn, scheduleProblem, startIsPast, takenSlots, type QueueItem,
 } from './queue-runner';
 import { presetById, settings } from './state';
+import { userscriptHere } from './userscript-here';
 
 // What the side panel shows that only the Studio tab can work out: the drawer's
 // updateItemUI() / renderAttachments() / onScheduleChange() / updateChannelUI() read
@@ -46,6 +47,7 @@ export interface QueueView {
   schedule: ScheduleView;
   channel: ChannelView;
   state: QueueState;
+  userscript: boolean; // the Tampermonkey userscript is active in this page (call 7)
   proto: number; // PROTOCOL: the panel shows a view of its own build only
 }
 
@@ -100,6 +102,7 @@ export function queueView(state: QueueState): QueueView {
     },
     channel: channelView(),
     state,
+    userscript: userscriptHere(),
     proto: PROTOCOL,
   };
 }

@@ -678,6 +678,24 @@ describe('the tick (6310–6354)', () => {
     expect(clicks).toBe(1);
     await vi.advanceTimersByTimeAsync(10_000);
   });
+
+  // Phase 5 review 1: the editor may be one the userscript's own review-mode run opened, for the
+  // user to check. While the userscript is in the page this tab presses Save for nobody.
+  it('not while the Tampermonkey userscript is in the page: its run may have opened that editor', async () => {
+    let clicks = 0;
+    document.body.innerHTML = '<div id="ytp-root"></div><ytcr-editing-tool-dialog><div id="continue-button"><button>Save</button></div></ytcr-editing-tool-dialog>';
+    document.querySelector('button')!.addEventListener('click', () => { clicks++; });
+    useMemoryClaims({ cfg: { autoSaveManualTrim: true } });
+    C.claimsTick();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(clicks).toBe(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    document.getElementById('ytp-root')!.remove(); // the script was turned off: as before
+    C.claimsTick();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(clicks).toBe(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+  });
 });
 
 describe('a trim step changes pages (5950–5958)', () => {

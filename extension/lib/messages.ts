@@ -14,7 +14,7 @@ import type { ChannelView, QueueView } from './studio/queue-view';
 // panel takes a queue view or state only from a tab with its own number, and otherwise asks for
 // that tab to be reloaded. Raise it whenever QueueView, QueueState or ClaimsState gains, loses or
 // changes a field.
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 
 // What the side panel needs to follow a run live; the items themselves are in
 // chrome.storage.local ('queue'). `rev` goes up whenever the page changed something the

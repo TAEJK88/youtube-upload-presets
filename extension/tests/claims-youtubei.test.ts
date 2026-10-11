@@ -168,7 +168,7 @@ describe("the queue's schedule and the channel's scheduled videos (deferred item
   let start = 0;
   let off = () => {};
   beforeEach(() => {
-    vi.stubGlobal('document', makeDocument());
+    vi.stubGlobal('document', Object.assign(makeDocument(), { getElementById: () => null })); // queueView asks for the userscript's #ytp-root
     setPageUi(ui);
     Q.queue.splice(0);
     start = new Date(Date.now() + 86400e3).setMinutes(0, 0, 0);

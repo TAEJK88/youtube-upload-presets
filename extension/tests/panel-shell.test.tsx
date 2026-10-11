@@ -291,6 +291,28 @@ describe('banners', () => {
   });
 });
 
+// Call 7: the Studio tab starts nothing while the Tampermonkey userscript is in its page; the
+// panel says why, first of all banners (it explains why Start does nothing).
+describe('userscript banner', () => {
+  const sentence = /^The Tampermonkey script is still on in this tab — turn it off in Tampermonkey, then reload this tab\./;
+  it('shows while the tab says the userscript is in its page, and not otherwise', () => {
+    renderPanel(<Banners />, fakePanel());
+    expect(screen.queryByText(sentence)).toBe(null);
+    cleanup();
+    renderPanel(<Banners />, fakePanel({ view: null }));
+    expect(screen.queryByText(sentence)).toBe(null);
+    cleanup();
+    renderPanel(<Banners />, fakePanel({ view: viewWith([], { userscript: true }) }));
+    expect(screen.getByText(sentence)).toBeTruthy();
+  });
+  it('comes before the other banners', () => {
+    renderPanel(<Banners />, fakePanel({ link: 'noScript', view: viewWith([], { userscript: true }) }));
+    const all = screen.getAllByRole('status').map((b) => b.textContent);
+    expect(all).toHaveLength(2);
+    expect(all[0]).toMatch(sentence);
+  });
+});
+
 describe('update banner', () => {
   // The stored answer must not reach the other tests of this file, in either direction.
   beforeEach(() => { fakeBrowser.reset(); });

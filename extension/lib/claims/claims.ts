@@ -9,6 +9,7 @@ import { otherTabRunning, queue, running, uploadOf } from '../studio/queue-runne
 import { SEL } from '../studio/sel';
 import { load as loadState, settings } from '../studio/state';
 import { TXT } from '../studio/txt';
+import { USERSCRIPT_HERE, userscriptHere } from '../studio/userscript-here';
 import { claimInfo, DEFAULTS, privacyOf, short, songNorm } from './core';
 import { count, load, save, write } from './store';
 import type {
@@ -160,7 +161,8 @@ async function claimLock(): Promise<boolean> {
   lockMine = await lockApi.acquire().catch(() => false);
   return lockMine;
 }
-const lockWait = () => L('⏸ รอแท็บ Studio อื่นทำงานเสร็จก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for another Studio tab to finish (page change needed)');
+// …or, while the Tampermonkey userscript is in the page, that the wait is for it (Phase 5 call 7).
+const lockWait = () => (userscriptHere() ? `⏸ ${USERSCRIPT_HERE()}` : L('⏸ รอแท็บ Studio อื่นทำงานเสร็จก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for another Studio tab to finish (page change needed)'));
 const runActive = () => [getRun(), getAdsRun(), getCollabRun()].some((r) => !!(r && r.active));
 const holdsRun = () => lockMine && runActive();
 // After each tick: let the job go once no run needs this tab any more, and also while its run
@@ -1179,7 +1181,7 @@ const switchToChannel: typeof switcher = (t, next) => {
     }
     // ตัดเองด้วยมือในหน้า claim: กด Save ให้เฉพาะเมื่อเปิดตั้งค่าไว้ / ยืนยัน "Confirm changes" ให้เมื่อเปิดตัดอัตโนมัติ
     const c = cfg();
-    if (!running2 && /\/video\/[^/]+\/(claims|copyright)/.test(location.pathname)) {
+    if (!running2 && /\/video\/[^/]+\/(claims|copyright)/.test(location.pathname) && !userscriptHere()) {
       if (c.autoSaveManualTrim) {
         const ed: any = document.querySelector(SEL.trimDialog);
         const sb = ed && (ed.querySelector(`${SEL.trimContinue} button`) || ed.querySelector(SEL.trimContinue));
