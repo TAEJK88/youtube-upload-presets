@@ -10,7 +10,7 @@
 //   node scripts/parity-check.mjs --write    writes PARITY.md (not when a row has a problem)
 //   node scripts/parity-check.mjs --seed     prints a `missing` row for every named item without one
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -211,7 +211,7 @@ async function main() {
   }
   const cache = new Map();
   const read = (p) => {
-    if (!cache.has(p)) cache.set(p, existsSync(join(EXT, p)) ? readFileSync(join(EXT, p), 'utf8') : null);
+    if (!cache.has(p)) cache.set(p, statSync(join(EXT, p), { throwIfNoEntry: false })?.isFile() ? readFileSync(join(EXT, p), 'utf8') : null);
     return cache.get(p);
   };
   const readme = read('README.md') ?? '';
