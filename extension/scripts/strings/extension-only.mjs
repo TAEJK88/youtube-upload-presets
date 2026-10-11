@@ -114,4 +114,7 @@ export default [
   //
   // 4b Q (panel)
   //
+  // 5 U (update check)
+  // 5 G (userscript in the tab)
+  // 5 M (move file)
 ];
