@@ -14,16 +14,67 @@ export const USERSCRIPT_HERE = () => L(
 // refusal as "the lock is not mine" and then never releases it, so a tab that already held the
 // lock (a run begun before the userscript's root appeared, or kept across a reload) lets it go
 // here, once per time the userscript is there. `said` tells the page why, once per page load.
+// That release is a message nobody answers: 30 s later, at the next refusal, the tab asks whether
+// it still holds the lock (`holds`), lets go again if so, and asks no more once the answer is no.
+const RELEASE_CHECK_MS = 30_000;
 export function heldAcquire(
   ask: () => Promise<boolean>, here: () => boolean = userscriptHere,
   said: (msg: string) => void = () => {}, release: () => void = () => {},
+  holds: () => Promise<boolean> = async () => false,
 ): () => Promise<boolean> {
-  let held = false;
+  let held = 0; // counts the times the userscript was found; 0 while it is not there
+  let times = 0;
+  let unsure = false;
+  let checkAt = 0;
   let told = false;
   return async () => {
-    if (!here()) { held = false; return ask(); }
-    if (!held) { held = true; release(); }
+    if (!here()) { held = 0; return ask(); }
+    if (!held) {
+      held = ++times;
+      release();
+      unsure = true;
+      checkAt = Date.now() + RELEASE_CHECK_MS;
+    } else if (unsure && Date.now() >= checkAt) {
+      const then = held;
+      checkAt = Date.now() + RELEASE_CHECK_MS;
+      // An answer that comes after the userscript went is dropped: the lock may be this tab's again.
+      void holds().then((mine) => {
+        if (held !== then) return;
+        if (mine) release();
+        else unsure = false;
+      }, () => {});
+    }
     if (!told) { told = true; said(USERSCRIPT_HERE()); }
     return false;
+  };
+}
+
+// One page toast per page load, whichever guard speaks first.
+export const sayOnce = (say: (msg: string) => void) => {
+  let told = false;
+  return (msg: string) => {
+    if (told) return;
+    told = true;
+    say(msg);
+  };
+};
+
+// For the content script's 800 ms tick. The userscript appends its root after this script may
+// have answered a first queue:view, so a change is told to the panel at once (`changed`). It may
+// also come after a Start got through (Tampermonkey injected late): an upload run that is going
+// when the root appears is asked to stop after its current video, and the page is told why.
+export function userscriptWatch(d: {
+  here?: () => boolean; running(): boolean; stop(): void; said(msg: string): void; changed(): void;
+}): () => void {
+  const here = d.here ?? userscriptHere;
+  let seen = false;
+  return () => {
+    if (here() === seen) return;
+    seen = !seen;
+    if (seen && d.running()) {
+      d.stop();
+      d.said(USERSCRIPT_HERE());
+    }
+    d.changed();
   };
 }

@@ -194,10 +194,11 @@ describe('the Studio content script', () => {
   it('wires the worker lease and the automation lock to the background, then the panel\'s and the alarm\'s messages', () => {
     expect(studio).toContain("worker: (ch, force) => sendMessage('runner:worker', { ch, force }),");
     // asked through heldAcquire since Phase 5 (call 7; userscript-here.test.ts, studio-wiring.test.ts)
-    expect(studio).toContain("acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, (m) => ui.toast(m), releaseClaims),");
+    expect(studio).toContain("acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, sayUserscript, releaseClaims, holdsClaims),");
     expect(studio).toContain("const releaseClaims = () => void sendMessage('runner:release', 'claims').catch(() => {});");
     expect(studio).toContain('release: releaseClaims,');
-    expect(studio).toContain("holds: () => sendMessage('runner:holds', 'claims'),");
+    expect(studio).toContain("const holdsClaims = () => sendMessage('runner:holds', 'claims');");
+    expect(studio).toContain('holds: holdsClaims,');
     const at = (s: string) => { const i = studio.indexOf(s); expect(i, s).toBeGreaterThan(-1); return i; };
     const init = at('await initClaimsLock();');
     expect(at('setClaimsLock({')).toBeLessThan(init);

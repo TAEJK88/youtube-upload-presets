@@ -208,9 +208,10 @@ describe('while the Tampermonkey userscript is in the page', () => {
     ask.mockClear();
     release.mockClear();
     vi.stubGlobal('location', { pathname: '/channel/x/videos', href: '' });
-    C.setClaimsLock({ worker: async () => true, acquire: heldAcquire(ask, () => true, () => {}, release), release, holds: async () => true });
+    document.body.innerHTML = '<div id="ytp-root"></div>';
+    C.setClaimsLock({ worker: async () => true, acquire: heldAcquire(ask, undefined, () => {}, release), release, holds: async () => true });
   });
-  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  afterEach(() => { document.body.innerHTML = ''; vi.useRealTimers(); vi.unstubAllGlobals(); });
 
   it('a scan still ends, and the panel is told', async () => {
     useMemoryClaims({}, async (op) => void ops.push(op));
@@ -243,7 +244,9 @@ describe('while the Tampermonkey userscript is in the page', () => {
     }, async (op) => void ops.push(op));
     await C.initClaimsLock();
     for (let i = 0; i < 20; i++) { C.claimsTick(); await vi.advanceTimersByTimeAsync(800); }
-    expect(C.trimStage.detail).toBe('⏸ Waiting for another Studio tab to finish (page change needed)');
+    // the card names the userscript, not another tab (review 3)
+    expect(C.trimStage.detail).toBe('⏸ The Tampermonkey script is still on in this tab — turn it off in Tampermonkey, then reload this tab. Uploads, trims and Auto-pilot wait until then');
+    expect(C.claimsState().status).toMatchObject({ stepDetail: C.trimStage.detail });
     expect(ask).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
     expect(location.href).toBe('');

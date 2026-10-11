@@ -29,7 +29,9 @@ describe('the Studio content script', () => {
     expect(studio).toMatch(/onMessage\('queue:start', \(\{ data: seen \}\) => \{\s*if \(userscriptHere\(\)\) return void ui\.toast\(USERSCRIPT_HERE\(\)\);/);
     for (const m of ['trim', 'ads', 'collab']) expect(studio).toMatch(new RegExp(`onMessage\\('claims:${m}', \\(\\{ data \\}\\) => unlessUserscript\\(`));
     expect(studio).toMatch(/const unlessUserscript = <T,>\(run: \(\) => T\) => \(userscriptHere\(\) \? void ui\.toast\(USERSCRIPT_HERE\(\)\) : run\(\)\);/);
-    expect(studio).toMatch(/acquire: heldAcquire\(\(\) => sendMessage\('runner:acquire', 'claims'\), userscriptHere, \(m\) => ui\.toast\(m\), releaseClaims\)/);
+    expect(studio).toMatch(/acquire: heldAcquire\(\(\) => sendMessage\('runner:acquire', 'claims'\), userscriptHere, sayUserscript, releaseClaims, holdsClaims\),/);
+    expect(studio).toMatch(/const holdsClaims = \(\) => sendMessage\('runner:holds', 'claims'\);/);
+    expect(studio).toMatch(/const sayUserscript = sayOnce\(\(m\) => ui\.toast\(m\)\);/); // one page toast per load
     expect(studio).toMatch(/release: releaseClaims,/); // the same release the copyright module itself uses
     expect(studio).toMatch(/const releaseClaims = \(\) => void sendMessage\('runner:release', 'claims'\)\.catch\(\(\) => \{\}\);/);
     // no other way to a start or to the lock is left in the file
@@ -44,7 +46,11 @@ describe('the Studio content script', () => {
     expect(studio).toMatch(/onMessage\('claims:stop', \(\) => stopAll\(\)\)/);
     expect(studio).toMatch(/onMessage\('queue:stop', \(\) => \{\s*stopQueue\(\);/);
   });
-  it('tells the panel when the userscript appears or goes', () => {
-    expect(studio).toMatch(/if \(userscriptHere\(\) !== userscriptSeen\) \{\s*userscriptSeen = !userscriptSeen;\s*ui\.schedule\(\);/);
+  // What the watch does is tested in userscript-here.test.ts (userscriptWatch); here, that the
+  // tick runs it with this tab's run, the stop after the current video (not abortRun: that would
+  // leave a half-made draft), the same one toast as the lock's, and the panel's rev.
+  it('watches for the userscript on every tick: tells the panel, and stops a queue that got started before it appeared', () => {
+    expect(studio).toMatch(/const watchUserscript = userscriptWatch\(\{ running: \(\) => running, stop: requestStop, said: sayUserscript, changed: \(\) => ui\.schedule\(\) \}\);/);
+    expect(studio).toMatch(/lockFollower\.tick\(\);\s*watchUserscript\(\);\s*\/\/ Its own try/); // in the interval, outside every try
   });
 });

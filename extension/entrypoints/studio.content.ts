@@ -34,7 +34,7 @@ import { queueView } from '@/lib/studio/queue-view';
 import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
-import { heldAcquire, USERSCRIPT_HERE, userscriptHere } from '@/lib/studio/userscript-here';
+import { heldAcquire, sayOnce, USERSCRIPT_HERE, userscriptHere, userscriptWatch } from '@/lib/studio/userscript-here';
 
 export default defineContentScript({
   matches: ['https://studio.youtube.com/*'],
@@ -117,11 +117,13 @@ export default defineContentScript({
     // While the Tampermonkey userscript is in the page (call 7) the lock is not asked for, and a
     // tab that held it lets it go: a step that changes pages waits, as it waits for another tab.
     const releaseClaims = () => void sendMessage('runner:release', 'claims').catch(() => {});
+    const holdsClaims = () => sendMessage('runner:holds', 'claims');
+    const sayUserscript = sayOnce((m) => ui.toast(m)); // one page toast per load, for the lock and the queue
     setClaimsLock({
       worker: (ch, force) => sendMessage('runner:worker', { ch, force }),
-      acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, (m) => ui.toast(m), releaseClaims),
+      acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, sayUserscript, releaseClaims, holdsClaims),
       release: releaseClaims,
-      holds: () => sendMessage('runner:holds', 'claims'),
+      holds: holdsClaims,
     });
     await initClaimsLock();
     if (ctx.isInvalid) return;
@@ -227,15 +229,13 @@ export default defineContentScript({
     installTitleMark();
     stop.add(() => setTitleMark(''));
     stop.add(installUnloadGuard());
-    // The userscript appends its root after this script may have answered a first queue:view:
-    // a change is told to the panel at once (its banner, QueueView.userscript).
-    let userscriptSeen = false;
+    // The userscript appends its root after this script may have answered a first queue:view,
+    // or taken a Start: the panel is told at once (its banner, QueueView.userscript), and a
+    // queue that runs by then stops after its current video (userscript-here userscriptWatch).
+    const watchUserscript = userscriptWatch({ running: () => running, stop: requestStop, said: sayUserscript, changed: () => ui.schedule() });
     ctx.setInterval(() => {
       lockFollower.tick();
-      if (userscriptHere() !== userscriptSeen) {
-        userscriptSeen = !userscriptSeen;
-        ui.schedule();
-      }
+      watchUserscript();
       // Its own try: a failure here must not stop the progress bar.
       try {
         rememberChannel(getChannel());
