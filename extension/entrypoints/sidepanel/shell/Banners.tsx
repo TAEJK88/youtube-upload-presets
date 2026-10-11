@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
 import { needingGrant, queuedFileIds, regrant, type Lost } from '@/lib/panel/regrant';
 import { focusTab } from '@/lib/panel/target';
+import { USERSCRIPT_HERE } from '@/lib/studio/userscript-here';
 import { updateAvailable, UPDATE_KEY, type UpdateInfo } from '@/lib/update-check';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
@@ -53,6 +54,7 @@ export function Banners() {
   }, []);
   return (
     <>
+      {view?.userscript && <Banner icon="alert" text={USERSCRIPT_HERE()} />}
       {lost.length > 0 && (
         <Banner icon="lock" text={L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่', 'Files in the queue need read access again after a browser restart')}>
           <Button size="sm" onClick={regrantAll}>{L(`อนุญาตอีกครั้ง (${lost.length} ไฟล์)`, `Re-grant access (${lost.length} files)`)}</Button>

@@ -118,5 +118,6 @@ export default [
   { th: 'มีเวอร์ชันใหม่: ${} (ที่ใช้อยู่คือ ${})', en: 'Update available: version ${} (you have ${})', why: 'the unpacked extension has no auto-update; the background checks GitHub Releases once a day (spec "Background")' },
   { th: 'ดาวน์โหลดเวอร์ชันใหม่', en: 'Get the update', why: "the update banner's button: opens the release page" },
   // 5 G (userscript in the tab)
+  { th: 'สคริปต์ Tampermonkey ยังเปิดอยู่ในแท็บนี้ — ปิดใน Tampermonkey แล้วโหลดแท็บนี้ใหม่ การอัปโหลด การตัด และ Auto-pilot จะรอจนกว่าจะปิด', en: 'The Tampermonkey script is still on in this tab — turn it off in Tampermonkey, then reload this tab. Uploads, trims and Auto-pilot wait until then', why: 'cutover: the userscript and the extension would both automate the page' },
   // 5 M (move file)
 ];

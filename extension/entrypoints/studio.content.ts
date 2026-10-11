@@ -34,6 +34,7 @@ import { queueView } from '@/lib/studio/queue-view';
 import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
 import { diagnoseUploadDialog } from '@/lib/studio/upload-dialog';
+import { heldAcquire, USERSCRIPT_HERE, userscriptHere } from '@/lib/studio/userscript-here';
 
 export default defineContentScript({
   matches: ['https://studio.youtube.com/*'],
@@ -113,10 +114,13 @@ export default defineContentScript({
     onMessage('claims:scan', ({ data }) => void claims.scan(data));
     // The channel's worker lease and the automation lock for copyright jobs (D26), asked before
     // the first tick; then what the panel and the Auto-pilot alarm ask this tab to do (D25, D27).
+    // While the Tampermonkey userscript is in the page (call 7) the lock is not asked for, and a
+    // tab that held it lets it go: a step that changes pages waits, as it waits for another tab.
+    const releaseClaims = () => void sendMessage('runner:release', 'claims').catch(() => {});
     setClaimsLock({
       worker: (ch, force) => sendMessage('runner:worker', { ch, force }),
-      acquire: () => sendMessage('runner:acquire', 'claims'),
-      release: () => void sendMessage('runner:release', 'claims').catch(() => {}),
+      acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, (m) => ui.toast(m), releaseClaims),
+      release: releaseClaims,
       holds: () => sendMessage('runner:holds', 'claims'),
     });
     await initClaimsLock();
@@ -126,9 +130,11 @@ export default defineContentScript({
     stop.add(() => setCfgRefresh(async () => {}));
     setChannelSwitcher((t, next) => sw.switchToChannel(t, next));
     stop.add(installConfirmWatch());
-    onMessage('claims:trim', ({ data }) => trimFromPanel(data));
-    onMessage('claims:ads', ({ data }) => adsFromPanel(data));
-    onMessage('claims:collab', ({ data }) => collabFromPanel(data));
+    // A run asked from the panel is refused with the reason while the userscript is there.
+    const unlessUserscript = <T,>(run: () => T) => (userscriptHere() ? void ui.toast(USERSCRIPT_HERE()) : run());
+    onMessage('claims:trim', ({ data }) => unlessUserscript(() => trimFromPanel(data)));
+    onMessage('claims:ads', ({ data }) => unlessUserscript(() => adsFromPanel(data)));
+    onMessage('claims:collab', ({ data }) => unlessUserscript(() => collabFromPanel(data)));
     onMessage('claims:stop', () => stopAll());
     onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));
     // The userscript's FAB: opens the side panel (needs the click's user gesture — see README).
@@ -184,8 +190,10 @@ export default defineContentScript({
     await resumeQueue();
 
     onMessage('queue:add', ({ data: ids }) => handleQueueAdd(ids, mayEdit));
-    onMessage('queue:preflight', () => startSummary());
+    // Not while the userscript is there: an error answer, so the panel shows no summary first.
+    onMessage('queue:preflight', () => (userscriptHere() ? { error: USERSCRIPT_HERE() } : startSummary()));
     onMessage('queue:start', ({ data: seen }) => {
+      if (userscriptHere()) return void ui.toast(USERSCRIPT_HERE());
       if (!isStartBinding(seen)) return;
       // A run can take hours: answer now, report through queue:state.
       void startFromPanel(ui, seen)
@@ -219,8 +227,15 @@ export default defineContentScript({
     installTitleMark();
     stop.add(() => setTitleMark(''));
     stop.add(installUnloadGuard());
+    // The userscript appends its root after this script may have answered a first queue:view:
+    // a change is told to the panel at once (its banner, QueueView.userscript).
+    let userscriptSeen = false;
     ctx.setInterval(() => {
       lockFollower.tick();
+      if (userscriptHere() !== userscriptSeen) {
+        userscriptSeen = !userscriptSeen;
+        ui.schedule();
+      }
       // Its own try: a failure here must not stop the progress bar.
       try {
         rememberChannel(getChannel());

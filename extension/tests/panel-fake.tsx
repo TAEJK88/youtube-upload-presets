@@ -24,6 +24,7 @@ export const viewWith = (items: Partial<ViewItem>[] = [], over: Partial<QueueVie
   schedule: { on: false, set: false, start: 0, late: false, times: [], skipped: 0, taken: [] },
   channel: state().channel,
   state: state(),
+  userscript: false,
   proto: PROTOCOL,
   ...over,
 });

@@ -193,16 +193,18 @@ describe('the Studio content script', () => {
   // are asked before the handlers that start work are there.
   it('wires the worker lease and the automation lock to the background, then the panel\'s and the alarm\'s messages', () => {
     expect(studio).toContain("worker: (ch, force) => sendMessage('runner:worker', { ch, force }),");
-    expect(studio).toContain("acquire: () => sendMessage('runner:acquire', 'claims'),");
-    expect(studio).toContain("release: () => void sendMessage('runner:release', 'claims').catch(() => {}),");
+    // asked through heldAcquire since Phase 5 (call 7; userscript-here.test.ts, studio-wiring.test.ts)
+    expect(studio).toContain("acquire: heldAcquire(() => sendMessage('runner:acquire', 'claims'), userscriptHere, (m) => ui.toast(m), releaseClaims),");
+    expect(studio).toContain("const releaseClaims = () => void sendMessage('runner:release', 'claims').catch(() => {});");
+    expect(studio).toContain('release: releaseClaims,');
     expect(studio).toContain("holds: () => sendMessage('runner:holds', 'claims'),");
     const at = (s: string) => { const i = studio.indexOf(s); expect(i, s).toBeGreaterThan(-1); return i; };
     const init = at('await initClaimsLock();');
     expect(at('setClaimsLock({')).toBeLessThan(init);
     for (const h of [
-      "onMessage('claims:trim', ({ data }) => trimFromPanel(data));",
-      "onMessage('claims:ads', ({ data }) => adsFromPanel(data));",
-      "onMessage('claims:collab', ({ data }) => collabFromPanel(data));",
+      "onMessage('claims:trim', ({ data }) => unlessUserscript(() => trimFromPanel(data)));",
+      "onMessage('claims:ads', ({ data }) => unlessUserscript(() => adsFromPanel(data)));",
+      "onMessage('claims:collab', ({ data }) => unlessUserscript(() => collabFromPanel(data)));",
       "onMessage('claims:stop', () => stopAll());",
       "onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));",
     ]) expect(at(h)).toBeGreaterThan(init);
