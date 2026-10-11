@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 
@@ -23,8 +23,14 @@ const studio = (id: number) => ({ tab: { id, url: 'https://studio.youtube.com/ch
 const watchPage = (id: number) => ({ tab: { id, url: 'https://www.youtube.com/watch?v=x' }, url: 'https://www.youtube.com/watch?v=x' });
 const panel = () => ({ url: browser.runtime.getURL('/sidepanel.html' as never) });
 const ask = async (type: string, data: unknown, sender: unknown) => handlers.get(type)!({ data, sender });
+// The background checks for updates when it starts: every test here gets this answer, never GitHub's.
+const LATEST = 'https://api.github.com/repos/TAEJK88/youtube-upload-presets/releases/latest';
+const github = vi.fn(async (..._req: Parameters<typeof fetch>) => new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 }));
 
 beforeEach(() => {
+  github.mockClear();
+  vi.stubGlobal('fetch', github);
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
   fakeBrowser.reset();
   handlers.clear();
   const sidePanel = { setPanelBehavior: async () => {}, setOptions: async () => {}, open: async () => {} };
@@ -32,6 +38,7 @@ beforeEach(() => {
   vi.spyOn(browser.tabs, 'get').mockImplementation(async (id) => ({ id, url: 'https://studio.youtube.com/', discarded: false }) as never);
   background.main!();
 });
+afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('the background refuses', () => {
   it('claims:op from a page that is not Studio', async () => {
@@ -76,13 +83,13 @@ describe('the background wires Auto-pilot', () => {
 
   it("a change of autopilot:<ch> arms that channel's alarm", async () => {
     await browser.storage.local.set({ ['autopilot:' + CH]: { on: true, next: Date.now() + 3600e3 } });
-    await vi.waitFor(async () => expect(await alarms()).toEqual(['ap:' + CH]));
+    await vi.waitFor(async () => expect(await alarms()).toEqual(['ap:' + CH, 'update-check']));
   });
 
   it('at start the alarms are brought in line with what is stored', async () => {
     await browser.alarms.create('ap:UCgone', { when: Date.now() + 3600e3 }); // a channel with no key (any more)
     background.main!();
-    await vi.waitFor(async () => expect(await alarms()).toEqual([]));
+    await vi.waitFor(async () => expect(await alarms()).toEqual(['update-check'])); // the update check's own alarm stays
   });
 
   it('a click on the "Auto-pilot is due" notice opens Studio on that channel', async () => {
@@ -98,5 +105,27 @@ describe('the background wires Auto-pilot', () => {
     expect(after).toMatch(/\n  void ready\.then\(\(\) => syncAutopilotAlarms\(\)\)\.catch\(/);
     expect(src.match(/registerAutopilotAlarms\(/g)).toHaveLength(1);
     expect(src).toMatch(/\n  browser\.notifications\.onClicked\.addListener\(\(id\) => void openFromAutopilotNote\(id\)\.catch\(/);
+  });
+});
+
+describe('the update check', () => {
+  it('asks GitHub once when the background starts, and not again for a second start the same day', async () => {
+    await vi.waitFor(() => expect(github).toHaveBeenCalledTimes(1));
+    expect(github.mock.calls[0]![0]).toBe(LATEST);
+    handlers.clear();
+    background.main!(); // the service worker was stopped and started again
+    await new Promise((r) => setTimeout(r, 20));
+    expect(github).toHaveBeenCalledTimes(1);
+  });
+
+  it('is registered at the top level, and is the only user of api.github.com', () => {
+    const src = readFileSync(new URL('../entrypoints/background.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/^  registerUpdateCheck\(\);$/m); // two spaces: defineBackground's own body, not a callback
+    const root = new URL('../', import.meta.url);
+    const walk = (dir: string): string[] => readdirSync(new URL(dir, root)).flatMap((f) =>
+      statSync(new URL(dir + f, root)).isDirectory() ? walk(dir + f + '/') : [dir + f]);
+    const users = ['lib/', 'entrypoints/', 'components/'].flatMap(walk)
+      .filter((p) => readFileSync(new URL(p, root), 'utf8').includes('api.github.com'));
+    expect(users).toEqual(['lib/update-check.ts']);
   });
 });

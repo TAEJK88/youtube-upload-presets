@@ -10,6 +10,7 @@ import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, claimWorker, isJob, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld, runnerHolds, studioTab } from '@/lib/runner-lock';
 import { deleteFiles, sweepHandles } from '@/lib/file-gc';
 import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
+import { checkForUpdate, registerUpdateCheck } from '@/lib/update-check';
 
 export default defineBackground(() => {
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
@@ -106,4 +107,9 @@ export default defineBackground(() => {
   // Auto-pilot: one alarm per channel wakes its worker tab (D25).
   registerAutopilotAlarms();
   void ready.then(() => syncAutopilotAlarms()).catch((e) => console.error('[ytup] autopilot alarms', e));
+
+  // Update check (spec "Background"): a daily alarm, and each time the service worker starts
+  // (which is many times a day; lib/update-check.ts lets one request through in 23 h).
+  registerUpdateCheck();
+  void ready.then(() => checkForUpdate()).catch((e) => console.warn('[ytup] update check', e));
 });

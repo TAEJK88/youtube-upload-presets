@@ -115,6 +115,8 @@ export default [
   // 4b Q (panel)
   //
   // 5 U (update check)
+  { th: 'มีเวอร์ชันใหม่: ${} (ที่ใช้อยู่คือ ${})', en: 'Update available: version ${} (you have ${})', why: 'the unpacked extension has no auto-update; the background checks GitHub Releases once a day (spec "Background")' },
+  { th: 'ดาวน์โหลดเวอร์ชันใหม่', en: 'Get the update', why: "the update banner's button: opens the release page" },
   // 5 G (userscript in the tab)
   // 5 M (move file)
 ];

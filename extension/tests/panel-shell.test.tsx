@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
+import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { App } from '../entrypoints/sidepanel/App';
 import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { LiveContext, PanelContext, type PanelApi } from '../entrypoints/sidepanel/panel';
@@ -287,6 +288,33 @@ describe('banners', () => {
   it('banners are announced to screen readers', () => {
     renderPanel(<Banners />, fakePanel({ link: 'noScript' }));
     expect(screen.getByRole('status').textContent).toContain('This tab is not connected to the extension yet');
+  });
+});
+
+describe('update banner', () => {
+  // The stored answer must not reach the other tests of this file, in either direction.
+  beforeEach(() => { fakeBrowser.reset(); });
+  afterEach(() => { fakeBrowser.reset(); });
+  const REL = 'https://github.com/TAEJK88/youtube-upload-presets/releases/tag/v9.9.9';
+  it('shows "Update available" with the two versions and opens the release page', async () => {
+    vi.spyOn(browser.runtime, 'getManifest').mockReturnValue({ version: '5.0.0' } as never);
+    await browser.storage.local.set({ updateCheck: { at: 1, latest: '9.9.9', url: REL } });
+    const open = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    renderPanel(<Banners />, fakePanel());
+    await flush();
+    expect(screen.getByText('Update available: version 9.9.9 (you have 5.0.0)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Get the update' }));
+    expect(open).toHaveBeenCalledWith({ url: REL });
+  });
+  it('shows nothing when the stored version is not above the installed one, and follows a later check', async () => {
+    vi.spyOn(browser.runtime, 'getManifest').mockReturnValue({ version: '5.0.0' } as never);
+    await browser.storage.local.set({ updateCheck: { at: 1, latest: '5.0.0', url: REL } });
+    renderPanel(<Banners />, fakePanel());
+    await flush();
+    expect(screen.queryByText(/Update available/)).toBeNull();
+    await act(async () => { await browser.storage.local.set({ updateCheck: { at: 2, latest: '9.9.9', url: REL } }); });
+    await flush();
+    expect(screen.getByText(/Update available/)).toBeTruthy();
   });
 });
 
