@@ -4,7 +4,7 @@ import { contentHash, hasSection, inspect, treeProblems, unlisted } from '../scr
 
 // The manifest the build writes today, field for field.
 const manifest = {
-  manifest_version: 3, name: 'YouTube Upload Presets', description: 'Bulk-upload videos', version: '5.0.0',
+  manifest_version: 3, name: 'YouTube Upload Presets', description: 'Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments', version: '5.0.0',
   permissions: ['sidePanel', 'storage', 'unlimitedStorage', 'alarms', 'notifications'],
   host_permissions: ['https://studio.youtube.com/*', 'https://www.youtube.com/*', 'https://api.github.com/*'],
   action: { default_title: 'YouTube Upload Presets' },
@@ -48,8 +48,11 @@ describe('release check', () => {
       expect(problems(rest), k).toContain(k);
     }
   });
-  it('names a changed manifest version, background, side panel, shortcut or toolbar button', () => {
+  it('names a changed manifest version, name, description, background, side panel, shortcut or toolbar button', () => {
     expect(problems({ ...manifest, manifest_version: 2 })).toMatch(/manifest_version/);
+    expect(problems({ ...manifest, name: 'Something else' })).toMatch(/manifest name/);
+    expect(problems({ ...manifest, name: '' })).toMatch(/manifest name/);
+    expect(problems({ ...manifest, description: 'Something else' })).toMatch(/manifest description/);
     expect(problems({ ...manifest, background: { service_worker: 'other.js' } })).toMatch(/background/);
     expect(problems({ ...manifest, background: { ...manifest.background, type: 'module' } })).toMatch(/background/);
     expect(problems({ ...manifest, side_panel: { default_path: 'debug.html' } })).toMatch(/side_panel/);
@@ -81,7 +84,7 @@ describe('release check', () => {
       // the wrong case, a key under another name, nested folders, packages, pages and scripts nobody listed
       'sub/KEY.PEM', 'key.pem.bak', 'private.key', 'id_rsa', 'prod.env', 'sub/tests/a.js', 'a.spec.js', '__tests__/a.js', 'sub/node_modules/x/i.js',
       'sub/stats.html', 'a.crx', 'a.zip', 'package.json', 'README.md', 'evil.html', 'content-scripts/evil.js', 'Manifest.json', 'chunks/sub/a.js',
-      'assets/a.svg', 'assets/a.js', 'backup/notes.txt', 'assets/.hidden', 'assets/.a.css', 'icon/16.png', 'icon/64.png'];
+      'assets/a.svg', 'assets/a.js', 'backup/notes.txt', 'assets/.hidden', 'assets/.a.css', 'sub/assets/a.css', 'sub/chunks/a.js', 'icon/16.png', 'icon/64.png'];
     for (const b of bad) expect(inspect([...files, b], manifest, '5.0.0').join('\n'), b).toContain(b);
   });
   it('names a file the extension needs that is not there', () => {
@@ -128,26 +131,40 @@ describe('release check', () => {
     expect(hasSection('see ## 5.0.0 — unreleased\n', '5.0.0')).toBe(false);
     expect(hasSection('# Changelog\n\n```md\n## 5.0.0 — unreleased\n```\n', '5.0.0')).toBe(false);
     expect(hasSection('~~~\n## 5.0.0 — x\n~~~\n\n## 5.0.0 — unreleased\n', '5.0.0')).toBe(true);
+    // a shorter fence line does not close a longer block, nor does one with text after it
+    expect(hasSection('````md\n```\n## 5.0.0 — x\n```\n````\n', '5.0.0')).toBe(false);
+    expect(hasSection('```md\n``` js\n## 5.0.0 — x\n```\n', '5.0.0')).toBe(false);
+    expect(hasSection('```\ncode\n`````\n## 5.0.0 — unreleased\n', '5.0.0')).toBe(true);
     expect(hasSection('## 5.0.01 — x\n## 5x0y0 — x\n## 5.0.0\n', '5.0.0')).toBe(false);
   });
-  it('a dependency the notices file does not name', () => {
-    const notices = '   Packaged by Fontsource (@fontsource/ibm-plex-sans-thai).\n   react-dom 19.3.0     MIT   C\n   radix-ui 1.7.0   MIT   D\n';
-    expect(unlisted({ 'react-dom': '19.3.0', 'radix-ui': '1.7.0', '@fontsource/ibm-plex-sans-thai': '5.3.0' }, notices)).toEqual([]);
-    // `react` is not named by the react-dom line, nor `radix` by radix-ui
-    expect(unlisted({ react: '19.3.0', 'react-dom': '19.3.0', radix: '1.0.0', 'left-pad': '1.0.0' }, notices)).toEqual(['react', 'radix', 'left-pad']);
-    expect(unlisted({ '@radix-ui/react-tabs': '1.0.0' }, notices)).toEqual(['@radix-ui/react-tabs']);
-    expect(unlisted({ '@radix-ui/react-tabs': '1.0.0' }, notices + '   D covers the @radix-ui/* packages that radix-ui bundles\n')).toEqual([]);
+  it('a dependency the notices file does not list', () => {
+    const notices = [
+      '1. IBM Plex Sans Thai', '   Packaged by Fontsource (@fontsource/ibm-plex-sans-thai).',
+      '3. npm packages (package, version, licence, section):', '',
+      '   react-dom 19.3.0                            MIT         C', '   radix-ui 1.7.0                              MIT         D', '',
+      '   D covers the @radix-ui/* packages that radix-ui bundles', '',
+      '=====', 'C. react', '=====', 'express or implied; you may use, copy and merge the software', '   left-pad 1.0.0   (a line in a licence text)',
+    ].join('\n');
+    expect(unlisted({ 'react-dom': '19.3.0', 'radix-ui': '1.7.0', '@fontsource/ibm-plex-sans-thai': '5.3.0', '@radix-ui/react-tabs': '1.0.0' }, notices)).toEqual([]);
+    // a line of the list, with this version: not another package's line, not an older version
+    expect(unlisted({ react: '19.3.0', radix: '1.7.0', 'react-dom': '19.4.0', 'radix-ui': '1.7.01' }, notices)).toEqual(['react', 'radix', 'react-dom', 'radix-ui']);
+    // nothing below the list counts: the licence texts are full of ordinary words
+    expect(unlisted({ express: '5.0.0', copy: '1.0.0', use: '1.0.0', software: '1.0.0', package: '1.0.0', 'left-pad': '1.0.0' }, notices))
+      .toEqual(['express', 'copy', 'use', 'software', 'package', 'left-pad']);
+    expect(unlisted({ '@radix-ui/react-tabs': '1.0.0' }, notices.replace('@radix-ui/*', '@radix-ui'))).toEqual(['@radix-ui/react-tabs']);
   });
   it('the tree: nothing uncommitted, untracked or git-ignored may be built', () => {
     const asked: string[][] = [];
     const git = (answers: Record<string, string>) => (args: string[]) => { asked.push(args); return answers[args[0]!] ?? ''; };
     expect(treeProblems(git({}))).toEqual([]);
     expect(treeProblems(git({ status: ' M lib/notify.ts\n?? entrypoints/evil.content.ts\n' })).join('\n')).toMatch(/lib\/notify\.ts[\s\S]*entrypoints\/evil\.content\.ts/);
-    expect(treeProblems(git({ 'ls-files': 'public/backup/notes.txt\n' })).join('\n')).toContain('public/backup/notes.txt');
-    // untracked files are asked for, one by one; ignored ones in every folder the build reads
+    expect(treeProblems(git({ 'ls-files': 'public/backup/notes.txt\nmodules/evil.ts\n' })).join('\n')).toMatch(/public\/backup\/notes\.txt[\s\S]*modules\/evil\.ts/);
+    // untracked files are asked for, one by one
     const status = asked.find((a) => a[0] === 'status')!, ignored = asked.find((a) => a[0] === 'ls-files')!;
     expect(status).toContain('--untracked-files=all');
     expect(status).not.toContain('--untracked-files=no');
-    expect(ignored).toEqual(expect.arrayContaining(['--others', '--ignored', '--exclude-standard', 'public', 'entrypoints', 'lib', 'components', 'assets']));
+    expect(ignored.slice(0, 5)).toEqual(['ls-files', '--others', '--ignored', '--exclude-standard', '--']);
+    // the whole of extension/, less the folders that are ignored on purpose and are no source of the build
+    expect(ignored.slice(5).sort()).toEqual(['.', ':(exclude).claude', ':(exclude).output', ':(exclude).vitest', ':(exclude).wxt', ':(exclude)node_modules']);
   });
 });

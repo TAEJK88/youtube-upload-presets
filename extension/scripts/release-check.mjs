@@ -12,6 +12,8 @@ const EXT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // test. A field that changes on purpose changes here in the same commit.
 const EXPECT = {
   manifest_version: 3,
+  name: 'YouTube Upload Presets',
+  description: 'Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments',
   permissions: ['sidePanel', 'storage', 'unlimitedStorage', 'alarms', 'notifications'],
   host_permissions: ['https://studio.youtube.com/*', 'https://www.youtube.com/*', 'https://api.github.com/*'],
   action: { default_title: 'YouTube Upload Presets' },
@@ -26,14 +28,16 @@ const EXPECT = {
   ],
 };
 // Every top-level field of the manifest; `key` and `icons` join only when this build is meant to have them.
-const FIELDS = ['name', 'description', 'version', ...Object.keys(EXPECT)];
+const FIELDS = ['version', ...Object.keys(EXPECT)];
 const NEEDED = ['manifest.json', 'background.js', 'sidepanel.html', 'debug.html', 'file-bridge.html', 'THIRD-PARTY-NOTICES.txt',
   'content-scripts/studio.js', 'content-scripts/studio-main.js', 'content-scripts/invite.js'];
 // What else a build holds: Vite's hashed scripts, and the stylesheet and font files. Nothing
 // else is expected, so anything else is a problem (a deny-list would always be one name behind).
 const BUILT = [/^chunks\/[^/.]+\.js$/, /^assets\/[^/.]+\.(css|woff2?)$/];
 const ICONS = Object.fromEntries(['16', '32', '48', '128'].map((s) => [s, `icon/${s}.png`]));
-const INPUTS = ['public', 'entrypoints', 'lib', 'components', 'assets']; // the folders the build copies or compiles
+// Git-ignored on purpose, and no source of the build: packages, build output, WXT's generated
+// types, and two tools' own folders. Any other ignored file under extension/ could be built.
+const NOT_SOURCE = ['node_modules', '.output', '.wxt', '.vitest', '.claude'];
 // The same whatever order an object's keys come in; a list's order counts.
 const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
 const same = (a, b) => canon(a) === canon(b);
@@ -56,34 +60,40 @@ export function inspect(files, manifest, pkgVersion, { key = false, icons = fals
 }
 
 // The build must be of a commit, and of nothing else: WXT compiles every file under
-// entrypoints/ and copies every file under public/, whether git tracks it or not.
+// entrypoints/ and modules/ and copies every file under public/, whether git tracks it or not.
 // `git(args)` runs git in extension/ and returns what it prints.
 export function treeProblems(git) {
   const out = [];
   const dirty = git(['status', '--porcelain', '--untracked-files=all', '--', '.', ':(exclude).claude', ':(exclude).vitest']).trimEnd();
   if (dirty) out.push('uncommitted or untracked files under extension/ (commit or remove them):\n' + dirty);
-  const ignored = git(['ls-files', '--others', '--ignored', '--exclude-standard', '--', ...INPUTS]).trimEnd();
-  if (ignored) out.push('git-ignored files in a folder the build reads (remove them):\n' + ignored);
+  const ignored = git(['ls-files', '--others', '--ignored', '--exclude-standard', '--', '.', ...NOT_SOURCE.map((d) => `:(exclude)${d}`)]).trimEnd();
+  if (ignored) out.push('git-ignored files under extension/ (remove them):\n' + ignored);
   return out;
 }
 
 // A real heading line `## <version> …`: not a deeper heading, not text inside a code block.
+// A block ends at a line of its own fence character, at least as long, with nothing after it.
 export function hasSection(changelog, version) {
   let fence = '';
   for (const line of changelog.split(/\r?\n/)) {
-    const mark = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1][0];
-    if (mark) fence = fence ? (mark === fence ? '' : fence) : mark;
-    else if (!fence && line.startsWith(`## ${version} `)) return true;
+    const [, marks, rest] = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line) ?? [];
+    if (fence) { if (marks?.startsWith(fence) && !rest.trim()) fence = ''; }
+    else if (marks) fence = marks;
+    else if (line.startsWith(`## ${version} `)) return true;
   }
   return false;
 }
 
-// The `dependencies` of package.json that public/THIRD-PARTY-NOTICES.txt does not name (as a
-// whole word: `react` is not named by `react-dom`). Names only: versions, and the packages
-// those packages bring in, are still checked by hand (README "Licences").
+// The `dependencies` of package.json that public/THIRD-PARTY-NOTICES.txt does not list. Only
+// the list at the top of that file counts (the licence texts below the first ===== rule are
+// full of ordinary words): a line `<name> <version>`, or `(<name>)` for a package that is
+// named there without a version (the font), or the line that covers every @radix-ui/* package.
+// The packages those packages bring in are still checked by hand (README "Licences").
 export function unlisted(dependencies, notices) {
-  const named = (name) => new RegExp(`(^|[\\s(])${name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}(?=[\\s).,]|$)`, 'm').test(notices);
-  return Object.keys(dependencies).filter((name) => !named(name) && !(name.startsWith('@radix-ui/') && notices.includes('@radix-ui/*')));
+  const list = notices.split(/^={5,}$/m)[0];
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  const listed = (name, version) => new RegExp(`^\\s*${esc(name)} ${esc(version)}(\\s|$)`, 'm').test(list) || list.includes(`(${name})`);
+  return Object.entries(dependencies).filter(([name, version]) => !listed(name, version) && !(name.startsWith('@radix-ui/') && list.includes('@radix-ui/*'))).map(([name]) => name);
 }
 
 // One hash for what is inside the build, whatever the zip's timestamps: the sha256 of every
@@ -107,7 +117,7 @@ function main() {
   const pkg = JSON.parse(readFileSync(join(EXT, 'package.json'), 'utf8'));
   const problems = treeProblems((args) => run('git', args));
   const notNamed = unlisted(pkg.dependencies, readFileSync(join(EXT, 'public/THIRD-PARTY-NOTICES.txt'), 'utf8'));
-  if (notNamed.length) problems.push(`public/THIRD-PARTY-NOTICES.txt does not name ${notNamed.join(', ')} (README "Licences")`);
+  if (notNamed.length) problems.push(`public/THIRD-PARTY-NOTICES.txt does not list ${notNamed.join(', ')} (README "Licences")`);
   run('npx', ['wxt', 'zip']); // builds first
   const out = join(EXT, '.output/chrome-mv3');
   const zip = join(EXT, `.output/${pkg.name}-${pkg.version}-chrome.zip`);
