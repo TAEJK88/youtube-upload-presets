@@ -266,7 +266,7 @@ All message types live in `lib/messages.ts`, built on `@webext-core/messaging`.
   date-time inputs as in the drawer. The theme is defined as CSS variables carrying the black
   glass tokens from the current Design B. IBM Plex Sans Thai, 12px minimum text, the
   userscript's embedded Material Symbols Rounded icons, drawn as inline SVG paths (no icon
-  font). Dark only.
+  font). A dark and a light theme, switched by a button at the top of the panel.
 - **Visual differences from today:**
   - The panel is docked and resizable (Chrome's minimum is about 320px), not floating.
   - The see-through blur of Studio behind the panel is gone, and so is the opacity slider.

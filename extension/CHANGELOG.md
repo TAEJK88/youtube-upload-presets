@@ -3,6 +3,8 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+TODO(key): once the public key line is in `wxt.config.ts`, add to the 5.0.0 section, under "New in this release": "- One extension ID on every computer and for every folder: `<the id computed from the key>`. A test build installed before 5.0.0 has another ID: see README, "Update"." This line sits above the section on purpose: the section is cut as the release notes.
+
 ## 5.0.0 — unreleased
 
 The first release of the extension. It replaces the Tampermonkey userscript (v4.27.1); see
@@ -65,5 +67,3 @@ in the queue. The claimed-songs history moves as a CSV.
 
 The extension has no icon artwork yet: Chrome shows its own tile with a letter, and desktop
 notifications show a red dot.
-
-TODO(key): once the public key line is in `wxt.config.ts`, add under "New in this release": "- One extension ID on every computer and for every folder: `<the id computed from the key>`. A test build installed before 5.0.0 has another ID: see README, "Update"."

@@ -63,16 +63,37 @@ that tab was missed in step 5. Reload it.
 
 Your presets, settings, queue and history stay: they belong to the extension, not to the
 folder. Don't press **Remove** on the extension's card: that deletes them. If the panel then
-says "Files in the queue need read access again", click **Re-grant access**.
+says "Files in the queue need read access again after a browser restart", click **Re-grant
+access**.
 
 TODO(key): "they belong to the extension, not to the folder" is true only once the public key line is in `wxt.config.ts`. Today the build has no key and the extension's id follows the folder's path: a build loaded from another folder is a new, empty extension beside the old one. Delete this line when the key is in; until then the rule is "always the same folder, in the same place".
 
 If you used a test build from before 5.0.0: that copy has a different id, and its data does
-not follow. Export a backup from it first (Settings → Back up / share settings → Export
-(.json)), load 5.0.0 from a new folder, import the file as **My file**, and only then remove
-the old copy.
+not follow by itself. Move like this. Until the last step you can go back: switch the new
+copy off and the old one on again.
 
-TODO(key): keep the paragraph above only when the key is in the manifest (the key is what changes the id of a copy installed before it). Without a key, delete it.
+1. In the old copy, let the upload queue and any trim "Waiting for YouTube to process trims"
+   finish, and turn Auto-pilot off on every channel.
+2. Still in the old copy, save three things:
+   Settings → Back up / share settings → **Export (.json)**;
+   Copyright → Claimed songs → **⬇ CSV**, if you use that list;
+   Settings → Troubleshooting → Open debug page → **Download report (.json)**.
+   The export holds presets, the main preset, EP numbers, settings and copyright settings
+   only. It does **not** hold upload history, the channel list, videos in the queue, claim
+   scans, trim results, the trim list or Auto-pilot on/off. The debug report holds every
+   stored key, so it is your record of the history and the channel list; the extension
+   cannot import it.
+3. On `chrome://extensions` switch the old copy **off** with its toggle. Do **not** press
+   Remove: switched off, it keeps its data.
+4. Load 5.0.0 from a **new folder** (Load unpacked), beside the old one.
+5. In the new copy: import the `.json` as **My file**, import the songs CSV, scan each
+   channel again, and turn Auto-pilot on again. The channel list fills itself as you open
+   each channel in Studio. Upload history starts empty.
+6. Look through presets, settings and the Copyright tab. Only when nothing you need is
+   missing: press **Remove** on the old copy and delete its folder. Remove deletes the old
+   copy's upload history, channel list, queue and scans for good.
+
+TODO(key): keep the paragraph and the six steps above only when the key is in the manifest (the key is what changes the id of a copy installed before it). Today, with no key, a test build updated in the same folder keeps its id and its data, and none of this applies. Without a key, delete it.
 
 ## Moving from the userscript
 
@@ -80,6 +101,8 @@ TODO(key): keep the paragraph above only when the key is in the manifest (the ke
 Dashboard → the script → "Check for userscript updates", or wait a day). Only that version has
 **Export everything for the extension**. With an older version you can still move, but upload
 history, your channel list and the language stay behind.
+
+TODO(v4.29.0): the userscript's button labels ("Export everything for the extension" / "ส่งออกทุกอย่างเพื่อย้ายไปส่วนขยาย", "Export my data" / "ส่งออกข้อมูลของฉัน", "How to move"), its notice text and the file name `yt-upload-presets-move-YYYY-MM-DD.json` are the wording of Task 11 in `docs/superpowers/plans/2026-10-11-chrome-extension-phase-5.md`; that version is not built yet. When it is, compare them with the script in six places: this section, its Thai twin ("ย้ายจากสคริปต์ Tampermonkey"), exit-check items 79 and 80, "Known behaviour, Phase 5", and the "move file" line of `CHANGELOG.md`. Then delete this line.
 
 What moves, and how:
 
@@ -101,8 +124,8 @@ only added to, never replaced.)
    "Waiting for YouTube to process trims" (follow-up trims are not carried over).
 2. Userscript: Settings → Back up / share settings → **Export everything for the extension**
    (or the notice's **Export my data**). It saves `yt-upload-presets-move-YYYY-MM-DD.json`.
-   Also save the claimed-songs CSV if you use it. The file holds your own upload history and
-   channels: don't share it as a preset backup.
+   That file holds your own upload history and channels: don't share it as a preset backup.
+   Also save the claimed-songs CSV if you use it.
 3. Install the extension (see "Install") and turn the userscript **off** in Tampermonkey.
 4. Extension: Settings → Back up / share settings → **Import** → pick the file → **My file**.
    The question tells you how many history rows and channels come along, and the language.
@@ -131,7 +154,8 @@ In that tab the extension then:
 
 Scans, the status card, editing and Stop still work. Turn the script off, then reload the tab.
 A copyright run that was waiting goes on after that; press **Stop** first if you no longer
-want it. An upload queue does not start again: press **Start upload**.
+want it. An upload queue does not start again: press the start button (**Upload N
+video(s)**).
 
 **What the extension cannot hold back.** It can see the script only inside YouTube Studio,
 and only some of its own work waits there. With both on, these still happen twice, or still
@@ -208,11 +232,29 @@ TODO(key): once the key is in `wxt.config.ts`, add the Thai of the sentence adde
 
 TODO(key): the Thai sentence "ข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์" is true only once the key is in `wxt.config.ts` (see the marker under "Update"). Delete this line when the key is in.
 
-ถ้าเคยใช้ตัวทดสอบก่อนเวอร์ชัน 5.0.0: ตัวนั้นมี ID คนละตัวกัน ข้อมูลจะไม่ตามมาเอง
-ให้ส่งออกไฟล์สำรองจากตัวเก่าก่อน (ตั้งค่า → สำรอง / แชร์การตั้งค่า → ส่งออก (.json))
-โหลด 5.0.0 จากโฟลเดอร์ใหม่ นำเข้าไฟล์โดยเลือก **ไฟล์ของฉัน** แล้วค่อยลบตัวเก่า
+ถ้าเคยใช้ตัวทดสอบก่อนเวอร์ชัน 5.0.0: ตัวนั้นมี ID คนละตัวกัน ข้อมูลจะไม่ตามมาเอง ให้ย้ายตามนี้
+ก่อนถึงข้อสุดท้ายยังถอยกลับได้เสมอ: ปิดตัวใหม่ แล้วเปิดตัวเก่ากลับมา
 
-TODO(key): keep the Thai paragraph above only when the key is in the manifest (see the marker under "Update").
+1. ในตัวเก่า รอให้คิวอัปโหลดและการตัดที่ขึ้นว่า "รอ YouTube ประมวลผลการตัด" เสร็จก่อน
+   แล้วปิด Auto-pilot ของทุกช่อง
+2. ในตัวเก่าเช่นกัน บันทึกของสามอย่าง:
+   ตั้งค่า → สำรอง / แชร์การตั้งค่า → **ส่งออก (.json)**
+   ลิขสิทธิ์ → เพลงที่เคยโดน → **⬇ CSV** ถ้าใช้รายการนี้อยู่
+   ตั้งค่า → ตรวจปัญหา → เปิดหน้าดีบัก → **ดาวน์โหลดรายงาน (.json)**
+   ไฟล์ที่ส่งออกมีแค่พรีเซ็ต พรีเซ็ตหลัก เลข EP การตั้งค่า และการตั้งค่าลิขสิทธิ์
+   **ไม่มี** ประวัติการอัปโหลด รายชื่อช่อง คลิปในคิว ผลสแกน claim ผลการตัด รายการที่เลือกไว้ตัด
+   และสถานะเปิด/ปิด Auto-pilot ส่วนไฟล์รายงานมีข้อมูลทุกอย่างที่ส่วนขยายเก็บไว้
+   จึงใช้เป็นหลักฐานของประวัติและรายชื่อช่องได้ แต่ส่วนขยายนำเข้าไฟล์รายงานไม่ได้
+3. ใน `chrome://extensions` **ปิดสวิตช์** ของตัวเก่า **อย่า** กด Remove ตอนปิดอยู่ข้อมูลยังอยู่ครบ
+4. โหลด 5.0.0 จาก **โฟลเดอร์ใหม่** (Load unpacked) วางไว้ข้างโฟลเดอร์เก่า
+5. ในตัวใหม่: นำเข้าไฟล์ `.json` โดยเลือก **ไฟล์ของฉัน** นำเข้าไฟล์ CSV ของเพลง สแกนแต่ละช่องใหม่
+   แล้วเปิด Auto-pilot ใหม่ รายชื่อช่องจะกลับมาเองเมื่อเปิดแต่ละช่องใน Studio
+   ส่วนประวัติการอัปโหลดจะเริ่มจากว่าง
+6. ตรวจพรีเซ็ต การตั้งค่า และแท็บลิขสิทธิ์ให้ครบ เมื่อแน่ใจแล้วว่าไม่มีอะไรที่ต้องใช้หายไป
+   จึงกด **Remove** ที่ตัวเก่าแล้วลบโฟลเดอร์ของมัน การกด Remove จะลบประวัติการอัปโหลด
+   รายชื่อช่อง คิว และผลสแกนของตัวเก่าทิ้งถาวร
+
+TODO(key): keep the Thai paragraph and its six steps above only when the key is in the manifest (see the marker under "Update"). Today, with no key, they do not apply.
 
 ### ย้ายจากสคริปต์ Tampermonkey
 
@@ -231,17 +273,17 @@ TODO(key): keep the Thai paragraph above only when the key is in the manifest (s
 | ผลสแกน claim ผลการตัด รายการที่เลือกไว้ตัด รายการโฆษณาและ Collab สถานะเปิด/ปิด Auto-pilot | ย้ายไม่ได้: สแกนแต่ละช่องใหม่ แล้วเปิด Auto-pilot ใหม่ |
 | คลิปที่รออยู่ในคิว | ย้ายไม่ได้: อัปให้เสร็จก่อน หรือใส่ไฟล์เข้าคิวใหม่ |
 | ช่องที่ล็อกไว้ ชื่อช่องที่พิมพ์ไว้ในหน้า Collab ตำแหน่งของปุ่มกลมใน Studio | ย้ายไม่ได้: ตั้งใหม่ |
-| รูปแบบจาก "Copy from video" (สคริปต์ 4.28.0) | ย้ายไม่ได้: ส่วนขยายยังไม่มีฟีเจอร์นี้ (ดู `CHANGELOG.md`) |
+| รูปแบบจาก "คัดลอกจากคลิป" (Copy from video, สคริปต์ 4.28.0) | ย้ายไม่ได้: ส่วนขยายยังไม่มีฟีเจอร์นี้ (ดู `CHANGELOG.md`) |
 
 ย้าย **ครั้งเดียว และย้ายก่อนจะแก้อะไรในส่วนขยาย** เพราะการนำเข้าจะเอาพรีเซ็ต การตั้งค่า
 และเลข EP ในไฟล์มาแทนของที่มีอยู่ในส่วนขยาย (ประวัติการอัปโหลดกับรายชื่อช่องจะถูกเพิ่มเข้าไปเท่านั้น ไม่ถูกแทนที่)
 
 1. ในสคริปต์ รอให้งานที่ค้างอยู่เสร็จก่อน: คิวอัปโหลด งานตัดคลิป และการตัดที่ขึ้นว่า "รอ YouTube ประมวลผลการตัด"
-   (การตัดที่รอคิวอยู่จะไม่ตามมา)
+   (การตัดรอบถัดไปที่ต้องทำหลัง YouTube ประมวลผลเสร็จจะไม่ตามมา)
 2. ในสคริปต์: ตั้งค่า → สำรอง / แชร์การตั้งค่า → **ส่งออกทุกอย่างเพื่อย้ายไปส่วนขยาย**
    (หรือปุ่ม **ส่งออกข้อมูลของฉัน** ในประกาศด้านบนของแผง) จะได้ไฟล์ `yt-upload-presets-move-ปี-เดือน-วัน.json`
-   ถ้าใช้ประวัติเพลงที่เคยโดน claim ให้บันทึกไฟล์ CSV ไว้ด้วย
    ไฟล์นี้มีประวัติการอัปโหลดและรายชื่อช่องของคุณเอง อย่าส่งให้คนอื่นแทนไฟล์พรีเซ็ต
+   ถ้าใช้ประวัติเพลงที่เคยโดน claim ให้บันทึกไฟล์ CSV ไว้ด้วย
 3. ติดตั้งส่วนขยาย (หัวข้อ "ติดตั้งส่วนขยาย") แล้ว **ปิด** สคริปต์ใน Tampermonkey
 4. ในส่วนขยาย: ตั้งค่า → สำรอง / แชร์การตั้งค่า → **นำเข้า** → เลือกไฟล์ → **ไฟล์ของฉัน**
    หน้าต่างคำถามจะบอกว่ามีประวัติกี่รายการ ช่องกี่ช่อง และภาษาอะไรที่จะตามมา
@@ -363,6 +405,9 @@ and the tag and release commands for the owner to run. Two builds with the same 
 are the same extension: that is how the build the owner tested is shown to be the build that
 ships. With this version of WXT the zip holds no file times, so two builds of the same
 commit also give the same zip sha256.
+
+Make the release zip in a clean checkout after `npm ci`, once, and compare its content hash
+with the one of the build that was tested.
 
 ## Licences
 
@@ -521,7 +566,8 @@ The panel's own console: right-click inside the panel → Inspect.
    name, id), "Videos 2", "Release Per preset (PRIVATE)", "No .txt 1 video(s)"; confirm.
    Expected: Studio opens the upload dialog itself; title, description and tags fill in; Clip 1
    gets its thumbnail; Category, AI use and Paid promotion, Monetisation, Ad suitability and
-   Visibility follow the settings; Save is
+   Visibility follow the settings (AI use stays unanswered unless Settings → AI use is No or
+   Yes: set it to No before this run to see it answered); Save is
    clicked; the card turns Done; Clip 2 runs. The activity bar shows "Uploading 1/2" with its
    upload icon and a percentage, and the running card a progress bar; the Start button's play
    icon spins while running; the tab title shows `(1/2) ⬆`, then `✅` if the tab isn't focused.
@@ -1127,7 +1173,7 @@ observation.
 75. **Install from the zip.** On a Chrome profile that never had the extension, follow "Install"
     with **the zip you were given** (before the first release there is nothing to download yet).
     The card on `chrome://extensions` reads "YouTube Upload Presets", version 5.0.0, with no
-    **Errors** button. The toolbar button opens the panel on a Studio tab. **Record** the ID on
+    **Errors** button (but see the record line below). The toolbar button opens the panel on a Studio tab. **Record** the ID on
     the card, and the content hash that came with the zip.
 
     TODO(key): once the key is in `wxt.config.ts`, add to item 75: "The ID is `<the id computed from the key>`, the same on every computer." Until then the ID differs per folder and per machine, and the record above is all there is to check.
@@ -1138,6 +1184,12 @@ observation.
     - **Record** what the toolbar button and the card's picture look like (expected today:
       Chrome's own tile with the letter Y; the extension ships no artwork yet), and whether
       Chrome showed "Disable developer mode extensions" at its next start.
+    - **The Errors button (record).** Before the first release the background writes one
+      warning at its first start, `[ytup] update check Error: GitHub answered 404` (item 77
+      explains it). **Record** whether Chrome shows an **Errors** button on the card for it.
+      If the button shows only that line, it is the expected warning.
+    - If Chrome is in Thai, **record** the Thai names of Developer mode, Load unpacked,
+      Remove and the start-up box, so the Thai section can name them.
     - The panel is in English on a fresh install; item 3 switches it to Thai.
 76. **Update in place.** Ask the controller for a **test zip of a higher version** (it is the
     same build with `"version": "5.0.1"`, made in a scratch folder and never released). Follow
@@ -1485,7 +1537,10 @@ The move file:
   A channel the extension already has keeps its own entry, unless that entry has no name and
   the file's has one. A channel picture is kept only when it is an `https:` link.
 - **The import reads the whole file at once** and has no size limit of its own.
-- **Any import, move file or not,** replaces presets, settings and EP numbers with the file's.
+- **Any import, move file or not,** replaces the presets and the general settings with the
+  file's. As **My file** it also replaces EP numbers, the producer name, the schedule and
+  your own artist names; as **Someone else's** those stay yours. The locked channel is never
+  taken from a file.
 
 The panel's tab, and messages in the Studio page:
 
@@ -1516,7 +1571,7 @@ Folders:
 
 - **Hidden files are left out** of a picked or dropped folder (names starting with a dot:
   `.DS_Store`, and the `._Clip.mp4` side files some drives make). A real video named with a
-  leading dot is left out too when it comes from a folder. Hidden *folders* are still read.
+  leading dot is left out too when it comes from a folder or is dropped together with one. Hidden *folders* are still read.
 - **2000 files from folders, per pick or drop in total.** Over that, nothing is added and a
   message says so. Files dropped loose, beside a folder or without one, are not counted. The
   limit is on the files taken, not on the search: a tree of thousands of hidden files or empty

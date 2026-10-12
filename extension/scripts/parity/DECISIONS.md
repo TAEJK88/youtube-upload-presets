@@ -78,6 +78,8 @@ in that phase's planning report; `owner-<date>` is an answer given outside a num
 
 ## Phase 5: what the answers of 2026-10-11 carry with them
 
+These three were not asked as separate questions: the plan lists them as parts of calls 7 and 8, which the owner approved.
+
 - **P5-16** 2026-10-11: Follows from P5-7. The tab-and-panel protocol number goes from 2 to 3, because the queue view gains a field (is the Tampermonkey script in the page); a Studio tab left open from an older build is reloaded once.
 - **P5-18** 2026-10-11: Part of P5-8, as planned. A move file's language replaces the language chosen in the extension, each time the file is imported as "My file".
 - **P5-19** 2026-10-11: Part of P5-8, as planned. Upload-history rows without a video id are imported; a row needs a date, a channel and a file name.
