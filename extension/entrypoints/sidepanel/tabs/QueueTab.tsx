@@ -19,7 +19,7 @@ const notConnected = (e: unknown) => {
 };
 // A folder inside a dropped or picked one couldn't be listed: its files are not in the queue.
 // One toast, however many folders.
-const folderUnread = () => void toast(L('อ่านบางโฟลเดอร์ไม่ได้ — ไฟล์ในโฟลเดอร์นั้นไม่ได้ถูกเพิ่ม', "Some folders couldn't be read — the files in them were not added"), { id: 'folder-unread' });
+const folderUnread = () => void toast(L('อ่านบางโฟลเดอร์ไม่ได้ — ไฟล์ในโฟลเดอร์นั้นจึงไม่ได้เพิ่มเข้าคิว', "Some folders couldn't be read — the files in them were not added"), { id: 'folder-unread' });
 
 // Files from a drop or a picker → stored → the Studio tab's queue (addFiles there).
 export function useAddFiles() {

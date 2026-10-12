@@ -21,7 +21,7 @@ vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()),
 const RELOAD = 'This tab is not connected to the extension yet — reload this tab';
 const UNREAD = "Some folders couldn't be read — the files in them were not added";
 const locked = () => ({ kind: 'directory', name: 'x', values() { throw new Error('no'); } });
-const TOO_MANY = `This folder has more than ${intake.MAX_FOLDER_FILES} files, so nothing was added — pick the folder that holds only the videos to upload`;
+const TOO_MANY = `The folder(s) hold more than ${intake.MAX_FOLDER_FILES} files, so nothing was added — pick only the folder with the videos to upload`;
 // A folder three levels down with one file more than a walk takes.
 const hugeFolder = () => {
   const dir = (kids: unknown[]) => ({ kind: 'directory', name: 'd', async *values() { yield* kids; } });
@@ -191,6 +191,17 @@ describe('queue card: attach failures', () => {
     expect(vi.mocked(intake.sendFiles).mock.calls[0]![0]).toEqual([txt, hidden]);
     expect(values).not.toHaveBeenCalled();
     expect(toast).not.toHaveBeenCalled();
+  });
+  it('a card drop whose files cannot be taken is logged, not left unhandled', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const gone = new DOMException('gone', 'NotFoundError');
+    vi.mocked(intake.dropHandles).mockRejectedValueOnce(gone);
+    one({ status: 'pending' });
+    const dataTransfer = { types: ['Files'], files: [new File(['x'], 'a.txt')], items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }] };
+    await act(async () => void fireEvent.drop(screen.getByText('Attach .txt / thumbnail'), { dataTransfer }));
+    expect(err).toHaveBeenCalledWith('[ytup] card drop', gone);
+    expect(intake.sendFiles).not.toHaveBeenCalled();
+    err.mockRestore();
   });
 });
 

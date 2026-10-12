@@ -16,14 +16,15 @@ export const dropHandles = (dt: DataTransfer | null | undefined): Promise<(FileS
 // Studio tab, one after another, whether it is a video or not. A folder with more files than
 // this is not a folder of videos (a drive, a project with its dependencies): it is refused
 // with a message, and nothing of the drop or the pick is queued. The count is of the files
-// taken from one picked or dropped folder; it does not bound the walk itself (hidden files
-// and folders without files are read to the end).
+// taken from all the folders of one drop or pick together (files dropped loose beside them
+// are not counted); it does not bound the walk itself (hidden files and folders without
+// files are read to the end).
 export const MAX_FOLDER_FILES = 2000;
 export class TooManyFiles extends Error {
   constructor() {
     super(L(
-      `โฟลเดอร์นี้มีไฟล์เกิน ${MAX_FOLDER_FILES} ไฟล์ จึงไม่ได้เพิ่มอะไรเข้าคิว — เลือกโฟลเดอร์ที่มีเฉพาะคลิปที่จะอัป`,
-      `This folder has more than ${MAX_FOLDER_FILES} files, so nothing was added — pick the folder that holds only the videos to upload`,
+      `ในโฟลเดอร์มีไฟล์เกิน ${MAX_FOLDER_FILES} ไฟล์ จึงไม่ได้เพิ่มอะไรเข้าคิว — เลือกเฉพาะโฟลเดอร์ที่มีคลิปที่จะอัป`,
+      `The folder(s) hold more than ${MAX_FOLDER_FILES} files, so nothing was added — pick only the folder with the videos to upload`,
     ));
   }
 }
@@ -45,27 +46,23 @@ export async function expandHandles(handles: (FileSystemHandle | null)[], unread
   const present = handles.filter((h): h is FileSystemHandle => !!h);
   if (!present.some((h) => h.kind === 'directory')) return present as FileSystemFileHandle[];
   const out: FileSystemFileHandle[] = [];
-  let taken = 0; // from the dropped or picked folder being walked
-  const walk = async (h: FileSystemHandle) => {
+  let taken = 0; // from folders; a file dropped loose is not counted
+  const walk = async (h: FileSystemHandle, inFolder: boolean) => {
     if (h.kind === 'file') {
       if (h.name.startsWith('.')) return;
-      if (taken >= MAX_FOLDER_FILES) throw new TooManyFiles();
-      taken++;
+      if (inFolder && taken++ >= MAX_FOLDER_FILES) throw new TooManyFiles();
       out.push(h as FileSystemFileHandle);
       return;
     }
     try {
-      for await (const c of (h as FileSystemDirectoryHandle).values()) await walk(c);
+      for await (const c of (h as FileSystemDirectoryHandle).values()) await walk(c, true);
     } catch (e) {
       if (e instanceof TooManyFiles) throw e;
       console.error('[ytup] folder', h.name, e);
       unread(h.name);
     }
   };
-  for (const h of present) {
-    taken = 0;
-    await walk(h);
-  }
+  for (const h of present) await walk(h, false);
   return out;
 }
 

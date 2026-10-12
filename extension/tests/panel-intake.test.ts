@@ -72,7 +72,7 @@ describe('intake', () => {
     expect(await picked(full())).toHaveLength(MAX_FOLDER_FILES);
     const over = () => dir('Mixes', [...many(MAX_FOLDER_FILES), ...nest(4, [file('one more.mp4')])]);
     await expect(expandHandles([over()])).rejects.toBeInstanceOf(TooManyFiles);
-    await expect(picked(over())).rejects.toThrow(`more than ${MAX_FOLDER_FILES} files`);
+    await expect(picked(over())).rejects.toThrow(`hold more than ${MAX_FOLDER_FILES} files`);
     // Files dropped without a folder are never walked, so never counted.
     expect(await expandHandles(many(MAX_FOLDER_FILES + 1))).toHaveLength(MAX_FOLDER_FILES + 1);
   });
@@ -90,11 +90,14 @@ describe('intake', () => {
     expect(opened).toBe(false);
   });
 
-  it('the limit is for each dropped folder: files and other folders dropped beside it are not counted in', async () => {
-    const many = (n: number) => Array.from({ length: n }, (_, i) => file(`f${i}.mp4`));
-    const got = await expandHandles([...many(MAX_FOLDER_FILES), dir('A', many(MAX_FOLDER_FILES)), dir('B', [file('b.mp4')])]);
-    expect(got).toHaveLength(MAX_FOLDER_FILES * 2 + 1);
-    await expect(expandHandles([file('a.mp4'), dir('B', [file('b.mp4')]), dir('A', many(MAX_FOLDER_FILES + 1))])).rejects.toBeInstanceOf(TooManyFiles);
+  it('the limit is for all the folders of one drop together; files dropped loose beside them are not counted', async () => {
+    const many = (n: number, at = '') => Array.from({ length: n }, (_, i) => file(`${at}${i}.mp4`));
+    const folders = (n: number) => Array.from({ length: n }, (_, i) => dir(`F${i}`, [...many(300, `a${i}-`), dir('sub', many(500, `b${i}-`))]));
+    expect(MAX_FOLDER_FILES).toBe(2000);
+    await expect(expandHandles(folders(3))).rejects.toBeInstanceOf(TooManyFiles); // 3 × 800
+    expect(await expandHandles([...many(1500, 'loose'), ...folders(2), ...many(1500, 'more')])).toHaveLength(1500 + 1600 + 1500);
+    await expect(expandHandles([...folders(2), dir('C', many(400)), file('x.mp4'), dir('D', [file('over.mp4')])])).rejects.toBeInstanceOf(TooManyFiles);
+    expect(await expandHandles([...folders(2), dir('C', many(400)), file('x.mp4')])).toHaveLength(2001);
   });
 
   it('a folder that cannot be read is passed over and named; the folders around it are still taken (filesFromDrop 3520)', async () => {
@@ -132,7 +135,7 @@ describe('intake', () => {
     expect(say).not.toHaveBeenCalled();
     expect(err).toHaveBeenCalledTimes(2);
     intakeFailed('drop', say)(new TooManyFiles());
-    expect(say).toHaveBeenCalledWith(`This folder has more than ${MAX_FOLDER_FILES} files, so nothing was added — pick the folder that holds only the videos to upload`);
+    expect(say).toHaveBeenCalledWith(`The folder(s) hold more than ${MAX_FOLDER_FILES} files, so nothing was added — pick only the folder with the videos to upload`);
     err.mockRestore();
   });
 

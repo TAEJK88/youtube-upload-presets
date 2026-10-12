@@ -127,7 +127,8 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
     e.stopPropagation();
     const pending = dropHandles(e.dataTransfer); // inside the event, before any await
     // The drawer attached the dropped files themselves (3862–3866): a folder among them is not read.
-    void pending.then((hs) => attachFiles(hs.filter((h): h is FileSystemFileHandle => h?.kind === 'file')));
+    void pending.then((hs) => attachFiles(hs.filter((h): h is FileSystemFileHandle => h?.kind === 'file')))
+      .catch((err) => console.error('[ytup] card drop', err));
   };
   const retry = async () => {
     if (it.draftId && !(await ask({
