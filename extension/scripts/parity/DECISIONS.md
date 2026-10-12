@@ -74,3 +74,4 @@ in that phase's planning report; `owner-<date>` is an answer given outside a num
 - **P5-7-save** 2026-10-12: While the Tampermonkey script is in the page the extension does not press Save on a trim for anyone ("press Save for me" waits too).
 - **P5-7-run-stop** 2026-10-12: An upload run that started before the Tampermonkey script appeared in the page stops after the video in progress.
 - **P5-8-nameless** 2026-10-12: A move file's channel without a name is imported (the userscript and the extension both store such channels).
+- **P5-folder-extras** 2026-10-12: Keep all three. A folder's hidden (dot-named) files are left out; a folder with more than 2000 files is refused whole with a message; a folder dropped on the panel is read at every depth, like a picked one.
