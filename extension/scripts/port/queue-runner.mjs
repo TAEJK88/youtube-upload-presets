@@ -39,9 +39,10 @@ export default {
     // STATUS is built when used, after initI18n() (it was built at import, so always English)
     ['const STATUS = {', 'const STATUS = () => ({', 1],
     ["    error: [L('ผิดพลาด', 'Error'), 'err'],\n  };", "    error: [L('ผิดพลาด', 'Error'), 'err'],\n  });", 1],
-    // while another Studio tab runs the queue (cached flag; a listener can't await), Studio keeps its own picks
-    ['if (!settings.intercept || !(t instanceof HTMLInputElement)', 'if (!settings.intercept || otherTabRuns || !(t instanceof HTMLInputElement)', 1],
-    ['if (injectingFile || !settings.intercept || !e.target', 'if (injectingFile || !settings.intercept || otherTabRuns || !e.target', 1],
+    // while another Studio tab runs the queue (cached flag; a listener can't await), Studio keeps its own picks;
+    // checked last, so only a pick the intercept would have taken is said on the page (leftToStudio, P5-row-intercept-second-tab)
+    ['      if (!t.closest(SEL.dialog) || t.files.length < 2) return;\n', '      if (!t.closest(SEL.dialog) || t.files.length < 2) return;\n      if (otherTabRuns) return leftToStudio();\n', 1],
+    ['      if (!files || files.length < 2) return;\n', '      if (!files || files.length < 2) return;\n      if (otherTabRuns) return leftToStudio();\n', 1],
     // uploadCurrent() marks the item being processed (Remove refuses it) around uploadOne()
     ['await uploadOne(it);', 'await uploadCurrent(it);', 1],
     // the schedule refresh before a start waits START_SCHED_WAIT_MS at most (youtubei calls take up to 30 s)

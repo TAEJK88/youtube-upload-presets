@@ -592,6 +592,17 @@ async function uploadCurrent(it: QueueItem): Promise<void> {
   }
 }
 
+// A multi-file pick or drop the intercept would have taken, while another Studio tab runs the
+// queue: Studio keeps it and uploads the files itself, and the page says why. Once per pick: a
+// drop that Studio passes on as a change of its file input is the same pick.
+let leftAt = 0;
+function leftToStudio(): void {
+  const now = Date.now();
+  if (Math.abs(now - leftAt) < 1000) return;
+  leftAt = now;
+  ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่ — ไฟล์เหล่านี้จึงปล่อยให้ YouTube อัปโหลดเอง และจะไม่ได้ใช้พรีเซ็ต', "Another Studio tab is running the upload queue — these files were left to YouTube's own upload and get no preset"));
+}
+
 // Returns a disposer: an orphaned listener (extension reloaded under a live page) would
 // still close Studio's dialog and swallow the user's files.
 export function installIntercept(): () => void {
@@ -603,8 +614,9 @@ export function installIntercept(): () => void {
     'change',
     (e: any) => {
       const t = e.target;
-      if (!settings.intercept || otherTabRuns || !(t instanceof HTMLInputElement) || t.type !== 'file') return;
+      if (!settings.intercept || !(t instanceof HTMLInputElement) || t.type !== 'file') return;
       if (!t.closest(SEL.dialog) || t.files!.length < 2) return;
+      if (otherTabRuns) return leftToStudio();
       e.stopImmediatePropagation();
       addQueued(pageFiles(t.files!));
       t.value = '';
@@ -616,9 +628,10 @@ export function installIntercept(): () => void {
   document.addEventListener(
     'drop',
     (e: any) => {
-      if (injectingFile || !settings.intercept || otherTabRuns || !e.target.closest?.(SEL.dialog)) return;
+      if (injectingFile || !settings.intercept || !e.target.closest?.(SEL.dialog)) return;
       const files = e.dataTransfer?.files;
       if (!files || files.length < 2) return;
+      if (otherTabRuns) return leftToStudio();
       e.preventDefault();
       e.stopImmediatePropagation();
       addQueued(pageFiles(files));
