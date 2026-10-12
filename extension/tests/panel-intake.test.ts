@@ -62,7 +62,7 @@ describe('intake', () => {
 
   it('a folder with more files than the limit adds nothing and says so, dropped or picked', async () => {
     const many = (n: number) => Array.from({ length: n }, (_, i) => file(`f${i}.mp4`));
-    const full = () => dir('Mixes', [...many(MAX_FOLDER_FILES - 1), file('.DS_Store'), ...nest(4, [file('last.mp4')])]);
+    const full = () => dir('Mixes', [...many(MAX_FOLDER_FILES - 1), ...nest(4, [file('last.mp4')]), file('.DS_Store')]); // hidden files don't count
     expect(await expandHandles([full()])).toHaveLength(MAX_FOLDER_FILES);
     expect(await picked(full())).toHaveLength(MAX_FOLDER_FILES);
     const over = () => dir('Mixes', [...many(MAX_FOLDER_FILES), ...nest(4, [file('one more.mp4')])]);
