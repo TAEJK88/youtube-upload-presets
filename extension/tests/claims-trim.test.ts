@@ -716,7 +716,7 @@ describe('a trim step changes pages (5950–5958)', () => {
     C.setClaimsLock({ worker: async () => true, acquire: async () => true, release: vi.fn(), holds: async () => false });
     Q.queue.push({ id: 'q', status: 'pending' } as Q.QueueItem);
     C.startTrimRun([row('v2', 'c3')], 'auto');
-    await vi.waitFor(() => expect(C.trimStage.detail).toContain('Waiting for the upload queue to clear'));
+    await vi.waitFor(() => expect(C.trimStage.detail).toBe('⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue'));
     expect(location.href).toBe('');
     Q.queue.splice(0);
     vi.unstubAllGlobals();

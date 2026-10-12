@@ -1031,7 +1031,7 @@ English. Write down pass or fail; items marked **record** ask for an observation
     another Studio tab to finish (page change needed)") and goes on after A's queue ends. (An
     Auto-pilot cycle that comes due in B while A's queue runs still scans, because scans take no
     lock; the trims it then starts wait the same way.) With no tab running the queue, a trim, ads
-    or Collab run waits while the queue has **waiting** videos ("⏸ Waiting for the upload queue to clear…"); a **failed**
+    or Collab run waits while the queue has **waiting** videos ("⏸ Waiting for the upload queue to finish…"; a Collab run says "…to clear…"); a **failed**
     upload left in the queue doesn't hold it back.
     - **A waiting run doesn't block the others.** Put two clips in A's queue without starting,
       then start a trim run from A's panel: it waits for the queue. Now in B, Start (or a trim
@@ -1563,9 +1563,6 @@ The panel's tab, and messages in the Studio page:
 - **"Leave site?"** is asked only during a run, or while files picked in Studio's own dialog
   wait. Files added in the panel survive a reload, so a reload with only those waiting asks
   nothing.
-- **A wait message is out of date.** A copyright step that waits for the upload queue says
-  "upload or remove stuck/failed videos from the queue", but failed videos no longer hold it
-  back: only waiting and uploading ones do.
 
 Folders:
 

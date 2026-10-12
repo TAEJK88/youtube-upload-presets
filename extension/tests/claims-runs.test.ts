@@ -62,7 +62,7 @@ describe('ads run', () => {
     history.replaceState(null, '', '/channel/x/videos');
     Q.queue.push({ id: 'q', status: 'pending' } as Q.QueueItem);
     C.adsFromPanel(['a']); // starts the run and its first step
-    await vi.waitFor(() => expect(C.computeStatus().stepDetail ?? C.adsStage.detail).toContain('Waiting for the upload queue to clear'));
+    await vi.waitFor(() => expect(C.computeStatus().stepDetail ?? C.adsStage.detail).toBe('⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue'));
     expect(location.pathname).toBe('/channel/x/videos');
   });
 
@@ -78,7 +78,7 @@ describe('ads run', () => {
     Q.queue.push({ id: 'q', status: 'pending' } as Q.QueueItem); // waiting, not started
     C.adsFromPanel(['a']);
     for (let i = 0; i < 40; i++) { C.claimsTick(); await vi.advanceTimersByTimeAsync(800); }
-    expect(C.adsStage.detail).toContain('Waiting for the upload queue to clear');
+    expect(C.adsStage.detail).toBe('⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue');
     expect(acquire).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
     expect(location.href).toBe('');

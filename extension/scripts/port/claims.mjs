@@ -62,6 +62,9 @@ export default {
     ['      trimBusy = true;\n', '      trimBusy = true;\n      if (!(await claimLock())) { setTrimStage(-1, lockWait()); trimBusy = false; return; }\n      if (!(getRun() || {}).active) { trimBusy = false; return; }\n', 1],
     ['      adsBusy = true;\n', '      adsBusy = true;\n      if (!(await claimLock())) { setAdsStage(-1, lockWait()); adsBusy = false; return; }\n      if (!(getAdsRun() || {}).active) { adsBusy = false; return; }\n', 1],
     ['      collabBusy = true;\n', '      collabBusy = true;\n      if (!(await claimLock())) { setCollabStage(-1, lockWait()); collabBusy = false; return; }\n      if (!(getCollabRun() || {}).active) { collabBusy = false; return; }\n', 1],
+    // the ads and trim wait told the user to remove failed videos, which no longer hold a page change
+    // back (P4-12): it names the ones that do, those still waiting in the queue
+    ["L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue')", "L('⏸ รอคิวอัปโหลดเสร็จก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ยังรออยู่ในคิวออก', '⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue')", 2],
     // while the Tampermonkey userscript is in the page the tick presses Save and Confirm for nobody:
     // the trim editor may be one the userscript's own review-mode run opened (Phase 5 call 7, review 1)
     ['if (!running2 && /\\/video\\/[^/]+\\/(claims|copyright)/.test(location.pathname)) {', 'if (!running2 && /\\/video\\/[^/]+\\/(claims|copyright)/.test(location.pathname) && !userscriptHere()) {', 1],

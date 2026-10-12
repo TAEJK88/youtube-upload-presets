@@ -504,7 +504,7 @@ const switchToChannel: typeof switcher = (t, next) => {
     if (!(await claimLock())) { setAdsStage(-1, lockWait()); adsBusy = false; return; }
     if (!(getAdsRun() || {} as Partial<Run>).active) { adsBusy = false; return; }
     if (!location.pathname.startsWith(`/video/${item.videoId}/monetization`)) {
-      if (uploadBusy()) { setAdsStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue')); adsBusy = false; return; }
+      if (uploadBusy()) { setAdsStage(-1, L('⏸ รอคิวอัปโหลดเสร็จก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ยังรออยู่ในคิวออก', '⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue')); adsBusy = false; return; }
       setAdsStage(0, L('กำลังเปิดหน้าการสร้างรายได้ของคลิป…', 'Opening the video\'s monetisation page…'));
       location.href = `/video/${item.videoId}/monetization`;
       setTimeout(() => { adsBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
@@ -964,7 +964,7 @@ const switchToChannel: typeof switcher = (t, next) => {
     if (!(getRun() || {} as Partial<Run>).active) { trimBusy = false; return; }
     const path = `/video/${item.videoId}/claims`;
     if (!new RegExp(`^/video/${item.videoId}/(claims|copyright)`).test(location.pathname)) {
-      if (uploadBusy()) { setTrimStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue')); trimBusy = false; return; }
+      if (uploadBusy()) { setTrimStage(-1, L('⏸ รอคิวอัปโหลดเสร็จก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ยังรออยู่ในคิวออก', '⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue')); trimBusy = false; return; }
       setTrimStage(0, L('กำลังเปิดหน้า claim ของคลิปนี้…', 'Opening this video\'s claims page…'));
       log(L(`กำลังเปิด ${item.video}…`, `Opening ${item.video}…`));
       location.href = path;
