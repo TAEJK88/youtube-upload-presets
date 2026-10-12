@@ -253,9 +253,15 @@ describe('banners', () => {
     expect(screen.getByText('Files in the queue need read access again — the browser has withdrawn it')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Re-grant access (2 files)' }));
     expect(api.regrant).toHaveBeenCalledTimes(1);
+    expect(api.allowAlways).not.toHaveBeenCalled();
+    // The once-and-for-all way, next to it.
+    fireEvent.click(screen.getByRole('button', { name: 'Always allow file access (one-time setup)' }));
+    expect(api.allowAlways).toHaveBeenCalledTimes(1);
+    expect(api.regrant).toHaveBeenCalledTimes(1);
     cleanup();
     renderPanel(<Banners />, fakePanel({ view: viewWith([{}, {}]) }));
     expect(screen.queryByRole('button', { name: /Re-grant access/ })).toBe(null);
+    expect(screen.queryByRole('button', { name: /Always allow file access/ })).toBe(null);
   });
 
   it('banners are announced to screen readers', () => {

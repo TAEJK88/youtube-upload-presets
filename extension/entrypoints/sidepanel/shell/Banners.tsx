@@ -5,12 +5,15 @@ import { L } from '@/lib/i18n';
 import { focusTab } from '@/lib/panel/target';
 import { USERSCRIPT_HERE } from '@/lib/studio/userscript-here';
 import { updateAvailable, UPDATE_KEY, type UpdateInfo } from '@/lib/update-check';
+import { cn } from '@/lib/utils';
+import { allowAlwaysLabel } from '../file-access';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
 
-function Banner({ icon, text, children }: { icon: string; text: string; children?: ReactNode }) {
+// `below`: the actions get a row of their own under the text (two buttons don't fit beside it).
+function Banner({ icon, text, below, children }: { icon: string; text: string; below?: boolean; children?: ReactNode }) {
   return (
-    <div role="status" className="mx-[18px] mt-3 flex items-center gap-2.5 rounded-[14px] border border-warn/40 bg-warn/[0.08] px-3 py-2.5 text-[13px]">
+    <div role="status" className={cn('mx-[18px] mt-3 flex items-center gap-2.5 rounded-[14px] border border-warn/40 bg-warn/[0.08] px-3 py-2.5 text-[13px]', below && 'flex-wrap')}>
       <Icon name={icon} size={16} className="shrink-0 text-warn" />
       <span className="min-w-0 flex-1">{text}</span>
       {children}
@@ -20,7 +23,7 @@ function Banner({ icon, text, children }: { icon: string; text: string; children
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant } = usePanel();
+  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant, allowAlways } = usePanel();
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };
@@ -40,8 +43,12 @@ export function Banners() {
       {view?.userscript && <Banner icon="alert" text={USERSCRIPT_HERE()} />}
       {/* Queued files this browser no longer lets the extension read (file-access.ts). */}
       {noAccess.length > 0 && (
-        <Banner icon="lock" text={L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — เบราว์เซอร์ถอนสิทธิ์ไปแล้ว', 'Files in the queue need read access again — the browser has withdrawn it')}>
-          <Button size="sm" onClick={regrant}>{L(`อนุญาตอีกครั้ง (${noAccess.length} ไฟล์)`, `Re-grant access (${noAccess.length} files)`)}</Button>
+        <Banner below icon="lock" text={L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — เบราว์เซอร์ถอนสิทธิ์ไปแล้ว', 'Files in the queue need read access again — the browser has withdrawn it')}>
+          <div className="flex basis-full flex-wrap justify-end gap-2">
+            <Button size="sm" onClick={regrant}>{L(`อนุญาตอีกครั้ง (${noAccess.length} ไฟล์)`, `Re-grant access (${noAccess.length} files)`)}</Button>
+            {/* Once and for all: Chrome's "Allow on every visit", asked in a tab (entrypoints/allow). */}
+            <Button size="sm" onClick={allowAlways}>{allowAlwaysLabel()}</Button>
+          </div>
         </Banner>
       )}
       {link === 'noScript' && target && (

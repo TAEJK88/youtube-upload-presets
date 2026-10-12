@@ -158,9 +158,11 @@ describe('wiring', () => {
   const files = (dir: string): string[] =>
     readdirSync(join(__dirname, '..', dir), { withFileTypes: true }).flatMap((d) =>
       d.isDirectory() ? files(`${dir}/${d.name}`) : /\.tsx?$/.test(d.name) ? [`${dir}/${d.name}`] : []);
-  it('panel and debug page import the theme right after the crash guard', () => {
+  it('panel, debug page and allow page import the theme right after the crash guard', () => {
     expect(src('entrypoints/sidepanel/main.tsx')).toMatch(/^(\/\/[^\n]*\n)*import \{[^}]*\} from '\.\/crash-guard';\nimport '@\/lib\/theme';[^\n]*\n/);
-    expect(src('entrypoints/debug/main.tsx')).toMatch(/^(\/\/[^\n]*\n)*import \{[^}]*\} from '\.\.\/sidepanel\/crash-guard';\nimport '@\/lib\/theme';[^\n]*\n/);
+    for (const page of ['debug', 'allow']) {
+      expect(src(`entrypoints/${page}/main.tsx`), page).toMatch(/^(\/\/[^\n]*\n)*import \{[^}]*\} from '\.\.\/sidepanel\/crash-guard';\nimport '@\/lib\/theme';[^\n]*\n/);
+    }
   });
   it('components/ never import from an entrypoint (useTheme lives in lib/)', () => {
     const bad = files('components').filter((f) => /from '(@\/|(\.\.\/)+)entrypoints\//.test(src(f)));
@@ -170,11 +172,11 @@ describe('wiring', () => {
   // Chrome paints the empty page with the dark defaults. Vite rewrites the entry tag and drops
   // the attribute from index.html, so a plugin in wxt.config.ts puts it on the built tag.
   // 30 s: importing wxt.config loads WXT and Vite, which took over the default 5 s on a busy machine.
-  it('the built panel and debug page entry scripts are render-blocking', { timeout: 30_000 }, async () => {
+  it('the built panel, debug page and allow page entry scripts are render-blocking', { timeout: 30_000 }, async () => {
     const { renderBlocking } = await import('../wxt.config');
     const { handler } = renderBlocking().transformIndexHtml as { handler: (html: string, ctx: { filename: string }) => string };
     const built = '<head>\n    <script type="module" crossorigin src="/chunks/sidepanel-x.js"></script>\n    <link rel="modulepreload" crossorigin href="/chunks/a.js">\n</head>';
-    for (const page of ['sidepanel', 'debug']) {
+    for (const page of ['sidepanel', 'debug', 'allow']) {
       expect(handler(built, { filename: `/x/entrypoints/${page}/index.html` })).toContain('<script type="module" blocking="render" crossorigin src="/chunks/sidepanel-x.js"></script>');
     }
     expect(handler(built, { filename: '/x/entrypoints/file-bridge/index.html' })).toBe(built);
@@ -273,10 +275,10 @@ describe('wiring', () => {
       expect(colours(`<div className="x" ${ok} />`), ok).toEqual([]);
     }
   });
-  it('the panel and debug page components use colour tokens, not colours that assume dark', () => {
+  it('the panel, debug page and allow page components use colour tokens, not colours that assume dark', () => {
     const found: string[] = [];
     // crash-kit.ts is the plain-DOM fallback (inline styles, no stylesheet): tested on its own below.
-    for (const f of [...files('components'), ...files('entrypoints/sidepanel'), ...files('entrypoints/debug')].filter((f) => !f.endsWith('crash-kit.ts'))) {
+    for (const f of [...files('components'), ...files('entrypoints/sidepanel'), ...files('entrypoints/debug'), ...files('entrypoints/allow')].filter((f) => !f.endsWith('crash-kit.ts'))) {
       let text = src(f);
       for (const a of ALLOWED) text = text.replaceAll(a, '');
       text.split('\n').forEach((line, i) => {

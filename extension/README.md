@@ -65,7 +65,11 @@ Your presets, settings, queue and history stay: they belong to the extension, no
 folder. Don't press **Remove** on the extension's card: that deletes them. If clips were
 waiting in the queue, the panel then says "Files in the queue need read access again — the
 browser has withdrawn it": press Start as usual (it asks for the access itself), or click
-**Re-grant access**.
+**Re-grant access**. To be asked once and not after every update or restart, click the
+banner's other button, **Always allow file access (one-time setup)**: a page opens in a new
+tab; press its button and, in Chrome's question, pick **"Allow on every visit"**. After that
+the banner is expected not to come back (expected from Chrome's documentation; not yet
+confirmed in Chrome, exit check 89).
 
 TODO(key): "they belong to the extension, not to the folder" is true only once the public key line is in `wxt.config.ts`. Today the build has no key and the extension's id follows the folder's path: a build loaded from another folder is a new, empty extension beside the old one. Delete this line when the key is in; until then the rule is "always the same folder, in the same place".
 
@@ -230,6 +234,9 @@ TODO(key): once the key is in `wxt.config.ts`, add the Thai of the sentence adde
 พรีเซ็ต การตั้งค่า คิว และประวัติของคุณยังอยู่ครบ เพราะข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์
 อย่ากด **Remove** ที่การ์ดของส่วนขยาย เพราะจะลบข้อมูลทั้งหมด
 ถ้ามีคลิปรออยู่ในคิว แผงจะขึ้นว่า "ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — เบราว์เซอร์ถอนสิทธิ์ไปแล้ว" กดเริ่มอัปโหลดได้ตามปกติ (ปุ่มเริ่มจะขอสิทธิ์ให้เอง) หรือกด **อนุญาตอีกครั้ง** ก็ได้
+ถ้าอยากให้ถามครั้งเดียว ไม่ต้องกดใหม่ทุกครั้งที่อัปเดตหรือเปิดเบราว์เซอร์ใหม่ ให้กดอีกปุ่มในแถบเดียวกัน คือ **อนุญาตอ่านไฟล์ตลอดไป (ตั้งครั้งเดียว)**
+จะมีหน้าเปิดขึ้นในแท็บใหม่ กดปุ่มในหน้านั้น แล้วในหน้าต่างคำถามของ Chrome ให้เลือก **"Allow on every visit"**
+หลังจากนั้นแถบนี้ไม่ควรขึ้นมาอีก (เป็นไปตามเอกสารของ Chrome แต่ยังไม่ได้ยืนยันใน Chrome จริง ดูข้อตรวจ 89)
 
 TODO(key): the Thai sentence "ข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์" is true only once the key is in `wxt.config.ts` (see the marker under "Update"). Delete this line when the key is in.
 
@@ -375,6 +382,9 @@ Console lines from the extension start with `[ytup]`.
   cycle) and the "Auto-pilot is due" notification
 - `lib/main-youtubei.ts` — Studio's `/youtubei/v1` calls, run in the MAIN world
 - `entrypoints/sidepanel/` — the side panel (React); `lib/panel/` — its logic; `components/ui/` — shadcn-style components
+- `entrypoints/allow/`, `lib/file-allow.ts` — the "Allow file access" page (`allow.html`, opened
+  in a tab): asks Chrome for read access to the stored files where Chrome can offer "Allow on
+  every visit"
 - `scripts/ui-check.mjs`, `scripts/strings/` — strings parity with the userscript, 12px floor
 - `scripts/parity-check.mjs`, `scripts/parity/rows/` — one row per thing the userscript had: where
   it lives here and what proves it, or why it changed or went; `PARITY.md` is generated from
@@ -633,7 +643,9 @@ The panel's own console: right-click inside the panel → Inspect.
     reopen Studio and the panel: the banner "Files in the queue need read access again — the
     browser has withdrawn it" with **Re-grant access (N files)**; the card's thumbnail preview
     is gone. Start is **not** greyed out. (The same banner shows after the extension is
-    reloaded or updated, item 76, and whenever Chrome ends the access, item 88.)
+    reloaded or updated, item 76, and whenever Chrome ends the access, item 88. Its second
+    button, **Always allow file access (one-time setup)**, is item 89; this item is about
+    the first.)
     - **Re-grant.** Click **Re-grant access**. **Record** how many permission prompts the
       click shows (none is expected: Chrome's source says a side panel is given the access
       without a prompt; not measured), and whether one click granted all files. When it
@@ -1438,8 +1450,9 @@ observation.
        the panel: the banner with **Re-grant access (2 files)**. Click it. The banner goes,
        the console shows `[ytup] regrant <id>: prompt -> granted` twice and Chrome shows no
        prompt: this Chrome gives a side panel the access silently. `prompt -> prompt` and
-       the toast "The browser still does not allow reading 2 file(s) — …": it does not; a
-       page in a tab that can show Chrome's own question ("Allow on every visit") is needed.
+       the toast "The browser still does not allow reading 2 file(s) — …": it does not; the
+       page in a tab that can show Chrome's own question is the way (the banner's second
+       button, item 89).
     4. **Then wait a minute, Start.** Both upload: the access now outlives the click (the
        reported bug is gone). The Studio toast "The queued files need read access again —
        click "Re-grant access" in the side panel, then start again", with the banner back:
@@ -1461,12 +1474,76 @@ observation.
        Troubleshooting → **Open debug page**, close that tab, wait ten seconds, click into
        the panel. The banner appears: Chrome withdraws the access when the last tab of the
        extension closes (so don't close the debug page in the middle of a run); press Start
-       or the banner's button. No banner: that does not happen here.
+       or the banner's button. No banner: that does not happen here. (Do this step before
+       item 89: after "Allow on every visit" no banner is expected here whatever Chrome
+       does when a tab closes.)
 
     If any step shows a card with "No permission to read this file" or the Studio toast
     that names **Re-grant access**: the banner with that button is on the panel at that
     moment. If it is not, **record** that too, with the debug page's report (the
     `[ytup] regrant` lines say what each click did).
+89. **Allow file access once ("Allow on every visit").** What is built: a page of the
+    extension, `allow.html`, that opens in a normal tab. A side panel never shows Chrome's
+    own question about a file; a tab does. Seen once, in the owner's Chrome 155 (from the
+    debug page's console, before this page existed): asking about a stored file in a tab of
+    the extension shows Chrome's question with three buttons, "Allow this time", "Allow on
+    every visit" and "Don't allow". **Only expected, from Chrome's documentation, not seen
+    yet:** after "Allow on every visit" every stored file is readable in every page of the
+    extension (side panel, Studio tab), for files added later too, and after a browser
+    restart or an update of the extension, with no further click. Nothing below has been
+    run in Chrome. **Record** each outcome.
+    1. **Get the banner.** Queue two clips, one with a thumbnail (three stored files).
+       Reload the extension (`chrome://extensions` → the reload arrow on its card), reload
+       the Studio tab, open the panel. The banner "Files in the queue need read access again
+       — the browser has withdrawn it" shows, with two buttons under its text: **Re-grant
+       access (3 files)** and **Always allow file access (one-time setup)**.
+    2. **Open the page.** Click **Always allow file access (one-time setup)**. A new tab
+       opens: "YouTube Upload Presets · Allow file access", three sentences (the second
+       names "Allow on every visit"), the button **Ask Chrome for file access** and the
+       line "Readable: 0 of 3 stored file(s)" (the page counts every file the extension
+       has stored, so more if other clips are queued). Chrome has asked nothing yet, and
+       the panel's banner is still there.
+    3. **Ask.** Click **Ask Chrome for file access**. Chrome shows its question. **Record**
+       the words on its buttons (in a Thai Chrome too) and whether the question names one
+       file or all three. Pick **"Allow on every visit"**. Expected: no second question;
+       the page says "Readable: 3 of 3 stored file(s)", "Every stored file is readable. You
+       can close this tab." and the sentence about "Allow this time"; the button is greyed
+       out. The tab does not close by itself. **Record** how many questions Chrome showed.
+       - If the question has only two buttons (no "Allow on every visit"): pick "Allow this
+         time", close the tab, wait ten seconds, click into the panel (the banner is
+         expected back), open the page again and ask again. **Record** whether the third
+         button is there on the second visit.
+    4. **Back in the panel.** Click into the Studio window. Without a click on the banner:
+       the banner is gone and the card's thumbnail preview is back.
+    5. **Close the page's tab**, wait ten seconds, click into the panel. No banner: the
+       permission is the lasting one. The banner back: "Allow this time" was picked, or
+       the lasting permission does not do what is expected here. **Record** which.
+    6. **Start.** Both clips upload; Chrome asks nothing.
+    7. **The check that proves "once".** Queue two new clips. Quit Chrome fully, open it
+       again, open Studio and the panel. Expected: **no banner**, the previews show, Start
+       uploads both, and Chrome asks nothing. Then queue two more, reload the extension and
+       the Studio tab (as in step 1): again no banner. If a banner shows in either case,
+       the permission did not last: **record** it with the debug page's report; **Re-grant
+       access** and Start still work as in item 16.
+    8. **The other answers** (after the checks above, with new clips; "Allow on every
+       visit" must be taken back first, see the last step, or Chrome has nothing to ask).
+       On the page, press Esc on Chrome's question: the page asks about the next file
+       (one question per file, each file once per click); with all dismissed the page says
+       "Chrome has not allowed 3 file(s) yet. Press the button again and pick "Allow on
+       every visit"." and the button stays. Pick "Don't allow" on one: "The browser blocked
+       reading 1 file(s) — remove those videos from the queue and add the files again".
+       The page's console has one line per question, `[ytup] regrant <id>: prompt ->
+       granted` (or `-> prompt`, `-> denied`); the debug page's log lists them under the
+       context `allow`.
+    9. **No file queued.** Empty the queue, then Settings → Troubleshooting → **Always
+       allow file access (one-time setup)**: the same page, saying "No video is stored yet.
+       Chrome only asks about a real file: add a video to the queue in the side panel
+       first, then come back to this page." with the button greyed out. Add a clip in the
+       panel and click back into the page's tab: the line turns to "Readable: 1 of 1 stored
+       file(s)" (a clip just added is readable, so there is still nothing to ask).
+    10. **Taking it back.** **Record** where Chrome lists the permission (the lock or tune
+        icon in the page's address bar, or Chrome's site settings for the extension) and
+        that removing it brings the banner back after the next reload of the extension.
 
 ### Known behaviour, Phase 4a (note, don't test)
 
@@ -1572,14 +1649,15 @@ Not in 5.0.0 yet (also in `CHANGELOG.md`):
   again (measured in a test page: a held Enter answered yes 20 times in a row), so it waits
   for a guard against the key repeat.
 
-Read access to the queued files (the reasons are from Chrome's source code; none of it is
-measured in Chrome yet, item 88 is where it is):
+Read access to the queued files (the reasons are from Chrome's source code and
+documentation; none of it is measured in Chrome yet, items 88 and 89 are where it is):
 
 - **Chrome decides, per file, and can take the access back.** A file dropped or picked is
   readable at once. By Chrome's source it stays readable only while a page of the extension
   holds it, so the side panel holds every queued file while it is open, and the Studio tab
   holds every file it has read and, from Start on, every file of the run.
-- **After a restart, a reload or an update the files must be asked for again.** Quitting
+- **After a restart, a reload or an update the files must be asked for again**, unless
+  "Allow on every visit" was picked (the last point below; expected, not seen). Quitting
   Chrome, reloading or updating the extension closes all its pages. The banner shows; Start
   asks for the access itself, so pressing Start is enough, and **Re-grant access** does the
   same without starting. The same when the side panel is closed *and* the Studio tab is
@@ -1598,7 +1676,9 @@ measured in Chrome yet, item 88 is where it is):
   a run the video being uploaded is not affected (Studio already has it); a later video of
   the run can fail with "No permission to read this file — click "Re-grant access" in the
   side panel": click the button, then **Retry** on the card and Start. So: don't close the
-  debug page in the middle of a run.
+  debug page in the middle of a run. The "Allow file access" page is such a tab too: if
+  "Allow this time" was picked there, closing it is expected to end that access a few
+  seconds later; after "Allow on every visit" closing it is expected to change nothing.
 - **A run with the panel closed, and the Studio tab reloaded:** the video in flight fails with
   "The page reloaded during the upload — …" as before, and the videos still waiting are
   asked for again at the next Start.
@@ -1612,7 +1692,27 @@ measured in Chrome yet, item 88 is where it is):
   about the same file). Start goes to the tab, the tab says "The queued files need read
   access again — click "Re-grant access" …" and the banner shows; the click then says "The
   browser still does not allow reading …". Remove and add the clip.
-- **"Allow on every visit"** (Chrome's lasting permission, asked from a tab) is not used yet.
+- **"Allow on every visit" is asked for on its own page, once.** Chrome's lasting
+  permission can only be asked for from a normal tab, so the banner's **Always allow file
+  access (one-time setup)** (also Settings → Troubleshooting) opens `allow.html` in one.
+  Its button asks Chrome about one stored file, looks at all of them again, and asks about
+  the next only while some are still unanswered. Seen in the owner's Chrome 155: a tab of
+  the extension shows the question with the three buttons. Expected from Chrome's
+  documentation, not seen yet: after "Allow on every visit" every queued file, files added
+  later included, is readable in the side panel and the Studio tab, also after a restart
+  or an update, and the banner does not come back (item 89, step 7 is the check).
+  - The page cannot see which button was clicked: "Allow this time" and "Allow on every
+    visit" both leave the files readable at that moment. If the banner comes back later,
+    open the page again.
+  - Chrome may show the question without "Allow on every visit" on a first visit, or stop
+    offering it after it was dismissed several times (from its source; not seen).
+  - It needs a stored file: with an empty queue Chrome has nothing to ask about, and the
+    page says so.
+  - The permission belongs to Chrome, per extension id: Chrome's site settings can take it
+    back, and a build loaded from another folder (another id, see the TODO(key) note under
+    "Update") starts without it.
+  - Dismissing the question on a page with many files brings one question per file, each
+    file once per click.
 
 The update check:
 

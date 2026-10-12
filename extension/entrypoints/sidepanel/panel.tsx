@@ -36,7 +36,7 @@ const noop = () => {};
 export const PanelContext = createContext<PanelApi>({
   lang: 'en', data: null, target: null, link: 'noTab', view: null, runner: null, elsewhere: false, busyElsewhere: false,
   send: () => Promise.reject(new Error('no Studio tab')), sendTo: toTab, write: writes, refresh: noop,
-  noAccess: [], grantRev: 0, regrant: noop, accessForStart: async () => true,
+  noAccess: [], grantRev: 0, regrant: noop, allowAlways: noop, accessForStart: async () => true,
 });
 export const usePanel = () => useContext(PanelContext);
 

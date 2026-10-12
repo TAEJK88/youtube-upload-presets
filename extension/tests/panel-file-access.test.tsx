@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { browser } from 'wxt/browser';
 import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { useFileAccess } from '../entrypoints/sidepanel/file-access';
 import { PanelContext, type PanelApi } from '../entrypoints/sidepanel/panel';
@@ -26,6 +27,7 @@ vi.mock('../lib/panel/bus', async (orig) => ({
 
 const BANNER = 'Files in the queue need read access again — the browser has withdrawn it';
 const TOAST = 'The queued files need read access again — click "Re-grant access" in the side panel, then start again';
+const ALWAYS = 'Always allow file access (one-time setup)';
 const stuck = (n: number) => `The browser still does not allow reading ${n} file(s) — remove those videos from the queue and add the files again`;
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const SUMMARY = { pendingN: 2, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0', 'i1'], editRev: 0, sig: 's', times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm: false };
@@ -259,6 +261,53 @@ describe('read access to queued files in the side panel', () => {
     expect(w.chrome.requests).toEqual(['/v/i0.mp4']);
     expect(sent).toEqual(['queue:preflight', 'queue:start']);
     expect(screen.getByRole('button', { name: 'Re-grant access (1 files)' })).toBeTruthy(); // the error card's file, found by Start's look
+  });
+
+  it('the banner\'s "Always allow" opens the allow page in a tab and asks nothing here; back from it, the banner is gone with no other click', async () => {
+    const create = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    const w = world();
+    await w.add(['i0', 'i1']);
+    w.close();
+    w.open();
+    render(<Panel view={two()} />);
+    await flush();
+    expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
+    await w.click(ALWAYS);
+    expect(create).toHaveBeenCalledWith({ url: browser.runtime.getURL('/allow.html') });
+    expect(w.chrome.requests).toEqual([]);
+    expect(banner()).toBeTruthy(); // nothing changed yet
+    expect(rev()).toBe(0);
+    // In that tab: one question, answered "Allow on every visit".
+    const tab = w.chrome.page('tab');
+    w.chrome.answers.push('always');
+    const h = (await tab.load('i0'))!;
+    await tab.click(() => h.requestPermission());
+    tab.close();
+    window.dispatchEvent(new Event('focus')); // back in the Studio window
+    await flush();
+    expect(banner()).toBe(null);
+    expect(rev()).toBe(1); // the cards read their previews again
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    expect(rev()).toBe(1); // nothing came back this time
+    expect(toast).not.toHaveBeenCalled();
+    await w.click(/Upload 2 video/);
+    expect(sent).toEqual(['queue:preflight', 'queue:start']);
+  });
+
+  it('"Always allow" also answers a Studio tab\'s report: the banner does not wait for a Re-grant click that has nothing to ask', async () => {
+    vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    const w = world();
+    await w.add(['i0', 'i1']);
+    render(<Panel view={two()} />);
+    await flush();
+    act(() => bus.lost(['i1'], 1));
+    await flush();
+    await w.click(ALWAYS);
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    expect(banner()).toBe(null);
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it('a Studio tab that could not read a file: the banner and its button are there when the tab\'s toast arrives', async () => {

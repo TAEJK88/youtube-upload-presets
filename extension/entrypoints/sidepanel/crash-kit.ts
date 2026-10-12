@@ -19,7 +19,8 @@ export function stage(s: Stage): void {
   if (s === 'ready') document.getElementById(ID)?.remove();
 }
 
-export const ctx: LogCtx = typeof location !== 'undefined' && location.pathname.endsWith('/debug.html') ? 'debug' : 'panel';
+const page = typeof location !== 'undefined' ? location.pathname : '';
+export const ctx: LogCtx = page.endsWith('/debug.html') ? 'debug' : page.endsWith('/allow.html') ? 'allow' : 'panel';
 
 const version = () => {
   try {

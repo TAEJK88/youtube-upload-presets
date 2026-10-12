@@ -2,7 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'wxt';
 
-// The panel's and the debug page's entry script is render-blocking (blocking="render", Chrome
+// The panel's, the debug page's and the allow page's entry script is render-blocking (blocking="render", Chrome
 // 105+), so lib/theme.ts sets a stored light theme before the first paint, not one frame after
 // the empty page painted with the dark defaults. Vite rewrites the entry <script type="module">
 // and drops the attribute from index.html, so it goes on the built tag here.
@@ -11,7 +11,7 @@ export const renderBlocking = (): Plugin => ({
   transformIndexHtml: {
     order: 'post',
     handler: (html, { filename }) =>
-      /[\\/]entrypoints[\\/](sidepanel|debug)[\\/]index\.html$/.test(filename)
+      /[\\/]entrypoints[\\/](sidepanel|debug|allow)[\\/]index\.html$/.test(filename)
         ? html.replace(/<script type="module" crossorigin src=/g, '<script type="module" blocking="render" crossorigin src=')
         : html,
   },

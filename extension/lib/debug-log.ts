@@ -33,7 +33,7 @@ const STACK_MAX = 4000;
 const DEBOUNCE_MS = 500;
 const MIN_GAP_MS = 2000;
 
-export type LogCtx = 'background' | 'panel' | 'studio' | 'studio-main' | 'invite' | 'bridge' | 'debug';
+export type LogCtx = 'background' | 'panel' | 'studio' | 'studio-main' | 'invite' | 'bridge' | 'debug' | 'allow';
 export type LogLevel = 'error' | 'warn' | 'info';
 // count: how many times it happened in a row (absent = once).
 export interface LogEntry { t: number; ctx: LogCtx; level: LogLevel; msg: string; stack?: string; count?: number }

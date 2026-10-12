@@ -12,7 +12,7 @@ export { currentStage, failStartup, stage } from './crash-kit';
 //   only goes to the debug log, so a stray rejection doesn't cover a working panel.
 // - A watchdog: #root still empty WATCHDOG_MS after load shows the fallback naming the stage
 //   main.tsx reported last (stage()).
-// The debug page (debug.html) uses the same guard. The pieces it shares with the React
+// The debug page (debug.html) and the allow page (allow.html) use the same guard. The pieces it shares with the React
 // boundaries are in crash-kit.ts.
 let disposers: (() => void)[] = [];
 

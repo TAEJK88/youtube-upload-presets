@@ -7,10 +7,17 @@
 //   - a drop or a picker grants at once;
 //   - requestPermission() in a side panel shows nothing: recent Chrome grants silently,
 //     older Chrome leaves the state as it was. In a frame inside another site it throws.
+//   - requestPermission() in a normal tab of the extension shows Chrome's question, one per
+//     call: "Allow this time" grants the asked file, "Allow on every visit" makes every file
+//     of the extension read 'granted' in every page from then on, with no handle held (seen
+//     as a prompt in the owner's Chrome; what it does afterwards is from Chrome's
+//     documentation, not measured), "Don't allow" blocks the file, and a dismissed question
+//     changes nothing. A test lines the answers up in `answers`.
 // Handle objects can't be counted in JavaScript, so a page here lists the ones it made, and a
 // test says which of them are still reachable when it collects garbage.
 export interface FakeHandle extends FileSystemFileHandle { path: string }
-type Kind = 'panel' | 'frame';
+type Kind = 'panel' | 'frame' | 'tab';
+export type Answer = 'once' | 'always' | 'deny' | 'dismiss';
 
 export function fakeChrome(opts: { silentGrant?: boolean } = {}) {
   const silentGrant = opts.silentGrant ?? true;
@@ -18,6 +25,9 @@ export function fakeChrome(opts: { silentGrant?: boolean } = {}) {
   const alive = new Map<string, Set<FakeHandle>>(); // live handle objects, by path
   const stored = new Map<string, string>(); // IndexedDB: id → path
   const requests: string[] = [];
+  const answers: Answer[] = []; // the user's answers to a tab's questions, in order
+  let always = false; // "Allow on every visit" was picked
+  const now = (path: string): PermissionState => grants.get(path) ?? (always ? 'granted' : 'prompt');
 
   const died = (h: FakeHandle) => {
     const set = alive.get(h.path);
@@ -37,18 +47,22 @@ export function fakeChrome(opts: { silentGrant?: boolean } = {}) {
       };
       const h = {
         kind: 'file', name: path.split('/').pop()!, path,
-        async queryPermission() { live(); return grants.get(path) ?? 'prompt'; },
+        async queryPermission() { live(); return now(path); },
         async requestPermission() {
           live();
           requests.push(path);
           if (kind === 'frame') throw new DOMException('third-party context', 'SecurityError');
-          const now = grants.get(path) ?? 'prompt';
-          if (now === 'prompt' && clicked && silentGrant) grants.set(path, 'granted');
-          return grants.get(path) ?? 'prompt';
+          if (now(path) !== 'prompt' || !clicked) return now(path);
+          if (kind === 'tab') {
+            const answer = answers.shift() ?? 'dismiss';
+            if (answer === 'always') always = true;
+            else if (answer !== 'dismiss') grants.set(path, answer === 'once' ? 'granted' : 'denied');
+          } else if (silentGrant) grants.set(path, 'granted');
+          return now(path);
         },
         async getFile() {
           live();
-          if (grants.get(path) !== 'granted') throw new DOMException('no access', 'NotAllowedError');
+          if (now(path) !== 'granted') throw new DOMException('no access', 'NotAllowedError');
           return new File(['x'], h.name);
         },
       } as unknown as FakeHandle;
@@ -87,11 +101,12 @@ export function fakeChrome(opts: { silentGrant?: boolean } = {}) {
   return {
     page,
     refs: (path: string) => alive.get(path)?.size ?? 0,
-    state: (path: string): PermissionState => grants.get(path) ?? 'prompt',
+    state: now,
     // Chrome withdraws every active grant (the last extension tab closed, five seconds ago).
     revokeAll() { for (const [p, s] of grants) if (s === 'granted') grants.delete(p); },
     block(path: string) { grants.set(path, 'denied'); },
     remove(id: string) { stored.delete(id); },
     requests,
+    answers,
   };
 }

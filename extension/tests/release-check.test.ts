@@ -18,7 +18,7 @@ const manifest = {
     { matches: ['https://studio.youtube.com/*'], js: ['content-scripts/studio.js'] },
   ],
 };
-const files = ['manifest.json', 'background.js', 'sidepanel.html', 'debug.html', 'file-bridge.html', 'THIRD-PARTY-NOTICES.txt',
+const files = ['manifest.json', 'background.js', 'sidepanel.html', 'debug.html', 'allow.html', 'file-bridge.html', 'THIRD-PARTY-NOTICES.txt',
   'content-scripts/studio.js', 'content-scripts/studio-main.js', 'content-scripts/invite.js', 'chunks/a.js', 'assets/a.woff2', 'assets/a.woff', 'assets/a.css'];
 const icons = ['icon/16.png', 'icon/32.png', 'icon/48.png', 'icon/128.png'];
 const iconMap = { 16: 'icon/16.png', 32: 'icon/32.png', 48: 'icon/48.png', 128: 'icon/128.png' };
@@ -32,6 +32,7 @@ describe('release check', () => {
     expect(problems({ ...manifest, permissions: [...manifest.permissions, 'tabs'] })).toMatch(/permissions/);
     expect(problems({ ...manifest, host_permissions: manifest.host_permissions.slice(0, 2) })).toMatch(/host_permissions/);
     expect(problems({ ...manifest, web_accessible_resources: [{ resources: ['file-bridge.html', 'debug.html'], matches: ['<all_urls>'] }] })).toMatch(/web_accessible/);
+    expect(problems({ ...manifest, web_accessible_resources: [{ resources: ['file-bridge.html', 'allow.html'], matches: ['https://studio.youtube.com/*'] }] })).toMatch(/web_accessible/);
   });
   it('names any manifest field the release does not have', () => {
     const extra = {
@@ -88,7 +89,7 @@ describe('release check', () => {
     for (const b of bad) expect(inspect([...files, b], manifest, '5.0.0').join('\n'), b).toContain(b);
   });
   it('names a file the extension needs that is not there', () => {
-    for (const need of ['manifest.json', 'background.js', 'sidepanel.html', 'debug.html', 'file-bridge.html', 'THIRD-PARTY-NOTICES.txt',
+    for (const need of ['manifest.json', 'background.js', 'sidepanel.html', 'debug.html', 'allow.html', 'file-bridge.html', 'THIRD-PARTY-NOTICES.txt',
       'content-scripts/studio.js', 'content-scripts/studio-main.js', 'content-scripts/invite.js']) {
       expect(inspect(files.filter((f) => f !== need), manifest, '5.0.0').join('\n'), need).toContain(need);
     }

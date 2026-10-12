@@ -33,6 +33,13 @@ describe('settings tab', () => {
     create.mockRestore();
   });
 
+  it('Troubleshooting → Always allow file access is there with no banner showing, and opens the allow page', () => {
+    const api = fakePanel();
+    renderPanel(<SettingsTab />, api);
+    fireEvent.click(screen.getByRole('button', { name: 'Always allow file access (one-time setup)' }));
+    expect(api.allowAlways).toHaveBeenCalledTimes(1);
+  });
+
   it('switches write one key each', () => {
     const api = fakePanel();
     renderPanel(<SettingsTab />, api);
