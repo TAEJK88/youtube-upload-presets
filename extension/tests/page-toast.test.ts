@@ -3,14 +3,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pageToast } from '../lib/studio/page-toast';
 
 const shadow = () => document.querySelector('#ytup-toast')!.shadowRoot!;
-// The declarations of one rule of the toast's stylesheet, by property.
+// What the toast's stylesheet ends up declaring for one selector: every rule with that
+// selector, a later declaration replacing an earlier one.
 const rule = (selector: string): Record<string, string> => {
   const css = shadow().querySelector('style')!.textContent!;
-  const body = css.split('}').map((r) => r.split('{')).find((r) => r[0]?.trim() === selector)?.[1] ?? '';
-  return Object.fromEntries(body.split(';').filter((d) => d.includes(':')).map((d) => {
-    const at = d.indexOf(':');
-    return [d.slice(0, at).trim(), d.slice(at + 1).trim()];
-  }));
+  const out: Record<string, string> = {};
+  for (const r of css.split('}').map((r) => r.split('{'))) {
+    if (r[0]?.trim() !== selector) continue;
+    for (const d of (r[1] ?? '').split(';').filter((d) => d.includes(':'))) {
+      const at = d.indexOf(':');
+      const prop = d.slice(0, at).trim();
+      delete out[prop]; // a later declaration also moves to the end
+      out[prop] = d.slice(at + 1).trim();
+    }
+  }
+  return out;
 };
 afterEach(() => { vi.useRealTimers(); document.querySelector('#ytup-toast')?.remove(); });
 
@@ -41,6 +48,7 @@ describe('in-page toast', () => {
     expect(box['backdrop-filter']).toBe('blur(26px) saturate(150%)');
     expect(box['-webkit-backdrop-filter']).toBe('blur(26px) saturate(150%)');
     expect(box.border).toBe('1px solid rgba(255,255,255,.12)');
+    expect(box['box-sizing']).toBe('border-box'); // max-width counts the padding and the border
     expect(box.color).toBe('#f2f2f6'); // light text on the dark glass, on Studio's light and dark themes alike
     expect(box['letter-spacing']).toBe('0');
     expect(box['font-feature-settings']).toBe('"tnum" 1');
