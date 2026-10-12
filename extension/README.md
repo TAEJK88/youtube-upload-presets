@@ -1492,11 +1492,14 @@ observation.
     own question about a file; a tab does. Seen once, in the owner's Chrome 155 (from the
     debug page's console, before this page existed): asking about a stored file in a tab of
     the extension shows Chrome's question with three buttons, "Allow this time", "Allow on
-    every visit" and "Don't allow". **Only expected, from Chrome's documentation, not seen
-    yet:** after "Allow on every visit" every stored file is readable in every page of the
-    extension (side panel, Studio tab), for files added later too, and after a browser
-    restart or an update of the extension, with no further click. Nothing below has been
-    run in Chrome. **Record** each outcome.
+    every visit" and "Don't allow". **Seen in the owner's Chrome 155 on 2026-10-12 (build
+    `e28864f`):** step 3 showed one question with three buttons, he picked "Allow on every
+    visit"; no banner after closing the page's tab (step 5); no banner after quitting
+    Chrome and opening it again (step 7). **Still only expected, from Chrome's
+    documentation, not seen:** the same after a reload or an update of the extension (the
+    second half of step 7), and steps 8 to 10. Not reported: the words on Chrome's buttons
+    in a Thai Chrome, and whether the question named one file or all three. **Record**
+    each outcome.
 
     Chrome asks only about a file it does not let the extension read at that moment. So the
     page can do its work only while the panel's banner shows, and **before** Start or
@@ -1683,7 +1686,7 @@ documentation; none of it is measured in Chrome yet, items 88 and 89 are where i
   holds it, so the side panel holds every queued file while it is open, and the Studio tab
   holds every file it has read and, from Start on, every file of the run.
 - **After a restart, a reload or an update the files must be asked for again**, unless
-  "Allow on every visit" was picked (the last point below; expected, not seen). Quitting
+  "Allow on every visit" was picked (the last point below; seen for a restart, expected for a reload or an update). Quitting
   Chrome, reloading or updating the extension closes all its pages. The banner shows; Start
   asks for the access itself, so pressing Start is enough, and **Re-grant access** does the
   same without starting. The same when the side panel is closed *and* the Studio tab is
@@ -1726,10 +1729,11 @@ documentation; none of it is measured in Chrome yet, items 88 and 89 are where i
   one. Its button asks Chrome about one stored file, looks at all of them again, and asks
   about the next only after an answer that made the asked file readable and while some are
   still unanswered. Seen in the owner's Chrome 155: a tab of the extension shows the
-  question with the three buttons. Expected from Chrome's documentation, not seen yet:
-  after "Allow on every visit" every queued file, files added later included, is readable
-  in the side panel and the Studio tab, also after a restart or an update, and the banner
-  does not come back (item 89, step 7 is the check).
+  question with the three buttons, one question for three stored files; after "Allow on
+  every visit" the banner did not come back when the page's tab was closed, nor after
+  Chrome was quit and opened again (item 89, steps 5 and 7, 2026-10-12). Expected from
+  Chrome's documentation, not seen yet: the same after a reload or an update of the
+  extension.
   - **It needs a stored file that is not readable at that moment.** Chrome has no
     question about a file the extension can already read: one just dropped or picked, or
     one that Start or Re-grant access made readable. So the page is opened from the banner
