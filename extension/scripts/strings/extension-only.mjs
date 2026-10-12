@@ -119,6 +119,8 @@ export default [
   { th: 'ดาวน์โหลดเวอร์ชันใหม่', en: 'Get the update', why: "the update banner's button: opens the release page" },
   // 5 G (userscript in the tab)
   { th: 'สคริปต์ Tampermonkey ยังเปิดอยู่ในแท็บนี้ — ปิดใน Tampermonkey แล้วโหลดแท็บนี้ใหม่ การอัปโหลด การตัด และ Auto-pilot จะรอจนกว่าจะปิด', en: 'The Tampermonkey script is still on in this tab — turn it off in Tampermonkey, then reload this tab. Uploads, trims and Auto-pilot wait until then', why: 'cutover: the userscript and the extension would both automate the page' },
+  // 5 C1 (page: progress toast, tab choice, second-tab intercept)
+  // 5 C4 (questions that open on Cancel)
   // 5 M (move file)
   { th: 'พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน)', en: 'Existing presets and settings on this device will be replaced (the locked channel stays unchanged).', why: "the import question for a move file that carries a language: the userscript's sentence also promised the language stays" },
   { th: 'เมื่อเลือก "ไฟล์ของฉัน" ไฟล์นี้จะเพิ่มประวัติการอัปโหลด ${} รายการ และช่อง ${} ช่องจากสคริปต์ Tampermonkey', en: 'With "My file" this file also adds ${} upload history rows and ${} channels from the Tampermonkey script', why: "the last userscript's move export carries personal data the shared backup never did" },

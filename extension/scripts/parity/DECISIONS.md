@@ -55,3 +55,22 @@ in that phase's planning report; `owner-<date>` is an answer given outside a num
 - **P5-17** 2026-10-11: The owner runs the key commands himself; agents only ever see the public half.
 - **owner-2026-10-11-key-now** The owner moves his own installed copy to the keyed build now, not at the release.
 - **owner-2026-10-11-thai** The team's instructions are written in Thai as well as English.
+- **P5-4-check** 2026-10-11: Yes to the update check itself: the background asks GitHub for the latest release once a day; no off switch.
+
+## Phase 5 (answered 2026-10-12): the parity rows and the points raised by the reviews
+
+- **P5-row-progress-toast** 2026-10-12: Port it. When the progress bar's tick fails, the page says once "The progress bar stopped … try reloading the page", as the userscript did.
+- **P5-row-tab-choice** 2026-10-12: Port it. A click on the Studio button opens the panel on the running task's tab; a click on the "queue finished" notification and a multi-file pick in Studio's own dialog show the Upload tab.
+- **P5-row-intercept-second-tab** 2026-10-12: While another Studio tab runs the queue, a multi-file pick in this tab is left to Studio (it uploads the files itself, without presets), and the page now says so with a toast.
+- **P5-row-toast-look** 2026-10-12: Port it. The toast in the Studio page gets the look the drawer ended with (glass box, white tick).
+- **P5-row-folder-depth** 2026-10-12: Port it. "Pick a whole folder" takes the files at every depth, as the userscript did.
+- **P5-row-schedule-tooltip** 2026-10-12: Not in 5.0.0, planned. The schedule summary's tooltip lists the times of the videos already scheduled, without their titles.
+- **P5-row-page-font** 2026-10-12: As built. IBM Plex Sans Thai is not loaded into the Studio page; the Studio button, the page toast and the reload banner use the computer's fonts. The font would have to be made readable by the Studio page, which the manifest rule does not allow.
+- **P5-row-fab-visible** 2026-10-12: As built. The Studio button stays visible and clickable while the side panel is open; the page is not told whether the panel is open.
+- **P5-row-trim-count** 2026-10-12: As built. "Trim selected (N)" counts the picks that are in the latest scan and not done, the ones that will be trimmed.
+- **P5-row-message-place** 2026-10-12: As built. A message raised by a button shows where the user is looking: the claim list and the tracklist fix open their view and say there that nothing is scanned or claimed yet, and an invite with no handle says so in a toast.
+- **P5-ask-cancel** 2026-10-12: The trim question and the Auto-pilot question open with Cancel selected, so Enter does not start a trim or turn Auto-pilot on.
+- **P5-log-panel-closed** 2026-10-12: Not in 5.0.0, planned. The copyright activity log keeps only the lines logged while a side panel is open on the tab; what happened with the panel closed is not shown.
+- **P5-7-save** 2026-10-12: While the Tampermonkey script is in the page the extension does not press Save on a trim for anyone ("press Save for me" waits too).
+- **P5-7-run-stop** 2026-10-12: An upload run that started before the Tampermonkey script appeared in the page stops after the video in progress.
+- **P5-8-nameless** 2026-10-12: A move file's channel without a name is imported (the userscript and the extension both store such channels).
