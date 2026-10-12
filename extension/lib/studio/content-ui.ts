@@ -1,5 +1,6 @@
 import { L } from '../i18n';
 import { PROTOCOL, sendMessage, type QueueState } from '../messages';
+import { isPanelTab } from '../panel-tab';
 import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
@@ -80,9 +81,10 @@ export function createContentUi() {
       if (!tornDown()) pageToast(msg);
       sendMessage('queue:toast', msg).catch(() => {});
     },
-    openDrawer() {
+    openDrawer(tab) {
       // Needs a user gesture; best effort, but logged: the evidence for D16's manual check.
-      sendMessage('openPanel', undefined).catch((e) => console.warn('[ytup] openPanel failed', e));
+      // The tab to show goes along (openDrawer(tab), 3488): an open panel switches to it too.
+      sendMessage('openPanel', isPanelTab(tab) ? tab : undefined).catch((e) => console.warn('[ytup] openPanel failed', e));
     },
     notifyDone(title, text, ok = true) {
       if (!settings.notify) return;

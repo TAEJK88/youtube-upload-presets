@@ -2,6 +2,7 @@ import { defineExtensionMessaging } from '@webext-core/messaging';
 import type { BackupImport } from './backup';
 import type { ClaimsOp } from './claims/ops';
 import type { ClaimsLogLine, ClaimsState, ClaimsView } from './claims/types';
+import type { PanelTab } from './panel-tab';
 import type { Job } from './runner-lock';
 import type { StorePatch } from './store-writer';
 import type { SwitchRequest } from './studio/channels';
@@ -31,8 +32,8 @@ export interface QueueState {
 export interface QueueDoneNote { title: string; text: string; focused: boolean }
 
 export type ProtocolMap = {
-  // content → background
-  openPanel(): void;
+  // content → background; with a tab, the panel of the sender's Studio tab shows it (lib/panel-tab.ts)
+  openPanel(tab?: PanelTab): void;
   // wait for the startup migrations, answer the schemaVersion
   ensureMigrated(): number;
   // forget stored file handles (the page can't reach the extension's IndexedDB)

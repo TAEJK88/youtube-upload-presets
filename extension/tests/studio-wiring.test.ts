@@ -64,4 +64,10 @@ describe('the Studio content script', () => {
   it('ticks the progress in the 800 ms interval, in its own try, and logs each failure', () => {
     expect(studio).toMatch(/try \{\s*ui\.tick\(\);\s*\} catch \(e\) \{\s*console\.error\('\[ytup\] progress', e\);\s*\}/);
   });
+
+  // P5-row-tab-choice (3294–3295): the Studio button opens the panel on the running task's tab, and
+  // on the one it shows while nothing runs. activityFrom()'s tab is tested in activity.test.mjs.
+  it("the Studio button asks for the running task's tab", () => {
+    expect(studio).toContain('const fab = mountFab(() => ui.openDrawer(fabModel().activity?.tab));');
+  });
 });

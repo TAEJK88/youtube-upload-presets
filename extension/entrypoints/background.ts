@@ -2,6 +2,7 @@ import '@/lib/debug-capture/background'; // FIRST: the debug page shows what goe
 import { browser } from 'wxt/browser';
 import { onMessage, sendMessage } from '@/lib/messages';
 import { isStudioUrl } from '@/lib/panel-scope';
+import { requestPanelTab } from '@/lib/panel-tab';
 import { openFromAutopilotNote, registerAutopilotAlarms, syncAutopilotAlarms } from '@/lib/claims/alarms';
 import { isChannelId } from '@/lib/claims/keys';
 import { initI18n, watchLang } from '@/lib/i18n';
@@ -32,8 +33,14 @@ export default defineBackground(() => {
   });
   browser.tabs.query({}).then((tabs) => tabs.forEach((t) => t.id !== undefined && scope(t.id, t.url)));
 
-  onMessage('openPanel', async ({ sender }) => {
-    if (sender.tab?.id !== undefined) await browser.sidePanel.open({ tabId: sender.tab.id });
+  // open() is called first, with nothing awaited before it: it needs the click's user gesture.
+  // The tab to show is stored whether a panel opens or not: one that is already open follows it.
+  onMessage('openPanel', async ({ data, sender }) => {
+    const tabId = sender.tab?.id;
+    if (tabId === undefined) return;
+    const [opened, asked] = await Promise.allSettled([browser.sidePanel.open({ tabId }), requestPanelTab(tabId, data)]);
+    if (asked.status === 'rejected') console.error('[ytup] panel tab request', asked.reason);
+    if (opened.status === 'rejected') throw opened.reason;
   });
 
   // Content scripts read stored data only once it is in this build's shape.

@@ -139,8 +139,9 @@ export default defineContentScript({
     onMessage('claims:collab', ({ data }) => unlessUserscript(() => collabFromPanel(data)));
     onMessage('claims:stop', () => stopAll());
     onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));
-    // The userscript's FAB: opens the side panel (needs the click's user gesture — see README).
-    const fab = mountFab(() => ui.openDrawer());
+    // The userscript's FAB: opens the side panel (needs the click's user gesture — see README), on
+    // the running task's tab; while nothing runs, on the tab it shows (3294–3295).
+    const fab = mountFab(() => ui.openDrawer(fabModel().activity?.tab));
     stop.add(() => fab.remove());
     // Filled now, not at the first tick: the first clamp to the window needs its real width.
     fab.update(fabModel());

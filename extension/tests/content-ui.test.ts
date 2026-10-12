@@ -46,6 +46,17 @@ describe('content ui', () => {
     await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('[ytup] openPanel failed', err));
   });
 
+  // P5-row-tab-choice: openDrawer(tab) (3488). The tab to show goes with the request to open.
+  it('openDrawer(tab) asks for the panel on that tab; with no tab, or one the panel does not have, on the one it shows', () => {
+    const send = vi.mocked(messages.sendMessage);
+    const ui = createContentUi();
+    ui.openDrawer('queue');
+    ui.openDrawer('claims');
+    ui.openDrawer();
+    ui.openDrawer('drawer');
+    expect(send.mock.calls.filter(([t]) => t === 'openPanel')).toEqual([['openPanel', 'queue'], ['openPanel', 'claims'], ['openPanel', undefined], ['openPanel', undefined]]);
+  });
+
   it('the broadcast state carries the channel; a channel change is sent again', () => {
     const send = vi.mocked(messages.sendMessage);
     const ui = createContentUi();

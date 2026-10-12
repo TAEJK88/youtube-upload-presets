@@ -374,4 +374,67 @@ describe('shell', () => {
     fireEvent.click(screen.getByRole('button', { name: /Uploading 1\/1/ }));
     expect(screen.getByRole('tab', { name: /Upload/ }).getAttribute('data-state')).toBe('active');
   });
+
+  // P5-row-tab-choice: openDrawer(tab) (3488) — the Studio button during a run, the "queue finished"
+  // notification, a multi-file pick in Studio's own dialog. The request is the background's, in
+  // storage.session (lib/panel-tab.ts); the panel is bound to tab 1 (fakePanel).
+  describe('a request to show a tab', () => {
+    const active = () => screen.getAllByRole('tab').find((t) => t.getAttribute('data-state') === 'active')?.textContent;
+    const request = (tabId: number, tab: string, at = Date.now()) => act(async () => {
+      await browser.storage.session.set({ panelTab: { tabId, tab, at } });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    beforeEach(() => fakeBrowser.reset());
+
+    it('an open panel switches to it; a request for another Studio tab is not taken', async () => {
+      renderPanel(<App />);
+      await flush();
+      expect(active()).toBe('Upload');
+      await request(1, 'claims');
+      expect(active()).toBe('Copyright');
+      await request(2, 'queue');
+      expect(active()).toBe('Copyright');
+      await request(1, 'queue');
+      expect(active()).toBe('Upload');
+    });
+
+    it('a panel that opens because of it shows that tab', async () => {
+      await browser.storage.session.set({ panelTab: { tabId: 1, tab: 'claims', at: Date.now() - 800 } });
+      renderPanel(<App />);
+      await flush();
+      expect(active()).toBe('Copyright');
+    });
+
+    it('a panel opened long after it shows its own tab', async () => {
+      await browser.storage.session.set({ panelTab: { tabId: 1, tab: 'claims', at: Date.now() - 60_000 } });
+      renderPanel(<App />);
+      await flush();
+      expect(active()).toBe('Upload');
+    });
+
+    it("the user's own choice after it wins: the same request is not applied again when the panel binds to the tab again", async () => {
+      const api = fakePanel();
+      render(<Host first={api}><App /></Host>);
+      await flush();
+      await request(1, 'claims');
+      expect(active()).toBe('Copyright');
+      fireEvent.mouseDown(screen.getByRole('tab', { name: /Settings/ }));
+      expect(active()).toBe('Settings');
+      // the window's active tab moves to another Studio tab and back, within the request's 10 s
+      act(() => setApi({ ...api, target: { ...api.target!, tabId: 2 } }));
+      await flush();
+      act(() => setApi(api));
+      await flush();
+      expect(active()).toBe('Settings');
+    });
+
+    it('no Studio tab bound: nothing is read or followed', async () => {
+      const get = vi.spyOn(browser.storage.session, 'get');
+      renderPanel(<App />, fakePanel({ target: null }));
+      await flush();
+      await request(1, 'claims');
+      expect(get).not.toHaveBeenCalled();
+      expect(active()).toBe('Upload');
+    });
+  });
 });
