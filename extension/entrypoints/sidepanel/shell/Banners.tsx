@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
-import { needingGrant, queuedFileIds, regrant, type Lost } from '@/lib/panel/regrant';
 import { focusTab } from '@/lib/panel/target';
 import { USERSCRIPT_HERE } from '@/lib/studio/userscript-here';
 import { updateAvailable, UPDATE_KEY, type UpdateInfo } from '@/lib/update-check';
@@ -21,23 +20,7 @@ function Banner({ icon, text, children }: { icon: string; text: string; children
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, setLost: share } = usePanel();
-  // Queued files without read permission: back to 'prompt' after a browser restart (D18),
-  // or 'denied' (a blocked prompt). The banner offers a re-grant for all of them; only the
-  // 'prompt' ones are shared with Start (a denied file fails its own item when it uploads).
-  const [lost, setLost] = useState<Lost[]>([]);
-  const ids = view ? queuedFileIds(view.items).join(',') : '';
-  useEffect(() => {
-    let alive = true;
-    void needingGrant(ids ? ids.split(',') : []).then((l) => { if (alive) setLost(l); });
-    return () => { alive = false; };
-  }, [ids]);
-  const asked = (l: Lost[]) => l.filter((x) => x.state === 'prompt').map((x) => x.id);
-  useEffect(() => { share(asked(lost)); }, [lost, share]);
-  const regrantAll = () => {
-    const ids = lost.map((x) => x.id);
-    void regrant(ids).then(() => needingGrant(ids)).then((l) => { setLost(l); share(asked(l), true); refresh(); });
-  };
+  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant } = usePanel();
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };
@@ -55,9 +38,10 @@ export function Banners() {
   return (
     <>
       {view?.userscript && <Banner icon="alert" text={USERSCRIPT_HERE()} />}
-      {lost.length > 0 && (
-        <Banner icon="lock" text={L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่', 'Files in the queue need read access again after a browser restart')}>
-          <Button size="sm" onClick={regrantAll}>{L(`อนุญาตอีกครั้ง (${lost.length} ไฟล์)`, `Re-grant access (${lost.length} files)`)}</Button>
+      {/* Queued files this browser no longer lets the extension read (file-access.ts). */}
+      {noAccess.length > 0 && (
+        <Banner icon="lock" text={L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — เบราว์เซอร์ถอนสิทธิ์ไปแล้ว', 'Files in the queue need read access again — the browser has withdrawn it')}>
+          <Button size="sm" onClick={regrant}>{L(`อนุญาตอีกครั้ง (${noAccess.length} ไฟล์)`, `Re-grant access (${noAccess.length} files)`)}</Button>
         </Banner>
       )}
       {link === 'noScript' && target && (

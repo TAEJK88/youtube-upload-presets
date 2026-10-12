@@ -646,8 +646,8 @@ export function installIntercept(): () => void {
 }
 
 // The drawer's Start button: runQueue() after reading the channel again, and after
-// making sure the file bridge answers when a pending item's file comes from it (asking
-// for the first such file once is the cheapest probe; it is read again when it uploads).
+// making sure the file bridge answers and can read every file of the run that comes from it
+// (the pending items' videos, and their thumbnails when thumbnails are on).
 // A wrong channel is left to runQueue(), which says so first.
 // `seen` is what the user confirmed (startSummary's channel and pending items): the run
 // starts only if both are still what they were.
@@ -694,13 +694,14 @@ export async function startQueue(seen: StartBinding): Promise<void> {
   if (aborted) return ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', 'Another Studio tab is already running the queue or copyright work'));
   let problem = bindingProblem(seen);
   if (problem) return ui.toast(problem);
-  const next = queue.find((i) => i.status === 'pending' && i.src === 'bridge');
-  const probe = !channelProblem() && next ? await probeBridge(next.id) : 'answers';
+  const reads = queue.filter((i) => i.status === 'pending')
+    .flatMap((i) => [...(i.src === 'bridge' ? [i.id] : []), ...(settings.thumb && i.thumb?.src === 'bridge' ? [i.thumb.id] : [])]);
+  const probe = !channelProblem() && reads.length ? await probeBridge(reads) : 'answers';
   if (probe === 'silent') {
     return ui.toast(L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again"));
   }
-  // After a browser restart every queued file lost read access: one Re-grant click fixes all
-  // of them, a run would fail each one in turn.
+  // Files of the run lost read access (the browser or the extension was restarted, or Chrome
+  // withdrew it): one Re-grant click fixes all of them, a run would fail each one in turn.
   if (probe === 'permission') {
     return ui.toast(L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง แล้วกดเริ่มอีกครั้ง', 'The queued files need read access again — click "Re-grant access" in the side panel, then start again'));
   }

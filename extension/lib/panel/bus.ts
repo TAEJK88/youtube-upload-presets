@@ -7,18 +7,20 @@ import { studioTab } from '../runner-lock';
 type Fn<T> = (data: T, tabId: number | undefined) => void;
 const states = new Set<Fn<QueueState>>();
 const toasts = new Set<Fn<string>>();
+const lostFiles = new Set<Fn<string[]>>();
 const claimStates = new Set<Fn<ClaimsState>>();
 const claimLogs = new Set<Fn<ClaimsLogLine>>();
 const claimShows = new Set<Fn<ClaimsView>>();
 let installed = false;
 
-// The copyright broadcasts (D24) are passed on only from a tab on Studio (the www.youtube.com
-// content script never sends them), and only in the shape a Studio tab sends. A tab of another
+// The copyright broadcasts (D24) and files:lost are passed on only from a tab on Studio (the
+// www.youtube.com content script never sends them), and only in the shape a Studio tab sends. A tab of another
 // build (messages.ts PROTOCOL) broadcasts too: its states are dropped by their number.
 interface Sender { tab?: { id?: number; url?: string }; url?: string }
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isLogLine = (v: unknown): v is ClaimsLogLine => isObj(v) && typeof v.at === 'number' && typeof v.msg === 'string' && typeof v.type === 'string';
 const isView = (v: unknown): v is ClaimsView => v === 'claims' || v === 'ads' || v === 'collab';
+const isIds = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 const isQueueState = (v: unknown): v is QueueState => isObj(v) && v.proto === PROTOCOL;
 // Also the check of a claims:view answer (panel.tsx): what the Copyright tab reads without asking.
 export const isClaimsState = (v: unknown): v is ClaimsState => isObj(v) && v.proto === PROTOCOL && isObj(v.status) && isObj(v.counts);
@@ -35,6 +37,7 @@ export function installBus(): void {
   installed = true;
   onMessage('queue:state', ({ data, sender }) => { if (isQueueState(data)) for (const fn of states) fn(data, sender.tab?.id); });
   onMessage('queue:toast', ({ data, sender }) => { for (const fn of toasts) fn(data, sender.tab?.id); });
+  onMessage('files:lost', pass(lostFiles, isIds));
   onMessage('claims:state', pass(claimStates, isClaimsState));
   onMessage('claims:log', pass(claimLogs, isLogLine));
   onMessage('claims:show', pass(claimShows, isView));
@@ -42,6 +45,7 @@ export function installBus(): void {
 
 export const onQueueState = (fn: Fn<QueueState>) => (states.add(fn), () => void states.delete(fn));
 export const onQueueToast = (fn: Fn<string>) => (toasts.add(fn), () => void toasts.delete(fn));
+export const onFilesLost = (fn: Fn<string[]>) => (lostFiles.add(fn), () => void lostFiles.delete(fn));
 export const onClaimsState = (fn: Fn<ClaimsState>) => (claimStates.add(fn), () => void claimStates.delete(fn));
 export const onClaimsLog = (fn: Fn<ClaimsLogLine>) => (claimLogs.add(fn), () => void claimLogs.delete(fn));
 export const onClaimsShow = (fn: Fn<ClaimsView>) => (claimShows.add(fn), () => void claimShows.delete(fn));

@@ -1,6 +1,6 @@
 import { installDebugCapture } from '@/lib/debug-log';
-import { FILE_CH, isBridgeConnect, readHandle, type FileOps } from '@/lib/file-bridge';
-import { getHandle } from '@/lib/file-store';
+import { FILE_CH, fileOps, isBridgeConnect } from '@/lib/file-bridge';
+import { handles } from '@/lib/file-handles';
 import { portEndpoint, rpcServe } from '@/lib/rpc';
 
 installDebugCapture('bridge', { target: window });
@@ -15,8 +15,8 @@ window.addEventListener('message', (e) => {
   current?.stop();
   current?.port.close();
   const port = e.ports[0]!;
-  const handlers: FileOps = { getFile: async (itemId) => readHandle(await getHandle(itemId)) };
-  current = { stop: rpcServe(portEndpoint(port), FILE_CH, handlers), port };
+  // One set of held handles for the frame: a new channel reads the same ones.
+  current = { stop: rpcServe(portEndpoint(port), FILE_CH, fileOps(handles)), port };
   // Tells the client the connect got through (no id/ok, so it is never taken for an rpc response).
   port.postMessage({ ch: FILE_CH, ack: true });
 });

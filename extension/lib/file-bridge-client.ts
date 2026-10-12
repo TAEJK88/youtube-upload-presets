@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { CONNECT, FILE_CH, type FileOps } from './file-bridge';
+import type { Access } from './file-handles';
 import { portEndpoint, rpcClient } from './rpc';
 
 // Content-script side: a hidden extension-origin iframe that reads the side panel's
@@ -14,7 +15,7 @@ const log = (msg: string) => console.info('[ytup] file bridge: ' + msg);
 
 // Errors meaning the bridge itself is unusable (worth one fresh frame), as opposed to the
 // bridge's own answers ('missing', 'permission', 'denied', 'read'), which a new frame won't change.
-const BRIDGE_DOWN = /^(bridge not ready|bridge removed|getFile: timed out)/;
+const BRIDGE_DOWN = /^(bridge not ready|bridge removed|(getFile|hold): timed out)/;
 
 interface Mount {
   n: number;
@@ -31,6 +32,8 @@ interface Mount {
 
 export interface FileBridge {
   getFile(itemId: string): Promise<File>;
+  hold(itemIds: string[]): Promise<Access[]>;
+  release(itemIds: string[]): void;
   dispose(): void;
 }
 
@@ -126,22 +129,29 @@ export function createFileBridge(doc: Document, timeoutMs = 30_000, opts: FileBr
     }
   }
 
-  return {
-    async getFile(itemId) {
-      for (let attempt = 0; ; attempt++) {
+  async function ask<K extends 'getFile' | 'hold'>(op: K, ...args: Parameters<FileOps[K]>): Promise<Awaited<ReturnType<FileOps[K]>>> {
+    for (let attempt = 0; ; attempt++) {
+      if (disposed) throw new Error('bridge disposed');
+      const m = current();
+      try {
+        await ready(m);
+        return await m.call(op, ...args);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        // The last frame stays mounted: if it loads later, the next request uses it.
         if (disposed) throw new Error('bridge disposed');
-        const m = current();
-        try {
-          await ready(m);
-          return await m.call('getFile', itemId);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          // The last frame stays mounted: if it loads later, the next request uses it.
-          if (disposed) throw new Error('bridge disposed');
-          if (attempt >= 1 || !BRIDGE_DOWN.test(msg)) throw e;
-          close(m, msg);
-        }
+        if (attempt >= 1 || !BRIDGE_DOWN.test(msg)) throw e;
+        close(m, msg);
       }
+    }
+  }
+
+  return {
+    getFile: (itemId) => ask('getFile', itemId),
+    hold: (itemIds) => ask('hold', itemIds),
+    // A frame that is not there holds nothing: none is mounted for this.
+    release(itemIds) {
+      if (mount?.sent && mount.frame.isConnected) mount.call('release', itemIds).catch(() => {});
     },
     dispose() {
       disposed = true;

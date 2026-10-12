@@ -50,11 +50,13 @@ function serve(f: FakeFrame, getFile: FileOps['getFile'] = async (id) => new Fil
   if (!p) throw new Error('no port transferred');
   ports.push(p);
   if (ack) p.postMessage({ ch: FILE_CH, ack: true });
-  rpcServe<FileOps>(portEndpoint(p), FILE_CH, { getFile });
+  rpcServe<FileOps>(portEndpoint(p), FILE_CH, { getFile, hold: async (ids) => (held.push(...ids), ids.map(() => 'granted' as const)), release: async (ids) => void released.push(...ids) });
 }
+const held: string[] = [];
+const released: string[] = [];
 
 beforeEach(() => { vi.spyOn(console, 'info').mockImplementation(() => {}); });
-afterEach(() => { ports.splice(0).forEach((p) => p.close()); vi.restoreAllMocks(); });
+afterEach(() => { ports.splice(0).forEach((p) => p.close()); held.length = 0; released.length = 0; vi.restoreAllMocks(); });
 
 describe('createFileBridge', () => {
   it('mounts nothing until the first file is needed', async () => {
@@ -68,6 +70,52 @@ describe('createFileBridge', () => {
     // Node 22 clones File as Blob over MessagePort, so check content instead of .name
     expect(await (await got).text()).toBe('abc');
     bridge.dispose();
+  });
+
+  it('hold: mounts the frame like a read, and tries one fresh frame when it is down', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 100);
+    const got = bridge.hold(['a', 'b']);
+    await new Promise((r) => setTimeout(r, 130)); // the first frame never loads
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await got).toEqual(['granted', 'granted']);
+    expect(held).toEqual(['a', 'b']);
+    bridge.dispose();
+  });
+
+  it('hold: a frame that connected but does not answer is replaced once, like for a read', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 100);
+    const got = bridge.hold(['a']);
+    frames[0]!.load();
+    const dead = frames[0]!.port()!;
+    ports.push(dead);
+    dead.postMessage({ ch: FILE_CH, ack: true }); // connected, then silent
+    await new Promise((r) => setTimeout(r, 130));
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await got).toEqual(['granted']);
+    bridge.dispose();
+  });
+
+  it('release: tells the frame that is there, and mounts none for it', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    bridge.release(['a']);
+    expect(frames).toHaveLength(0);
+    const got = bridge.getFile('b');
+    frames[0]!.load();
+    serve(frames[0]!);
+    await got;
+    bridge.release(['b']);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(released).toEqual(['b']);
+    bridge.dispose();
+    bridge.release(['c']);
+    expect(frames).toHaveLength(1);
   });
 
   it('tries one fresh frame, then rejects with "bridge not ready"', async () => {

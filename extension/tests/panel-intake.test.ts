@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { handles } from '../lib/file-handles';
 import { dropHandles, expandHandles, hasFiles, intakeFailed, MAX_FOLDER_FILES, pickAttachments, pickFiles, pickFolder, PICK_ATTACH, sendFiles, storeHandles, TooManyFiles } from '../lib/panel/intake';
 
 const file = (name: string) => ({ kind: 'file', name }) as unknown as FileSystemFileHandle;
@@ -15,6 +16,8 @@ const locked = (name: string) => ({
   kind: 'directory', name,
   values() { throw new DOMException('no', 'NotReadableError'); },
 }) as unknown as FileSystemDirectoryHandle;
+
+afterEach(() => handles.release([...handles.held().keys()]));
 
 describe('intake', () => {
   it('only a drag that carries files counts', () => {
@@ -153,6 +156,12 @@ describe('intake', () => {
     expect(put.mock.calls.map(([id]) => id)).toEqual(ids);
   });
 
+  it('the panel keeps every handle it stored: the object from the drop or the picker, under its id', async () => {
+    const [a, b] = [file('a.mp4'), file('b.mp4')];
+    const ids = await storeHandles([a, b], async () => {});
+    expect([...handles.held()]).toEqual([[ids[0], a], [ids[1], b]]);
+  });
+
   it('sends the stored ids to the tab', async () => {
     const deliver = vi.fn(async (_ids: string[]) => {});
     const del = vi.fn(async () => {});
@@ -166,6 +175,7 @@ describe('intake', () => {
     const put = vi.fn(async (_id: string, _h: FileSystemFileHandle) => {});
     await expect(sendFiles([file('a.mp4'), file('b.mp4')], async () => { throw new Error('no receiver'); }, put, del)).rejects.toThrow('no receiver');
     expect(del.mock.calls.map(([id]) => id)).toEqual(put.mock.calls.map(([id]) => id));
+    expect(handles.held().size).toBe(0); // and no longer held
     const deliver = vi.fn(async () => {});
     expect(await sendFiles([], deliver)).toBe(0);
     expect(deliver).not.toHaveBeenCalled();
@@ -180,6 +190,7 @@ describe('intake', () => {
     expect(deliver).not.toHaveBeenCalled();
     expect(del).toHaveBeenCalledOnce();
     expect(del.mock.calls[0]![0]).toBe((put.mock.calls[0] as unknown[])[0]);
+    expect(handles.held().size).toBe(0);
   });
 
   it('a cancelled picker is no files, not an error', async () => {

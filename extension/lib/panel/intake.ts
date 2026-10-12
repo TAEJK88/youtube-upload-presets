@@ -1,3 +1,4 @@
+import { handles as held } from '../file-handles';
 import { deleteHandle, putHandle } from '../file-store';
 import { L } from '../i18n';
 
@@ -69,17 +70,26 @@ export async function expandHandles(handles: (FileSystemHandle | null)[], unread
 type Put = (id: string, handle: FileSystemFileHandle) => Promise<unknown>;
 type Del = (id: string) => Promise<unknown>;
 
+// Stored and no longer wanted: out of the store, and no longer held.
+async function forget(ids: string[], del: Del) {
+  held.release(ids);
+  for (const id of ids) await del(id).catch(() => {});
+}
+
 // One fresh id per file. If a write fails, the ones already written are forgotten again.
+// The panel keeps each handle object from here on (lib/file-handles.ts): Chrome ends the
+// read access of a file no page holds.
 export async function storeHandles(files: FileSystemFileHandle[], put: Put = putHandle, del: Del = deleteHandle): Promise<string[]> {
   const ids: string[] = [];
   try {
     for (const f of files) {
       const id = crypto.randomUUID();
       await put(id, f);
+      held.keep(id, f);
       ids.push(id);
     }
   } catch (e) {
-    for (const id of ids) await del(id).catch(() => {});
+    await forget(ids, del);
     throw e;
   }
   return ids;
@@ -98,7 +108,7 @@ export async function sendFiles(
   try {
     await deliver(ids);
   } catch (e) {
-    for (const id of ids) await del(id).catch(() => {});
+    await forget(ids, del);
     throw e;
   }
   return ids.length;

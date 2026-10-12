@@ -5,6 +5,7 @@ import { createContentUi, startFromPanel } from '../lib/studio/content-ui';
 import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { setBridge } from '../lib/studio/queue-files';
+import { fakeBridge } from './bridge-fake';
 import { followOtherTab } from '../lib/studio/queue-store';
 import * as Q from '../lib/studio/queue-runner';
 import { SEL } from '../lib/studio/sel';
@@ -112,7 +113,7 @@ async function abortedMidItem() {
   const file = deferred<File>(new File(['x'], 'A.mp4'));
   const asked = deferred<void>();
   const getFile = vi.fn(() => (asked.resolve(), file.promise));
-  setBridge({ getFile });
+  setBridge(fakeBridge(getFile));
   const run = Q.runQueue();
   await asked.promise;
   await settle();
@@ -186,7 +187,7 @@ describe('a run aborted coming back from the back/forward cache', () => {
     expect(Q.running).toBe(false);
     await followOtherTab(false);
     await Q.addFiles([qfile('C.mp4')]);
-    setBridge({ getFile: async (id: string) => new File(['x'], id) });
+    setBridge(fakeBridge(async (id: string) => new File(['x'], id)));
     await startFromPanel(ui, binding());
     expect(Q.queue.map((i) => i.status)).toEqual(['error', 'done', 'done']);
   });

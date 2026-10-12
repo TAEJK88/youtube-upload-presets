@@ -1,5 +1,6 @@
 import { L } from '../i18n';
 import { sendMessage } from '../messages';
+import type { FileBridge } from '../file-bridge-client';
 import type { FileRef, FileSrc, QFile } from './queue-runner';
 
 // Where a queue item's File comes from at upload time:
@@ -7,7 +8,7 @@ import type { FileRef, FileSrc, QFile } from './queue-runner';
 //              under the item id and is read through the file-bridge iframe.
 //   'page'   — picked in Studio's own upload dialog (the intercept); kept in this page only.
 const local = new Map<string, File>();
-let bridge: { getFile(id: string): Promise<File> } | null = null;
+let bridge: Pick<FileBridge, 'getFile' | 'hold' | 'release'> | null = null;
 export const setBridge = (b: typeof bridge) => { bridge = b; };
 
 const tag = (file: File, qid: string, src: FileSrc): QFile => Object.assign(file, { qid, src });
@@ -44,6 +45,11 @@ function reason(code: string): string {
   return L(`ดึงไฟล์จากแผงด้านข้างไม่ได้ (${code})`, `Could not get the file from the side panel (${code})`);
 }
 
+// The bridge could not read these files ('permission'): the side panel is told, so its
+// Re-grant banner shows for them at once, whatever its own last check said. Nobody answers
+// while no panel is open.
+const lostAccess = (ids: string[]) => sendMessage('files:lost', ids).catch(() => {});
+
 export async function getQueueFile(id: string, src: FileSrc): Promise<File> {
   if (src === 'page') {
     const f = local.get(id);
@@ -54,7 +60,9 @@ export async function getQueueFile(id: string, src: FileSrc): Promise<File> {
   try {
     return await bridge.getFile(id);
   } catch (e) {
-    throw new Error(reason(e instanceof Error ? e.message : String(e)));
+    const code = e instanceof Error ? e.message : String(e);
+    if (code === 'permission') void lostAccess([id]);
+    throw new Error(reason(code));
   }
 }
 
@@ -67,25 +75,28 @@ export async function getThumbFile(ref: FileRef): Promise<File> {
   }
 }
 
-// Before a run: does the bridge answer at all? A file it hands over, or a code about the
-// file itself ('missing', 'read'), means yes; no bridge, a bridge error, or silence for `ms`
-// means no ('silent'). Without this every item would fail after the bridge's own timeouts
-// (30 s, then 30 s more with a fresh frame). 'permission' answers too, but is told apart:
-// after a browser restart every queued file has lost read access, and the run would fail
-// them one by one until the user re-grants in the side panel. 'denied' (a blocked prompt)
-// is about that file only: it fails its own item, as the panel's Start gate expects.
+// Before a run: does the bridge answer at all, and can it read the run's files? It is asked to
+// take and keep the handle of every one of them (lib/file-bridge.ts fileOps), so a file that
+// is readable at Start stays readable for the whole run, also with the side panel closed. An
+// answer means the bridge works, whatever it says about a file ('missing' and 'denied' fail
+// their own items when they upload); no bridge, a bridge error, or silence for `ms` means no
+// ('silent'). Without this every item would fail after the bridge's own timeouts (30 s, then
+// 30 s more with a fresh frame). Files at 'prompt' are told apart ('permission'): the run
+// would fail them one by one until the user re-grants in the side panel, which is told which
+// ones before this answers (the caller's toast names the panel's button).
 export type BridgeProbe = 'answers' | 'permission' | 'silent';
-const FILE_CODES = new Set(['missing', 'read', 'denied']);
-export async function probeBridge(id: string, ms = 10_000): Promise<BridgeProbe> {
+export async function probeBridge(ids: string[], ms = 10_000): Promise<BridgeProbe> {
   if (!bridge) return 'silent';
   let timer: ReturnType<typeof setTimeout> | undefined;
   const silent = new Promise<BridgeProbe>((resolve) => { timer = setTimeout(() => resolve('silent'), ms); });
-  const answer = bridge.getFile(id).then(
-    (): BridgeProbe => 'answers',
-    (e: unknown): BridgeProbe => {
-      const code = e instanceof Error ? e.message : String(e);
-      return code === 'permission' ? 'permission' : FILE_CODES.has(code) ? 'answers' : 'silent';
+  const answer = bridge.hold(ids).then(
+    async (states): Promise<BridgeProbe> => {
+      const lost = ids.filter((_, i) => states[i] === 'prompt');
+      if (!lost.length) return 'answers';
+      await lostAccess(lost);
+      return 'permission';
     },
+    (): BridgeProbe => 'silent',
   );
   try {
     return await Promise.race([answer, silent]);
@@ -94,12 +105,15 @@ export async function probeBridge(id: string, ms = 10_000): Promise<BridgeProbe>
   }
 }
 
-// Forget files no queue item needs any more (the side panel's handles via the background).
+// Forget files no queue item needs any more (the side panel's handles via the background,
+// and the ones the bridge frame holds).
 export function dropFiles(refs: Pick<FileRef, 'id' | 'src'>[]): void {
   const ids: string[] = [];
   for (const r of refs) {
     if (r.src === 'page') local.delete(r.id);
     else ids.push(r.id);
   }
-  if (ids.length) sendMessage('files:delete', ids).catch((e) => console.warn('[ytup] files:delete', e));
+  if (!ids.length) return;
+  bridge?.release(ids);
+  sendMessage('files:delete', ids).catch((e) => console.warn('[ytup] files:delete', e));
 }

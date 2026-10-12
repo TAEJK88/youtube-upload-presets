@@ -4,6 +4,7 @@ import { createContentUi, startFromPanel, storeWriteFailed } from '../lib/studio
 import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { setBridge } from '../lib/studio/queue-files';
+import { fakeBridge } from './bridge-fake';
 import { removeItem } from '../lib/studio/queue-ops';
 import { persistQueue } from '../lib/studio/queue-store';
 import * as Q from '../lib/studio/queue-runner';
@@ -102,7 +103,7 @@ describe('the item being processed', () => {
     const id = Q.queue[0]!.id;
     const file = deferred<File>(new File(['x'], 'A.mp4'));
     const asked = deferred<void>();
-    setBridge({ getFile: () => (asked.resolve(), file.promise) });
+    setBridge(fakeBridge(() => (asked.resolve(), file.promise)));
     const run = Q.runQueue();
     await asked.promise; // the run is now waiting for A's file
     expect(Q.currentItemId()).toBe(id);
@@ -126,7 +127,7 @@ describe('a draft id the run picked up', () => {
     ui.setConfirmed(true);
     const file = deferred<File>(new File(['x'], 'A.mp4'));
     const asked = deferred<void>();
-    setBridge({ getFile: () => (asked.resolve(), file.promise) });
+    setBridge(fakeBridge(() => (asked.resolve(), file.promise)));
     const run = Q.runQueue();
     await asked.promise; // running
     ui.tick();
@@ -153,7 +154,7 @@ describe('queue:start from the panel', () => {
     const ui = createContentUi();
     setPageUi(ui);
     const getFile = vi.fn(async (id: string) => new File(['x'], id));
-    setBridge({ getFile });
+    setBridge(fakeBridge(getFile));
     await startFromPanel(ui, binding(false));
     expect(send).toHaveBeenCalledWith('queue:toast', CONFIRM);
     expect(Q.queue[0]!.status).toBe('pending');
@@ -163,7 +164,7 @@ describe('queue:start from the panel', () => {
     await Q.addFiles([qfile('A.mp4')]);
     const ui = createContentUi();
     setPageUi(ui);
-    setBridge({ getFile: async () => { throw new Error('missing'); } });
+    setBridge(fakeBridge(async () => { throw new Error('missing'); }));
     await startFromPanel(ui, binding(true));
     expect(send).not.toHaveBeenCalledWith('queue:toast', CONFIRM);
     expect(Q.queue[0]!.status).toBe('error'); // it ran: the bridge said 'missing'
@@ -185,7 +186,7 @@ describe('queue:start from the panel', () => {
       await Q.addFiles([qfile('A.mp4')]);
       const ui = createContentUi();
       setPageUi(ui);
-      setBridge({ getFile: async (id: string) => new File(['x'], id) });
+      setBridge(fakeBridge(async (id: string) => new File(['x'], id)));
       const b = binding(true);
       const undo = change();
       try {
@@ -210,7 +211,7 @@ describe('a run after teardown', () => {
     setPageUi(ui);
     ui.setConfirmed(true);
     const getFile = vi.fn(async (id: string) => new File(['x'], id));
-    setBridge({ getFile });
+    setBridge(fakeBridge(getFile));
     const click = vi.fn();
     studio.click = click;
     studio.onVisibility = () => ui.dispose(); // torn down on the way to Save
@@ -229,7 +230,7 @@ describe('a run after teardown', () => {
     setPageUi(ui);
     ui.setConfirmed(true);
     const getFile = vi.fn(async (id: string) => new File(['x'], id));
-    setBridge({ getFile });
+    setBridge(fakeBridge(getFile));
     Q.setRunnerLock({ acquire: async () => (ui.dispose(), true), release: () => {} });
     try {
       await expect(Q.runQueue()).rejects.toThrow('The extension was reloaded');
@@ -250,7 +251,7 @@ describe('a run that lost the lock', () => {
     const ui = createContentUi();
     setPageUi(ui);
     ui.setConfirmed(true);
-    setBridge({ getFile: async (id: string) => new File(['x'], id) });
+    setBridge(fakeBridge(async (id: string) => new File(['x'], id)));
     const click = vi.fn();
     studio.click = click;
     studio.onVisibility = () => Q.abortRun(new Error('Another Studio tab is already running the queue or copyright work'));
@@ -272,7 +273,7 @@ describe('a failed store write', () => {
     await Q.addFiles([qfile('A.mp4')]);
     const file = deferred<File>(new File(['x'], 'A.mp4'));
     const asked = deferred<void>();
-    setBridge({ getFile: () => (asked.resolve(), file.promise) });
+    setBridge(fakeBridge(() => (asked.resolve(), file.promise)));
     const run = Q.runQueue();
     await asked.promise; // running
     storeWriteFailed();

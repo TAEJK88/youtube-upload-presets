@@ -8,12 +8,10 @@ import { RootBoundary } from '../entrypoints/sidepanel/RootBoundary';
 import { setLang } from '../lib/i18n';
 import { runMigrations } from '../lib/migrations';
 import { readPanelData } from '../lib/panel/data';
-import { needingGrant } from '../lib/panel/regrant';
 import { fakePanel, renderPanel } from './panel-fake';
 
 // The user's blank panel came right after upgrading from the Phase 1 build. These are the
 // stored shapes such an install can hold; the panel must come up on each after migrations.
-vi.mock('../lib/panel/regrant', async (orig) => ({ ...(await orig<typeof import('../lib/panel/regrant')>()), needingGrant: vi.fn(async () => []) }));
 
 const PHASE1: Record<string, Record<string, unknown>> = {
   'Phase 1 fresh install (schemaVersion 4 only)': { schemaVersion: 4 },
@@ -29,7 +27,6 @@ const PHASE1: Record<string, Record<string, unknown>> = {
 
 beforeEach(() => {
   fakeBrowser.reset();
-  vi.mocked(needingGrant).mockResolvedValue([]);
 });
 afterEach(() => {
   cleanup();

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Progress } from '@/components/ui/progress';
 import { THUMB_MAX, TITLE_MAX } from '@/lib/constants';
-import { getHandle } from '@/lib/file-store';
+import { handles } from '@/lib/file-handles';
 import { L, locale } from '@/lib/i18n';
 import { presetIn } from '@/lib/panel/data';
 import { fmtDur, fmtSize, fmtWhen, isVideo, statusLabel, toLocalInput } from '@/lib/panel/format';
@@ -43,7 +43,7 @@ function useThumbUrl(ref: FileRef | null, grantRev: number): string | null {
     let alive = true;
     let made: string | null = null;
     void (async () => {
-      const h = await getHandle(ref.id).catch(() => undefined);
+      const h = await handles.get(ref.id).catch(() => undefined);
       if (!h || (await h.queryPermission({ mode: 'read' }).catch(() => 'denied')) !== 'granted') return;
       const f = await h.getFile().catch(() => null);
       if (!f || !alive) return;

@@ -62,9 +62,9 @@ it", or the panel says "This tab is not connected to the extension yet — reloa
 that tab was missed in step 5. Reload it.
 
 Your presets, settings, queue and history stay: they belong to the extension, not to the
-folder. Don't press **Remove** on the extension's card: that deletes them. If the panel then
-says "Files in the queue need read access again after a browser restart", click **Re-grant
-access**.
+folder. Don't press **Remove** on the extension's card: that deletes them. If clips were
+waiting in the queue, the panel then says "Files in the queue need read access again — the
+browser has withdrawn it": click **Re-grant access** once.
 
 TODO(key): "they belong to the extension, not to the folder" is true only once the public key line is in `wxt.config.ts`. Today the build has no key and the extension's id follows the folder's path: a build loaded from another folder is a new, empty extension beside the old one. Delete this line when the key is in; until then the rule is "always the same folder, in the same place".
 
@@ -228,7 +228,7 @@ TODO(key): once the key is in `wxt.config.ts`, add the Thai of the sentence adde
 
 พรีเซ็ต การตั้งค่า คิว และประวัติของคุณยังอยู่ครบ เพราะข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์
 อย่ากด **Remove** ที่การ์ดของส่วนขยาย เพราะจะลบข้อมูลทั้งหมด
-ถ้าแผงขึ้นว่า "ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่" ให้กด **อนุญาตอีกครั้ง**
+ถ้ามีคลิปรออยู่ในคิว แผงจะขึ้นว่า "ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — เบราว์เซอร์ถอนสิทธิ์ไปแล้ว" ให้กด **อนุญาตอีกครั้ง** หนึ่งครั้ง
 
 TODO(key): the Thai sentence "ข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์" is true only once the key is in `wxt.config.ts` (see the marker under "Update"). Delete this line when the key is in.
 
@@ -629,22 +629,34 @@ The panel's own console: right-click inside the panel → Inspect.
     "This video is already in Studio"; **Open draft** opens it in Studio in a new tab; "Deleted
     it, upload again" puts it back in the queue.
 16. **Browser restart, then re-grant.** Queue 2 clips (one with a thumbnail), quit Chrome fully,
-    reopen Studio and the panel: the banner "Files in the queue need read access again after a
-    browser restart" with **Re-grant access (N files)**; the card's thumbnail preview is gone.
+    reopen Studio and the panel: the banner "Files in the queue need read access again — the
+    browser has withdrawn it" with **Re-grant access (N files)**; the card's thumbnail preview
+    is gone. (The same banner shows after the extension is reloaded or updated, item 76, and
+    whenever Chrome ends the access, item 88.)
     - **Start while Re-grant is showing.** Before clicking Re-grant: Start is disabled (greyed
       out, nothing happens on click), in this window's panel and in any other window's panel
       on a Studio tab. Force it: inspect the panel, delete the Start button's `disabled`
-      attribute in Elements, click Start (and confirm the summary if it shows).
-      Studio and the panel toast "The queued files need read access again — click "Re-grant
-      access" in the side panel, then start again"; nothing runs and every card stays
-      waiting (none turns to an error, none shows "No permission to read this file").
-    - Click Re-grant. **Record** how many permission prompts one click shows, and whether one
-      click granted all files (if the banner stays with fewer files, click again).
+      attribute in Elements, click Start (and confirm the summary if it shows). Start asks
+      Chrome for the access itself before anything goes to the tab. **Record** which of the
+      two happens: the banner goes and the run starts (Chrome gave the access back without a
+      prompt), or the panel toasts "The browser still does not allow reading N file(s) —
+      remove those videos from the queue and add the files again", nothing runs and every
+      card stays waiting (none turns to an error, none shows "No permission to read this
+      file"). For the rest of this item reload the panel first if the run started.
+    - Click Re-grant. **Record** how many permission prompts one click shows (none is expected:
+      Chrome's source says a side panel is given the access without a prompt; not measured),
+      and whether one click granted all files. A click that changes nothing says so: the
+      toast "The browser still does not allow reading N file(s) — …", and the banner stays.
+      Either way the panel's console (right-click the panel → Inspect) has one line per file,
+      `[ytup] regrant <id>: prompt -> granted` or `prompt -> prompt`; they are in the debug
+      page's log too. **Record** them if the click did not work.
     - Afterwards the banner is gone, Start is enabled again, and the card's thumbnail preview
       is back without closing or reopening the panel. Start: they upload.
-    - Repeat with 3+ files from a dropped folder and block one prompt by clicking **Don't allow** (Esc usually
+    - Only if Chrome showed prompts above (if it showed none, skip this bullet and say so):
+      repeat with 3+ files from a dropped folder and block one prompt by clicking **Don't allow** (Esc usually
       only dismisses it, which leaves the file at 'prompt' and Start disabled). The banner
-      stays with that one file (**Record** whether its button then does nothing), but Start is
+      stays with that one file (a click on its button toasts "The browser still does not
+      allow reading 1 file(s) — …"), but Start is
       enabled: Start waits only on files the run will read whose access went back to
       'prompt'. Start: the blocked file's item fails with "The browser blocked reading this
       file — remove it from the queue and add it again", the others upload. **Record**
@@ -1197,8 +1209,12 @@ observation.
     afterwards, and `chrome://extensions` shows 5.0.1. Then update back to the 5.0.0 zip the
     same way.
     - **Queued files (record).** With two clips waiting in the queue before the update:
-      afterwards the cards are still there. **Record** whether the panel asks for
-      **Re-grant access**, and that Start uploads them.
+      afterwards the cards are still there and the panel shows "Files in the queue need read
+      access again — the browser has withdrawn it" (an update closes every page of the
+      extension, and Chrome's read access ends with them). Click **Re-grant access (2
+      files)** once. **Record** whether Chrome showed a prompt (none is expected in the side
+      panel), that the banner went, and that Start uploads them. If the click changed
+      nothing, **record** the toast and the `[ytup] regrant` lines (item 16).
     - **A different folder (record).** Unzip the same build into a *second* folder and Load
       unpacked from it. **Record** what Chrome does: replaces the first copy and keeps the data,
       refuses, or shows two copies. Remove the second copy if there are two.
@@ -1393,6 +1409,26 @@ observation.
       the title, then paste somewhere: the title is pasted. **Record** any time "Title copied"
       shows and the paste gives something else (a refused clipboard write is not reported
       there).
+88. **Queued files stay readable.** (Chrome keeps a file readable only while a page of the
+    extension holds it; the panel and the Studio tab now hold every queued file.)
+    - Drop two clips on the panel and leave the panel open for two minutes without touching
+      it. No banner appears. Press Start: both upload.
+    - Queue two clips again, close the side panel, open it again, press Start. **Record**
+      which happens: both upload with no banner (the Studio tab held the files), or the
+      banner "Files in the queue need read access again — the browser has withdrawn it"
+      shows once, **Re-grant access** takes it away with one click, and then both upload.
+    - Queue two clips and reload the extension (`chrome://extensions` → the reload arrow on
+      its card), reload the Studio tab, open the panel: the banner shows with **Re-grant
+      access (2 files)** and Start is off. One click on the button: no Chrome prompt is
+      expected in the side panel (**record** if one shows), the banner goes, Start works and
+      both upload.
+    - Queue three clips, press Start, and close the side panel while the first uploads. All
+      three upload (the Studio tab took all three files when the run started).
+    - If any step shows "The browser still does not allow reading N file(s) — remove those
+      videos from the queue and add the files again", or a card fails with "No permission to
+      read this file — click "Re-grant access" in the side panel": the banner with the
+      button is on the panel at that moment. **Record** it with the debug page's report
+      (the `[ytup] regrant` lines say what each click did).
 
 ### Known behaviour, Phase 4a (note, don't test)
 
@@ -1497,6 +1533,41 @@ Not in 5.0.0 yet (also in `CHANGELOG.md`):
   for every question. Returning it would let a held Enter answer the same question again and
   again (measured in a test page: a held Enter answered yes 20 times in a row), so it waits
   for a guard against the key repeat.
+
+Read access to the queued files (from Chrome's source code; none of it is measured in Chrome
+yet, item 88 is where it is):
+
+- **Chrome decides, per file, and can take the access back.** A file dropped or picked is
+  readable at once. Chrome keeps it readable only while a page of the extension holds it, so
+  the side panel holds every queued file while it is open, and the Studio tab holds every file
+  it has read and, from Start on, every file of the run.
+- **One click after a restart, a reload or an update.** Quitting Chrome, reloading or updating
+  the extension closes all its pages: every queued file then needs **Re-grant access** once.
+  The same when the side panel is closed *and* the Studio tab is reloaded before Start (with
+  one of the two still open, the files stay readable).
+- **The side panel shows no Chrome prompt** for that click: Chrome gives an extension's side
+  panel the access without asking (an older Chrome may give nothing instead). When the click
+  did not work, the panel says "The browser still does not allow reading N file(s) — remove
+  those videos from the queue and add the files again"; that is the way out, a fresh drop or
+  pick is always readable.
+- **Closing a tab of the extension can end the access a few seconds later.** A tab such as
+  the debug page counts for Chrome as "the site is open"; when the last one closes, Chrome
+  withdraws the access of every file about five seconds later, with the panel still open.
+  The panel looks again when it is shown or focused and when Start is pressed, and Start asks
+  for the access itself, so the next Start usually just works; if the banner shows, click
+  **Re-grant access**. During a run the video being uploaded is not affected (Studio already
+  has it); a later video of the run can fail with "No permission to read this file — click
+  "Re-grant access" in the side panel": click the button, then **Retry** on the card and
+  Start. So: don't close the debug page in the middle of a run.
+- **A run with the panel closed, and the Studio tab reloaded:** the video in flight fails with
+  "The page reloaded during the upload — …" as before, and the videos still waiting need
+  **Re-grant access** when the panel is opened.
+- **Start with a very long queue after a Studio reload** asks the tab to take every file of
+  the run first; with some thousands of files that can pass the ten seconds Start waits, and
+  the page then says "The side panel's file access is not answering — reload the Studio tab,
+  then start again". Press Start again first, without reloading: the tab keeps the files it
+  has already taken and goes on from there.
+- **"Allow on every visit"** (Chrome's lasting permission, asked from a tab) is not used yet.
 
 The update check:
 

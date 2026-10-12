@@ -1,9 +1,10 @@
-import { getHandle } from '../file-store';
+import { handles, type Handles } from '../file-handles';
+import { L } from '../i18n';
 import type { QueueItem } from '../studio/queue-runner';
 
-// After a browser restart, read permission on stored handles can go back to 'prompt'
-// (spec: File intake, step 4). The panel shows one button for all of them; one click asks
-// for each (a user gesture is needed, and the panel has one).
+// Read permission on stored handles can go back to 'prompt' (spec: File intake, step 4). The
+// panel shows one button for all of them; one click asks for each (a user gesture is needed,
+// and the panel has one).
 export const queuedFileIds = (items: QueueItem[]): string[] =>
   items
     .filter((it) => it.status === 'pending' || it.status === 'error')
@@ -16,26 +17,18 @@ export const runReads = (items: QueueItem[], thumbs: boolean): string[] =>
     .filter((it) => it.status === 'pending')
     .flatMap((it) => [...(it.src === 'bridge' ? [it.id] : []), ...(thumbs && it.thumb?.src === 'bridge' ? [it.thumb.id] : [])]);
 
-type Get = (id: string) => Promise<FileSystemFileHandle | undefined>;
 export interface Lost { id: string; state: PermissionState }
 
-// A handle that is gone or can't be asked about is not something a re-grant fixes: the
-// queue reports it when the item uploads.
-export async function needingGrant(ids: string[], get: Get = getHandle): Promise<Lost[]> {
-  const out: Lost[] = [];
-  for (const id of ids) {
-    const state = await get(id).then((h) => h?.queryPermission({ mode: 'read' })).catch(() => undefined);
-    if (state && state !== 'granted') out.push({ id, state });
-  }
-  return out;
+// The queued files this panel can't read: 'prompt' (Chrome withdrew the access: a restart of
+// the browser or the extension, or no page held the file any more) or 'denied'. A handle
+// that is gone or can't be asked about is not something a re-grant fixes: the queue reports
+// it when the item uploads. Asked on the handles the panel holds (lib/file-handles.ts).
+export async function needingGrant(ids: string[], files: Handles = handles): Promise<Lost[]> {
+  return (await files.states(ids)).filter((s): s is Lost => s.state === 'prompt' || s.state === 'denied');
 }
 
-// Each handle on its own: one refusal (or a lost gesture) must not stop the rest.
-export async function regrant(ids: string[], get: Get = getHandle): Promise<number> {
-  let granted = 0;
-  for (const id of ids) {
-    const state = await get(id).then((h) => h?.requestPermission({ mode: 'read' })).catch(() => undefined);
-    if (state === 'granted') granted++;
-  }
-  return granted;
-}
+// A click asked Chrome and these files are still not readable: asking again won't help.
+export const stillLocked = (n: number) => L(
+  `เบราว์เซอร์ยังไม่อนุญาตให้อ่านไฟล์ ${n} ไฟล์ — ลบคลิปนั้นออกจากคิว แล้วเพิ่มไฟล์เข้ามาใหม่`,
+  `The browser still does not allow reading ${n} file(s) — remove those videos from the queue and add the files again`,
+);

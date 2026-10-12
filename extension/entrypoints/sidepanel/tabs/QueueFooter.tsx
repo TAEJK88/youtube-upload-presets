@@ -67,7 +67,7 @@ export function StartSummaryBody({ s }: { s: StartSummary }) {
 
 // The Upload tab's footer (3731–3744, glass 3154–3160) and its labels (updateRunUI 4044–4077).
 export function QueueFooter() {
-  const { data, view, runner, elsewhere, busyElsewhere, link, target, send, sendTo, lost } = usePanel();
+  const { data, view, runner, elsewhere, busyElsewhere, link, target, send, sendTo, lost, accessForStart } = usePanel();
   const { state, liveState } = useLive();
   const ask = useAsk();
   // A preflight can take a second or more (fresh config, the channel's schedule): one at a time.
@@ -96,7 +96,10 @@ export function QueueFooter() {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    void startFlow({
+    // Read access first, inside this click: Chrome may have withdrawn it since the panel last
+    // looked, and a side panel can ask for it again without a prompt. What stays locked is
+    // said there, with the Re-grant banner; nothing is sent to the tab then.
+    void accessForStart(runReads(items, !!data?.settings.thumb)).then((ok) => (ok ? startFlow({
     preflight: () => send('queue:preflight', undefined),
     // null (dismissed, or replaced by another question) is a no, like false.
     confirm: async (s) => (await ask({
@@ -107,7 +110,7 @@ export function QueueFooter() {
     })) === true,
     start: (b) => send('queue:start', b),
     toast: (m) => void toast(m),
-  }).finally(() => {
+  }) : undefined)).catch((e) => console.error('[ytup] start: read access', e)).finally(() => {
     inFlight.current = false;
     setBusy(false);
   });

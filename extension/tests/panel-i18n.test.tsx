@@ -6,7 +6,6 @@ import { App } from '../entrypoints/sidepanel/App';
 import { PresetsFooter } from '../entrypoints/sidepanel/tabs/PresetsTab';
 import { setLang } from '../lib/i18n';
 import { toPanelData } from '../lib/panel/data';
-import { needingGrant } from '../lib/panel/regrant';
 import { runnerTab } from '../lib/panel/target';
 import { mountFab, type FabModel } from '../lib/studio/fab';
 import { showReloadBanner } from '../lib/studio/reload-banner';
@@ -17,12 +16,10 @@ import extensionOnly from '../scripts/strings/extension-only.mjs';
 import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
 // The Re-grant banner asks IndexedDB for each queued handle's permission; the fake has none.
-vi.mock('../lib/panel/regrant', async (orig) => ({ ...(await orig<typeof import('../lib/panel/regrant')>()), needingGrant: vi.fn(async () => []) }));
 // The import question first asks the background whether a run holds the lock.
 vi.mock('../lib/panel/target', async (orig) => ({ ...(await orig<typeof import('../lib/panel/target')>()), runnerTab: vi.fn(async () => null) }));
 
 beforeEach(() => {
-  vi.mocked(needingGrant).mockReset().mockResolvedValue([]);
   vi.mocked(runnerTab).mockReset().mockResolvedValue(null);
 });
 afterEach(async () => {
@@ -408,8 +405,7 @@ describe('the panel in Thai', () => {
   });
 
   it('…nor with the Re-grant banner (queued files lost read permission)', async () => {
-    vi.mocked(needingGrant).mockResolvedValue([{ id: 'i0', state: 'prompt' }, { id: 'i1', state: 'prompt' }]);
-    const root = await renderThai(fakePanel({ data: thData(), view: thView() }));
+    const root = await renderThai(fakePanel({ data: thData(), view: thView(), noAccess: [{ id: 'i0', state: 'prompt' }, { id: 'i1', state: 'prompt' }] }));
     expect(root.textContent).toContain('อนุญาตอีกครั้ง (2 ไฟล์)');
     clean(document.body);
   });

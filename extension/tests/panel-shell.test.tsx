@@ -14,7 +14,6 @@ import { ChannelBar } from '../entrypoints/sidepanel/shell/ChannelBar';
 import { QueueFooter } from '../entrypoints/sidepanel/tabs/QueueFooter';
 import { setLang } from '../lib/i18n';
 import { ICONS } from '../lib/studio/dom';
-import * as fileStore from '../lib/file-store';
 import { toPanelData } from '../lib/panel/data';
 import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
@@ -247,42 +246,16 @@ describe('banners', () => {
     expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('re-grant: counts the queued files that lost read access, asks for all of them in one click', async () => {
-    const perm: Record<string, PermissionState> = { i0: 'prompt', t0: 'prompt', i1: 'granted', i2: 'prompt' };
-    const request = vi.fn(async function (this: { id: string }) { perm[this.id] = 'granted'; return 'granted' as PermissionState; });
-    vi.spyOn(fileStore, 'getHandle').mockImplementation(async (id) => ({
-      id, queryPermission: async () => perm[id]!, requestPermission: request,
-    }) as unknown as FileSystemFileHandle);
-    const view = viewWith([
-      { thumb: { id: 't0', src: 'bridge', name: 'Clip 1.jpg', size: 1, type: 'image/jpeg' } },
-      { status: 'error' },
-      { status: 'done' }, // done: its file is not needed any more
-    ]);
-    const api = fakePanel({ view });
+  // What decides the list and what the click does: tests/panel-file-access.test.tsx.
+  it('re-grant: one banner for every queued file without read access, one button for all of them', () => {
+    const api = fakePanel({ view: viewWith([{}, {}]), noAccess: [{ id: 'i0', state: 'prompt' }, { id: 'i1', state: 'denied' }] });
     renderPanel(<Banners />, api);
-    await flush();
-    expect(screen.getByText('Files in the queue need read access again after a browser restart')).toBeTruthy();
+    expect(screen.getByText('Files in the queue need read access again — the browser has withdrawn it')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Re-grant access (2 files)' }));
-    await flush();
-    expect(request).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText('Files in the queue need read access again after a browser restart')).toBe(null);
-    expect(api.refresh).toHaveBeenCalled();
-    // Shared with the panel: Start waits while files need a grant; cards reload their previews.
-    expect(api.setLost).toHaveBeenCalledWith(['i0', 't0']);
-    expect(api.setLost).toHaveBeenCalledWith([], true);
-  });
-
-  it('re-grant: a blocked (denied) file stays in the banner but does not hold Start back', async () => {
-    const perm: Record<string, PermissionState> = { i0: 'denied', i1: 'prompt' };
-    vi.spyOn(fileStore, 'getHandle').mockImplementation(async (id) => ({
-      id, queryPermission: async () => perm[id]!, requestPermission: async () => perm[id]!,
-    }) as unknown as FileSystemFileHandle);
-    const api = fakePanel({ view: viewWith([{}, { status: 'error' }]) });
-    renderPanel(<Banners />, api);
-    await flush();
-    expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
-    // Only 'prompt' files are shared: a denied one fails its own item when it uploads.
-    expect(api.setLost).toHaveBeenLastCalledWith(['i1']);
+    expect(api.regrant).toHaveBeenCalledTimes(1);
+    cleanup();
+    renderPanel(<Banners />, fakePanel({ view: viewWith([{}, {}]) }));
+    expect(screen.queryByRole('button', { name: /Re-grant access/ })).toBe(null);
   });
 
   it('banners are announced to screen readers', () => {

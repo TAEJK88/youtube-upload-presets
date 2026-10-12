@@ -39,7 +39,6 @@ export default [
   // Phase 3a: Presets tab
   { th: 'ใส่ลงหน้าต่างที่เปิดอยู่ไม่สำเร็จ (${})', en: "Couldn't apply to the open window (${})", why: 'fill:apply is a message to the Studio tab and fails when none is bound or connected; the drawer ran it in the page' },
   // Phase 3b: the Upload tab, FAB, banner
-  { th: 'ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่', en: 'Files in the queue need read access again after a browser restart', why: 'file handles lose permission after a restart (spec: File intake step 4)' },
   { th: 'อนุญาตอีกครั้ง (${} ไฟล์)', en: 'Re-grant access (${} files)', why: 'one click re-grants every queued file' },
   { th: 'ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง แล้วกดเริ่มอีกครั้ง', en: 'The queued files need read access again — click "Re-grant access" in the side panel, then start again', why: 'Start refused while queued files lost read permission (after a restart): one Re-grant fixes all, a run would fail each item' },
   { th: 'จะหยุดคิวในแท็บ "${}" หลังคลิปปัจจุบันเสร็จ', en: 'Will stop the queue in the tab "${}" after the current video finishes', why: 'Stop is sent to the tab that runs the queue, which may not be this panel\'s tab (D14)' },
@@ -126,6 +125,9 @@ export default [
   { th: 'ในโฟลเดอร์มีไฟล์เกิน ${} ไฟล์ จึงไม่ได้เพิ่มอะไรเข้าคิว — เลือกเฉพาะโฟลเดอร์ที่มีคลิปที่จะอัป', en: 'The folder(s) hold more than ${} files, so nothing was added — pick only the folder with the videos to upload', why: 'a folder is now read at every depth (P5-row-folder-depth), and every file it holds is stored and read through the bridge: a drive or a project folder is refused with a message instead of freezing the panel' },
   { th: 'อ่านบางโฟลเดอร์ไม่ได้ — ไฟล์ในโฟลเดอร์นั้นจึงไม่ได้เพิ่มเข้าคิว', en: "Some folders couldn't be read — the files in them were not added", why: 'a folder inside a picked or dropped one that cannot be listed is passed over, as the userscript did silently; at every depth that can hide clips, so the panel says it once' },
   // 5 C4 (questions that open on Cancel)
+  // 5 F (file access)
+  { th: 'ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — เบราว์เซอร์ถอนสิทธิ์ไปแล้ว', en: 'Files in the queue need read access again — the browser has withdrawn it', why: 'the Re-grant banner (spec: File intake step 4). It said "after a browser restart"; the same happens after the extension is reloaded or updated, and whenever Chrome ends the access, so the banner no longer names one cause' },
+  { th: 'เบราว์เซอร์ยังไม่อนุญาตให้อ่านไฟล์ ${} ไฟล์ — ลบคลิปนั้นออกจากคิว แล้วเพิ่มไฟล์เข้ามาใหม่', en: 'The browser still does not allow reading ${} file(s) — remove those videos from the queue and add the files again', why: 'a click on Re-grant (or on Start, which asks first) that left files unreadable: a side panel shows no Chrome prompt, so without this the click looked like it did nothing. A fresh drop or pick is granted by Chrome at once' },
   // 5 W (copyright wait message)
   { th: '⏸ รอคิวอัปโหลดเสร็จก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ยังรออยู่ในคิวออก', en: '⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue', why: "an ads, trim or Collab step that waits for the upload queue: the userscript's ads and trim sentence said to remove stuck/failed videos, which no longer hold page changes back (P4-12)" },
   // 5 M (move file)

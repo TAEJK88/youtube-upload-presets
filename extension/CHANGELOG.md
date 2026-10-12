@@ -13,8 +13,10 @@ The first release of the extension. It replaces the Tampermonkey userscript (v4.
 What is different from the userscript:
 
 - The panel is Chrome's side panel (toolbar button or Alt+P). It is docked, not see-through.
-- Files are dropped on the side panel. The queue survives reloads, channel switches and, after
-  one "Re-grant access" click, browser restarts.
+- Files are dropped on the side panel. The queue survives reloads and channel switches. After
+  a browser restart, or after the extension is reloaded or updated, one "Re-grant access"
+  click makes the queued files readable again; the extension keeps hold of them in between,
+  so Chrome does not take the access back while the panel or the Studio tab is open.
 - One Studio tab works at a time: an upload run, or a trim / ads / Collab run.
 - Auto-pilot wakes its Studio tab on time, and a desktop notification says when a cycle is due
   and no Studio tab is open.

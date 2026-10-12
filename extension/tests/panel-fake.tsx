@@ -47,9 +47,11 @@ export function fakePanel(over: Partial<PanelApi> = {}): PanelApi {
       presets: vi.fn(async () => {}), presetsAndActive: vi.fn(async () => {}), channels: vi.fn(async () => {}),
     },
     refresh: vi.fn(),
+    noAccess: [],
     lost: [],
     grantRev: 0,
-    setLost: vi.fn(),
+    regrant: vi.fn(),
+    accessForStart: vi.fn(async () => true),
     ...over,
   };
 }

@@ -80,6 +80,7 @@ export type ProtocolMap = {
   // content → side panel (broadcast; nobody listens while the panel is closed)
   'queue:state'(s: QueueState): void;
   'queue:toast'(msg: string): void;
+  'files:lost'(ids: string[]): void; // the tab's file bridge has no read access to these queued files
   'claims:state'(s: ClaimsState): void;
   'claims:log'(l: ClaimsLogLine): void;
   'claims:show'(view: ClaimsView): void; // a scan this tab ran ended: open its list

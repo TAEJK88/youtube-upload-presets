@@ -2,6 +2,8 @@
 // needs a real File inside the Studio tab. The content script mounts a hidden
 // extension-origin iframe (file-bridge.html) which can read the side panel's
 // IndexedDB, and hands it a MessagePort to ask for files by queue item id.
+import type { Access, Handles } from './file-handles';
+
 export const FILE_CH = 'ytup:files';
 export const CONNECT = 'ytup:file-bridge:connect';
 
@@ -10,6 +12,11 @@ export const CONNECT = 'ytup:file-bridge:connect';
 // be unguessable (crypto.randomUUID()), never sequential counters.
 export type FileOps = {
   getFile(itemId: string): Promise<File>;
+  // Start: the bridge takes the handle of every file the run will read and says what read
+  // access each has ('missing': no stored handle).
+  hold(itemIds: string[]): Promise<Access[]>;
+  // The queue no longer needs these files.
+  release(itemIds: string[]): Promise<void>;
 };
 
 // Checks the connect handshake from the file-bridge iframe's perspective: a parent-frame
@@ -31,4 +38,22 @@ export async function readHandle(h: FileSystemFileHandle | undefined): Promise<F
   } catch {
     throw new Error('read');
   }
+}
+
+// What the bridge frame answers. It keeps the handle of every file it was asked for
+// (lib/file-handles.ts) until the queue lets go of the file, so the read access outlives a
+// closed side panel for as long as this frame's Studio tab is not reloaded. A file another
+// Studio tab removed is let go when this one is next asked to hold or release.
+export function fileOps(files: Handles): FileOps {
+  return {
+    getFile: async (itemId) => readHandle(await files.get(itemId)),
+    async hold(itemIds) {
+      await files.prune([]);
+      return (await files.states(itemIds)).map((s) => s.state);
+    },
+    async release(itemIds) {
+      files.release(itemIds);
+      await files.prune([]);
+    },
+  };
 }

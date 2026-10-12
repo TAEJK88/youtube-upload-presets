@@ -10,11 +10,12 @@ import { activeStudioTab, runnerTab, watchRunner, watchTabs, type RunnerTab, typ
 import { createViewSync, fetchView, type LinkStatus } from '@/lib/panel/view-sync';
 import { writes, type Writes } from '@/lib/panel/writes';
 import type { QueueView } from '@/lib/studio/queue-view';
+import { useFileAccess, type FileAccess } from './file-access';
 
 export type ToTab = <K extends keyof ProtocolMap>(type: K, data: Parameters<ProtocolMap[K]>[0]) => Promise<Awaited<ReturnType<ProtocolMap[K]>>>;
 const toTab = (tabId: number): ToTab => (type, data) => sendMessage(type, data as never, tabId) as never;
 
-export interface PanelApi {
+interface PanelCore {
   lang: string; // a change re-renders every consumer (L() is read while rendering)
   data: PanelData | null;
   target: Target | null; // the Studio tab active in this window
@@ -27,20 +28,15 @@ export interface PanelApi {
   sendTo(tabId: number): ToTab;
   write: Writes;
   refresh(): void;
-  // Queued files whose read permission went back to 'prompt' (Banners finds them, as it is
-  // always mounted): Start waits for the Re-grant when the run would read one of them
-  // (QueueFooter, runReads), and cards read their previews again
-  // once `grantRev` moves (bumped after each re-grant).
-  lost: string[];
-  grantRev: number;
-  setLost(ids: string[], regranted?: boolean): void;
 }
+// With the queued files' read access (file-access.ts).
+export type PanelApi = PanelCore & FileAccess;
 
 const noop = () => {};
 export const PanelContext = createContext<PanelApi>({
   lang: 'en', data: null, target: null, link: 'noTab', view: null, runner: null, elsewhere: false, busyElsewhere: false,
   send: () => Promise.reject(new Error('no Studio tab')), sendTo: toTab, write: writes, refresh: noop,
-  lost: [], grantRev: 0, setLost: noop,
+  noAccess: [], lost: [], grantRev: 0, regrant: noop, accessForStart: async () => true,
 });
 export const usePanel = () => useContext(PanelContext);
 
@@ -266,13 +262,10 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     return { state, live: holder ?? state, log, shown, addLog };
   }, [claimStates, targetId, runnerId, runsClaims, log, shown, addLog]);
 
-  const [grant, setGrant] = useState<{ lost: string[]; rev: number }>({ lost: [], rev: 0 });
-  const setLost = useCallback((ids: string[], regranted = false) => {
-    setGrant((g) => {
-      const same = g.lost.length === ids.length && g.lost.every((id, i) => id === ids[i]);
-      return same && !regranted ? g : { lost: same ? g.lost : ids, rev: g.rev + (regranted ? 1 : 0) };
-    });
-  }, []);
+  const refresh = useCallback(() => { sync.poke(); updateRunner(); }, [sync, updateRunner]);
+  // A tab's "could not read" counts from the bound tab and from the one running the queue.
+  const ours = useCallback((tabId: number | undefined) => tabId !== undefined && (tabId === targetRef.current?.tabId || tabId === runnerRef.current), []);
+  const access = useFileAccess(view, ours, refresh);
 
   // The holder's queue state is the live one only while it runs the queue (not copyright work).
   const runsQueue = !!runner?.jobs.includes('queue');
@@ -290,12 +283,10 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       send: target ? toTab(target.tabId) : () => Promise.reject(new Error('no Studio tab')),
       sendTo: toTab,
       write: writes,
-      refresh: () => { sync.poke(); updateRunner(); },
-      lost: grant.lost,
-      grantRev: grant.rev,
-      setLost,
+      refresh,
+      ...access,
     };
-  }, [lang, data, target, link, view, runner, sync, updateRunner, grant, setLost]);
+  }, [lang, data, target, link, view, runner, refresh, access]);
 
   return (
     <PanelContext.Provider value={api}>

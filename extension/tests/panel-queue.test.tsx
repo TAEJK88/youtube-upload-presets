@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { handles } from '../lib/file-handles';
 import * as fileStore from '../lib/file-store';
 import * as intake from '../lib/panel/intake';
 import { QueueCard } from '../entrypoints/sidepanel/tabs/QueueCard';
@@ -31,6 +32,7 @@ const hugeFolder = () => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  handles.release([...handles.held().keys()]);
 });
 
 const one = (it: Partial<ViewItem>, over: Partial<QueueView> = {}) => {

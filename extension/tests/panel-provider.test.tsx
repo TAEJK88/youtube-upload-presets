@@ -20,6 +20,8 @@ import type { ClaimsState } from '../lib/claims/types';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 import { QueueTab } from '../entrypoints/sidepanel/tabs/QueueTab';
 import { AskProvider } from '../entrypoints/sidepanel/ask';
+import { handles } from '../lib/file-handles';
+import * as fileStore from '../lib/file-store';
 import { viewWith } from './panel-fake';
 
 const studio = (id: number, windowId: number) => ({ id, windowId, url: 'https://studio.youtube.com/channel/UC1', title: `T${id}`, active: true });
@@ -203,26 +205,28 @@ describe('a failing queue:view', () => {
 describe('files that need a re-grant', () => {
   function Grant() {
     const p = usePanel();
-    return (
-      <>
-        <div data-testid="g">{`${p.lost.join(',')}|${p.grantRev}`}</div>
-        <button onClick={() => p.setLost(['a', 'b'])}>lost</button>
-        <button onClick={() => p.setLost([], true)}>granted</button>
-      </>
-    );
+    return <div data-testid="g">{`${p.noAccess.map((x) => x.id).join(',')}|${p.lost.join(',')}`}</div>;
   }
-  it('are shared with the whole panel; each re-grant moves grantRev', async () => {
+  // A Studio tab's bridge could not read a file (files:lost): the panel shows it at once, from
+  // the tab it is bound to and from the one running the queue, not from any other.
+  it('are taken from the bound tab and the runner, and shared with the whole panel', async () => {
+    vi.mocked(sendMessage).mockImplementation((async (type: string) => (type === 'queue:view' ? viewWith([{ id: 'a' }, { id: 'b' }, { id: 'c' }]) : undefined)) as never);
+    vi.spyOn(fileStore, 'getHandle').mockImplementation(async () => ({ queryPermission: async () => 'granted' }) as unknown as FileSystemFileHandle);
     render(<PanelProvider><Grant /></PanelProvider>);
     await flush();
-    expect(screen.getByTestId('g').textContent).toBe('|0');
-    fireEvent.click(screen.getByText('lost'));
-    expect(screen.getByTestId('g').textContent).toBe('a,b|0');
-    fireEvent.click(screen.getByText('lost')); // the same ids: no change
-    expect(screen.getByTestId('g').textContent).toBe('a,b|0');
-    fireEvent.click(screen.getByText('granted'));
-    expect(screen.getByTestId('g').textContent).toBe('|1');
-    fireEvent.click(screen.getByText('granted')); // a re-grant that changed nothing still re-reads previews
-    expect(screen.getByTestId('g').textContent).toBe('|2');
+    await flush();
+    expect(screen.getByTestId('g').textContent).toBe('|');
+    const from = (id: number, url = 'https://studio.youtube.com/channel/UC1') => ({ tab: { id, url }, url });
+    const lost = (ids: unknown, sender: unknown) => act(async () => { handlers.get('files:lost')!({ data: ids, sender }); });
+    await lost(['a'], from(3));
+    expect(screen.getByTestId('g').textContent).toBe('a|a');
+    await lost(['b'], from(5)); // a tab this panel does not follow
+    await lost(['c'], from(3, 'https://www.youtube.com/')); // not a Studio page
+    await lost('c', from(3)); // not a list of ids
+    expect(screen.getByTestId('g').textContent).toBe('a|a');
+    await lost(['b'], from(9)); // the tab running the queue
+    expect(screen.getByTestId('g').textContent).toBe('a,b|a,b');
+    handles.release([...handles.held().keys()]);
   });
 });
 
