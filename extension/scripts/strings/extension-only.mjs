@@ -120,6 +120,7 @@ export default [
   // 5 G (userscript in the tab)
   { th: 'สคริปต์ Tampermonkey ยังเปิดอยู่ในแท็บนี้ — ปิดใน Tampermonkey แล้วโหลดแท็บนี้ใหม่ การอัปโหลด การตัด และ Auto-pilot จะรอจนกว่าจะปิด', en: 'The Tampermonkey script is still on in this tab — turn it off in Tampermonkey, then reload this tab. Uploads, trims and Auto-pilot wait until then', why: 'cutover: the userscript and the extension would both automate the page' },
   // 5 C1 (page: progress toast, tab choice, second-tab intercept)
+  { th: '⚠ แถบความคืบหน้าหยุดทำงาน: ${} — ลองรีโหลดหน้า', en: '⚠ The progress bar stopped: ${} — try reloading the page', why: "the userscript's own toast when the progress half of the tick throws (6381–6382), same text: it is written there with + around e.message, which this check does not read as a pair, so the template form here has to be listed" },
   // 5 C4 (questions that open on Cancel)
   // 5 M (move file)
   { th: 'พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน)', en: 'Existing presets and settings on this device will be replaced (the locked channel stays unchanged).', why: "the import question for a move file that carries a language: the userscript's sentence also promised the language stays" },

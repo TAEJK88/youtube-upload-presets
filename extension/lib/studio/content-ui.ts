@@ -22,6 +22,7 @@ export function createContentUi() {
   // Only while this tab runs the queue: an idle tab sees new draft ids when it adopts
   // another tab's write, and saving its copy then could land over that tab's next edit.
   let drafts: string | undefined;
+  let progressFailed = false;
   // Torn down (extension reloaded): a run still in flight must not put a mark back on the
   // tab title after the teardown cleared it, nor show its toasts.
   const mark = (m: string) => {
@@ -105,13 +106,23 @@ export function createContentUi() {
     setConfirmed(v) {
       confirmed = v;
     },
-    // Every 0.8 s, like the userscript's progress tick.
+    // Every 0.8 s, like the userscript's progress tick. One that throws is said once per page,
+    // as there (6373–6383); the caller logs each one.
     tick() {
-      pollUploadProgress();
-      const d = queue.map((i) => i.draftId || '').join('\n');
-      if (running && drafts !== undefined && d !== drafts) persistQueue();
-      drafts = d;
-      broadcast();
+      try {
+        pollUploadProgress();
+        const d = queue.map((i) => i.draftId || '').join('\n');
+        if (running && drafts !== undefined && d !== drafts) persistQueue();
+        drafts = d;
+        broadcast();
+      } catch (e) {
+        if (!progressFailed) {
+          progressFailed = true;
+          const m = (e as Error)?.message;
+          ui.toast(L(`⚠ แถบความคืบหน้าหยุดทำงาน: ${m} — ลองรีโหลดหน้า`, `⚠ The progress bar stopped: ${m} — try reloading the page`));
+        }
+        throw e;
+      }
     },
     state,
   };

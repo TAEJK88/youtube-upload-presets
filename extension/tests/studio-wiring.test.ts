@@ -58,4 +58,10 @@ describe('the Studio content script', () => {
     expect(runner).toMatch(/\n  running = true;\n  stopReq = false;\n/);
     expect(runner.match(/^\s+stopReq = false;/gm)).toHaveLength(1); // cleared nowhere else
   });
+
+  // P5-row-progress-toast: content-ui's tick says it once on the page (content-ui.test.ts) and
+  // throws again, so every failure still reaches the console and the debug log from here.
+  it('ticks the progress in the 800 ms interval, in its own try, and logs each failure', () => {
+    expect(studio).toMatch(/try \{\s*ui\.tick\(\);\s*\} catch \(e\) \{\s*console\.error\('\[ytup\] progress', e\);\s*\}/);
+  });
 });

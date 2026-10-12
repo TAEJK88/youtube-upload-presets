@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
 import { createContentUi } from '../lib/studio/content-ui';
 import { setTitleMark } from '../lib/studio/page-notify';
+import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi } from '../lib/studio/page-ui';
 import { clearDone, removeItem } from '../lib/studio/queue-ops';
 import { setBridge } from '../lib/studio/queue-files';
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.stubGlobal('document', makeDocument());
   vi.stubGlobal('location', { pathname: '/' }); // the broadcast state reads the channel
   vi.mocked(persistQueue).mockClear();
+  vi.mocked(pageToast).mockClear();
   Q.queue.splice(0);
   Q.setTornDown(false); // dispose() sets it for the whole runner
 });
@@ -69,6 +71,24 @@ describe('content ui', () => {
     Q.queue[0]!.draftId = 'abcdefghijk';
     ui.tick();
     expect(persistQueue).not.toHaveBeenCalled();
+  });
+
+  // P5-row-progress-toast: the progress half of the userscript's 0.8 s tick (6373–6383).
+  it('a tick that throws tells the user once per page and still throws for the caller to log', () => {
+    const send = vi.mocked(messages.sendMessage);
+    const ui = createContentUi();
+    vi.stubGlobal('location', { get pathname(): string { throw new Error('boom'); } }); // the broadcast reads the channel
+    expect(() => ui.tick()).toThrow('boom');
+    expect(() => ui.tick()).toThrow('boom');
+    const said = ['⚠ The progress bar stopped: boom — try reloading the page'];
+    expect(vi.mocked(pageToast).mock.calls).toEqual([said]);
+    expect(send.mock.calls.filter(([t]) => t === 'queue:toast')).toEqual([['queue:toast', ...said]]);
+    // a tick that works again does not arm it again
+    vi.stubGlobal('location', { pathname: '/' });
+    ui.tick();
+    vi.stubGlobal('location', { get pathname(): string { throw new Error('again'); } });
+    expect(() => ui.tick()).toThrow('again');
+    expect(vi.mocked(pageToast)).toHaveBeenCalledOnce();
   });
 
   // The channel's scheduled list changed; no item did (queue-runner refreshChanSched).
