@@ -128,17 +128,17 @@ describe('ask (the drawer\'s confirm box)', () => {
     beforeEach(() => { vi.spyOn(performance, 'now').mockImplementation(() => now); });
     afterEach(() => { vi.restoreAllMocks(); });
 
-    it("focus: 'cancel': ignored on yes at 100 ms (the question stays open), an answer at 600 ms", async () => {
+    it("focus: 'cancel': ignored on yes at 100 ms (the question stays open), an answer at 900 ms", async () => {
       render(<AskProvider><Grab /></AskProvider>);
       const p = openAt0({ title: 'Trim?', ok: 'Start trim', focus: 'cancel' });
       at(100);
       fireEvent.click(screen.getByRole('button', { name: 'Start trim' }), { detail: 2 });
       expect(await settled(p)).toBe('open');
       expect(screen.getByRole('dialog')).toBeTruthy();
-      at(499);
+      at(799);
       fireEvent.click(screen.getByRole('button', { name: 'Start trim' }), { detail: 1 });
       expect(await settled(p)).toBe('open');
-      at(600);
+      at(900);
       fireEvent.click(screen.getByRole('button', { name: 'Start trim' }), { detail: 1 });
       expect(await p).toBe(true);
     });
@@ -164,7 +164,7 @@ describe('ask (the drawer\'s confirm box)', () => {
       fireEvent.click(screen.getByRole('button', { name: "Someone else's" }), { detail: 1 });
       fireEvent.click(screen.getByRole('button', { name: 'My file' }), { detail: 1 });
       expect(await settled(p)).toBe('open');
-      at(600);
+      at(900);
       fireEvent.click(screen.getByRole('button', { name: "Someone else's" }), { detail: 1 });
       expect(await p).toBe(false);
       p = openAt0(o);
@@ -176,11 +176,73 @@ describe('ask (the drawer\'s confirm box)', () => {
     it('a question that replaces another starts its own wait', async () => {
       render(<AskProvider><Grab /></AskProvider>);
       void openAt0({ title: 'Trim?', ok: 'Start trim', focus: 'cancel' });
-      at(600);
+      at(900);
       const p = open({ title: 'Trim more?', ok: 'Start trim', focus: 'cancel' });
-      at(700);
+      at(1000);
       fireEvent.click(screen.getByRole('button', { name: 'Start trim' }), { detail: 1 });
       expect(await settled(p)).toBe('open');
+    });
+
+    // The press moves focus to the button under it: an ignored click must not leave yes selected.
+    it("focus: 'cancel': an ignored click leaves Cancel selected, and Enter then answers no", async () => {
+      const user = userEvent.setup();
+      render(<AskProvider><Grab /></AskProvider>);
+      const p = openAt0({ title: 'Trim?', ok: 'Start trim', focus: 'cancel' });
+      const yes = screen.getByRole('button', { name: 'Start trim' });
+      at(150);
+      expect(fireEvent.pointerDown(yes)).toBe(false); // the hasty press is cancelled: it moves no focus
+      expect(fireEvent.mouseDown(yes, { detail: 2 })).toBe(false);
+      yes.focus(); // and if it moved it all the same
+      fireEvent.click(yes, { detail: 2 });
+      expect(await settled(p)).toBe('open');
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+      at(2000);
+      await user.keyboard('{Enter}');
+      expect(await p).toBe(false);
+    });
+
+    it("focus: 'cancel': a press in the first 800 ms is ignored whenever it is released", async () => {
+      render(<AskProvider><Grab /></AskProvider>);
+      const p = openAt0({ title: 'Trim?', ok: 'Start trim', focus: 'cancel' });
+      const yes = screen.getByRole('button', { name: 'Start trim' });
+      at(400);
+      fireEvent.pointerDown(yes);
+      fireEvent.mouseDown(yes, { detail: 1 });
+      at(1000); // held 600 ms
+      fireEvent.click(yes, { detail: 1 });
+      expect(await settled(p)).toBe('open');
+      at(1100); // a press that never became a click (released elsewhere) is forgotten by the next press
+      expect(fireEvent.pointerDown(yes)).toBe(true);
+      expect(fireEvent.mouseDown(yes, { detail: 1 })).toBe(true);
+      at(1200);
+      fireEvent.click(yes, { detail: 1 });
+      expect(await p).toBe(true);
+    });
+
+    it("focus: 'cancel': the second click of a double-click is never an answer, however slow; a single click is", async () => {
+      render(<AskProvider><Grab /></AskProvider>);
+      const o = { title: 'Import', ok: 'My file', no: "Someone else's", focus: 'cancel' as const };
+      const p = openAt0(o);
+      at(3000);
+      expect(fireEvent.mouseDown(screen.getByRole('button', { name: 'My file' }), { detail: 2 })).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: 'My file' }), { detail: 2 });
+      fireEvent.click(screen.getByRole('button', { name: "Someone else's" }), { detail: 3 });
+      expect(await settled(p)).toBe('open');
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+      at(3500);
+      fireEvent.click(screen.getByRole('button', { name: 'My file' }), { detail: 1 });
+      expect(await p).toBe(true);
+    });
+
+    it('by default a press and a double-click are answers at once, and no press is cancelled', async () => {
+      render(<AskProvider><Grab /></AskProvider>);
+      const p = openAt0({ title: 'Delete?', ok: 'Delete', danger: true });
+      at(100);
+      expect(fireEvent.pointerDown(screen.getByRole('button', { name: 'Delete' }))).toBe(true);
+      expect(fireEvent.mouseDown(screen.getByRole('button', { name: 'Delete' }), { detail: 2 })).toBe(true);
+      at(1000);
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }), { detail: 2 });
+      expect(await p).toBe(true);
     });
 
     it('by default a pointer click at 100 ms is an answer, as before', async () => {

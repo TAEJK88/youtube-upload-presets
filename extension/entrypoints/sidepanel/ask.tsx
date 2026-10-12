@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { L } from '@/lib/i18n';
@@ -11,9 +11,10 @@ import { Icon } from './Icon';
 // test `=== true` / `=== false` / `== null` deliberately and never treat null as false.
 // The main button is selected when the question opens and Enter answers yes. focus: 'cancel'
 // (P5-ask-cancel) is for a yes that cannot be undone: Cancel is selected, Enter answers as
-// Cancel does, and yes needs a click or a Tab to it. A pointer click on another answer in the
-// first HASTY_MS is ignored: on a short panel the yes button appears where the button that
-// asked was, and the second click of a double-click would answer yes.
+// Cancel does, and yes needs a click or a Tab to it. On a short panel the yes button appears
+// where the button that asked was, and the second click of a double-click would answer yes: so
+// a pointer click on another answer is ignored when it was pressed in the first HASTY_MS, or
+// is not a first click (detail > 1), and Cancel stays selected.
 export interface AskOptions {
   title: string;
   body?: ReactNode;
@@ -33,7 +34,7 @@ export function useAsk(): Ask {
 }
 
 // Cancel selected by the box, not by a key press: :focus-visible would not draw its ring after a click.
-const HASTY_MS = 500;
+const HASTY_MS = 800; // past the systems' double-click time (400–500 ms by default)
 const SELECTED = 'focus:outline-2 focus:outline-offset-2 focus:outline-fg2';
 
 export function AskProvider({ children }: { children: ReactNode }) {
@@ -41,6 +42,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const resolver = useRef<((v: boolean | null) => void) | null>(null);
   const [asked, setAsked] = useState(0); // counts the questions: each one starts with its own selected button
   const openedAt = useRef(0);
+  const hasty = useRef(false); // the last press on an answer came too soon
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const finish = useCallback((v: boolean | null) => {
     const r = resolver.current;
     resolver.current = null;
@@ -56,11 +59,19 @@ export function AskProvider({ children }: { children: ReactNode }) {
   }), []);
   const dismissed = open?.no ? null : false;
   const onCancel = open?.focus === 'cancel';
+  const soon = () => performance.now() - openedAt.current < HASTY_MS;
+  // Judged by the press, not the release; cancelled, a press moves no focus to the button under it.
+  const press = (e: PointerEvent | MouseEvent) => {
+    if (!onCancel) return;
+    hasty.current = soon();
+    if (hasty.current || e.detail > 1) e.preventDefault();
+  };
   // A keyboard click has detail 0: Tab + Enter is never hasty.
   const answer = (v: boolean) => (e: MouseEvent) => {
-    if (onCancel && e.detail > 0 && performance.now() - openedAt.current < HASTY_MS) return;
+    if (onCancel && e.detail > 0 && (hasty.current || e.detail > 1 || soon())) return cancelButton.current?.focus();
     finish(v);
   };
+  const guarded = (v: boolean) => ({ onPointerDown: press, onMouseDown: press, onClick: answer(v) });
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && !/^(TEXTAREA|BUTTON)$/.test((e.target as HTMLElement).tagName)) {
       e.preventDefault();
@@ -86,13 +97,13 @@ export function AskProvider({ children }: { children: ReactNode }) {
             <div key={asked} className="mt-5 flex justify-end gap-2">
               {open.no ? (
                 <>
-                  <Button autoFocus={onCancel} variant="ghost" className={onCancel ? SELECTED : undefined} onClick={() => finish(null)}>{cancel}</Button>
-                  <Button onClick={answer(false)}>{open.no}</Button>
+                  <Button ref={cancelButton} autoFocus={onCancel} variant="ghost" className={onCancel ? SELECTED : undefined} onClick={() => finish(null)}>{cancel}</Button>
+                  <Button {...guarded(false)}>{open.no}</Button>
                 </>
               ) : (
-                <Button autoFocus={onCancel} className={onCancel ? SELECTED : undefined} onClick={() => finish(false)}>{cancel}</Button>
+                <Button ref={cancelButton} autoFocus={onCancel} className={onCancel ? SELECTED : undefined} onClick={() => finish(false)}>{cancel}</Button>
               )}
-              <Button autoFocus={!onCancel} variant={open.danger ? 'danger' : 'go'} onClick={answer(true)}>{ok}</Button>
+              <Button autoFocus={!onCancel} variant={open.danger ? 'danger' : 'go'} {...guarded(true)}>{ok}</Button>
             </div>
           </DialogContent>
         )}

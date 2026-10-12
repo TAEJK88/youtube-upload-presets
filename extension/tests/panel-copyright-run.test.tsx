@@ -77,7 +77,7 @@ describe('Copyright tab, runs', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText('Trim 1 claims in 1 videos?')).toBeTruthy();
     expect(api.send).not.toHaveBeenCalledWith('claims:trim', expect.anything());
-    now += 500;
+    now += 800;
     fireEvent.click(screen.getByRole('button', { name: 'Start trim' }), { detail: 1 });
     await vi.waitFor(() => expect(api.send).toHaveBeenCalledWith('claims:trim', ['v1:c1']));
   });
