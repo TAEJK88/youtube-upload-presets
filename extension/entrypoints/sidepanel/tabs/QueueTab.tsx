@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Progress } from '@/components/ui/progress';
 import { L } from '@/lib/i18n';
-import { dropHandles, expandHandles, hasFiles, pickFiles, pickFolder, sendFiles } from '@/lib/panel/intake';
+import { dropHandles, expandHandles, hasFiles, intakeFailed, pickFiles, pickFolder, sendFiles } from '@/lib/panel/intake';
 import { cn } from '@/lib/utils';
 import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
@@ -17,6 +17,9 @@ const notConnected = (e: unknown) => {
   console.error('[ytup] upload tab', e);
   toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
 };
+// A folder inside a dropped or picked one couldn't be listed: its files are not in the queue.
+// One toast, however many folders.
+const folderUnread = () => void toast(L('อ่านบางโฟลเดอร์ไม่ได้ — ไฟล์ในโฟลเดอร์นั้นจึงไม่ได้เพิ่มเข้าคิว', "Some folders couldn't be read — the files in them were not added"), { id: 'folder-unread' });
 
 // Files from a drop or a picker → stored → the Studio tab's queue (addFiles there).
 export function useAddFiles() {
@@ -57,7 +60,7 @@ export function usePanelDrop(onDropped: () => void) {
     setDropping(false);
     const pending = dropHandles(e.dataTransfer); // inside the event, before any await
     onDropped();
-    void pending.then(expandHandles).then(add, (err) => console.error('[ytup] drop', err));
+    void pending.then((hs) => expandHandles(hs, folderUnread)).then(add, intakeFailed('drop', toast));
   };
   return { dropping, handlers: { onDragEnter: accept, onDragOver: accept, onDrop } };
 }
@@ -66,7 +69,7 @@ export function QueueTab() {
   const { data, view, send, write } = usePanel();
   const { liveState } = useLive();
   const add = useAddFiles();
-  const pick = (picker: () => Promise<FileSystemFileHandle[]>) => void picker().then(add, (e) => console.error('[ytup] file picker', e));
+  const pick = (picker: () => Promise<FileSystemFileHandle[]>) => void picker().then(add, intakeFailed('file picker', toast));
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [schedOpen, setSchedOpen] = useState(true);
   const items = view?.items ?? [];
@@ -105,7 +108,7 @@ export function QueueTab() {
             <button type="button" className="cursor-pointer rounded-sm" onClick={(e) => { e.stopPropagation(); pick(pickFiles); }}>
               {L('หรือคลิกเพื่อเลือกไฟล์ · ', 'or click to select files · ')}
             </button>
-            <button type="button" className="cursor-pointer rounded-sm text-tint underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(pickFolder); }}>
+            <button type="button" className="cursor-pointer rounded-sm text-tint underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(() => pickFolder(window, folderUnread)); }}>
               {L('เลือกทั้งโฟลเดอร์', 'pick a whole folder')}
             </button>
           </span>
