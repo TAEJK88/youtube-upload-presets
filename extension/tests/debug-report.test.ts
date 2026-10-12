@@ -41,11 +41,12 @@ describe('debug report sections', () => {
   it('stored data: every local key with its JSON size, and the runner lock', async () => {
     await browser.storage.local.set({ b: [1, 2], a: 'xy' });
     const workers = { UCaaaaaaaaaaaaaaaaaaaaaa: { tabId: 7, at: 1 } };
-    await browser.storage.session.set({ runnerTabId: 7, [JOBS_KEY]: ['queue', 'claims'], [WORKERS_KEY]: workers, other: 1 });
+    await browser.storage.session.set({ runnerTabId: 7, [JOBS_KEY]: ['queue', 'claims'], [WORKERS_KEY]: workers, panelTab: { tabId: 7, tab: 'claims', at: 5 }, other: 1 });
     const d = await storedData();
     expect(d.local).toEqual([{ key: 'a', bytes: 4, value: 'xy' }, { key: 'b', bytes: 5, value: [1, 2] }]);
     // the lock's jobs and the copyright worker leases too (final review m7; README item 52 reads them here)
-    expect(d.session).toEqual({ runnerTabId: 7, runnerJobs: ['queue', 'claims'], claimsWorkers: workers });
+    // and the last "show this tab" request for a side panel (lib/panel-tab.ts)
+    expect(d.session).toEqual({ runnerTabId: 7, runnerJobs: ['queue', 'claims'], claimsWorkers: workers, panelTab: { tabId: 7, tab: 'claims', at: 5 } });
     expect((await buildReport({ ping: async () => 5, pingTab: async () => ({ items: [] }), files: { listIds: async () => [], getHandle: async () => undefined } })).storage)
       .toMatchObject({ ok: true, value: { session: { runnerTabId: 7, runnerJobs: ['queue', 'claims'], claimsWorkers: workers } } });
   });

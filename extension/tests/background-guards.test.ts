@@ -32,6 +32,7 @@ vi.mock('../lib/update-check', async (orig) => {
 
 import background from '../entrypoints/background';
 import { BACKUP_SCHEMA } from '../lib/backup';
+import { PANEL_TAB_KEY } from '../lib/panel-tab';
 import { RUNNER_HELD } from '../lib/runner-lock';
 
 const CH = 'UC' + 'a'.repeat(22);
@@ -103,6 +104,48 @@ describe('the background refuses', () => {
 
 // Unit D's module is reached only through these lines (4b Z): the listeners at the top level,
 // the sync once the stored data is ready, the notice's click.
+// P5-row-tab-choice: the page's openDrawer(tab). sidePanel.open() needs the click's user gesture,
+// so it is called before anything is awaited; the tab to show is stored for the panel after it.
+describe('openPanel', () => {
+  const stored = async () => (await browser.storage.session.get(PANEL_TAB_KEY))[PANEL_TAB_KEY];
+
+  it("opens the sender's panel at once, then stores the tab to show for that Studio tab", async () => {
+    const order: string[] = [];
+    const open = vi.fn(async () => void order.push('open'));
+    Object.assign(browser.sidePanel, { open });
+    const set = browser.storage.session.set.bind(browser.storage.session);
+    vi.spyOn(browser.storage.session, 'set').mockImplementation(async (v) => (order.push('ask'), set(v)));
+    const done = ask('openPanel', 'claims', studio(7));
+    expect(open).toHaveBeenCalledWith({ tabId: 7 }); // in the handler's first turn
+    await done;
+    expect(order).toEqual(['open', 'ask']);
+    expect(await stored()).toEqual({ tabId: 7, tab: 'claims', at: expect.any(Number) });
+  });
+
+  it('with no tab named (the Studio button while nothing runs, Alt+P) it only opens', async () => {
+    const open = vi.fn(async () => {});
+    Object.assign(browser.sidePanel, { open });
+    await ask('openPanel', undefined, studio(7));
+    await ask('openPanel', 'drawer', studio(7));
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(await stored()).toBeUndefined();
+  });
+
+  it('a panel that is already open is told the tab even when Chrome refuses to open one, and the page still gets the refusal', async () => {
+    Object.assign(browser.sidePanel, { open: async () => { throw new Error('may only be called in response to a user gesture'); } });
+    await expect(ask('openPanel', 'queue', studio(7))).rejects.toThrow('user gesture');
+    expect(await stored()).toMatchObject({ tabId: 7, tab: 'queue' });
+  });
+
+  it('not from a tab: nothing', async () => {
+    const open = vi.fn(async () => {});
+    Object.assign(browser.sidePanel, { open });
+    await ask('openPanel', 'queue', panel());
+    expect(open).not.toHaveBeenCalled();
+    expect(await stored()).toBeUndefined();
+  });
+});
+
 describe('the background wires Auto-pilot', () => {
   const alarms = async () => (await browser.alarms.getAll()).map((a) => a.name).sort();
 

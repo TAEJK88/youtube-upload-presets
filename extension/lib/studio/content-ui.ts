@@ -1,5 +1,6 @@
 import { L } from '../i18n';
 import { PROTOCOL, sendMessage, type QueueState } from '../messages';
+import { isPanelTab } from '../panel-tab';
 import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
@@ -22,6 +23,7 @@ export function createContentUi() {
   // Only while this tab runs the queue: an idle tab sees new draft ids when it adopts
   // another tab's write, and saving its copy then could land over that tab's next edit.
   let drafts: string | undefined;
+  let saidFailed = false;
   // Torn down (extension reloaded): a run still in flight must not put a mark back on the
   // tab title after the teardown cleared it, nor show its toasts.
   const mark = (m: string) => {
@@ -40,7 +42,7 @@ export function createContentUi() {
     persistQueue();
     broadcast();
   };
-  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; state(): QueueState; dispose(): void } = {
+  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; progressFailed(e: unknown): void; state(): QueueState; dispose(): void } = {
     item(it) {
       // An orphaned run stops at its next status change (queue-runner: setTornDown), and so
       // does one that lost the lock coming back from the back/forward cache (abortRun).
@@ -79,9 +81,10 @@ export function createContentUi() {
       if (!tornDown()) pageToast(msg);
       sendMessage('queue:toast', msg).catch(() => {});
     },
-    openDrawer() {
+    openDrawer(tab) {
       // Needs a user gesture; best effort, but logged: the evidence for D16's manual check.
-      sendMessage('openPanel', undefined).catch((e) => console.warn('[ytup] openPanel failed', e));
+      // The tab to show goes along (openDrawer(tab), 3488): an open panel switches to it too.
+      sendMessage('openPanel', isPanelTab(tab) ? tab : undefined).catch((e) => console.warn('[ytup] openPanel failed', e));
     },
     notifyDone(title, text, ok = true) {
       if (!settings.notify) return;
@@ -105,13 +108,26 @@ export function createContentUi() {
     setConfirmed(v) {
       confirmed = v;
     },
-    // Every 0.8 s, like the userscript's progress tick.
+    // Every 0.8 s, like the userscript's progress tick. One that throws is said once per page,
+    // as there (6373–6383); the caller logs each one.
     tick() {
-      pollUploadProgress();
-      const d = queue.map((i) => i.draftId || '').join('\n');
-      if (running && drafts !== undefined && d !== drafts) persistQueue();
-      drafts = d;
-      broadcast();
+      try {
+        pollUploadProgress();
+        const d = queue.map((i) => i.draftId || '').join('\n');
+        if (running && drafts !== undefined && d !== drafts) persistQueue();
+        drafts = d;
+        broadcast();
+      } catch (e) {
+        ui.progressFailed(e);
+        throw e;
+      }
+    },
+    // Also for the FAB's update, which renderActivity() did in the same half of that tick (6375).
+    progressFailed(e) {
+      if (saidFailed) return;
+      saidFailed = true;
+      const m = (e as Error)?.message;
+      ui.toast(L(`⚠ แถบความคืบหน้าหยุดทำงาน: ${m} — ลองรีโหลดหน้า`, `⚠ The progress bar stopped: ${m} — try reloading the page`));
     },
     state,
   };

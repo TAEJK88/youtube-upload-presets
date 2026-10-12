@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
 import { createContentUi } from '../lib/studio/content-ui';
 import { setTitleMark } from '../lib/studio/page-notify';
+import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi } from '../lib/studio/page-ui';
 import { clearDone, removeItem } from '../lib/studio/queue-ops';
 import { setBridge } from '../lib/studio/queue-files';
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.stubGlobal('document', makeDocument());
   vi.stubGlobal('location', { pathname: '/' }); // the broadcast state reads the channel
   vi.mocked(persistQueue).mockClear();
+  vi.mocked(pageToast).mockClear();
   Q.queue.splice(0);
   Q.setTornDown(false); // dispose() sets it for the whole runner
 });
@@ -42,6 +44,17 @@ describe('content ui', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     createContentUi().openDrawer();
     await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('[ytup] openPanel failed', err));
+  });
+
+  // P5-row-tab-choice: openDrawer(tab) (3488). The tab to show goes with the request to open.
+  it('openDrawer(tab) asks for the panel on that tab; with no tab, or one the panel does not have, on the one it shows', () => {
+    const send = vi.mocked(messages.sendMessage);
+    const ui = createContentUi();
+    ui.openDrawer('queue');
+    ui.openDrawer('claims');
+    ui.openDrawer();
+    ui.openDrawer('drawer');
+    expect(send.mock.calls.filter(([t]) => t === 'openPanel')).toEqual([['openPanel', 'queue'], ['openPanel', 'claims'], ['openPanel', undefined], ['openPanel', undefined]]);
   });
 
   it('the broadcast state carries the channel; a channel change is sent again', () => {
@@ -71,7 +84,35 @@ describe('content ui', () => {
     expect(persistQueue).not.toHaveBeenCalled();
   });
 
-  // The channel's scheduled list changed; no item did (queue-runner refreshChanSched).
+  // P5-row-progress-toast: the progress half of the userscript's 0.8 s tick (6373–6383).
+  it('a tick that throws tells the user once per page and still throws for the caller to log', () => {
+    const send = vi.mocked(messages.sendMessage);
+    const ui = createContentUi();
+    vi.stubGlobal('location', { get pathname(): string { throw new Error('boom'); } }); // the broadcast reads the channel
+    expect(() => ui.tick()).toThrow('boom');
+    expect(() => ui.tick()).toThrow('boom');
+    const said = ['⚠ The progress bar stopped: boom — try reloading the page'];
+    expect(vi.mocked(pageToast).mock.calls).toEqual([said]);
+    expect(send.mock.calls.filter(([t]) => t === 'queue:toast')).toEqual([['queue:toast', ...said]]);
+    // a tick that works again does not arm it again
+    vi.stubGlobal('location', { pathname: '/' });
+    ui.tick();
+    vi.stubGlobal('location', { get pathname(): string { throw new Error('again'); } });
+    expect(() => ui.tick()).toThrow('again');
+    expect(vi.mocked(pageToast)).toHaveBeenCalledOnce();
+  });
+
+  // review A-1: renderActivity() (6375) drew the FAB's badge in the same half of the tick, under the
+  // same once-flag; here the FAB's update has its own try, and reports through progressFailed().
+  it('a failing FAB update and a failing tick share the one toast', () => {
+    const ui = createContentUi();
+    ui.progressFailed(new Error('fab broke'));
+    vi.stubGlobal('location', { get pathname(): string { throw new Error('boom'); } });
+    expect(() => ui.tick()).toThrow('boom');
+    ui.progressFailed(new Error('fab broke'));
+    expect(vi.mocked(pageToast).mock.calls).toEqual([['⚠ The progress bar stopped: fab broke — try reloading the page']]);
+  });
+
   it('ui.schedule() tells the panel without saving the queue', () => {
     const send = vi.mocked(messages.sendMessage);
     const ui = createContentUi();

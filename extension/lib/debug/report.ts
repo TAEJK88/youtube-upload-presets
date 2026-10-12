@@ -57,8 +57,9 @@ export async function overview(ping: () => Promise<unknown> = pingBackground): P
 }
 
 export interface StoredKey { key: string; bytes: number; value: unknown }
-// storage.session: the automation lock, its jobs and the copyright worker leases (lib/runner-lock.ts).
-export const SESSION_KEYS = ['runnerTabId', 'runnerJobs', 'claimsWorkers'] as const;
+// storage.session: the automation lock, its jobs and the copyright worker leases (lib/runner-lock.ts),
+// and the last "show this tab" request for a side panel (lib/panel-tab.ts).
+export const SESSION_KEYS = ['runnerTabId', 'runnerJobs', 'claimsWorkers', 'panelTab'] as const;
 export interface StoredData { local: StoredKey[]; session: Record<(typeof SESSION_KEYS)[number], unknown> | { error: string } }
 export async function storedData(): Promise<StoredData> {
   const all = await browser.storage.local.get(null);
@@ -66,8 +67,8 @@ export async function storedData(): Promise<StoredData> {
   // On its own: a failing session read must not hide the local keys.
   const session = await settle(() => browser.storage.session.get([...SESSION_KEYS]));
   if (!session.ok) return { local, session: { error: session.error } };
-  const { runnerTabId, runnerJobs, claimsWorkers } = session.value;
-  return { local, session: { runnerTabId, runnerJobs, claimsWorkers } };
+  const { runnerTabId, runnerJobs, claimsWorkers, panelTab } = session.value;
+  return { local, session: { runnerTabId, runnerJobs, claimsWorkers, panelTab } };
 }
 
 export interface StudioTab { id: number; title: string; url: string; runner: boolean; answer: Answer<never> | { ok: true; ms: number; items: number } }

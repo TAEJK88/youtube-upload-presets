@@ -58,6 +58,17 @@ export function fabModel(): FabModel {
   return { channel: c.label, problem: c.problem, locked: !!settings.lockChannel, preset: active()?.label ?? '', activity, pending: count('pending'), total: queue.length };
 }
 
+// The tab a click asks the panel for (3294–3295): the running task's, none while nothing runs.
+// A model that can't be built must not stop the click from opening the panel.
+export function activityTab(): Activity['tab'] | undefined {
+  try {
+    return fabModel().activity?.tab;
+  } catch (e) {
+    console.error('[ytup] fab', e);
+    return undefined;
+  }
+}
+
 export function mountFab(open: () => void): { update(m: FabModel): void; remove(): void } {
   document.querySelector('#ytup-fab')?.remove(); // left by an earlier instance (extension reloaded)
   const host = h('div', { id: 'ytup-fab' });

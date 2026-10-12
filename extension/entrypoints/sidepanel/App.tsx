@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L } from '@/lib/i18n';
+import { followPanelTab, type PanelTab } from '@/lib/panel-tab';
 import { Icon } from './Icon';
 import { useClaims, usePanel } from './panel';
 import { PaneBoundary } from './PaneBoundary';
@@ -14,7 +15,7 @@ import { QueueFooter } from './tabs/QueueFooter';
 import { QueueTab, usePanelDrop } from './tabs/QueueTab';
 import { SettingsTab } from './tabs/SettingsTab';
 
-export type TabKey = 'queue' | 'presets' | 'claims' | 'settings';
+export type TabKey = PanelTab;
 // The drawer's tabs, in its order (3317).
 export const tabDefs = (): [TabKey, string, string][] => [
   ['queue', L('อัปโหลด', 'Upload'), 'queue'],
@@ -34,12 +35,25 @@ const footers: Partial<Record<TabKey, () => ReactNode>> = { queue: () => <QueueF
 export function App() {
   const [tab, setTab] = useState<TabKey>('queue');
   // usePanel() also carries `lang`: a language change re-renders App, so the labels follow it.
-  const { view } = usePanel();
+  const { view, target } = usePanel();
   const { live } = useClaims();
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (body.current) body.current.scrollTop = 0; // showTab(): each tab opens at its top
   }, [tab]);
+  // openDrawer(tab) (3488): the bound Studio tab asked for a tab (its button during a run, a
+  // multi-file pick in Studio's dialog) or its "queue finished" notification was clicked. Each
+  // request is applied once, so the tab the user picks afterwards stays.
+  const tabId = target?.tabId;
+  const asked = useRef(0);
+  useEffect(() => {
+    if (tabId === undefined) return;
+    return followPanelTab(tabId, (r) => {
+      if (r.at === asked.current) return;
+      asked.current = r.at;
+      setTab(r.tab);
+    });
+  }, [tabId]);
   const total = view?.items.length ?? 0;
   const drop = usePanelDrop(() => setTab('queue')); // onPanelDrop(): showTab('queue')
   return (

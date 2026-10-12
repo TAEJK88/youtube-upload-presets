@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import type { QueueDoneNote } from './messages';
+import { requestPanelTab } from './panel-tab';
 
 // chrome.notifications needs an icon and the extension ships none yet: a 48 px red dot.
 export const NOTIFY_ICON =
@@ -23,14 +24,17 @@ export async function notifyQueueDone(
   return true;
 }
 
-// A click brings that tab forward and opens the side panel there. sidePanel.open() goes
-// first: it needs the click's user gesture.
+// A click brings that tab forward and opens the side panel there, on the Upload tab
+// (openDrawer('queue'), 3264); a panel already open there switches to it. sidePanel.open()
+// goes first: it needs the click's user gesture.
 export async function openFromNotification(id: string): Promise<void> {
   if (!id.startsWith(PREFIX)) return;
   const tabId = Number(id.slice(PREFIX.length));
   const opened = browser.sidePanel.open({ tabId }).catch((e) => console.warn('[ytup] open panel from notification', e));
+  const asked = requestPanelTab(tabId, 'queue').catch((e) => console.warn('[ytup] panel tab from notification', e));
   const tab = await browser.tabs.update(tabId, { active: true }).catch(() => undefined);
   if (tab?.windowId !== undefined) await browser.windows.update(tab.windowId, { focused: true }).catch(() => {});
   await browser.notifications.clear(id);
   await opened;
+  await asked;
 }

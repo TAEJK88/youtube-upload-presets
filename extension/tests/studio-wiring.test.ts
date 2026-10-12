@@ -58,4 +58,23 @@ describe('the Studio content script', () => {
     expect(runner).toMatch(/\n  running = true;\n  stopReq = false;\n/);
     expect(runner.match(/^\s+stopReq = false;/gm)).toHaveLength(1); // cleared nowhere else
   });
+
+  // P5-row-progress-toast: content-ui's tick says it once on the page (content-ui.test.ts) and
+  // throws again, so every failure still reaches the console and the debug log from here.
+  it('ticks the progress in the 800 ms interval, in its own try, and logs each failure', () => {
+    expect(studio).toMatch(/try \{\s*ui\.tick\(\);\s*\} catch \(e\) \{\s*console\.error\('\[ytup\] progress', e\);\s*\}/);
+  });
+
+  // P5-row-tab-choice (3294–3295): the Studio button opens the panel on the running task's tab, and
+  // on the one it shows while nothing runs. activityFrom()'s tab is tested in activity.test.mjs.
+  it("the Studio button asks for the running task's tab", () => {
+    // activityTab() answers no tab when the model can't be built (fab.test.ts): the click still opens
+    expect(studio).toContain('const fab = mountFab(() => ui.openDrawer(activityTab()));');
+  });
+
+  // review A-1: the FAB's update keeps its own try and console line, and says it once on the page
+  // with the progress half (content-ui progressFailed, content-ui.test.ts).
+  it('a failing FAB update is logged each time and said once with the progress toast', () => {
+    expect(studio).toMatch(/try \{\s*fab\.update\(fabModel\(\)\);\s*\} catch \(e\) \{\s*console\.error\('\[ytup\] fab', e\);\s*ui\.progressFailed\(e\);\s*\}/);
+  });
 });

@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLang } from '../lib/i18n';
 import { getDetailsHost, uploadDialogOpen } from '../lib/studio/automation';
 import { installManualFill } from '../lib/studio/manual-fill';
+import { setPageUi } from '../lib/studio/page-ui';
 import { installQuickActions } from '../lib/studio/quick-actions';
 import { closeStudioUploadDialog } from '../lib/studio/upload-dialog';
 import * as Q from '../lib/studio/queue-runner';
+import { settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { El, makeDocument } from './fake-dom.mjs';
 
@@ -102,6 +104,89 @@ describe('intercept', () => {
       Q.setOtherTabRuns(false);
       dispose();
     }
+  });
+
+  // P5-row-intercept-second-tab: Studio then uploads those files itself, without presets, and the
+  // page says why. Only for a pick the intercept would have taken (2194–2195, 2206–2208).
+  describe('says why a pick was left to Studio while another tab runs the queue', () => {
+    const SAID = "Another Studio tab is running the upload queue or copyright work — these files were left to YouTube's own upload and get no preset";
+    let calls: string[] = [];
+    let dispose = () => {};
+    let doc: FakeInput;
+    const drop = (files: File[] = doc.files) => doc.dispatchEvent(Object.assign(new Event('drop', { cancelable: true }), { dataTransfer: { files } }));
+    let later = 0;
+    beforeEach(() => {
+      const now = Date.now();
+      vi.useFakeTimers();
+      vi.setSystemTime(now + (later += 60_000)); // each test's pick is another pick, also after the tests above
+      setLang('en');
+      calls = [];
+      setPageUi({
+        item() {}, run() {}, queue() {}, schedule() {}, presetPreview() {}, notifyDone() {}, setTitleMark() {}, confirmStart: async () => false,
+        toast: (m) => void calls.push(`toast:${m}`), openDrawer: (tab) => void calls.push(`openDrawer:${tab ?? ''}`),
+      });
+      doc = new FakeInput();
+      vi.stubGlobal('document', doc);
+      dispose = Q.installIntercept();
+      Q.setOtherTabRuns(true);
+    });
+    afterEach(() => {
+      Q.setOtherTabRuns(false);
+      settings.intercept = true;
+      dispose();
+    });
+
+    it('one toast for a multi-file pick, and one for a multi-file drop', () => {
+      expect(pick(doc)).toBe(false);
+      expect(calls).toEqual([`toast:${SAID}`]);
+      vi.advanceTimersByTime(5000);
+      drop();
+      expect(calls).toEqual([`toast:${SAID}`, `toast:${SAID}`]);
+      expect(Q.queue).toHaveLength(0);
+    });
+
+    it('in Thai', () => {
+      setLang('th');
+      pick(doc);
+      expect(calls).toEqual(['toast:มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่ — ไฟล์เหล่านี้จึงปล่อยให้ YouTube อัปโหลดเอง และจะไม่ได้ใช้พรีเซ็ต']);
+    });
+
+    it('not for a single file: that was never taken', () => {
+      doc.files = [new File(['a'], 'a.mp4')];
+      pick(doc);
+      drop();
+      drop([]);
+      expect(calls).toEqual([]);
+    });
+
+    it('not when the intercept is switched off in Settings', () => {
+      settings.intercept = false;
+      pick(doc);
+      drop();
+      expect(calls).toEqual([]);
+    });
+
+    it("not outside Studio's upload dialog, and not for another kind of input", () => {
+      doc.closest = () => null as never;
+      pick(doc);
+      drop();
+      doc.closest = () => doc;
+      doc.type = 'text';
+      pick(doc);
+      expect(calls).toEqual([]);
+    });
+
+    it('once for one pick: a drop that Studio turns into a change of its input is said once', () => {
+      drop();
+      pick(doc);
+      expect(calls).toEqual([`toast:${SAID}`]);
+    });
+
+    it('no other tab runs: the pick is taken, the panel is asked for the Upload tab, nothing is said', () => {
+      Q.setOtherTabRuns(false);
+      expect(pick(doc)).toBe(true);
+      expect(calls).toEqual(['toast:Added 2 video(s)', 'openDrawer:queue']);
+    });
   });
 });
 
