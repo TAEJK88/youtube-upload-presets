@@ -83,3 +83,11 @@ These three were not asked as separate questions: the plan lists them as parts o
 - **P5-16** 2026-10-11: Follows from P5-7. The tab-and-panel protocol number goes from 2 to 3, because the queue view gains a field (is the Tampermonkey script in the page); a Studio tab left open from an older build is reloaded once.
 - **P5-18** 2026-10-11: Part of P5-8, as planned. A move file's language replaces the language chosen in the extension, each time the file is imported as "My file".
 - **P5-19** 2026-10-11: Part of P5-8, as planned. Upload-history rows without a video id are imported; a row needs a date, a channel and a file name.
+
+## Phase 5 (2026-10-12): read access to the queued files
+
+The owner reported that every Start asked for "Re-grant access" and said: "i want to grant always one time only". Nothing below is a parity row; the userscript read files the page was given and had no stored file access to lose.
+
+- **P5-file-start-gate** 2026-10-12: Start is no longer switched off while queued files lack read access. The button stays enabled whatever the banner says.
+- **P5-file-start-asks** 2026-10-12: Start asks the browser for read access inside its own click, before anything else, for the files of that run. The run is not sent while one of them stays at "ask"; a blocked file fails its own item when its turn comes.
+- **P5-file-allow-once** 2026-10-12: The answer to "grant once" is a page of the extension opened in a normal tab, "Allow file access". The owner's Chrome shows no prompt in the side panel and the three-button prompt in a tab; choosing "Allow on every visit" there is expected to keep every queued file readable in the panel and in Studio, across restarts and updates. Seen in his Chrome: the three buttons. Not yet seen: that the choice lasts. Copying the videos into the extension's own storage was the other way to get "once" and was not taken (every video would be on the disk twice).
