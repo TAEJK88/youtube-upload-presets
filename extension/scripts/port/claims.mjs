@@ -65,6 +65,8 @@ export default {
     // the ads and trim wait told the user to remove failed videos, which no longer hold a page change
     // back (P4-12): it names the ones that do, those still waiting in the queue
     ["L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue')", "L('⏸ รอคิวอัปโหลดเสร็จก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ยังรออยู่ในคิวออก', '⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue')", 2],
+    // the Collab wait says the same: its "to clear" asked for an empty queue, and a failed video can stay (P4-12)
+    ["L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for the upload queue to clear (page change needed)')", "L('⏸ รอคิวอัปโหลดเสร็จก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ยังรออยู่ในคิวออก', '⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue')", 1],
     // while the Tampermonkey userscript is in the page the tick presses Save and Confirm for nobody:
     // the trim editor may be one the userscript's own review-mode run opened (Phase 5 call 7, review 1)
     ['if (!running2 && /\\/video\\/[^/]+\\/(claims|copyright)/.test(location.pathname)) {', 'if (!running2 && /\\/video\\/[^/]+\\/(claims|copyright)/.test(location.pathname) && !userscriptHere()) {', 1],

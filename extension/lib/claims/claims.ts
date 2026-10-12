@@ -658,7 +658,7 @@ const switchToChannel: typeof switcher = (t, next) => {
     if (!(await claimLock())) { setCollabStage(-1, lockWait()); collabBusy = false; return; }
     if (!(getCollabRun() || {} as Partial<Run>).active) { collabBusy = false; return; }
     if (!location.pathname.startsWith(`/video/${item.videoId}/edit`)) {
-      if (uploadBusy()) { setCollabStage(-1, L('⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for the upload queue to clear (page change needed)')); collabBusy = false; return; }
+      if (uploadBusy()) { setCollabStage(-1, L('⏸ รอคิวอัปโหลดเสร็จก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ยังรออยู่ในคิวออก', '⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue')); collabBusy = false; return; }
       setCollabStage(0, L('กำลังเปิดหน้ารายละเอียดของคลิป…', 'Opening the video details page…'));
       location.href = `/video/${item.videoId}/edit`;
       setTimeout(() => { collabBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้

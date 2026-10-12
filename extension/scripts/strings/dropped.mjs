@@ -29,4 +29,5 @@ export default [
   { th: 'ผล', en: 'Result', why: "the Ads modal's table header (5303): cards" },
   { th: 'เพลงที่เคยโดน', en: 'Claimed songs', why: "the button's text before the pane's first status (6191): the panel's button always shows its count (6246)" },
   { th: '⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', en: '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue', why: 'the ads and trim wait (5386, 5982): failed videos no longer hold page changes back (P4-12), so the sentence names the waiting ones instead (extension-only.mjs)' },
+  { th: '⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า)', en: '⏸ Waiting for the upload queue to clear (page change needed)', why: 'the Collab wait (5609): the queue need not be empty, a failed video can stay in it (P4-12); it says the ads and trim sentence (extension-only.mjs)' },
 ];

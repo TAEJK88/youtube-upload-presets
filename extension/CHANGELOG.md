@@ -51,9 +51,9 @@ New in this release:
   start a trim or turn Auto-pilot on (a trim cannot be undone). A double-click on Trim
   selected or on the Auto-pilot switch cannot answer the question either: a press in its first
   0.8 s and the second click of a double-click are ignored, and Cancel stays selected.
-- An ads or trim run that waits for the upload queue now says what ends the wait: "upload or
-  remove the videos still waiting in the queue". Failed videos don't hold it back, and the
-  message no longer says to remove them.
+- An ads, trim or Collab run that waits for the upload queue now says what ends the wait:
+  "upload or remove the videos still waiting in the queue". Failed videos don't hold it back,
+  and the ads and trim message no longer says to remove them.
 
 Not in the extension yet:
 

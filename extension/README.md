@@ -1031,8 +1031,8 @@ English. Write down pass or fail; items marked **record** ask for an observation
     another Studio tab to finish (page change needed)") and goes on after A's queue ends. (An
     Auto-pilot cycle that comes due in B while A's queue runs still scans, because scans take no
     lock; the trims it then starts wait the same way.) With no tab running the queue, a trim, ads
-    or Collab run waits while the queue has **waiting** videos ("⏸ Waiting for the upload queue to finish…"; a Collab run says "…to clear…"); a **failed**
-    upload left in the queue doesn't hold it back.
+    or Collab run waits while the queue has **waiting** videos ("⏸ Waiting for the upload queue
+    to finish…"); a **failed** upload left in the queue doesn't hold it back.
     - **A waiting run doesn't block the others.** Put two clips in A's queue without starting,
       then start a trim run from A's panel: it waits for the queue. Now in B, Start (or a trim
       run) works. When the queue is clear again, A's run goes on by itself.

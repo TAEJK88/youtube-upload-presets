@@ -175,6 +175,17 @@ describe('Collab run', () => {
     await vi.waitFor(() => expect(C.collabStage.detail).toBe('⏸ Waiting for another Studio tab to finish (page change needed)'));
   });
 
+  it('waits for the upload queue before changing pages, and says what ends the wait', async () => {
+    vi.stubGlobal('location', { pathname: '/channel/x/videos', href: '' });
+    C.setClaimsLock({ worker: async () => true, acquire: async () => true, release: vi.fn(), holds: async () => false });
+    Q.queue.push({ id: 'q', status: 'pending' } as Q.QueueItem);
+    C.collabFromPanel({ videoIds: ['v'], handles: ['@me2'] });
+    await vi.waitFor(() => expect(C.collabStage.detail).toBe('⏸ Waiting for the upload queue to finish (page change needed) — upload or remove the videos still waiting in the queue'));
+    expect(location.href).toBe('');
+    C.stopCollabRun();
+    vi.unstubAllGlobals();
+  });
+
   it('claims:collab: only the chosen videos; no handles, a non-list or a handle that is not one: no run', () => {
     C.setClaimsLock(noLock);
     useMemoryClaims({ [`collabScan:${CH}`]: { date: '', total: 2, rows: [{ videoId: 'v', video: 'V' }, { videoId: 'w', video: 'W' }] } }, async (op) => void ops.push(op));
