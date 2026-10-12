@@ -23,7 +23,7 @@ export function createContentUi() {
   // Only while this tab runs the queue: an idle tab sees new draft ids when it adopts
   // another tab's write, and saving its copy then could land over that tab's next edit.
   let drafts: string | undefined;
-  let progressFailed = false;
+  let saidFailed = false;
   // Torn down (extension reloaded): a run still in flight must not put a mark back on the
   // tab title after the teardown cleared it, nor show its toasts.
   const mark = (m: string) => {
@@ -42,7 +42,7 @@ export function createContentUi() {
     persistQueue();
     broadcast();
   };
-  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; state(): QueueState; dispose(): void } = {
+  const ui: PageUi & { setConfirmed(v: boolean): void; tick(): void; progressFailed(e: unknown): void; state(): QueueState; dispose(): void } = {
     item(it) {
       // An orphaned run stops at its next status change (queue-runner: setTornDown), and so
       // does one that lost the lock coming back from the back/forward cache (abortRun).
@@ -118,13 +118,16 @@ export function createContentUi() {
         drafts = d;
         broadcast();
       } catch (e) {
-        if (!progressFailed) {
-          progressFailed = true;
-          const m = (e as Error)?.message;
-          ui.toast(L(`⚠ แถบความคืบหน้าหยุดทำงาน: ${m} — ลองรีโหลดหน้า`, `⚠ The progress bar stopped: ${m} — try reloading the page`));
-        }
+        ui.progressFailed(e);
         throw e;
       }
+    },
+    // Also for the FAB's update, which renderActivity() did in the same half of that tick (6375).
+    progressFailed(e) {
+      if (saidFailed) return;
+      saidFailed = true;
+      const m = (e as Error)?.message;
+      ui.toast(L(`⚠ แถบความคืบหน้าหยุดทำงาน: ${m} — ลองรีโหลดหน้า`, `⚠ The progress bar stopped: ${m} — try reloading the page`));
     },
     state,
   };

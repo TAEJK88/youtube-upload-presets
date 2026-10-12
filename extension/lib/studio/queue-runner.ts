@@ -594,13 +594,14 @@ async function uploadCurrent(it: QueueItem): Promise<void> {
 
 // A multi-file pick or drop the intercept would have taken, while another Studio tab runs the
 // queue: Studio keeps it and uploads the files itself, and the page says why. Once per pick: a
-// drop that Studio passes on as a change of its file input is the same pick.
+// drop that Studio passes on as a change of its file input is the same pick. The flag is also set
+// by abortRun(), where the other tab may be doing copyright work: the sentence names both.
 let leftAt = 0;
 function leftToStudio(): void {
   const now = Date.now();
   if (Math.abs(now - leftAt) < 1000) return;
   leftAt = now;
-  ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่ — ไฟล์เหล่านี้จึงปล่อยให้ YouTube อัปโหลดเอง และจะไม่ได้ใช้พรีเซ็ต', "Another Studio tab is running the upload queue — these files were left to YouTube's own upload and get no preset"));
+  ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่ — ไฟล์เหล่านี้จึงปล่อยให้ YouTube อัปโหลดเอง และจะไม่ได้ใช้พรีเซ็ต', "Another Studio tab is running the upload queue or copyright work — these files were left to YouTube's own upload and get no preset"));
 }
 
 // Returns a disposer: an orphaned listener (extension reloaded under a live page) would

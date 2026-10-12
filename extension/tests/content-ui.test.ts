@@ -102,7 +102,17 @@ describe('content ui', () => {
     expect(vi.mocked(pageToast)).toHaveBeenCalledOnce();
   });
 
-  // The channel's scheduled list changed; no item did (queue-runner refreshChanSched).
+  // review A-1: renderActivity() (6375) drew the FAB's badge in the same half of the tick, under the
+  // same once-flag; here the FAB's update has its own try, and reports through progressFailed().
+  it('a failing FAB update and a failing tick share the one toast', () => {
+    const ui = createContentUi();
+    ui.progressFailed(new Error('fab broke'));
+    vi.stubGlobal('location', { get pathname(): string { throw new Error('boom'); } });
+    expect(() => ui.tick()).toThrow('boom');
+    ui.progressFailed(new Error('fab broke'));
+    expect(vi.mocked(pageToast).mock.calls).toEqual([['⚠ The progress bar stopped: fab broke — try reloading the page']]);
+  });
+
   it('ui.schedule() tells the panel without saving the queue', () => {
     const send = vi.mocked(messages.sendMessage);
     const ui = createContentUi();

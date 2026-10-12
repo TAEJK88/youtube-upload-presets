@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { within } from '@testing-library/dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fabModel, mountFab, type FabModel } from '../lib/studio/fab';
+import { activityTab, fabModel, mountFab, type FabModel } from '../lib/studio/fab';
 import { useMemoryClaims } from '../lib/claims/store';
 import * as Q from '../lib/studio/queue-runner';
 import { active, load, save } from '../lib/studio/state';
@@ -127,6 +127,30 @@ describe('fabModel()', () => {
     expect(m.activity).toMatchObject({ task: 'upload', icon: '⬆', count: { at: 2, of: 4 }, progress: 0.25 });
     Q.queue.splice(0);
     expect(fabModel()).toMatchObject({ activity: null, pending: 0, total: 0 });
+  });
+});
+
+// P5-row-tab-choice (3294–3295): the tab the click asks the panel for.
+describe('activityTab()', () => {
+  afterEach(() => { useMemoryClaims(); vi.unstubAllGlobals(); });
+  const up = { id: 'a', src: 'bridge', file: { name: 'x.mp4', size: 1, type: '' }, presetId: 'trapsoul', n: 0, title: '', titleEdited: false, msg: '', txt: '', txtName: '', thumb: null, duration: 0, status: 'uploading' } as Q.QueueItem;
+
+  it('Upload during a run, Copyright during copyright work, none while nothing runs', () => {
+    expect(activityTab()).toBeUndefined();
+    useMemoryClaims({ 'trimRun:unknown': { active: true, started: '', items: [{ key: 'v:1', videoId: 'v', video: 'Mix', song: 'S1', state: 'pending', msg: '' }] } });
+    expect(activityTab()).toBe('claims');
+    Q.queue.push(up); // the upload comes first (activityFrom)
+    expect(activityTab()).toBe('queue');
+  });
+
+  // review B-2: the click must open the panel whatever the model does
+  it('a model that cannot be built: no tab, logged', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    Q.queue.push(up);
+    vi.stubGlobal('location', { get pathname(): string { throw new Error('boom'); } });
+    expect(activityTab()).toBeUndefined();
+    expect(err).toHaveBeenCalledWith('[ytup] fab', expect.objectContaining({ message: 'boom' }));
+    err.mockRestore();
   });
 });
 

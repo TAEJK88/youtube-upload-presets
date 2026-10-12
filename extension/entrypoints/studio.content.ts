@@ -18,7 +18,7 @@ import { createSyncStore } from '@/lib/sync-store';
 import { getChannel, refreshCfg } from '@/lib/studio/channel';
 import { rememberChannel, switchChannel } from '@/lib/studio/channels';
 import { createContentUi, startFromPanel, storeWriteFailed } from '@/lib/studio/content-ui';
-import { fabModel, mountFab } from '@/lib/studio/fab';
+import { activityTab, fabModel, mountFab } from '@/lib/studio/fab';
 import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
@@ -141,7 +141,7 @@ export default defineContentScript({
     onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));
     // The userscript's FAB: opens the side panel (needs the click's user gesture — see README), on
     // the running task's tab; while nothing runs, on the tab it shows (3294–3295).
-    const fab = mountFab(() => ui.openDrawer(fabModel().activity?.tab));
+    const fab = mountFab(() => ui.openDrawer(activityTab()));
     stop.add(() => fab.remove());
     // Filled now, not at the first tick: the first clamp to the window needs its real width.
     fab.update(fabModel());
@@ -253,11 +253,13 @@ export default defineContentScript({
       } catch (e) {
         console.error('[ytup] copyright tick', e);
       }
-      // Its own try too: a failing tick must not freeze the FAB, nor the FAB the tick.
+      // Its own try too: a failing tick must not freeze the FAB, nor the FAB the tick. Said on
+      // the page with the progress half, once for both (renderActivity() was in that half, 6375).
       try {
         fab.update(fabModel());
       } catch (e) {
         console.error('[ytup] fab', e);
+        ui.progressFailed(e);
       }
     }, 800);
   },

@@ -109,7 +109,7 @@ describe('intercept', () => {
   // P5-row-intercept-second-tab: Studio then uploads those files itself, without presets, and the
   // page says why. Only for a pick the intercept would have taken (2194–2195, 2206–2208).
   describe('says why a pick was left to Studio while another tab runs the queue', () => {
-    const SAID = "Another Studio tab is running the upload queue — these files were left to YouTube's own upload and get no preset";
+    const SAID = "Another Studio tab is running the upload queue or copyright work — these files were left to YouTube's own upload and get no preset";
     let calls: string[] = [];
     let dispose = () => {};
     let doc: FakeInput;
@@ -148,7 +148,7 @@ describe('intercept', () => {
     it('in Thai', () => {
       setLang('th');
       pick(doc);
-      expect(calls).toEqual(['toast:มีแท็บ Studio อื่นกำลังอัปโหลดคิวอยู่ — ไฟล์เหล่านี้จึงปล่อยให้ YouTube อัปโหลดเอง และจะไม่ได้ใช้พรีเซ็ต']);
+      expect(calls).toEqual(['toast:มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่ — ไฟล์เหล่านี้จึงปล่อยให้ YouTube อัปโหลดเอง และจะไม่ได้ใช้พรีเซ็ต']);
     });
 
     it('not for a single file: that was never taken', () => {

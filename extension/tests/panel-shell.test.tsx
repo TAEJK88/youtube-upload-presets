@@ -428,6 +428,19 @@ describe('shell', () => {
       expect(active()).toBe('Settings');
     });
 
+    // review B-1: the panel follows the tab it is bound to now, not the first one it was bound to
+    it('bound to another Studio tab: that tab\'s request is taken, the first tab\'s no longer', async () => {
+      const api = fakePanel();
+      render(<Host first={api}><App /></Host>);
+      await flush();
+      act(() => setApi({ ...api, target: { ...api.target!, tabId: 2 } }));
+      await flush();
+      await request(2, 'claims');
+      expect(active()).toBe('Copyright');
+      await request(1, 'settings');
+      expect(active()).toBe('Copyright');
+    });
+
     it('no Studio tab bound: nothing is read or followed', async () => {
       const get = vi.spyOn(browser.storage.session, 'get');
       renderPanel(<App />, fakePanel({ target: null }));
