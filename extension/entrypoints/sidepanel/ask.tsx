@@ -9,6 +9,9 @@ import { Icon } from './Icon';
 // click outside, Cancel) — and when there is no second button, dismissing answers false.
 // A question replaced by a newer one, or closed some other way, resolves null: callers must
 // test `=== true` / `=== false` / `== null` deliberately and never treat null as false.
+// The main button is selected when the question opens and Enter answers yes. focus: 'cancel'
+// (P5-ask-cancel) is for a yes that cannot be undone: Cancel is selected, Enter answers as
+// Cancel does, and yes needs a click or a Tab to it.
 export interface AskOptions {
   title: string;
   body?: ReactNode;
@@ -17,6 +20,7 @@ export interface AskOptions {
   cancel?: string;
   danger?: boolean;
   icon?: string;
+  focus?: 'cancel';
 }
 type Ask = (o: AskOptions) => Promise<boolean | null>;
 const AskContext = createContext<Ask | null>(null);
@@ -25,6 +29,9 @@ export function useAsk(): Ask {
   if (!ask) throw new Error('useAsk() must be used inside <AskProvider>');
   return ask;
 }
+
+// Cancel selected by the box, not by a key press: :focus-visible would not draw its ring after a click.
+const SELECTED = 'focus:outline-2 focus:outline-offset-2 focus:outline-fg2';
 
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState<AskOptions | null>(null);
@@ -41,10 +48,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
     setOpen(o);
   }), []);
   const dismissed = open?.no ? null : false;
+  const onCancel = open?.focus === 'cancel';
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && !/^(TEXTAREA|BUTTON)$/.test((e.target as HTMLElement).tagName)) {
       e.preventDefault();
-      finish(true);
+      finish(onCancel ? dismissed : true);
     }
   };
   const ok = open?.ok ?? L('ตกลง', 'OK');
@@ -62,16 +70,17 @@ export function AskProvider({ children }: { children: ReactNode }) {
               {open.title}
             </DialogTitle>
             {open.body ? <DialogDescription asChild><div className="mt-3 text-[13px] whitespace-pre-line text-fg2">{open.body}</div></DialogDescription> : null}
-            <div className="mt-5 flex justify-end gap-2">
+            {/* keyed: autoFocus only acts on mount, and a question can replace one that opened on the other button */}
+            <div key={open.focus ?? 'ok'} className="mt-5 flex justify-end gap-2">
               {open.no ? (
                 <>
-                  <Button variant="ghost" onClick={() => finish(null)}>{cancel}</Button>
+                  <Button autoFocus={onCancel} variant="ghost" className={onCancel ? SELECTED : undefined} onClick={() => finish(null)}>{cancel}</Button>
                   <Button onClick={() => finish(false)}>{open.no}</Button>
                 </>
               ) : (
-                <Button onClick={() => finish(false)}>{cancel}</Button>
+                <Button autoFocus={onCancel} className={onCancel ? SELECTED : undefined} onClick={() => finish(false)}>{cancel}</Button>
               )}
-              <Button autoFocus variant={open.danger ? 'danger' : 'go'} onClick={() => finish(true)}>{ok}</Button>
+              <Button autoFocus={!onCancel} variant={open.danger ? 'danger' : 'go'} onClick={() => finish(true)}>{ok}</Button>
             </div>
           </DialogContent>
         )}

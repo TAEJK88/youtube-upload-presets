@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
@@ -51,6 +52,18 @@ describe('Copyright tab, runs', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start trim' }));
     await vi.waitFor(() => expect(api.send).toHaveBeenCalledWith('claims:trim', ['v1:c1']));
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy(); // the list closed, as the modal did
+  });
+
+  // P5-ask-cancel: a trim cannot be undone, so the question opens on Cancel.
+  it('the trim question opens with Cancel selected: Enter starts no trim', async () => {
+    const api = await openTrim();
+    fireEvent.click(await screen.findByRole('button', { name: '✂ Trim selected (1)' }));
+    await screen.findByText('Trim 1 claims in 1 videos?');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.setup().keyboard('{Enter}');
+    await vi.waitFor(() => expect(screen.queryByText('Trim 1 claims in 1 videos?')).toBe(null));
+    expect(api.send).not.toHaveBeenCalledWith('claims:trim', expect.anything());
+    expect(screen.getByRole('button', { name: '✂ Trim selected (1)' })).toBeTruthy(); // the list stays open
   });
 
   it('the question warns about your own music, a busy upload queue and Studio not in English, and says review mode', async () => {
@@ -170,6 +183,19 @@ describe('Copyright tab, runs', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Turn on' }));
     await vi.waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'set', key: 'autopilot:UC1', value: { on: true, next: 0 } }));
     await vi.waitFor(() => expect(claims.addLog).toHaveBeenCalledWith('🤖 Auto-pilot turned on for Mine', 'ok'));
+  });
+
+  it('the Auto-pilot question opens with Cancel selected: Enter does not turn it on', async () => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined as never);
+    const claims = fakeClaims();
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
+    fireEvent.click(await screen.findByRole('switch', { name: /Auto-pilot/ }));
+    await screen.findByText('Turn on Auto-pilot for channel Mine?');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+    await userEvent.setup().keyboard('{Enter}');
+    await vi.waitFor(() => expect(screen.queryByText('Turn on Auto-pilot for channel Mine?')).toBe(null));
+    expect(send).not.toHaveBeenCalled();
+    expect(claims.addLog).not.toHaveBeenCalled();
   });
 
   it('Auto-pilot: Cancel writes nothing; off needs no question', async () => {

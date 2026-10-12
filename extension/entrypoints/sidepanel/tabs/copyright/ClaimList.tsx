@@ -78,6 +78,7 @@ export function ClaimList({ data, state, onClose, onTracklist }: {
       ),
       ok: L('เริ่มตัด', 'Start trim'),
       cancel: L('ยกเลิก', 'Cancel'),
+      focus: 'cancel',
     });
     if (go !== true) return;
     onClose();

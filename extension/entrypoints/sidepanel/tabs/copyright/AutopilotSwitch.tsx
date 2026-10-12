@@ -35,6 +35,7 @@ export function AutopilotSwitch({ data, state }: { data: ClaimsData; state: Clai
       ),
       ok: L('เปิด', 'Turn on'),
       cancel: L('ยกเลิก', 'Cancel'),
+      focus: 'cancel',
     });
     if (go !== true) return;
     await claimsWrite({ op: 'set', key, value: { on: true, next: 0 } });
