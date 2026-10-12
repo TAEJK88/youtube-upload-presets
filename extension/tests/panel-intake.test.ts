@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dropHandles, expandHandles, hasFiles, pickAttachments, pickFiles, pickFolder, PICK_ATTACH, sendFiles, storeHandles } from '../lib/panel/intake';
+import { dropHandles, expandHandles, hasFiles, MAX_FOLDER_FILES, pickAttachments, pickFiles, pickFolder, PICK_ATTACH, sendFiles, storeHandles, TooManyFiles } from '../lib/panel/intake';
 
 const file = (name: string) => ({ kind: 'file', name }) as unknown as FileSystemFileHandle;
 const dir = (name: string, kids: unknown[]) => ({
   kind: 'directory', name,
   async *values() { yield* kids; },
 }) as unknown as FileSystemDirectoryHandle;
+// kids, inside `levels` folders: nest(3, …) puts them three folders below the one it returns.
+const nest = (levels: number, kids: unknown[]): unknown[] => (levels ? [dir(`L${levels}`, nest(levels - 1, kids))] : kids);
+const names = (hs: FileSystemFileHandle[]) => hs.map((h) => h.name).sort();
+const picked = (tree: FileSystemDirectoryHandle) => pickFolder({ showDirectoryPicker: async () => tree } as unknown as Window);
 
 describe('intake', () => {
   it('only a drag that carries files counts', () => {
@@ -21,13 +25,51 @@ describe('intake', () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
-  it('reads folders two levels deep and skips hidden files inside them (filesFromDrop)', async () => {
+  it('reads folders at every depth and skips hidden files inside them (the drawer\'s folder input, 3503)', async () => {
     const tree = dir('Mixes', [
       file('Mix 1.mp4'), file('.DS_Store'),
-      dir('Covers', [file('Mix 1.jpg'), file('._Mix 1.jpg'), dir('Old', [file('ignored.mp4')])]),
+      dir('Covers', [file('Mix 1.jpg'), file('._Mix 1.jpg'), dir('Old', [file('Mix 3.mp4')])]),
     ]);
     const got = await expandHandles([tree, file('Mix 2.mp4'), null]);
-    expect(got.map((h) => h.name).sort()).toEqual(['Mix 1.jpg', 'Mix 1.mp4', 'Mix 2.mp4']);
+    expect(names(got)).toEqual(['Mix 1.jpg', 'Mix 1.mp4', 'Mix 2.mp4', 'Mix 3.mp4']);
+  });
+
+  it('a dropped folder and a picked one give the same files: three, four and ten folders down', async () => {
+    const tree = () => dir('Mixes', [
+      file('Top.mp4'), file('notes.pdf'),
+      ...nest(2, [file('Three.mp4'), file('.DS_Store')]),
+      ...nest(3, [file('Four.mp4'), file('._Four.mp4'), file('Four.txt')]),
+      ...nest(9, [file('Ten.mp4'), file('Ten.jpg'), file('.hidden.txt')]),
+    ]);
+    const want = ['Four.mp4', 'Four.txt', 'Ten.jpg', 'Ten.mp4', 'Three.mp4', 'Top.mp4', 'notes.pdf'];
+    expect(names(await expandHandles([tree()]))).toEqual(want);
+    expect(names(await picked(tree()))).toEqual(want);
+  });
+
+  it('a .txt and a thumbnail come along from other folders than their video (addFiles pairs by name alone)', async () => {
+    const tree = dir('Mixes', [
+      dir('video', [dir('2026', [dir('october', [file('Mix 7.mp4')])])]),
+      dir('text', [file('Mix 7.txt')]),
+      ...nest(5, [file('mix 7.JPG')]),
+    ]);
+    expect(names(await picked(tree))).toEqual(['Mix 7.mp4', 'Mix 7.txt', 'mix 7.JPG']);
+  });
+
+  it('a folder is read in the order its entries come, folders where they stand', async () => {
+    const tree = dir('Mixes', [file('b.mp4'), dir('sub', [file('z.txt'), dir('deep', [file('a.mp4')])]), file('a.txt')]);
+    expect((await expandHandles([file('first.mp4'), tree])).map((h) => h.name)).toEqual(['first.mp4', 'b.mp4', 'z.txt', 'a.mp4', 'a.txt']);
+  });
+
+  it('a folder with more files than the limit adds nothing and says so, dropped or picked', async () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => file(`f${i}.mp4`));
+    const full = () => dir('Mixes', [...many(MAX_FOLDER_FILES - 1), file('.DS_Store'), ...nest(4, [file('last.mp4')])]);
+    expect(await expandHandles([full()])).toHaveLength(MAX_FOLDER_FILES);
+    expect(await picked(full())).toHaveLength(MAX_FOLDER_FILES);
+    const over = () => dir('Mixes', [...many(MAX_FOLDER_FILES), ...nest(4, [file('one more.mp4')])]);
+    await expect(expandHandles([over()])).rejects.toBeInstanceOf(TooManyFiles);
+    await expect(picked(over())).rejects.toThrow(`more than ${MAX_FOLDER_FILES} files`);
+    // Files dropped without a folder are never walked, so never counted.
+    expect(await expandHandles(many(MAX_FOLDER_FILES + 1))).toHaveLength(MAX_FOLDER_FILES + 1);
   });
 
   it('hidden files dropped next to a folder are skipped too; dropped alone they are kept (filesFromDrop)', async () => {

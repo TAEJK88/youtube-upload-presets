@@ -19,6 +19,12 @@ import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake'
 vi.mock('../lib/panel/intake', async (orig) => ({ ...(await orig<typeof import('../lib/panel/intake')>()), sendFiles: vi.fn(), dropHandles: vi.fn(), pickFiles: vi.fn(async () => []), pickFolder: vi.fn(async () => []) }));
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
 const RELOAD = 'This tab is not connected to the extension yet — reload this tab';
+const TOO_MANY = `This folder has more than ${intake.MAX_FOLDER_FILES} files, so nothing was added — pick the folder that holds only the videos to upload`;
+// A folder three levels down with one file more than a walk takes.
+const hugeFolder = () => {
+  const dir = (kids: unknown[]) => ({ kind: 'directory', name: 'd', async *values() { yield* kids; } });
+  return dir([dir([dir(Array.from({ length: intake.MAX_FOLDER_FILES + 1 }, (_, i) => ({ kind: 'file', name: `f${i}.mp4` })))])]) as unknown as FileSystemHandle;
+};
 
 afterEach(() => {
   cleanup();
@@ -172,6 +178,17 @@ describe('queue card: attach failures', () => {
     await act(async () => void fireEvent.click(screen.getByText('Attach .txt / thumbnail')));
     expect(toast).toHaveBeenCalledWith(RELOAD);
   });
+  it('a folder with too many files dropped on a card next to a .txt: nothing is attached and a toast says why', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(intake.dropHandles).mockResolvedValueOnce([{ kind: 'file', name: 'a.txt' } as FileSystemHandle, hugeFolder()]);
+    one({ status: 'pending' });
+    const dataTransfer = { types: ['Files'], files: [new File(['x'], 'a.txt')], items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }] };
+    await act(async () => void fireEvent.drop(screen.getByText('Attach .txt / thumbnail'), { dataTransfer }));
+    expect(intake.dropHandles).toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(TOO_MANY);
+    expect(intake.sendFiles).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
 });
 
 describe('queue card: thumbnail preview', () => {
@@ -310,6 +327,16 @@ describe('upload tab', () => {
     expect(intake.pickFiles).toHaveBeenCalledTimes(2);
   });
 
+  it('a picked folder with too many files: nothing is added and a toast says why', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(intake.pickFolder).mockImplementationOnce(() => intake.expandHandles([hugeFolder()]));
+    renderPanel(<QueueTab />, fakePanel({ view: viewWith([]) }));
+    await act(async () => void fireEvent.click(screen.getByRole('button', { name: 'pick a whole folder' })));
+    expect(toast).toHaveBeenCalledWith(TOO_MANY);
+    expect(intake.sendFiles).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
   it('Apply to all is off while the queue runs', () => {
     renderPanel(<QueueTab />, fakePanel({ view: viewWith([{ status: 'uploading' }]) }), fakeLive({ liveState: state({ running: true }) }));
     expect((screen.getByRole('button', { name: /Apply to all/ }) as HTMLButtonElement).disabled).toBe(true);
@@ -359,6 +386,23 @@ describe('the panel-wide drop target', () => {
     expect(onDropped).toHaveBeenCalled();
     expect(vi.mocked(intake.sendFiles).mock.calls[0]![0]).toEqual([handle]);
     expect(api.send).toHaveBeenCalledWith('queue:add', ['id1']);
+  });
+
+  it('a dropped folder is read at every depth; one with too many files adds nothing and a toast says why', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const deep = { kind: 'file', name: 'Deep.mp4' };
+    const dir = (kids: unknown[]) => ({ kind: 'directory', name: 'd', async *values() { yield* kids; } });
+    vi.mocked(intake.dropHandles).mockResolvedValueOnce([dir([dir([dir([dir([deep])])])]) as unknown as FileSystemHandle]);
+    render(<PanelContext.Provider value={fakePanel()}><Target onDropped={() => {}} /></PanelContext.Provider>);
+    await act(async () => void fireEvent.drop(screen.getByTestId('t'), { dataTransfer: dt }));
+    expect(vi.mocked(intake.sendFiles).mock.calls[0]![0]).toEqual([deep]);
+    expect(toast).not.toHaveBeenCalled();
+    vi.mocked(intake.sendFiles).mockClear();
+    vi.mocked(intake.dropHandles).mockResolvedValueOnce([hugeFolder()]);
+    await act(async () => void fireEvent.drop(screen.getByTestId('t'), { dataTransfer: dt }));
+    expect(toast).toHaveBeenCalledWith(TOO_MANY);
+    expect(intake.sendFiles).not.toHaveBeenCalled();
+    err.mockRestore();
   });
 
   it('a drag without files is not taken', () => {

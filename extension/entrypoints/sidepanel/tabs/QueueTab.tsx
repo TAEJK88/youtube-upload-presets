@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Progress } from '@/components/ui/progress';
 import { L } from '@/lib/i18n';
-import { dropHandles, expandHandles, hasFiles, pickFiles, pickFolder, sendFiles } from '@/lib/panel/intake';
+import { dropHandles, expandHandles, hasFiles, intakeFailed, pickFiles, pickFolder, sendFiles } from '@/lib/panel/intake';
 import { cn } from '@/lib/utils';
 import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
@@ -57,7 +57,7 @@ export function usePanelDrop(onDropped: () => void) {
     setDropping(false);
     const pending = dropHandles(e.dataTransfer); // inside the event, before any await
     onDropped();
-    void pending.then(expandHandles).then(add, (err) => console.error('[ytup] drop', err));
+    void pending.then(expandHandles).then(add, intakeFailed('drop', toast));
   };
   return { dropping, handlers: { onDragEnter: accept, onDragOver: accept, onDrop } };
 }
@@ -66,7 +66,7 @@ export function QueueTab() {
   const { data, view, send, write } = usePanel();
   const { liveState } = useLive();
   const add = useAddFiles();
-  const pick = (picker: () => Promise<FileSystemFileHandle[]>) => void picker().then(add, (e) => console.error('[ytup] file picker', e));
+  const pick = (picker: () => Promise<FileSystemFileHandle[]>) => void picker().then(add, intakeFailed('file picker', toast));
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [schedOpen, setSchedOpen] = useState(true);
   const items = view?.items ?? [];

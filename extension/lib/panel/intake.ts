@@ -1,4 +1,5 @@
 import { deleteHandle, putHandle } from '../file-store';
+import { L } from '../i18n';
 
 // Files dropped on the panel or picked with its buttons (UI section 3500–3591). Their handles
 // go into the extension's IndexedDB under fresh ids — the queue item ids, which must stay
@@ -11,21 +12,44 @@ export const hasFiles = (dt: DataTransfer | null | undefined) => [...(dt?.types 
 export const dropHandles = (dt: DataTransfer | null | undefined): Promise<(FileSystemHandle | null)[]> =>
   Promise.all([...(dt?.items ?? [])].filter((i) => i.kind === 'file').map((i) => i.getAsFileSystemHandle()));
 
-// filesFromDrop(): files dropped on their own are taken as they are; once a folder is part
-// of the drop, folders are read two levels deep and hidden files (macOS ._ and .DS_Store)
-// are skipped everywhere.
+// Every file a walk takes is written to IndexedDB here and read through the bridge in the
+// Studio tab, one after another, whether it is a video or not. A folder with more files than
+// this is not a folder of videos (a drive, a project with its dependencies): it is refused
+// whole, with a message, and nothing of it is queued.
+export const MAX_FOLDER_FILES = 2000;
+export class TooManyFiles extends Error {
+  constructor() {
+    super(L(
+      `โฟลเดอร์นี้มีไฟล์เกิน ${MAX_FOLDER_FILES} ไฟล์ จึงไม่ได้เพิ่มอะไรเข้าคิว — เลือกโฟลเดอร์ที่มีเฉพาะคลิปที่จะอัป`,
+      `This folder has more than ${MAX_FOLDER_FILES} files, so nothing was added — pick the folder that holds only the videos to upload`,
+    ));
+  }
+}
+
+// A drop or a pick that failed: the refused folder is said to the user, the rest is logged.
+export const intakeFailed = (what: string, say: (msg: string) => void) => (e: unknown) => {
+  console.error(`[ytup] ${what}`, e);
+  if (e instanceof TooManyFiles) say(e.message);
+};
+
+// filesFromDrop() and the folder input (3503): files dropped on their own are taken as they
+// are; once a folder is part of the drop, or a folder is picked, folders are read at every
+// depth, as the folder input's file list was (filesFromDrop() stopped two levels down), and
+// hidden files (macOS ._ and .DS_Store) are skipped everywhere, as filesFromDrop() did.
 export async function expandHandles(handles: (FileSystemHandle | null)[]): Promise<FileSystemFileHandle[]> {
   const present = handles.filter((h): h is FileSystemHandle => !!h);
   if (!present.some((h) => h.kind === 'directory')) return present as FileSystemFileHandle[];
   const out: FileSystemFileHandle[] = [];
-  const walk = async (h: FileSystemHandle, depth: number) => {
+  const walk = async (h: FileSystemHandle) => {
     if (h.kind === 'file') {
-      if (!h.name.startsWith('.')) out.push(h as FileSystemFileHandle);
-    } else if (depth < 2) {
-      for await (const c of (h as FileSystemDirectoryHandle).values()) await walk(c, depth + 1);
+      if (h.name.startsWith('.')) return;
+      if (out.length >= MAX_FOLDER_FILES) throw new TooManyFiles();
+      out.push(h as FileSystemFileHandle);
+    } else {
+      for await (const c of (h as FileSystemDirectoryHandle).values()) await walk(c);
     }
   };
-  for (const h of present) await walk(h, 0);
+  for (const h of present) await walk(h);
   return out;
 }
 
@@ -87,7 +111,7 @@ export async function pickFiles(win: Window = window, types = PICK_VIDEO): Promi
 export const pickAttachments = (win: Window = window) => pickFiles(win, PICK_ATTACH);
 
 // The drawer's webkitdirectory input took every file at any depth; a picked folder is read
-// here like a dropped one (two levels, no hidden files).
+// here like a dropped one (every depth, no hidden files).
 export async function pickFolder(win: Window = window): Promise<FileSystemFileHandle[]> {
   try {
     return await expandHandles([await win.showDirectoryPicker()]);

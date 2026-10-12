@@ -10,7 +10,7 @@ import { getHandle } from '@/lib/file-store';
 import { L, locale } from '@/lib/i18n';
 import { presetIn } from '@/lib/panel/data';
 import { fmtDur, fmtSize, fmtWhen, isVideo, statusLabel, toLocalInput } from '@/lib/panel/format';
-import { dropHandles, expandHandles, hasFiles, pickAttachments, sendFiles } from '@/lib/panel/intake';
+import { dropHandles, expandHandles, hasFiles, intakeFailed, pickAttachments, sendFiles } from '@/lib/panel/intake';
 import type { QueueEdit } from '@/lib/studio/queue-edit';
 import type { FileRef, ItemStatus } from '@/lib/studio/queue-runner';
 import type { ViewItem } from '@/lib/studio/queue-view';
@@ -126,7 +126,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
     e.preventDefault();
     e.stopPropagation();
     const pending = dropHandles(e.dataTransfer); // inside the event, before any await
-    void pending.then(expandHandles).then(attachFiles);
+    void pending.then(expandHandles).then(attachFiles, intakeFailed('card drop', toast));
   };
   const retry = async () => {
     if (it.draftId && !(await ask({
