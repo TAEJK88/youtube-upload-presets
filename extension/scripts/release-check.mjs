@@ -29,7 +29,7 @@ const EXPECT = {
 };
 // Every top-level field of the manifest; `key` and `icons` join only when this build is meant to have them.
 const FIELDS = ['version', ...Object.keys(EXPECT)];
-const NEEDED = ['manifest.json', 'background.js', 'sidepanel.html', 'debug.html', 'file-bridge.html', 'THIRD-PARTY-NOTICES.txt',
+const NEEDED = ['manifest.json', 'background.js', 'sidepanel.html', 'debug.html', 'allow.html', 'file-bridge.html', 'THIRD-PARTY-NOTICES.txt',
   'content-scripts/studio.js', 'content-scripts/studio-main.js', 'content-scripts/invite.js'];
 // What else a build holds: Vite's hashed scripts, and the stylesheet and font files. Nothing
 // else is expected, so anything else is a problem (a deny-list would always be one name behind).

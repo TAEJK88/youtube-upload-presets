@@ -9,6 +9,7 @@
 @source '../../components';
 @source '.';
 @source '../debug'; /* debug.html shares this stylesheet */
+@source '../allow'; /* so does allow.html */
 
 /* Two themes on <html data-theme> (theme.ts; dark when unset).
    Dark, the default: the userscript drawer's look, the black theme + Design B glass (UI CSS

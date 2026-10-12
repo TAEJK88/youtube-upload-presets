@@ -20,6 +20,12 @@ What is different from the userscript:
   again whenever the panel is shown, and asks inside the Start click. Chrome's source code
   suggests that holding a file is what keeps it readable; this is not yet confirmed in
   Chrome (README item 88).
+- To be asked once instead: when that banner shows, and before pressing Start or "Re-grant
+  access", its "Always allow…" button (also Settings → Troubleshooting) opens a page in a
+  tab where Chrome can show its own question; pick "Allow on every visit" there. After that
+  the queued files are expected to stay readable through restarts and updates with no
+  click; that part is from Chrome's documentation and not yet confirmed in Chrome (README
+  item 89).
 - One Studio tab works at a time: an upload run, or a trim / ads / Collab run.
 - Auto-pilot wakes its Studio tab on time, and a desktop notification says when a cycle is due
   and no Studio tab is open.

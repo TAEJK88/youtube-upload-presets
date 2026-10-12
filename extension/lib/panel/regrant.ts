@@ -27,8 +27,15 @@ export async function needingGrant(ids: string[], files: Handles = handles): Pro
   return (await files.states(ids)).filter((s): s is Lost => s.state === 'prompt' || s.state === 'denied');
 }
 
-// A click asked Chrome and these files are still not readable: asking again won't help.
-export const stillLocked = (n: number) => L(
-  `เบราว์เซอร์ยังไม่อนุญาตให้อ่านไฟล์ ${n} ไฟล์ — ลบคลิปนั้นออกจากคิว แล้วเพิ่มไฟล์เข้ามาใหม่`,
-  `The browser still does not allow reading ${n} file(s) — remove those videos from the queue and add the files again`,
-);
+// A click asked Chrome and these files are still not readable: asking again here won't help.
+// `waiting`: some of them are at 'prompt', which the allow page (a tab, where Chrome shows its
+// question) can still be asked about; a blocked file, or one only a Studio tab cannot read, is not.
+export const stillLocked = (n: number, waiting = false) => waiting
+  ? L(
+    `เบราว์เซอร์ยังไม่อนุญาตให้อ่านไฟล์ ${n} ไฟล์ — กด "อนุญาตตลอดไป…" ที่แถบแจ้งเตือน แล้วเลือก "Allow on every visit" ในหน้าที่เปิดขึ้น ถ้ายังไม่ได้ ให้ลบคลิปนั้นออกจากคิว แล้วเพิ่มไฟล์เข้ามาใหม่`,
+    `The browser still does not allow reading ${n} file(s) — click "Always allow…" on the banner and pick "Allow on every visit" on the page that opens; if that does not help, remove those videos from the queue and add the files again`,
+  )
+  : L(
+    `เบราว์เซอร์ยังไม่อนุญาตให้อ่านไฟล์ ${n} ไฟล์ — ลบคลิปนั้นออกจากคิว แล้วเพิ่มไฟล์เข้ามาใหม่`,
+    `The browser still does not allow reading ${n} file(s) — remove those videos from the queue and add the files again`,
+  );

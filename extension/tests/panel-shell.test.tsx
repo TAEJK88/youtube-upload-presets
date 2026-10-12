@@ -247,15 +247,36 @@ describe('banners', () => {
   });
 
   // What decides the list and what the click does: tests/panel-file-access.test.tsx.
-  it('re-grant: one banner for every queued file without read access, one button for all of them', () => {
+  it('re-grant: one banner for every queued file without read access, one button for all of them', async () => {
     const api = fakePanel({ view: viewWith([{}, {}]), noAccess: [{ id: 'i0', state: 'prompt' }, { id: 'i1', state: 'denied' }] });
     renderPanel(<Banners />, api);
     expect(screen.getByText('Files in the queue need read access again — the browser has withdrawn it')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Re-grant access (2 files)' }));
     expect(api.regrant).toHaveBeenCalledTimes(1);
+    // The once-and-for-all way, next to it: a short name, and both on a row of their own under
+    // the text (two buttons do not fit beside it in a 320px panel; happy-dom has no layout, so
+    // this pins the classes).
+    const create = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    const always = screen.getByRole('button', { name: 'Always allow…' });
+    await act(async () => fireEvent.click(always));
+    expect(create).toHaveBeenCalledWith({ url: browser.runtime.getURL('/allow.html') });
+    expect(api.regrant).toHaveBeenCalledTimes(1);
+    const row = always.parentElement!;
+    expect(row).toBe(screen.getByRole('button', { name: 'Re-grant access (2 files)' }).parentElement);
+    expect(row.className).toContain('basis-full');
+    expect(row.className).toContain('flex-wrap');
+    expect(row.parentElement!.getAttribute('role')).toBe('status');
+    expect(row.parentElement!.className).toContain('flex-wrap');
+    create.mockRestore();
+    setLang('th');
+    cleanup();
+    renderPanel(<Banners />, api);
+    expect(screen.getByRole('button', { name: 'อนุญาตตลอดไป…' })).toBeTruthy();
+    setLang('en');
     cleanup();
     renderPanel(<Banners />, fakePanel({ view: viewWith([{}, {}]) }));
     expect(screen.queryByRole('button', { name: /Re-grant access/ })).toBe(null);
+    expect(screen.queryByRole('button', { name: /Always allow/ })).toBe(null);
   });
 
   it('banners are announced to screen readers', () => {
