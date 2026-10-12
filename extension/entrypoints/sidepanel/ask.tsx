@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { L } from '@/lib/i18n';
@@ -11,7 +11,9 @@ import { Icon } from './Icon';
 // test `=== true` / `=== false` / `== null` deliberately and never treat null as false.
 // The main button is selected when the question opens and Enter answers yes. focus: 'cancel'
 // (P5-ask-cancel) is for a yes that cannot be undone: Cancel is selected, Enter answers as
-// Cancel does, and yes needs a click or a Tab to it.
+// Cancel does, and yes needs a click or a Tab to it. A pointer click on another answer in the
+// first HASTY_MS is ignored: on a short panel the yes button appears where the button that
+// asked was, and the second click of a double-click would answer yes.
 export interface AskOptions {
   title: string;
   body?: ReactNode;
@@ -31,11 +33,14 @@ export function useAsk(): Ask {
 }
 
 // Cancel selected by the box, not by a key press: :focus-visible would not draw its ring after a click.
+const HASTY_MS = 500;
 const SELECTED = 'focus:outline-2 focus:outline-offset-2 focus:outline-fg2';
 
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState<AskOptions | null>(null);
   const resolver = useRef<((v: boolean | null) => void) | null>(null);
+  const [asked, setAsked] = useState(0); // counts the questions: each one starts with its own selected button
+  const openedAt = useRef(0);
   const finish = useCallback((v: boolean | null) => {
     const r = resolver.current;
     resolver.current = null;
@@ -45,10 +50,17 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const ask = useCallback<Ask>((o) => new Promise((resolve) => {
     resolver.current?.(null); // a new question closes the one still open (askClose?.(null))
     resolver.current = resolve;
+    openedAt.current = performance.now();
+    setAsked((n) => n + 1);
     setOpen(o);
   }), []);
   const dismissed = open?.no ? null : false;
   const onCancel = open?.focus === 'cancel';
+  // A keyboard click has detail 0: Tab + Enter is never hasty.
+  const answer = (v: boolean) => (e: MouseEvent) => {
+    if (onCancel && e.detail > 0 && performance.now() - openedAt.current < HASTY_MS) return;
+    finish(v);
+  };
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && !/^(TEXTAREA|BUTTON)$/.test((e.target as HTMLElement).tagName)) {
       e.preventDefault();
@@ -70,17 +82,17 @@ export function AskProvider({ children }: { children: ReactNode }) {
               {open.title}
             </DialogTitle>
             {open.body ? <DialogDescription asChild><div className="mt-3 text-[13px] whitespace-pre-line text-fg2">{open.body}</div></DialogDescription> : null}
-            {/* keyed: autoFocus only acts on mount, and a question can replace one that opened on the other button */}
-            <div key={open.focus ?? 'ok'} className="mt-5 flex justify-end gap-2">
+            {/* keyed: autoFocus only acts on mount, and a question can replace one still open */}
+            <div key={asked} className="mt-5 flex justify-end gap-2">
               {open.no ? (
                 <>
                   <Button autoFocus={onCancel} variant="ghost" className={onCancel ? SELECTED : undefined} onClick={() => finish(null)}>{cancel}</Button>
-                  <Button onClick={() => finish(false)}>{open.no}</Button>
+                  <Button onClick={answer(false)}>{open.no}</Button>
                 </>
               ) : (
                 <Button autoFocus={onCancel} className={onCancel ? SELECTED : undefined} onClick={() => finish(false)}>{cancel}</Button>
               )}
-              <Button autoFocus={!onCancel} variant={open.danger ? 'danger' : 'go'} onClick={() => finish(true)}>{ok}</Button>
+              <Button autoFocus={!onCancel} variant={open.danger ? 'danger' : 'go'} onClick={answer(true)}>{ok}</Button>
             </div>
           </DialogContent>
         )}

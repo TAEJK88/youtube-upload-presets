@@ -66,6 +66,35 @@ describe('Copyright tab, runs', () => {
     expect(screen.getByRole('button', { name: '✂ Trim selected (1)' })).toBeTruthy(); // the list stays open
   });
 
+  // On a short panel "Start trim" appears where "Trim selected" was: a double-click must not answer yes.
+  it('a double-click on Trim selected does not start the trim: the question stays open', async () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const api = await openTrim();
+    fireEvent.click(await screen.findByRole('button', { name: '✂ Trim selected (1)' }), { detail: 1 });
+    now += 150;
+    fireEvent.click(await screen.findByRole('button', { name: 'Start trim' }), { detail: 2 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText('Trim 1 claims in 1 videos?')).toBeTruthy();
+    expect(api.send).not.toHaveBeenCalledWith('claims:trim', expect.anything());
+    now += 500;
+    fireEvent.click(screen.getByRole('button', { name: 'Start trim' }), { detail: 1 });
+    await vi.waitFor(() => expect(api.send).toHaveBeenCalledWith('claims:trim', ['v1:c1']));
+  });
+
+  it('a double-click on the Auto-pilot switch that lands on "Turn on" does not turn it on', async () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined as never);
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    fireEvent.click(await screen.findByRole('switch', { name: /Auto-pilot/ }), { detail: 1 });
+    now += 150;
+    fireEvent.click(await screen.findByRole('button', { name: 'Turn on' }), { detail: 2 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText('Turn on Auto-pilot for channel Mine?')).toBeTruthy();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('the question warns about your own music, a busy upload queue and Studio not in English, and says review mode', async () => {
     await openTrim({ 'claimScan:UC1': { ...scan, rows: [{ ...row, own: true }] }, cfg: { autoSaveTrim: false } }, { uploadBusy: true, english: false });
     fireEvent.click(await screen.findByRole('button', { name: '✂ Trim selected (1)' }));
