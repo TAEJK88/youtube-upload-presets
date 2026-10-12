@@ -30,7 +30,7 @@ export async function readHandle(h: FileSystemFileHandle | undefined): Promise<F
   if (!h) throw new Error('missing');
   const perm = await h.queryPermission({ mode: 'read' });
   // 'denied' (a blocked prompt) is told apart: it fails its own item, it doesn't hold the
-  // queue back (the panel's Start gate and startQueue wait on 'prompt' only).
+  // queue back (the panel's Start click and startQueue stop on 'prompt' only).
   if (perm === 'denied') throw new Error('denied');
   if (perm !== 'granted') throw new Error('permission');
   try {
@@ -44,14 +44,26 @@ export async function readHandle(h: FileSystemFileHandle | undefined): Promise<F
 // (lib/file-handles.ts) until the queue lets go of the file, so the read access outlives a
 // closed side panel for as long as this frame's Studio tab is not reloaded. A file another
 // Studio tab removed is let go when this one is next asked to hold or release.
+// Any script on Studio's origin can call these: only a list of ids is taken, and not an
+// endless one. A drop or a pick gives at most MAX_FOLDER_FILES (2000) files from folders, and
+// a run reads a video and at most one thumbnail per item, so 10 000 ids is far above any
+// real call.
+export const MAX_IDS = 10_000;
+function checkIds(itemIds: unknown): asserts itemIds is string[] {
+  const ok = Array.isArray(itemIds) && itemIds.length <= MAX_IDS && itemIds.every((id) => typeof id === 'string' && id.length > 0 && id.length <= 64);
+  if (!ok) throw new Error('bad ids');
+}
+
 export function fileOps(files: Handles): FileOps {
   return {
     getFile: async (itemId) => readHandle(await files.get(itemId)),
     async hold(itemIds) {
+      checkIds(itemIds);
       await files.prune([]);
       return (await files.states(itemIds)).map((s) => s.state);
     },
     async release(itemIds) {
+      checkIds(itemIds);
       files.release(itemIds);
       await files.prune([]);
     },

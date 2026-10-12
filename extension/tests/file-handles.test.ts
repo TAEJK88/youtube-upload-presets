@@ -116,6 +116,29 @@ describe('held handles', () => {
     ]);
   });
 
+  it('reads everything it does not hold yet in one go, and nothing it already holds', async () => {
+    const h = (state: PermissionState) => ({ queryPermission: async () => state, requestPermission: async () => 'granted' }) as unknown as FileSystemFileHandle;
+    const one = vi.fn(async () => undefined);
+    const all = vi.fn(async (ids: string[]) => ids.map((id) => (id === 'gone' ? undefined : h('prompt'))));
+    const files = createHandles(one, async () => [], all);
+    files.keep('a', h('granted'));
+    expect((await files.states(['a', 'b', 'gone', 'c'])).map((s) => s.state)).toEqual(['granted', 'prompt', 'missing', 'prompt']);
+    expect(all.mock.calls).toEqual([[['b', 'gone', 'c']]]);
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    await files.request(['b', 'c', 'd']);
+    expect(all.mock.calls[1]).toEqual([['d']]);
+    expect([...files.held().keys()]).toEqual(['a', 'b', 'c', 'd']);
+    await files.states(['a', 'b', 'c', 'd']);
+    expect(all).toHaveBeenCalledTimes(2);
+  });
+
+  it('a bulk read that fails falls back to one read per file, which names the failure', async () => {
+    const files = createHandles(async (id) => { if (id === 'b') throw new DOMException('idb', 'UnknownError'); return { queryPermission: async () => 'granted' } as unknown as FileSystemFileHandle; }, async () => [], async () => { throw new Error('idb'); });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await files.states(['a', 'b'])).map((s) => s.state)).toEqual(['granted', 'error']);
+    expect(warn.mock.calls.map((c) => c.join(' '))).toEqual(['[ytup] file access: b UnknownError']);
+  });
+
   it('lets go of a file once it is neither queued nor stored; one still stored is on its way in', async () => {
     const chrome = fakeChrome();
     const { page, files, gc } = pageWith(chrome);

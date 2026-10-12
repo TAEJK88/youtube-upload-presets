@@ -9,13 +9,11 @@ export interface FileAccess {
   // Queued files without read access ('prompt', or 'denied': a blocked prompt). The banner
   // offers a re-grant for all of them.
   noAccess: Lost[];
-  // The 'prompt' ones: Start waits for the Re-grant when the run would read one of them
-  // (QueueFooter, runReads); a denied file fails its own item when it uploads.
-  lost: string[];
   grantRev: number; // moves after each re-grant: cards read their previews again
   regrant(): void; // the banner's click
-  // Start's click: looks again, asks Chrome for what is at 'prompt', and says whether the
-  // run can read `reads`.
+  // Start's click: looks again, asks the browser for what is at 'prompt', and says whether
+  // the run can go: not while one of `reads` stays at 'prompt' (a denied file fails its own
+  // item when it uploads).
   accessForStart(reads: string[]): Promise<boolean>;
 }
 
@@ -66,7 +64,6 @@ export function useFileAccess(view: QueueView | null, ours: (tabId: number | und
     const seen = new Set(found.map((x) => x.id));
     return [...found.filter((x) => now.includes(x.id)), ...told.filter((id) => now.includes(id) && !seen.has(id)).map((id): Lost => ({ id, state: 'prompt' }))];
   }, [ids, found, told]);
-  const lost = useMemo(() => noAccess.filter((x) => x.state === 'prompt').map((x) => x.id), [noAccess]);
   const shown = useRef({ noAccess, told });
   useEffect(() => { shown.current = { noAccess, told }; }, [noAccess, told]);
 
@@ -97,5 +94,5 @@ export function useFileAccess(view: QueueView | null, ours: (tabId: number | und
     return !stuck;
   }, [look]);
 
-  return useMemo(() => ({ noAccess, lost, grantRev, regrant, accessForStart }), [noAccess, lost, grantRev, regrant, accessForStart]);
+  return useMemo(() => ({ noAccess, grantRev, regrant, accessForStart }), [noAccess, grantRev, regrant, accessForStart]);
 }

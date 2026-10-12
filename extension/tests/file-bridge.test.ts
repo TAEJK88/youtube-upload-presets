@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONNECT, fileOps, isBridgeConnect, readHandle } from '../lib/file-bridge';
+import { CONNECT, fileOps, isBridgeConnect, MAX_IDS, readHandle } from '../lib/file-bridge';
 import { createHandles } from '../lib/file-handles';
 import { fakeChrome } from './fake-files';
 
@@ -66,6 +66,27 @@ describe('what the bridge frame answers', () => {
     expect(await ops.hold(['a', 'b'])).toEqual(['prompt', 'prompt']);
     await expect(ops.getFile('a')).rejects.toThrow('permission');
     expect(chrome.requests).toEqual([]);
+  });
+
+  it('hold and release take a list of ids only, and not an endless one (any script on Studio can call them)', async () => {
+    const { files, ops } = await setup(['a']);
+    await ops.hold(['a']);
+    const many = Array.from({ length: MAX_IDS + 1 }, (_, i) => `id-${i}`);
+    for (const bad of [null, 5, 'abc', { length: 1 }, [1], ['a', null], [''], ['x'.repeat(65)], many]) {
+      await expect(ops.hold(bad as never)).rejects.toThrow('bad ids');
+      await expect(ops.release(bad as never)).rejects.toThrow('bad ids');
+    }
+    expect([...files.held().keys()]).toEqual(['a']); // nothing was let go by a refused call
+    expect(MAX_IDS).toBeGreaterThanOrEqual(2 * 2000); // a full folder drop with a thumbnail each
+    expect(await ops.hold(Array.from({ length: MAX_IDS }, (_, i) => `id-${i}`))).toHaveLength(MAX_IDS);
+  });
+
+  it('the next Start also lets go of a file another tab removed meanwhile', async () => {
+    const { chrome, files, ops } = await setup(['a', 'b']);
+    await ops.hold(['a', 'b']);
+    chrome.remove('b');
+    await ops.hold(['a']);
+    expect([...files.held().keys()]).toEqual(['a']);
   });
 
   it('lets go of a file the queue is done with, and of one another tab removed', async () => {

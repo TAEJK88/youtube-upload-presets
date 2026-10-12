@@ -14,9 +14,12 @@ What is different from the userscript:
 
 - The panel is Chrome's side panel (toolbar button or Alt+P). It is docked, not see-through.
 - Files are dropped on the side panel. The queue survives reloads and channel switches. After
-  a browser restart, or after the extension is reloaded or updated, one "Re-grant access"
-  click makes the queued files readable again; the extension keeps hold of them in between,
-  so Chrome does not take the access back while the panel or the Studio tab is open.
+  a browser restart, or after the extension is reloaded or updated, the queued files must be
+  asked for again: pressing Start does it (so does "Re-grant access"), with no Chrome prompt
+  expected. In between, the extension keeps hold of the queued files, looks at their access
+  again whenever the panel is shown, and asks inside the Start click. Chrome's source code
+  suggests that holding a file is what keeps it readable; this is not yet confirmed in
+  Chrome (README item 88).
 - One Studio tab works at a time: an upload run, or a trim / ads / Collab run.
 - Auto-pilot wakes its Studio tab on time, and a desktop notification says when a cycle is due
   and no Studio tab is open.

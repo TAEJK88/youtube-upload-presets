@@ -1,4 +1,4 @@
-import { getHandle, listIds } from './file-store';
+import { getHandle, getHandles, listIds } from './file-store';
 
 // Chrome keeps a file's read access only while some page of the extension holds a live handle
 // object for that file. A handle read from IndexedDB, used once and dropped lets the access
@@ -10,10 +10,25 @@ export type Access = PermissionState | 'missing' | 'error';
 export interface Asked { id: string; before: Access; after: Access; error?: string }
 
 type Load = (id: string) => Promise<FileSystemFileHandle | undefined>;
+type LoadAll = (ids: string[]) => Promise<(FileSystemFileHandle | undefined)[]>;
 const errName = (e: unknown) => (e as Error)?.name || String(e);
 
-export function createHandles(load: Load = (id) => getHandle(id), stored: () => Promise<string[]> = () => listIds()) {
+// `loadAll` reads many stored handles in one go (one transaction in the real store); without
+// one, `load` is used for each.
+export function createHandles(
+  load: Load = (id) => getHandle(id), stored: () => Promise<string[]> = () => listIds(),
+  loadAll: LoadAll = async (ids) => { const out = []; for (const id of ids) out.push(await load(id)); return out; },
+) {
   const held = new Map<string, FileSystemFileHandle>();
+
+  // Reads what is not held yet, together. A failure is left to the per-file read, which
+  // names it.
+  async function fill(ids: string[]): Promise<void> {
+    const want = ids.filter((id) => !held.has(id));
+    if (!want.length) return;
+    const got = await loadAll(want).catch(() => []);
+    got.forEach((h, i) => { if (h && !held.has(want[i]!)) held.set(want[i]!, h); });
+  }
 
   // The held object, or the stored one, held from now on.
   async function get(id: string): Promise<FileSystemFileHandle | undefined> {
@@ -35,9 +50,9 @@ export function createHandles(load: Load = (id) => getHandle(id), stored: () => 
     }
   }
 
-  // The store is read for one id after another; the questions to Chrome go out together.
+  // The store is read once for all of them; the questions to Chrome go out together.
   async function states(ids: string[]): Promise<{ id: string; state: Access }[]> {
-    for (const id of ids) await get(id).catch(() => undefined);
+    await fill(ids);
     return Promise.all(ids.map(async (id) => ({ id, state: await state(id) })));
   }
 
@@ -51,7 +66,7 @@ export function createHandles(load: Load = (id) => getHandle(id), stored: () => 
     // file on its own, so one refusal doesn't stop the rest; what each was and became is
     // logged, since a side panel shows no prompt and nothing else tells what the click did.
     async request(ids: string[]): Promise<Asked[]> {
-      for (const id of ids) await get(id).catch(() => undefined);
+      await fill(ids);
       return Promise.all(ids.map(async (id): Promise<Asked> => {
         const before = await state(id);
         if (before === 'granted') return { id, before, after: before };
@@ -88,4 +103,4 @@ export function createHandles(load: Load = (id) => getHandle(id), stored: () => 
 export type Handles = ReturnType<typeof createHandles>;
 
 // This page's.
-export const handles = createHandles();
+export const handles = createHandles(undefined, undefined, (ids) => getHandles(ids));

@@ -67,7 +67,7 @@ export function StartSummaryBody({ s }: { s: StartSummary }) {
 
 // The Upload tab's footer (3731–3744, glass 3154–3160) and its labels (updateRunUI 4044–4077).
 export function QueueFooter() {
-  const { data, view, runner, elsewhere, busyElsewhere, link, target, send, sendTo, lost, accessForStart } = usePanel();
+  const { data, view, runner, elsewhere, busyElsewhere, link, target, send, sendTo, accessForStart } = usePanel();
   const { state, liveState } = useLive();
   const ask = useAsk();
   // A preflight can take a second or more (fresh config, the channel's schedule): one at a time.
@@ -81,8 +81,6 @@ export function QueueFooter() {
   const total = items.length;
   const running = !!state?.running;
   const blocked = !!view?.channel.problem;
-  // Files this run will read that need the Re-grant first (they would fail one by one).
-  const mustGrant = runReads(items, !!data?.settings.thumb).some((id) => lost.includes(id));
   const sched = view?.schedule.set ? L(' · ตั้งเวลา', ' · scheduled') : '';
   const ch = view?.channel.label ?? L('ไม่ทราบช่อง', 'Unknown channel'); // chanLabel()'s fallback
   const title = running
@@ -96,9 +94,10 @@ export function QueueFooter() {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    // Read access first, inside this click: Chrome may have withdrawn it since the panel last
-    // looked, and a side panel can ask for it again without a prompt. What stays locked is
-    // said there, with the Re-grant banner; nothing is sent to the tab then.
+    // Read access first, inside this click: the browser may have withdrawn it (the Re-grant
+    // banner may be showing), and a side panel can ask for it again without a prompt, so
+    // Start is not held back for it. What stays locked is said there, with the banner;
+    // nothing is sent to the tab then.
     void accessForStart(runReads(items, !!data?.settings.thumb)).then((ok) => (ok ? startFlow({
     preflight: () => send('queue:preflight', undefined),
     // null (dismissed, or replaced by another question) is a no, like false.
@@ -129,7 +128,7 @@ export function QueueFooter() {
   return (
     <div className="flex gap-2 border-t border-tint/[0.08] px-[18px] py-3.5">
       <Button variant="go" size="lg" className="group min-w-0 flex-1 justify-start gap-3 text-left"
-        disabled={running || !pending || blocked || busyElsewhere || link !== 'ok' || busy || mustGrant} onClick={start}>
+        disabled={running || !pending || blocked || busyElsewhere || link !== 'ok' || busy} onClick={start}>
         {/* .btn.go .gi: the play icon, spinning while the run goes (.btn.go.running .gi) */}
         <span data-go-icon className={cn('grid size-[30px] shrink-0 place-items-center rounded-full bg-on-fg/10 group-disabled:bg-tint/10', running && 'animate-[spin_1.2s_linear_infinite]')}>
           <Icon name="play" size={14} />

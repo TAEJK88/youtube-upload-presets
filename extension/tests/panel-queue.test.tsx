@@ -640,32 +640,42 @@ describe('upload footer', () => {
     expect((screen.getByRole('button', { name: 'Stop after the current video' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('Start waits while queued files need read access again (the Re-grant banner shows)', () => {
+  it('Start is not held back by files that need read access again: its click asks for them first', async () => {
     const view = viewWith([{ status: 'pending' }]);
-    renderPanel(<QueueFooter />, fakePanel({ view, lost: ['i0'] }));
-    expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
-    cleanup();
-    renderPanel(<QueueFooter />, fakePanel({ view, lost: [] }));
-    expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(false);
+    const api = fakePanel({ view, noAccess: [{ id: 'i0', state: 'prompt' }] });
+    renderPanel(<QueueFooter />, api);
+    const start = screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement;
+    expect(start.disabled).toBe(false);
+    fireEvent.click(start);
+    expect(api.accessForStart).toHaveBeenCalledWith(['i0']); // inside the click, before anything else
+    expect(api.send).not.toHaveBeenCalled();
+    await act(async () => {});
+    expect(api.send).toHaveBeenCalledWith('queue:preflight', undefined);
   });
 
-  it('Start waits only on files the run will read: not an error item\'s, nor a thumbnail with thumbnails off', () => {
+  it('Start sends nothing to the tab when the access did not come back, and can be pressed again', async () => {
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]), accessForStart: vi.fn(async () => false) });
+    renderPanel(<QueueFooter />, api);
+    const start = screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement;
+    fireEvent.click(start);
+    await act(async () => {});
+    expect(api.send).not.toHaveBeenCalled();
+    expect(start.disabled).toBe(false);
+  });
+
+  it('Start asks only for files the run will read: not an error item\'s, nor a thumbnail with thumbnails off', async () => {
     const thumb = { id: 't0', src: 'bridge' as const, name: 'Clip 1.jpg', size: 1, type: 'image/jpeg' };
     const view = viewWith([{ status: 'pending', thumb }, { status: 'error' }]);
-    const startOn = (api: Parameters<typeof renderPanel>[1]) => {
+    const asked = async (thumbs: boolean) => {
+      const api = fakePanel({ view, data: toPanelData({ settings: { thumb: thumbs } }) });
       renderPanel(<QueueFooter />, api);
-      const off = (screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled;
+      fireEvent.click(screen.getByRole('button', { name: /Upload 1 video\(s\)/ }));
+      await act(async () => {});
       cleanup();
-      return !off;
+      return vi.mocked(api.accessForStart).mock.calls[0]![0];
     };
-    // The error card waits for Retry: its file is not read by this run.
-    expect(startOn(fakePanel({ view, lost: ['i1'] }))).toBe(true);
-    // A pending video's file is.
-    expect(startOn(fakePanel({ view, lost: ['i0'] }))).toBe(false);
-    // Its thumbnail only when thumbnails are on.
-    const thumbs = (on: boolean) => toPanelData({ settings: { thumb: on } });
-    expect(startOn(fakePanel({ view, lost: ['t0'], data: thumbs(false) }))).toBe(true);
-    expect(startOn(fakePanel({ view, lost: ['t0'], data: thumbs(true) }))).toBe(false);
+    expect(await asked(false)).toEqual(['i0']);
+    expect(await asked(true)).toEqual(['i0', 't0']);
   });
 
   it('a channel that is not the locked one blocks Start', () => {

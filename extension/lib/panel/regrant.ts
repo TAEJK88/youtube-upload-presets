@@ -11,7 +11,7 @@ export const queuedFileIds = (items: QueueItem[]): string[] =>
     .flatMap((it) => [...(it.src === 'bridge' ? [it.id] : []), ...(it.thumb?.src === 'bridge' ? [it.thumb.id] : [])]);
 
 // What a run reads (runQueue uploads pending items only; a thumbnail only with Settings →
-// thumbnails on): Start waits on these alone, so an error card's file never blocks it.
+// thumbnails on): Start asks for these alone, so an error card's file never stops it.
 export const runReads = (items: QueueItem[], thumbs: boolean): string[] =>
   items
     .filter((it) => it.status === 'pending')

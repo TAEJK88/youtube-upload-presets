@@ -35,6 +35,23 @@ export const putHandle = (id: string, handle: FileSystemFileHandle) =>
 export const getHandle = (id: string) =>
   run<FileSystemFileHandle | undefined>('readonly', (s) => s.get(id));
 
+// Many at once, in one transaction (Start asks for every file of a run).
+export async function getHandles(ids: string[]): Promise<(FileSystemFileHandle | undefined)[]> {
+  if (!ids.length) return [];
+  const db = await open();
+  return new Promise((resolve, reject) => {
+    try {
+      const t = db.transaction(STORE, 'readonly');
+      const reqs = ids.map((id) => t.objectStore(STORE).get(id) as IDBRequest<FileSystemFileHandle | undefined>);
+      t.oncomplete = () => { db.close(); resolve(reqs.map((r) => r.result)); };
+      t.onerror = t.onabort = () => { db.close(); reject(t.error); };
+    } catch (e) {
+      db.close();
+      reject(e);
+    }
+  });
+}
+
 export const deleteHandle = (id: string) =>
   run('readwrite', (s) => s.delete(id)).then(() => undefined);
 

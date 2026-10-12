@@ -48,7 +48,6 @@ export function fakePanel(over: Partial<PanelApi> = {}): PanelApi {
     },
     refresh: vi.fn(),
     noAccess: [],
-    lost: [],
     grantRev: 0,
     regrant: vi.fn(),
     accessForStart: vi.fn(async () => true),

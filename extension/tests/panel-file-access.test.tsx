@@ -39,6 +39,7 @@ function world(opts?: Parameters<typeof fakeChrome>[0]) {
     open() {
       w.page = chrome.page();
       vi.spyOn(fileStore, 'getHandle').mockImplementation((id) => w.page.load(id));
+      vi.spyOn(fileStore, 'getHandles').mockImplementation((ids) => Promise.all(ids.map((id) => w.page.load(id))));
       vi.spyOn(fileStore, 'listIds').mockImplementation(() => w.page.list());
     },
     // A drop on the panel: stored, and held from then on (lib/panel/intake.ts storeHandles).
@@ -77,13 +78,14 @@ function Panel({ view, onPreflight }: { view: QueueView; onPreflight?: () => voi
   }) as unknown as PanelApi['send'];
   return (
     <PanelContext.Provider value={{ ...fakePanel({ view, send }), ...access }}>
-      <AskProvider><Banners /><QueueFooter /></AskProvider>
+      <AskProvider><Banners /><QueueFooter /><span data-testid="rev">{access.grantRev}</span></AskProvider>
     </PanelContext.Provider>
   );
 }
 const two = () => viewWith([{}, {}]);
 const startButton = () => screen.getByRole('button', { name: /Upload \d video\(s\)/ }) as HTMLButtonElement;
 const banner = () => screen.queryByText(BANNER);
+const rev = () => Number(screen.getByTestId('rev').textContent);
 
 beforeEach(() => {
   sent.length = 0;
@@ -112,7 +114,7 @@ describe('read access to queued files in the side panel', () => {
     expect(w.chrome.requests).toEqual([]); // nothing to ask for
   });
 
-  it('after an extension reload: the banner, Start waits, one Re-grant click with no prompt, and the access stays', async () => {
+  it('after an extension reload: the banner, one Re-grant click with no prompt, and the access stays', async () => {
     const w = world();
     await w.add(['i0', 'i1']);
     w.close();
@@ -120,16 +122,36 @@ describe('read access to queued files in the side panel', () => {
     render(<Panel view={two()} />);
     await flush();
     expect(banner()).toBeTruthy();
-    expect(startButton().disabled).toBe(true);
+    expect(rev()).toBe(0);
     await w.click('Re-grant access (2 files)');
+    expect(rev()).toBe(1); // the cards read their previews again
     expect(vi.mocked(console.info).mock.calls.map((c) => c.join(' '))).toEqual(['[ytup] regrant i0: prompt -> granted', '[ytup] regrant i1: prompt -> granted']);
     expect(banner()).toBe(null);
     expect(toast).not.toHaveBeenCalled();
     w.gc(); // the handles the click asked on are the held ones
     expect([w.chrome.state('/v/i0.mp4'), w.chrome.state('/v/i1.mp4')]).toEqual(['granted', 'granted']);
-    expect(startButton().disabled).toBe(false);
     await w.click(/Upload 2 video/);
     expect(sent).toEqual(['queue:preflight', 'queue:start']);
+  });
+
+  it('after an extension reload, Start alone is enough: no Re-grant click, its own click asks and the run starts', async () => {
+    const w = world();
+    await w.add(['i0', 'i1']);
+    w.close();
+    w.open();
+    const atPreflight: string[] = [];
+    render(<Panel view={two()} onPreflight={() => atPreflight.push(w.chrome.state('/v/i0.mp4'), w.chrome.state('/v/i1.mp4'))} />);
+    await flush();
+    expect(banner()).toBeTruthy();
+    expect(startButton().disabled).toBe(false); // the banner does not hold Start back
+    await w.click(/Upload 2 video/);
+    expect(atPreflight).toEqual(['granted', 'granted']);
+    expect(sent).toEqual(['queue:preflight', 'queue:start']);
+    expect(banner()).toBe(null);
+    expect(rev()).toBe(1); // previews come back after Start's grant too
+    expect(toast).not.toHaveBeenCalled();
+    w.gc();
+    expect([w.chrome.state('/v/i0.mp4'), w.chrome.state('/v/i1.mp4')]).toEqual(['granted', 'granted']);
   });
 
   it('a Re-grant click that changes nothing says so, and what to do instead (an older Chrome)', async () => {
@@ -143,7 +165,13 @@ describe('read access to queued files in the side panel', () => {
     expect(vi.mocked(console.info).mock.calls.map((c) => c.join(' '))).toEqual(['[ytup] regrant i0: prompt -> prompt', '[ytup] regrant i1: prompt -> prompt']);
     expect(toast).toHaveBeenCalledWith(stuck(2));
     expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
-    expect(startButton().disabled).toBe(true);
+    // Start is not held back; its click asks too, gets nothing, and sends nothing to the tab.
+    vi.mocked(toast).mockClear();
+    expect(startButton().disabled).toBe(false);
+    await w.click(/Upload 2 video/);
+    expect(sent).toEqual([]);
+    expect(vi.mocked(toast).mock.calls).toEqual([[stuck(2)]]);
+    expect(rev()).toBe(1); // the Re-grant click's; Start changed nothing
   });
 
   it('looks again when the panel becomes visible: access withdrawn meanwhile shows without the queue changing', async () => {
@@ -158,7 +186,6 @@ describe('read access to queued files in the side panel', () => {
     document.dispatchEvent(new Event('visibilitychange'));
     await flush();
     expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
-    expect(startButton().disabled).toBe(true);
   });
 
   it('…and when its window gets the focus', async () => {
@@ -198,7 +225,7 @@ describe('read access to queued files in the side panel', () => {
     expect(sent).toEqual([]);
     expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
     expect(vi.mocked(toast).mock.calls).toEqual([[stuck(2)]]);
-    expect(startButton().disabled).toBe(true);
+    expect(startButton().disabled).toBe(false); // free to be pressed again
   });
 
   it('a blocked file shows in the banner but does not hold Start back: it fails its own item', async () => {
@@ -244,7 +271,6 @@ describe('read access to queued files in the side panel', () => {
     act(() => bus.lost(['i1', 'not-queued'], 1));
     expect(TOAST).toContain('"Re-grant access"');
     expect(screen.getByRole('button', { name: 'Re-grant access (1 files)' })).toBeTruthy();
-    expect(startButton().disabled).toBe(true);
     await flush();
     expect(screen.getByRole('button', { name: 'Re-grant access (1 files)' })).toBeTruthy(); // the panel's own look does not take it away
     // A tab this panel does not follow is not listened to.
@@ -269,6 +295,29 @@ describe('read access to queued files in the side panel', () => {
     expect(banner()).toBe(null);
     expect(toast).not.toHaveBeenCalled();
     expect(startButton().disabled).toBe(false);
+  });
+
+  it('a tab\'s report makes the panel look at every queued file again, not only the reported one', async () => {
+    const w = world();
+    await w.add(['i0', 'i1']);
+    render(<Panel view={two()} />);
+    await flush();
+    w.chrome.revokeAll();
+    act(() => bus.lost(['i0'], 1));
+    await flush();
+    expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
+  });
+
+  it('keeps holding a file that is stored but not in the queue view: just added, or being uploaded', async () => {
+    const w = world();
+    await w.add(['i0', 'i1', 'new']); // 'new' was dropped a moment ago: the view does not show it yet
+    const { rerender } = render(<Panel view={two()} />);
+    await flush();
+    rerender(<Panel view={viewWith([{}, { status: 'uploading' }])} />); // i1 is in flight: not "queued" for the panel
+    await flush();
+    expect([...handles.held().keys()]).toEqual(['i0', 'i1', 'new']);
+    w.gc();
+    expect([w.chrome.state('/v/i1.mp4'), w.chrome.state('/v/new.mp4')]).toEqual(['granted', 'granted']);
   });
 
   it('lets go of the handles of files that left the queue', async () => {
