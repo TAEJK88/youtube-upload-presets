@@ -16,7 +16,8 @@ import { ThemeToggle } from '../sidepanel/ThemeToggle';
 // Raw values (keys, JSON, stacks, ids, user agent) are data and are shown as such.
 export interface DebugDeps { ping?: () => Promise<unknown>; pingTab?: (tabId: number) => Promise<unknown>; files?: FileStore }
 
-const CTXS: LogCtx[] = ['background', 'panel', 'studio', 'studio-main', 'invite', 'bridge', 'debug', 'allow'];
+// Every context: a new one that is not listed here does not compile.
+const CTXS = Object.keys({ background: 1, panel: 1, studio: 1, 'studio-main': 1, invite: 1, bridge: 1, debug: 1, allow: 1 } satisfies Record<LogCtx, 1>) as LogCtx[];
 const LEVELS: LogLevel[] = ['error', 'warn', 'info'];
 
 const failed = (e: string) => L(`โหลดส่วนนี้ไม่สำเร็จ: ${e}`, `This section failed: ${e}`);

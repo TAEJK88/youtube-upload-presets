@@ -6,7 +6,7 @@ import { focusTab } from '@/lib/panel/target';
 import { USERSCRIPT_HERE } from '@/lib/studio/userscript-here';
 import { updateAvailable, UPDATE_KEY, type UpdateInfo } from '@/lib/update-check';
 import { cn } from '@/lib/utils';
-import { allowAlwaysLabel } from '../file-access';
+import { allowAlwaysLabel, openAllowPage } from '../file-access';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
 
@@ -23,7 +23,7 @@ function Banner({ icon, text, below, children }: { icon: string; text: string; b
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant, allowAlways } = usePanel();
+  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant } = usePanel();
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };
@@ -47,7 +47,7 @@ export function Banners() {
           <div className="flex basis-full flex-wrap justify-end gap-2">
             <Button size="sm" onClick={regrant}>{L(`อนุญาตอีกครั้ง (${noAccess.length} ไฟล์)`, `Re-grant access (${noAccess.length} files)`)}</Button>
             {/* Once and for all: Chrome's "Allow on every visit", asked in a tab (entrypoints/allow). */}
-            <Button size="sm" onClick={allowAlways}>{allowAlwaysLabel()}</Button>
+            <Button size="sm" onClick={openAllowPage}>{allowAlwaysLabel()}</Button>
           </div>
         </Banner>
       )}

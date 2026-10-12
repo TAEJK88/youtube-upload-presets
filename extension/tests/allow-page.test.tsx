@@ -14,6 +14,7 @@ const flush = () => act(async () => { for (let i = 0; i < 5; i++) await new Prom
 const BUTTON = 'Ask Chrome for file access';
 const DONE = 'Every stored file is readable. You can close this tab.';
 const LATER = 'If the side panel asks for file access again later, "Allow this time" was picked: open this page again and pick "Allow on every visit".';
+const NOTHING = 'These files are readable right now, so Chrome has nothing to ask and the lasting choice cannot be made now. Come back when the side panel says "Files in the queue need read access again" (for example after restarting Chrome), and open this page from that banner before pressing Start or Re-grant access.';
 const EMPTY = 'No video is stored yet. Chrome only asks about a real file: add a video to the queue in the side panel first, then come back to this page.';
 
 // Files stored by a page that is gone, and the allow page open in a tab.
@@ -64,6 +65,7 @@ describe('the Allow file access page', () => {
     expect(text()).toContain('Readable: 3 of 3 stored file(s)');
     expect(screen.getByRole('status').textContent).toContain(DONE);
     expect(screen.getByRole('status').textContent).toContain(LATER);
+    expect(text()).not.toContain(NOTHING);
     expect(button().disabled).toBe(true); // nothing left to ask
     expect(close).not.toHaveBeenCalled();
     expect(vi.mocked(console.info).mock.calls.map((c) => c.join(' '))).toEqual(['[ytup] regrant a: prompt -> granted']);
@@ -84,23 +86,118 @@ describe('the Allow file access page', () => {
   });
 
   it('"Don\'t allow": says how to unblock, and with nothing left to ask the button is off', async () => {
-    const { button, click } = await open(['a', 'b'], ['deny', 'once']);
+    const { chrome, button, click } = await open(['a', 'b'], ['once', 'deny']);
     await click();
+    expect(chrome.requests).toEqual(['/v/a.mp4', '/v/b.mp4']);
     expect(screen.getByRole('status').textContent).toContain('The browser blocked reading 1 file(s) — remove those videos from the queue and add the files again');
     expect(text()).not.toContain(DONE);
+    expect(text()).not.toContain(NOTHING);
     expect(button().disabled).toBe(true);
   });
 
-  it('files that are readable already: says so and asks nothing', async () => {
+  it('a dismissed question is not followed by another: one question, and the button stays for the rest', async () => {
+    const { chrome, button, click } = await open(['a', 'b', 'c'], ['dismiss', 'always']);
+    await click();
+    expect(chrome.requests).toEqual(['/v/a.mp4']);
+    expect(screen.getByRole('status').textContent).toContain('Chrome has not allowed 3 file(s) yet.');
+    expect(button().disabled).toBe(false);
+    await click(); // the next click asks again
+    expect(chrome.requests).toEqual(['/v/a.mp4', '/v/a.mp4']);
+    expect(screen.getByRole('status').textContent).toContain(DONE);
+  });
+
+  it('a file that is gone or cannot be checked is named as such, not left as a number', async () => {
+    const chrome = fakeChrome();
+    const page = chrome.page('tab');
+    const h = page.pick('/v/a.mp4');
+    h.queryPermission = () => Promise.reject(new DOMException('gone', 'NotFoundError'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<AllowPage files={createHandles(async (id) => (id === 'a' ? h : undefined), async () => ['a', 'b'])} stored={async () => ['a', 'b']} />);
+    await flush();
+    expect(text()).toContain('Readable: 0 of 2 stored file(s)');
+    expect(screen.getByRole('status').textContent).toContain('Chrome cannot be asked about 2 file(s): the file is gone or cannot be checked — remove those videos from the queue and add the files again');
+    expect(text()).not.toContain(NOTHING);
+    expect((screen.getByRole('button', { name: BUTTON }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('files that are readable already: Chrome has nothing to ask, and the page does not say the setup is done', async () => {
     const { chrome, page, files, button } = await open([]);
     const h = page.pick('/v/a.mp4'); // just dropped on the panel: readable
     await page.put('a', h);
     files.keep('a', h);
     await act(async () => { window.dispatchEvent(new Event('focus')); });
     await flush();
-    expect(screen.getByRole('status').textContent).toContain(DONE);
+    expect(screen.getByRole('status').textContent).toContain(NOTHING);
+    expect(text()).not.toContain(DONE);
+    expect(text()).not.toContain('"Allow this time"'); // no question was asked here
     expect(button().disabled).toBe(true);
     expect(chrome.requests).toEqual([]);
+  });
+
+  it('…also when a question was dismissed here and the files became readable elsewhere (a Re-grant click in the panel)', async () => {
+    const { chrome, click } = await open(['a'], ['dismiss']);
+    await click();
+    const panel = chrome.page();
+    const h = (await panel.load('a'))!;
+    await panel.click(() => h.requestPermission()); // granted silently, and held there
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await flush();
+    expect(screen.getByRole('status').textContent).toContain(NOTHING);
+    expect(text()).not.toContain(DONE);
+  });
+
+  it('two clicks before the page has drawn the first: Chrome is asked once', async () => {
+    const { chrome, page, button } = await open(['a', 'b'], ['dismiss', 'dismiss']);
+    await page.click(async () => {
+      const b = button();
+      await act(async () => { b.click(); b.click(); });
+      await flush();
+    });
+    expect(chrome.requests).toEqual(['/v/a.mp4']);
+  });
+
+  it('after the click it reads the store again: a video added while the question was open is counted', async () => {
+    const { chrome, click } = await open(['a'], ['always']);
+    const panel = chrome.page();
+    await panel.put('b', panel.pick('/v/b.mp4')); // after the page's last look
+    await click();
+    expect(text()).toContain('Readable: 2 of 2 stored file(s)');
+  });
+
+  it('a look that started before the click and ends after it does not put the old list back', async () => {
+    const chrome = fakeChrome();
+    const adder = chrome.page();
+    await adder.put('a', adder.pick('/v/a.mp4'));
+    adder.close();
+    chrome.answers.push('always');
+    const page = chrome.page('tab');
+    let slow: ((ids: string[]) => void) | null = null;
+    let hold = false;
+    const stored = () => (hold ? new Promise<string[]>((r) => { slow = r; hold = false; }) : page.list());
+    render(<AllowPage files={createHandles(page.load, page.list)} stored={stored} />);
+    await flush();
+    hold = true;
+    window.dispatchEvent(new Event('focus')); // this look hangs on the store
+    await flush();
+    const panel = chrome.page();
+    await panel.put('b', panel.pick('/v/b.mp4'));
+    await page.click(async () => { fireEvent.click(screen.getByRole('button', { name: BUTTON })); await flush(); });
+    expect(text()).toContain('Readable: 2 of 2 stored file(s)');
+    await act(async () => slow!(['a'])); // the old look answers now, with the list from before
+    await flush();
+    expect(text()).toContain('Readable: 2 of 2 stored file(s)');
+  });
+
+  it('a store error goes away at the next look that works', async () => {
+    let broken = true;
+    render(<AllowPage files={createHandles(async () => undefined, async () => [])} stored={() => (broken ? Promise.reject(new Error('idb broke')) : Promise.resolve([]))} />);
+    await flush();
+    expect(screen.getByRole('alert')).toBeTruthy();
+    broken = false;
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await flush();
+    expect(screen.queryByRole('alert')).toBe(null);
+    expect(screen.getByRole('status').textContent).toBe(EMPTY);
   });
 
   it('no stored file: says to add a video first, the button is off, and it looks again when the tab is shown', async () => {

@@ -11,7 +11,7 @@ import { RUNNER_HELD } from '@/lib/runner-lock';
 import type { Settings, SettingsPatch } from '@/lib/settings';
 import { useAsk } from '../ask';
 import { crashButtons, openDebugPage } from '../crash-kit';
-import { allowAlwaysLabel } from '../file-access';
+import { allowFilesLabel, openAllowPage } from '../file-access';
 import { Hint, Kv, NumberField, Section, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { useLive, usePanel } from '../panel';
@@ -67,7 +67,7 @@ function Pick<K extends keyof Settings>({ k, title, options, after }: { k: K; ti
 const kbd = 'rounded-[5px] border border-b-2 border-line2 bg-surface px-1.5 py-px font-[inherit] text-xs';
 
 export function SettingsTab() {
-  const { data, view, send, allowAlways } = usePanel();
+  const { data, view, send } = usePanel();
   const { liveState } = useLive();
   const save = useSave();
   const ask = useAsk();
@@ -174,11 +174,13 @@ export function SettingsTab() {
 
       <Section title={L('ตรวจปัญหา', 'Troubleshooting')} icon="alert">
         <Hint>{L('เปิดหน้าต่างอัปโหลดค้างไว้ที่หน้ากรอกรายละเอียด (มีส่วน Thumbnail) แล้วกดปุ่มนี้ ข้อมูลโครงสร้างหน้าจะถูกคัดลอก ส่งไปให้ผู้พัฒนาแก้สคริปต์ได้ (อ่านอย่างเดียว ไม่กดอะไรในหน้า)', 'Keep the upload dialog open on the details page (with the Thumbnail section) and press this button. The page structure info is copied so you can send it to the developer to fix the script (read-only, nothing on the page is clicked).')}</Hint>
-        <Button size="sm" className="mt-2.5" onClick={() => void copyDiag()}>
-          <Icon name="copy" size={13} />{L('คัดลอกข้อมูลหน้าต่างอัปโหลด', 'Copy upload dialog info')}
-        </Button>
-        <Button size="sm" className="mt-2.5 ml-2" onClick={openDebugPage}>{crashButtons().debug}</Button>
-        <Button size="sm" className="mt-2.5 ml-2" onClick={allowAlways}>{allowAlwaysLabel()}</Button>
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => void copyDiag()}>
+            <Icon name="copy" size={13} />{L('คัดลอกข้อมูลหน้าต่างอัปโหลด', 'Copy upload dialog info')}
+          </Button>
+          <Button size="sm" onClick={openDebugPage}>{crashButtons().debug}</Button>
+          <Button size="sm" onClick={openAllowPage}>{allowFilesLabel()}</Button>
+        </div>
       </Section>
 
       <Section title={L('ทั่วไป', 'General')} icon="sliders">

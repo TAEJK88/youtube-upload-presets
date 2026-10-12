@@ -27,7 +27,9 @@ vi.mock('../lib/panel/bus', async (orig) => ({
 
 const BANNER = 'Files in the queue need read access again — the browser has withdrawn it';
 const TOAST = 'The queued files need read access again — click "Re-grant access" in the side panel, then start again';
-const ALWAYS = 'Always allow file access (one-time setup)';
+const ALWAYS = 'Always allow…';
+// Files left at 'prompt' can still be asked about on the allow page; the toast says so.
+const ask = (n: number) => `The browser still does not allow reading ${n} file(s) — click "Always allow…" on the banner and pick "Allow on every visit" on the page that opens; if that does not help, remove those videos from the queue and add the files again`;
 const stuck = (n: number) => `The browser still does not allow reading ${n} file(s) — remove those videos from the queue and add the files again`;
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const SUMMARY = { pendingN: 2, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0', 'i1'], editRev: 0, sig: 's', times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm: false };
@@ -165,14 +167,15 @@ describe('read access to queued files in the side panel', () => {
     await flush();
     await w.click('Re-grant access (2 files)');
     expect(vi.mocked(console.info).mock.calls.map((c) => c.join(' '))).toEqual(['[ytup] regrant i0: prompt -> prompt', '[ytup] regrant i1: prompt -> prompt']);
-    expect(toast).toHaveBeenCalledWith(stuck(2));
+    expect(toast).toHaveBeenCalledWith(ask(2));
+    expect(screen.getByRole('button', { name: ALWAYS })).toBeTruthy(); // the button the toast names
     expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
     // Start is not held back; its click asks too, gets nothing, and sends nothing to the tab.
     vi.mocked(toast).mockClear();
     expect(startButton().disabled).toBe(false);
     await w.click(/Upload 2 video/);
     expect(sent).toEqual([]);
-    expect(vi.mocked(toast).mock.calls).toEqual([[stuck(2)]]);
+    expect(vi.mocked(toast).mock.calls).toEqual([[ask(2)]]);
     expect(rev()).toBe(1); // the Re-grant click's; Start changed nothing
   });
 
@@ -217,7 +220,7 @@ describe('read access to queued files in the side panel', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it('Start that cannot get the access back sends nothing to the tab: the banner shows, and the toast names no button', async () => {
+  it('Start that cannot get the access back sends nothing to the tab: the banner shows, and the toast names its "Always allow…" button', async () => {
     const w = world({ silentGrant: false });
     await w.add(['i0', 'i1']);
     render(<Panel view={two()} />);
@@ -226,7 +229,8 @@ describe('read access to queued files in the side panel', () => {
     await w.click(/Upload 2 video/);
     expect(sent).toEqual([]);
     expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
-    expect(vi.mocked(toast).mock.calls).toEqual([[stuck(2)]]);
+    expect(vi.mocked(toast).mock.calls).toEqual([[ask(2)]]);
+    expect(screen.getByRole('button', { name: ALWAYS })).toBeTruthy();
     expect(startButton().disabled).toBe(false); // free to be pressed again
   });
 
@@ -295,7 +299,7 @@ describe('read access to queued files in the side panel', () => {
     expect(sent).toEqual(['queue:preflight', 'queue:start']);
   });
 
-  it('"Always allow" also answers a Studio tab\'s report: the banner does not wait for a Re-grant click that has nothing to ask', async () => {
+  it('a Studio tab\'s report about a file this panel reads stays through a visit to the allow page: nothing was asked there, and previews are not read again', async () => {
     vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
     const w = world();
     await w.add(['i0', 'i1']);
@@ -304,10 +308,53 @@ describe('read access to queued files in the side panel', () => {
     act(() => bus.lost(['i1'], 1));
     await flush();
     await w.click(ALWAYS);
+    for (let i = 0; i < 3; i++) {
+      window.dispatchEvent(new Event('focus'));
+      await flush();
+    }
+    expect(screen.getByRole('button', { name: 'Re-grant access (1 files)' })).toBeTruthy(); // the button the tab's toast names
+    expect(rev()).toBe(0);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it('a Studio tab\'s report about a file this panel could not read either is answered when the panel sees it readable again; a report about a file the panel reads stays', async () => {
+    vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    const w = world();
+    await w.add(['i1']);
+    w.close();
+    w.open();
+    await w.add(['i0']); // i0: readable here; i1: not
+    render(<Panel view={two()} />);
+    await flush();
+    act(() => bus.lost(['i0', 'i1'], 1));
+    await flush();
+    expect(screen.getByRole('button', { name: 'Re-grant access (2 files)' })).toBeTruthy();
+    await w.click(ALWAYS);
+    const tab = w.chrome.page('tab');
+    w.chrome.answers.push('once');
+    const h = (await tab.load('i1'))!;
+    await tab.click(() => h.requestPermission());
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    expect(screen.getByRole('button', { name: 'Re-grant access (1 files)' })).toBeTruthy(); // i1's report is answered; i0's stays
+    expect(rev()).toBe(1);
+    tab.close();
+  });
+
+  it('does not look while the panel is hidden: a focus event alone is not a reason', async () => {
+    const w = world();
+    await w.add(['i0', 'i1']);
+    render(<Panel view={two()} />);
+    await flush();
+    w.chrome.revokeAll();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     window.dispatchEvent(new Event('focus'));
     await flush();
     expect(banner()).toBe(null);
-    expect(toast).not.toHaveBeenCalled();
+    visibility.mockReturnValue('visible');
+    window.dispatchEvent(new Event('focus'));
+    await flush();
+    expect(banner()).toBeTruthy();
   });
 
   it('a Studio tab that could not read a file: the banner and its button are there when the tab\'s toast arrives', async () => {

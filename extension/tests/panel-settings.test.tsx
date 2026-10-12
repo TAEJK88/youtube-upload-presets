@@ -33,11 +33,18 @@ describe('settings tab', () => {
     create.mockRestore();
   });
 
-  it('Troubleshooting → Always allow file access is there with no banner showing, and opens the allow page', () => {
-    const api = fakePanel();
-    renderPanel(<SettingsTab />, api);
-    fireEvent.click(screen.getByRole('button', { name: 'Always allow file access (one-time setup)' }));
-    expect(api.allowAlways).toHaveBeenCalledTimes(1);
+  it('Troubleshooting → Always allow file access… is there with no banner showing, and opens allow.html in a tab', async () => {
+    const create = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    renderPanel(<SettingsTab />);
+    const b = screen.getByRole('button', { name: 'Always allow file access…' });
+    await act(async () => fireEvent.click(b));
+    expect(create).toHaveBeenCalledWith({ url: browser.runtime.getURL('/allow.html') });
+    // The three buttons share one wrapping row: none carries a margin of its own onto a new line.
+    const row = b.parentElement!;
+    expect([...row.children].map((c) => c.textContent)).toEqual(['Copy upload dialog info', 'Open debug page', 'Always allow file access…']);
+    expect(row.className).toContain('flex-wrap');
+    expect([...row.children].some((c) => /\bm[lt]-/.test(c.className))).toBe(false);
+    create.mockRestore();
   });
 
   it('switches write one key each', () => {

@@ -42,5 +42,7 @@ describe('re-grant', () => {
 
   it('says what to do when a click did not give the access back', () => {
     expect(stillLocked(2)).toBe('The browser still does not allow reading 2 file(s) — remove those videos from the queue and add the files again');
+    // Files Chrome can still be asked about, in a tab: the allow page first, remove-and-add last.
+    expect(stillLocked(2, true)).toBe('The browser still does not allow reading 2 file(s) — click "Always allow…" on the banner and pick "Allow on every visit" on the page that opens; if that does not help, remove those videos from the queue and add the files again');
   });
 });
