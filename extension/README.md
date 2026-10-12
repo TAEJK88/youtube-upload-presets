@@ -1,7 +1,288 @@
-# YouTube Upload Presets — Chrome extension (in progress)
+# YouTube Upload Presets — Chrome extension
 
 Replaces the Tampermonkey userscript in the repo root. Design:
-`docs/superpowers/specs/2026-10-05-chrome-extension-design.md`.
+`docs/superpowers/specs/2026-10-05-chrome-extension-design.md`. Every difference from the
+userscript, row by row: `PARITY.md`. What each version brought: `CHANGELOG.md`.
+
+For the team: "Install", "Update" and "Moving from the userscript" below.
+ภาษาไทย: ดูหัวข้อ "สำหรับทีม (ภาษาไทย)" ถัดลงไป
+
+## Install (for the team)
+
+If you use the Tampermonkey script today, read "Moving from the userscript" first, and move
+when the owner tells you to. That message comes once script v4.29.0 is out. Before it, only
+the owner and one tester install the extension.
+
+1. Download `youtube-upload-presets-extension-<version>-chrome.zip` from the newest release:
+   https://github.com/TAEJK88/youtube-upload-presets/releases/latest
+2. Make a folder that will stay where it is, for example `Documents/YouTube Upload Presets`.
+   Unzip the file and put **what is inside it** (`manifest.json` and the rest) into that folder.
+3. In Chrome open `chrome://extensions`, turn on **Developer mode** (top right), click
+   **Load unpacked** and pick that folder. A card "YouTube Upload Presets" appears with its
+   version number.
+4. In Tampermonkey, turn the "YouTube Upload Presets" script **off**. Don't delete it yet
+   (see "Moving from the userscript"). The two must not run together: while the script is on
+   in a Studio tab, the extension starts no upload and no trim in that tab, and its panel
+   says so.
+5. Open YouTube Studio and click the extension's button in Chrome's toolbar (or press Alt+P;
+   on a Mac that is Option+P). The panel opens at the side of the window.
+
+The extension has no picture of its own yet. Chrome draws a plain tile with the letter Y for
+it. If you can't find the button, click the puzzle-piece button in the toolbar and pin
+"YouTube Upload Presets".
+
+TODO(icons): when artwork is added under `public/icon/`, replace the paragraph above with what the icon looks like, and the "red dot" sentence in "Known behaviour, Phase 5"; the Thai paragraph under "ติดตั้งส่วนขยาย" says the same.
+
+When Chrome starts it may show a box "Disable developer mode extensions". Close the box;
+don't press its button.
+
+The panel starts in English. For Thai: Settings → General → Language / ภาษา → ไทย.
+
+TODO(key): once the owner's public key line is in `wxt.config.ts`, add here: "The card on `chrome://extensions` shows the ID `<the id computed from the key>`. It is the same on every computer."
+
+## Update
+
+The panel shows "Update available: version … (you have …)" when a newer release exists. It
+looks about once a day.
+
+Let the upload queue and any trim finish before you update: reloading the extension stops
+what it is doing in the page.
+
+1. Click **Get the update** in that banner. It opens the release page; download the new zip.
+2. Close the side panel in every Chrome window.
+3. Delete what is inside your extension folder and put the new zip's contents there. Keep the
+   folder itself, in the same place.
+4. `chrome://extensions` → the extension's card → the round **reload** arrow. The card shows
+   the new version.
+5. Reload every open YouTube Studio tab and every youtube.com tab.
+6. Open the side panel again.
+
+If a Studio tab says "The extension was updated or reloaded — reload this tab to keep using
+it", or the panel says "This tab is not connected to the extension yet — reload this tab":
+that tab was missed in step 5. Reload it.
+
+Your presets, settings, queue and history stay: they belong to the extension, not to the
+folder. Don't press **Remove** on the extension's card: that deletes them. If the panel then
+says "Files in the queue need read access again", click **Re-grant access**.
+
+TODO(key): "they belong to the extension, not to the folder" is true only once the public key line is in `wxt.config.ts`. Today the build has no key and the extension's id follows the folder's path: a build loaded from another folder is a new, empty extension beside the old one. Delete this line when the key is in; until then the rule is "always the same folder, in the same place".
+
+If you used a test build from before 5.0.0: that copy has a different id, and its data does
+not follow. Export a backup from it first (Settings → Back up / share settings → Export
+(.json)), load 5.0.0 from a new folder, import the file as **My file**, and only then remove
+the old copy.
+
+TODO(key): keep the paragraph above only when the key is in the manifest (the key is what changes the id of a copy installed before it). Without a key, delete it.
+
+## Moving from the userscript
+
+**Move when the owner tells you to, and first update the script to v4.29.0** (Tampermonkey →
+Dashboard → the script → "Check for userscript updates", or wait a day). Only that version has
+**Export everything for the extension**. With an older version you can still move, but upload
+history, your channel list and the language stay behind.
+
+What moves, and how:
+
+| What | How |
+|---|---|
+| Presets, the main preset, EP numbers, settings, copyright settings | the export file (steps below) |
+| Upload history, your channel list, the language | the same file, when it was exported with **Export everything for the extension** (userscript v4.29.0) and imported as **My file** |
+| Claimed-songs history | a CSV: userscript Copyright → Claimed songs → ⬇ CSV; extension Copyright → Claimed songs → ⬆ Import CSV. It keeps titles, artists, claimants, counts and the first channel, not which video was which: a later rescan can count a video twice. Up to 16 MB |
+| Claim scans, trim results, the trim list, Ads and Collab lists, Auto-pilot on/off | don't move: scan each channel again and turn Auto-pilot on again |
+| Videos waiting in the queue | don't move: upload them first, or add the files again |
+| The locked channel, the channels typed in the Collab box, where the round Studio button sits | don't move: set them again |
+| "Copy from video" patterns (userscript v4.28.0) | don't move: the extension doesn't have that feature yet (see `CHANGELOG.md`) |
+
+Do the move **once, before you change anything in the extension**. An import replaces the
+extension's presets, settings and EP numbers with the file's. (Upload history and channels are
+only added to, never replaced.)
+
+1. In the userscript, let anything in progress finish: the upload queue, trim runs, and trims
+   "Waiting for YouTube to process trims" (follow-up trims are not carried over).
+2. Userscript: Settings → Back up / share settings → **Export everything for the extension**
+   (or the notice's **Export my data**). It saves `yt-upload-presets-move-YYYY-MM-DD.json`.
+   Also save the claimed-songs CSV if you use it. The file holds your own upload history and
+   channels: don't share it as a preset backup.
+3. Install the extension (see "Install") and turn the userscript **off** in Tampermonkey.
+4. Extension: Settings → Back up / share settings → **Import** → pick the file → **My file**.
+   The question tells you how many history rows and channels come along, and the language.
+   (**Someone else's** takes the presets and general settings only: no history, no channels,
+   no language.)
+5. Copyright → Claimed songs → ⬆ Import CSV, if you saved one.
+6. On each channel: Copyright → **Scan claims**, then turn Auto-pilot on again if you use it.
+7. Keep the userscript installed but **off**. Deleting it in Tampermonkey deletes its stored
+   data, and that is the only other copy of your upload history and claim history. Delete it
+   only when you are sure nothing is missing in the extension, and keep the exported file.
+
+### While the userscript is still on
+
+**Turn the userscript off in Tampermonkey before you use the extension.** If both are on in a
+Studio tab, the side panel shows "The Tampermonkey script is still on in this tab — turn it
+off in Tampermonkey, then reload this tab. Uploads, trims and Auto-pilot wait until then".
+
+In that tab the extension then:
+
+- starts no upload queue, and no trim, ads or Collab run;
+- makes its copyright steps wait, Auto-pilot's included (the status card says why);
+- does not press Save or "Confirm changes" on a trim for you;
+- stops a queue that was already running after the current video. This also covers a Start
+  pressed just before the script showed up. The videos not yet uploaded stay in the queue and
+  nothing starts again by itself.
+
+Scans, the status card, editing and Stop still work. Turn the script off, then reload the tab.
+A copyright run that was waiting goes on after that; press **Stop** first if you no longer
+want it. An upload queue does not start again: press **Start upload**.
+
+**What the extension cannot hold back.** It can see the script only inside YouTube Studio,
+and only some of its own work waits there. With both on, these still happen twice, or still
+happen in the extension:
+
+- on www.youtube.com: accepting a collaboration invite, and switching channel;
+- in Studio: filling in an upload dialog you opened by hand, the quick-action bars under the
+  title and description, and taking a multi-file pick from Studio's own upload dialog;
+- on Studio's invite page: accepting the invite, and the reload after a channel switch that
+  landed on an error page;
+- the panel's own **Switch** (channel list) and **Apply to open window** buttons: one action
+  each, when you press them;
+- a Collab run whose invites were all sent before the script appeared: when it ends, or when
+  you press Stop on it, it may still switch to your invited channel (only with "Auto-accept
+  channel permission invites" on).
+
+Turning the script off is the fix for all of these.
+
+## สำหรับทีม (ภาษาไทย)
+
+สามหัวข้อนี้คือเนื้อหาเดียวกับ "Install", "Update" และ "Moving from the userscript" ด้านบน
+ชื่อปุ่มในส่วนขยายเขียนตามที่เห็นเมื่อตั้งแผงเป็นภาษาไทย
+
+### ติดตั้งส่วนขยาย
+
+ถ้าตอนนี้ยังใช้สคริปต์ Tampermonkey อยู่ ให้อ่านหัวข้อ "ย้ายจากสคริปต์ Tampermonkey" ก่อน
+และรอให้เจ้าของโปรเจกต์บอกว่าย้ายได้แล้ว เขาจะบอกเมื่อสคริปต์เวอร์ชัน 4.29.0 ออก
+ก่อนหน้านั้นมีแค่เจ้าของกับคนทดสอบอีกหนึ่งคนที่ติดตั้งส่วนขยาย
+
+1. ดาวน์โหลดไฟล์ `youtube-upload-presets-extension-<เวอร์ชัน>-chrome.zip` จากหน้า release ล่าสุด:
+   https://github.com/TAEJK88/youtube-upload-presets/releases/latest
+2. สร้างโฟลเดอร์ที่จะวางไว้ที่เดิมตลอด เช่น `Documents/YouTube Upload Presets`
+   แตกไฟล์ zip แล้วเอา **ของที่อยู่ข้างใน** (`manifest.json` กับไฟล์อื่น ๆ) ใส่ในโฟลเดอร์นั้น
+3. ใน Chrome เปิด `chrome://extensions` เปิดสวิตช์ **Developer mode** (มุมขวาบน)
+   กด **Load unpacked** แล้วเลือกโฟลเดอร์นั้น (ถ้า Chrome ของคุณเป็นภาษาไทย ชื่อปุ่มสองปุ่มนี้จะเป็นภาษาไทย)
+   จะมีการ์ด "YouTube Upload Presets" ขึ้นมาพร้อมเลขเวอร์ชัน
+4. ใน Tampermonkey ให้ **ปิด** สคริปต์ "YouTube Upload Presets" แค่ปิดสวิตช์ อย่าเพิ่งลบ
+   (เหตุผลอยู่ในหัวข้อ "ย้ายจากสคริปต์ Tampermonkey") สองตัวนี้ทำงานพร้อมกันไม่ได้
+   ถ้าสคริปต์ยังเปิดอยู่ในแท็บ Studio ส่วนขยายจะไม่เริ่มอัปโหลดและไม่เริ่มตัดคลิปในแท็บนั้น และแผงจะบอกว่าเพราะอะไร
+5. เปิด YouTube Studio แล้วกดปุ่มของส่วนขยายบนแถบเครื่องมือของ Chrome
+   (หรือกด Alt+P ถ้าเป็น Mac คือ Option+P) แผงจะเปิดขึ้นที่ด้านข้างของหน้าต่าง
+
+ส่วนขยายยังไม่มีรูปไอคอนของตัวเอง Chrome จะแสดงเป็นช่องสี่เหลี่ยมที่มีตัวอักษร Y
+ถ้าหาปุ่มไม่เจอ ให้กดปุ่มรูปจิ๊กซอว์บนแถบเครื่องมือ แล้วปักหมุด "YouTube Upload Presets"
+
+ตอนเปิด Chrome อาจมีกล่อง "Disable developer mode extensions" ขึ้นมา ให้ปิดกล่องนั้น
+อย่ากดปุ่มในกล่อง
+
+แผงเริ่มต้นเป็นภาษาอังกฤษ เปลี่ยนเป็นไทยได้ที่ Settings → General → Language / ภาษา → ไทย
+
+TODO(key): once the key is in `wxt.config.ts`, add the Thai of the sentence added under "Install": "การ์ดใน `chrome://extensions` จะแสดง ID `<the id>` ซึ่งเหมือนกันทุกเครื่อง"
+
+### อัปเดต
+
+เมื่อมีเวอร์ชันใหม่ แผงจะขึ้นข้อความ "มีเวอร์ชันใหม่: … (ที่ใช้อยู่คือ …)" ส่วนขยายเช็กประมาณวันละครั้ง
+
+รอให้คิวอัปโหลดและงานตัดคลิปทำเสร็จก่อนค่อยอัปเดต เพราะการโหลดส่วนขยายใหม่จะหยุดงานที่กำลังทำอยู่ในหน้าเว็บ
+
+1. กด **ดาวน์โหลดเวอร์ชันใหม่** ในข้อความนั้น หน้า release จะเปิดขึ้น ให้ดาวน์โหลดไฟล์ zip ตัวใหม่
+2. ปิดแผงด้านข้างในทุกหน้าต่างของ Chrome
+3. ลบของที่อยู่ในโฟลเดอร์ส่วนขยายออกให้หมด แล้วใส่ของจากไฟล์ zip ตัวใหม่ลงไปแทน
+   ตัวโฟลเดอร์ให้เก็บไว้ที่เดิม ชื่อเดิม
+4. เปิด `chrome://extensions` ที่การ์ดของส่วนขยาย กดลูกศรวงกลม (**reload**) การ์ดจะแสดงเลขเวอร์ชันใหม่
+5. โหลดแท็บ YouTube Studio และแท็บ youtube.com ที่เปิดอยู่ใหม่ทุกแท็บ
+6. เปิดแผงด้านข้างอีกครั้ง
+
+ถ้าแท็บ Studio ขึ้นว่า "ส่วนขยายถูกอัปเดตหรือโหลดใหม่ — โหลดแท็บนี้ใหม่เพื่อใช้งานต่อ"
+หรือแผงขึ้นว่า "แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่" แปลว่าแท็บนั้นยังไม่ได้โหลดใหม่ตามข้อ 5
+ให้โหลดแท็บนั้นใหม่
+
+พรีเซ็ต การตั้งค่า คิว และประวัติของคุณยังอยู่ครบ เพราะข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์
+อย่ากด **Remove** ที่การ์ดของส่วนขยาย เพราะจะลบข้อมูลทั้งหมด
+ถ้าแผงขึ้นว่า "ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้งหลังเปิดเบราว์เซอร์ใหม่" ให้กด **อนุญาตอีกครั้ง**
+
+TODO(key): the Thai sentence "ข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์" is true only once the key is in `wxt.config.ts` (see the marker under "Update"). Delete this line when the key is in.
+
+ถ้าเคยใช้ตัวทดสอบก่อนเวอร์ชัน 5.0.0: ตัวนั้นมี ID คนละตัวกัน ข้อมูลจะไม่ตามมาเอง
+ให้ส่งออกไฟล์สำรองจากตัวเก่าก่อน (ตั้งค่า → สำรอง / แชร์การตั้งค่า → ส่งออก (.json))
+โหลด 5.0.0 จากโฟลเดอร์ใหม่ นำเข้าไฟล์โดยเลือก **ไฟล์ของฉัน** แล้วค่อยลบตัวเก่า
+
+TODO(key): keep the Thai paragraph above only when the key is in the manifest (see the marker under "Update").
+
+### ย้ายจากสคริปต์ Tampermonkey
+
+**ย้ายเมื่อเจ้าของโปรเจกต์บอกว่าย้ายได้ และอัปเดตสคริปต์เป็นเวอร์ชัน 4.29.0 ก่อน**
+(Tampermonkey → Dashboard → เลือกสคริปต์ → "Check for userscript updates" หรือรอหนึ่งวัน)
+มีแค่เวอร์ชันนั้นที่มีปุ่ม **ส่งออกทุกอย่างเพื่อย้ายไปส่วนขยาย**
+เวอร์ชันเก่ากว่านั้นก็ย้ายได้ แต่ประวัติการอัปโหลด รายชื่อช่อง และภาษาจะไม่ตามมา
+
+อะไรย้ายได้ และย้ายอย่างไร:
+
+| ข้อมูล | วิธีย้าย |
+|---|---|
+| พรีเซ็ต พรีเซ็ตหลัก เลข EP การตั้งค่า การตั้งค่าลิขสิทธิ์ | ไฟล์ที่ส่งออก (ดูขั้นตอนด้านล่าง) |
+| ประวัติการอัปโหลด รายชื่อช่องของคุณ ภาษา | ไฟล์เดียวกัน ถ้าส่งออกด้วยปุ่ม **ส่งออกทุกอย่างเพื่อย้ายไปส่วนขยาย** (สคริปต์ 4.29.0) และตอนนำเข้าเลือก **ไฟล์ของฉัน** |
+| ประวัติเพลงที่เคยโดน claim | ใช้ไฟล์ CSV: ในสคริปต์ ลิขสิทธิ์ → เพลงที่เคยโดน → ⬇ CSV ในส่วนขยาย ลิขสิทธิ์ → เพลงที่เคยโดน → ⬆ นำเข้า CSV ไฟล์นี้เก็บชื่อเพลง ศิลปิน ผู้ถือสิทธิ์ จำนวนครั้ง และช่องแรก แต่ไม่เก็บว่าเป็นคลิปไหน ถ้าสแกนใหม่ทีหลัง คลิปเดียวกันอาจถูกนับสองครั้ง ไฟล์ใหญ่ได้ไม่เกิน 16 MB |
+| ผลสแกน claim ผลการตัด รายการที่เลือกไว้ตัด รายการโฆษณาและ Collab สถานะเปิด/ปิด Auto-pilot | ย้ายไม่ได้: สแกนแต่ละช่องใหม่ แล้วเปิด Auto-pilot ใหม่ |
+| คลิปที่รออยู่ในคิว | ย้ายไม่ได้: อัปให้เสร็จก่อน หรือใส่ไฟล์เข้าคิวใหม่ |
+| ช่องที่ล็อกไว้ ชื่อช่องที่พิมพ์ไว้ในหน้า Collab ตำแหน่งของปุ่มกลมใน Studio | ย้ายไม่ได้: ตั้งใหม่ |
+| รูปแบบจาก "Copy from video" (สคริปต์ 4.28.0) | ย้ายไม่ได้: ส่วนขยายยังไม่มีฟีเจอร์นี้ (ดู `CHANGELOG.md`) |
+
+ย้าย **ครั้งเดียว และย้ายก่อนจะแก้อะไรในส่วนขยาย** เพราะการนำเข้าจะเอาพรีเซ็ต การตั้งค่า
+และเลข EP ในไฟล์มาแทนของที่มีอยู่ในส่วนขยาย (ประวัติการอัปโหลดกับรายชื่อช่องจะถูกเพิ่มเข้าไปเท่านั้น ไม่ถูกแทนที่)
+
+1. ในสคริปต์ รอให้งานที่ค้างอยู่เสร็จก่อน: คิวอัปโหลด งานตัดคลิป และการตัดที่ขึ้นว่า "รอ YouTube ประมวลผลการตัด"
+   (การตัดที่รอคิวอยู่จะไม่ตามมา)
+2. ในสคริปต์: ตั้งค่า → สำรอง / แชร์การตั้งค่า → **ส่งออกทุกอย่างเพื่อย้ายไปส่วนขยาย**
+   (หรือปุ่ม **ส่งออกข้อมูลของฉัน** ในประกาศด้านบนของแผง) จะได้ไฟล์ `yt-upload-presets-move-ปี-เดือน-วัน.json`
+   ถ้าใช้ประวัติเพลงที่เคยโดน claim ให้บันทึกไฟล์ CSV ไว้ด้วย
+   ไฟล์นี้มีประวัติการอัปโหลดและรายชื่อช่องของคุณเอง อย่าส่งให้คนอื่นแทนไฟล์พรีเซ็ต
+3. ติดตั้งส่วนขยาย (หัวข้อ "ติดตั้งส่วนขยาย") แล้ว **ปิด** สคริปต์ใน Tampermonkey
+4. ในส่วนขยาย: ตั้งค่า → สำรอง / แชร์การตั้งค่า → **นำเข้า** → เลือกไฟล์ → **ไฟล์ของฉัน**
+   หน้าต่างคำถามจะบอกว่ามีประวัติกี่รายการ ช่องกี่ช่อง และภาษาอะไรที่จะตามมา
+   (ถ้าเลือก **ไฟล์ของคนอื่น** จะได้แค่พรีเซ็ตกับการตั้งค่าทั่วไป ไม่มีประวัติ ไม่มีช่อง ไม่เปลี่ยนภาษา)
+5. ถ้าบันทึกไฟล์ CSV ไว้: ลิขสิทธิ์ → เพลงที่เคยโดน → ⬆ นำเข้า CSV
+6. ทำทีละช่อง: ลิขสิทธิ์ → **สแกน claim** แล้วเปิด Auto-pilot ใหม่ถ้าใช้อยู่
+7. เก็บสคริปต์ไว้ใน Tampermonkey แต่ **ปิดไว้** ถ้าลบสคริปต์ Tampermonkey จะลบข้อมูลที่สคริปต์เก็บไว้ด้วย
+   ซึ่งเป็นสำเนาเดียวที่เหลือของประวัติการอัปโหลดและประวัติ claim ของคุณ
+   ลบได้เมื่อแน่ใจแล้วว่าในส่วนขยายไม่มีอะไรหาย และเก็บไฟล์ที่ส่งออกไว้ด้วย
+
+#### ถ้าสคริปต์ยังเปิดอยู่
+
+**ปิดสคริปต์ใน Tampermonkey ก่อนใช้ส่วนขยาย** ถ้าเปิดทั้งสองตัวในแท็บ Studio เดียวกัน
+แผงจะขึ้นว่า "สคริปต์ Tampermonkey ยังเปิดอยู่ในแท็บนี้ — ปิดใน Tampermonkey แล้วโหลดแท็บนี้ใหม่
+การอัปโหลด การตัด และ Auto-pilot จะรอจนกว่าจะปิด"
+
+ในแท็บนั้น ส่วนขยายจะ:
+
+- ไม่เริ่มคิวอัปโหลด และไม่เริ่มงานตัดคลิป งานเปิดโฆษณา หรืองาน Collab
+- ให้งานด้านลิขสิทธิ์ที่ต้องเปลี่ยนหน้ารอไว้ก่อน รวมถึงของ Auto-pilot (การ์ดสถานะจะบอกเหตุผล)
+- ไม่กด Save หรือ "Confirm changes" ในหน้าตัดคลิปให้
+- หยุดคิวที่กำลังอัปอยู่หลังคลิปปัจจุบันเสร็จ รวมถึงกรณีที่กดเริ่มอัปโหลดก่อนสคริปต์จะโผล่ขึ้นมานิดเดียว
+  คลิปที่ยังไม่ได้อัปจะยังอยู่ในคิว และจะไม่มีอะไรเริ่มเองอีก
+
+การสแกน การ์ดสถานะ การแก้ไข และปุ่มหยุดยังใช้ได้ตามปกติ ให้ปิดสคริปต์แล้วโหลดแท็บใหม่
+งานด้านลิขสิทธิ์ที่รออยู่จะทำต่อหลังจากนั้น ถ้าไม่ต้องการแล้วให้กด **หยุด** ก่อน
+ส่วนคิวอัปโหลดจะไม่เริ่มเอง ต้องกด **เริ่มอัปโหลด** ใหม่
+
+**สิ่งที่ส่วนขยายกันไว้ไม่ได้** ส่วนขยายมองเห็นสคริปต์ได้เฉพาะใน YouTube Studio
+และมีงานของตัวเองแค่บางอย่างที่รอได้ ถ้าเปิดทั้งสองตัว สิ่งเหล่านี้จะยังเกิดซ้ำสองรอบ
+หรือส่วนขยายยังทำอยู่:
+
+- ที่ www.youtube.com: การกดรับคำเชิญ Collab และการสลับช่อง
+- ใน Studio: การกรอกข้อมูลในหน้าต่างอัปโหลดที่คุณเปิดเอง แถบปุ่มลัดใต้ช่องชื่อและคำอธิบาย
+  และการรับไฟล์หลายไฟล์ที่เลือกจากหน้าต่างอัปโหลดของ Studio เอง
+- ในหน้าคำเชิญของ Studio: การกดรับคำเชิญ และการโหลดหน้าใหม่หลังสลับช่องแล้วเจอหน้า error
+- ปุ่มของแผงเอง คือ **สลับไปช่องนี้** ในรายชื่อช่อง และ **ใส่ลงหน้าต่างที่เปิดอยู่** (กดหนึ่งครั้ง ทำหนึ่งครั้ง)
+- งาน Collab ที่ส่งคำเชิญครบแล้วก่อนสคริปต์จะโผล่ขึ้นมา: ตอนงานจบหรือตอนกดหยุด
+  อาจยังสลับไปช่องที่ถูกเชิญ (เฉพาะเมื่อเปิด "กดยอมรับคำเชิญสิทธิ์ช่องให้อัตโนมัติ" ไว้)
+
+ทางแก้ของทุกข้อคือปิดสคริปต์
 
 ## Develop
 
@@ -9,8 +290,11 @@ Replaces the Tampermonkey userscript in the repo root. Design:
 cd extension
 npm install
 npm run dev      # builds, opens Chrome with the extension, reloads on change
-npm run check    # tsc + vitest + port-check + ui-check --coverage — run before every commit
+npm run check    # tsc + vitest + port-check + ui-check --coverage + parity-check — run before every commit
 npm run build    # .output/chrome-mv3 → chrome://extensions → Load unpacked
+npm run parity -- --write     # writes PARITY.md from scripts/parity/rows/ (never edit it by hand)
+npm run parity -- --release   # no `missing` row, PARITY.md fresh; prints every changed and dropped row
+npm run release:check         # on a clean tree: builds, zips, inspects (see "Release check")
 ```
 
 Ported code is checked against the userscript at the pinned commit (v4.27.1, `d15ef87`):
@@ -49,7 +333,36 @@ Console lines from the extension start with `[ytup]`.
 - `lib/main-youtubei.ts` — Studio's `/youtubei/v1` calls, run in the MAIN world
 - `entrypoints/sidepanel/` — the side panel (React); `lib/panel/` — its logic; `components/ui/` — shadcn-style components
 - `scripts/ui-check.mjs`, `scripts/strings/` — strings parity with the userscript, 12px floor
+- `scripts/parity-check.mjs`, `scripts/parity/rows/` — one row per thing the userscript had: where
+  it lives here and what proves it, or why it changed or went; `PARITY.md` is generated from
+  the rows, and `scripts/parity/DECISIONS.md` holds the owner's decisions the rows cite
+- `scripts/release-check.mjs` — what must be true of the zip the team installs
+- `lib/update-check.ts` — the daily look at GitHub's latest release (background) and the
+  panel's "Update available" banner
+- `lib/studio/userscript-here.ts` — what waits while the Tampermonkey script is in the page
+- `lib/panel-tab.ts` — which tab the panel is asked to show (the Studio button, a notification
+  click, a pick in Studio's dialog)
+- `lib/backup.ts` — export and import, the userscript's move file included
+- `CHANGELOG.md` — one section per released version
 - `tests/*.test.mjs` — tests ported from `../test/` (bodies unchanged); `tests/*.test.ts` — new tests
+
+## Release check
+
+`npm run release:check` builds, zips and inspects the build, and publishes nothing. It refuses:
+uncommitted, untracked or git-ignored files under `extension/` (`node_modules`, `.output`,
+`.wxt` and two tools' folders aside), a manifest that differs from the one written out in
+the script, a file in the build that is not expected there, a dependency missing from
+`public/THIRD-PARTY-NOTICES.txt`, a `CHANGELOG.md` without a `## <version> ` heading, a
+`missing` parity row and a stale `PARITY.md`. It expects a manifest `key` only when
+`wxt.config.ts` has a `key:` line, and `icons` only when `public/icon/{16,32,48,128}.png`
+all exist.
+
+When all is well it prints the zip's path, the zip's sha256, a **content hash** (the sha256
+of every file inside the zip, by path; the list is `.output/release-files.txt`), the commit,
+and the tag and release commands for the owner to run. Two builds with the same content hash
+are the same extension: that is how the build the owner tested is shown to be the build that
+ships. With this version of WXT the zip holds no file times, so two builds of the same
+commit also give the same zip sha256.
 
 ## Licences
 
@@ -61,19 +374,6 @@ rest, mostly MIT), each with its licence text taken from its `node_modules` pack
 The package list is kept by hand. It was taken from the build's source maps; after adding or
 upgrading a runtime dependency, build with `build.sourcemap` on and list the `node_modules`
 packages in the maps' `sources` (Vite strips the licence comments from the minified scripts).
-
-## Moving from the userscript
-
-In the userscript: Settings → Backup / share → Export. Import that file in the extension
-(Settings → Back up / share settings → Import). Upload history and per-channel copyright data
-(claim scans, trim results, follow-up trims, Auto-pilot on/off) aren't part of the backup, as in
-the userscript; the copyright settings are. After moving: rescan each channel and turn Auto-pilot
-on again; let pending follow-up trims finish in the userscript before switching. The
-claimed-songs history can come along as a CSV (userscript: Claimed songs → ⬇ CSV; extension:
-Copyright → Claimed songs → ⬆ Import CSV), but the CSV keeps only titles, artists, claimants,
-counts and the first channel, not which video was which: imported songs count their videos by
-title, and a rescan adds the real videos beside them, so a song's "claimed in N videos" can
-count a video twice. The import takes a file of up to 16 MB.
 
 ## CSV exports
 
@@ -102,7 +402,9 @@ youtube.com pages, file bridge, debug page; newest first, filterable, each entry
 click; it follows new entries live, and **Clear log** empties it); every stored key with its
 size and value, and under `storage.session` the automation lock (`runnerTabId`), what it is held
 for (`runnerJobs`) and the copyright worker of each channel (`claimsWorkers`), and under
-`storage.local` the Auto-pilot cycles already notified (`apNotified`); the open Studio
+`storage.local` the Auto-pilot cycles already notified (`apNotified`) and the last update check
+(`updateCheck`), and under `storage.session` also the last tab the panel was asked to show
+(`panelTab`); the open Studio
 tabs and whether each one's page script answers; the stored file handles and whether the queue
 uses them. It changes nothing except **Clear log**.
 
@@ -116,19 +418,20 @@ video ids); and log messages, which can quote titles. It contains no files and n
 (no cookies, tokens or YouTube auth headers: the extension never stores or logs them). Look it
 over before sending it outside your team. The log keeps the newest 300 entries in
 `chrome.storage.local` (`debugLog`), dropping info lines before warnings and errors; a line
-repeated back to back is kept once, shown with ×N. It is not part of a settings backup; nor is
-`apNotified`. Errors inside Studio's page-world script
+repeated back to back is kept once, shown with ×N. It is not part of a settings backup; nor are
+`apNotified` and `updateCheck`. Errors inside Studio's page-world script
 (`studio-main`) are not captured (it has no extension APIs): see Studio's DevTools console.
 
 ## Exit checks (manual, in Chrome)
 
-Needs the logged-in Chrome profile, with **the userscript disabled in Tampermonkey**. Use a test
-channel.
+Needs the logged-in Chrome profile, with **the userscript disabled in Tampermonkey** (items 78
+to 80 say when to turn it on). Use a test channel.
 
 ### Before you start: load or update the build
 
-Do this every time the build folder is new or was replaced (`npm run build` writes
-`.output/chrome-mv3`), in this order:
+Do this every time the build folder is new or was replaced, in this order. It is "Update"
+at the top of this file, steps 2 to 6; a developer's folder is `.output/chrome-mv3`, which
+`npm run build` writes:
 
 1. Close the side panel in every Chrome window. Do not open it again until step 4.
 2. `chrome://extensions` → the extension's card → the round **reload** arrow. (First time: turn
@@ -139,10 +442,10 @@ Do this every time the build folder is new or was replaced (`npm run build` writ
 
 Why the order matters: the side panel reads its files from the folder each time it opens, but
 the background and the scripts inside the tabs keep running the old build until steps 2 and 3.
-A panel opened too early is a new panel talking to old scripts: it can show an error screen
-instead of the panel, an empty Copyright tab, or "This tab is not connected to the extension
-yet — reload this tab". Nothing it shows then can be trusted. If that happens, close the panel
-and do steps 2 to 4 again.
+A panel opened too early is a new panel talking to old scripts. It notices: it shows "This tab
+is not connected to the extension yet — reload this tab" and nothing else from that tab. Do
+steps 2 to 4 again. (A build from before Phase 4b can instead show an error screen or an empty
+Copyright tab.)
 
 ### How to write the results down
 
@@ -170,7 +473,7 @@ The panel's own console: right-click inside the panel → Inspect.
    Copyright tab shows the status card and Scan claims, then Claim list, Claimed songs, Fix
    tracklist and Upload history, and the activity log under "Show activity ▾"; since Phase 4b
    also Ads off, Collab, Stop (while something runs), the Auto-pilot switch and Copyright
-   settings (items 46 to 74).
+   settings (items 46 to 74). Phase 5's items are 75 to 87.
 3. **Language.** Settings → General → Language / ภาษา → ไทย: the whole panel switches at once,
    without a reload, with no English left. The next toast from Studio is Thai too. Switch
    back to English.
@@ -217,7 +520,8 @@ The panel's own console: right-click inside the panel → Inspect.
    (preview and "Thumbnail · … MB"). **Start**: the summary dialog shows the channel (avatar,
    name, id), "Videos 2", "Release Per preset (PRIVATE)", "No .txt 1 video(s)"; confirm.
    Expected: Studio opens the upload dialog itself; title, description and tags fill in; Clip 1
-   gets its thumbnail; Monetisation, Ad suitability and Visibility follow the settings; Save is
+   gets its thumbnail; Category, AI use and Paid promotion, Monetisation, Ad suitability and
+   Visibility follow the settings; Save is
    clicked; the card turns Done; Clip 2 runs. The activity bar shows "Uploading 1/2" with its
    upload icon and a percentage, and the running card a progress bar; the Start button's play
    icon spins while running; the tab title shows `(1/2) ⬆`, then `✅` if the tab isn't focused.
@@ -272,7 +576,8 @@ The panel's own console: right-click inside the panel → Inspect.
     - Set a time in the past: the box gets an amber border and a note says when the queue will
       start instead; **Use this time** stores it. Clear the time: the border and note go.
 14. **Reload survival.** Queue 2 clips and reload the Studio tab before Start: the queue is still
-    there, Start works (the files come through the bridge again).
+    there, Start works (the files come through the bridge again). The reload shows no "Leave
+    site?" prompt (the files are kept by the extension).
 15. **Interrupted run.** Start 2 clips and reload Studio while the first uploads: that card comes
     back as an error, "The page reloaded during the upload — …". **Retry** with a draft id asks
     "This video is already in Studio"; **Open draft** opens it in Studio in a new tab; "Deleted
@@ -337,13 +642,15 @@ The panel's own console: right-click inside the panel → Inspect.
       A was closed or left Studio, B's panel toasts "That tab is no longer running the
       queue". Expected otherwise: neither appears.
 19. **Intercept.** In Studio's own upload dialog pick 2 videos: the dialog closes, both appear in
-    the queue, Start uploads them. Reloading while they wait asks "Leave site?".
+    the queue, Start uploads them. Reloading while they wait asks "Leave site?". (Which tab
+    the panel then shows is item 82; a pick while another Studio tab runs is item 83.)
 20. **Manual fill.** Upload one file through Studio's own dialog: the details fill in from the
     default preset, with the toast "Details filled in: …". Presets → **Apply to open window**
     fills an open dialog too.
 21. **Quick actions.** On the details page and on `/video/<id>/edit`: bars under the title and
     the description (Elements: `div.ytp-qa` → `#shadow-root`); dark mode switches their colours;
-    Preset title, Copy, Preset description, Load .txt, Fix chapters, Check chapters, Preset tags,
+    Preset title, Copy (paste to check it), Preset description, Load .txt, Fix chapters, Check
+    chapters, Preset tags,
     Apply all work; Undo reverts. After switching the panel to Thai, the bars are Thai the next
     time the dialog opens.
 22. **Dialog info and the clipboard.** With the details page open, Settings → Troubleshooting →
@@ -801,6 +1108,240 @@ English. Write down pass or fail; items marked **record** ask for an observation
     - **When a save fails. Record** only if you see it: "Couldn't save (…)" appears once per
       message per minute, not on every tick.
 
+### Phase 5: cutover
+
+Nothing in this section has been run in Chrome yet. Every item is the owner's to run: it says
+what to do and what should be seen. Write down pass or fail; **record** asks for an
+observation.
+
+- Use the zip you were handed, with its content hash, not a folder built on your own machine.
+- Items 75 to 78 and 81 to 87 are done on that test zip **before** the release.
+- Items 79 and 80 need userscript v4.29.0: do them on the file you are handed before it is
+  published (Task 11 of `docs/superpowers/plans/2026-10-11-chrome-extension-phase-5.md`),
+  not before.
+- Items 78 to 80 need the Tampermonkey script **on** for part of the item. Everywhere else in
+  this checklist it is off. Turn it off again afterwards.
+- Items 78 and 86 start trims: the warning under "Phase 4: copyright" applies ("These items
+  change real videos").
+
+75. **Install from the zip.** On a Chrome profile that never had the extension, follow "Install"
+    with **the zip you were given** (before the first release there is nothing to download yet).
+    The card on `chrome://extensions` reads "YouTube Upload Presets", version 5.0.0, with no
+    **Errors** button. The toolbar button opens the panel on a Studio tab. **Record** the ID on
+    the card, and the content hash that came with the zip.
+
+    TODO(key): once the key is in `wxt.config.ts`, add to item 75: "The ID is `<the id computed from the key>`, the same on every computer." Until then the ID differs per folder and per machine, and the record above is all there is to check.
+
+    - The unzipped folder holds `manifest.json`, `background.js`, `sidepanel.html`,
+      `debug.html`, `file-bridge.html`, `THIRD-PARTY-NOTICES.txt` and the folders `assets`,
+      `chunks` and `content-scripts`, and nothing else.
+    - **Record** what the toolbar button and the card's picture look like (expected today:
+      Chrome's own tile with the letter Y; the extension ships no artwork yet), and whether
+      Chrome showed "Disable developer mode extensions" at its next start.
+    - The panel is in English on a fresh install; item 3 switches it to Thai.
+76. **Update in place.** Ask the controller for a **test zip of a higher version** (it is the
+    same build with `"version": "5.0.1"`, made in a scratch folder and never released). Follow
+    "Update" with it. Presets, settings, queue cards and upload history are all still there
+    afterwards, and `chrome://extensions` shows 5.0.1. Then update back to the 5.0.0 zip the
+    same way.
+    - **Queued files (record).** With two clips waiting in the queue before the update:
+      afterwards the cards are still there. **Record** whether the panel asks for
+      **Re-grant access**, and that Start uploads them.
+    - **A different folder (record).** Unzip the same build into a *second* folder and Load
+      unpacked from it. **Record** what Chrome does: replaces the first copy and keeps the data,
+      refuses, or shows two copies. Remove the second copy if there are two.
+
+    TODO(key): once the key is in `wxt.config.ts`, add to "A different folder": "With the key both folders have the same ID, so two separate copies with separate data are not expected." Today, with no key, the expected result is two copies, the second one empty.
+77. **Update available.** In the service worker console (item 42 says how to open it):
+    `await chrome.storage.local.set({ updateCheck: { at: Date.now(), latest: '99.0.0', url: 'https://github.com/TAEJK88/youtube-upload-presets/releases/latest' } })`.
+    The panel shows "Update available: version 99.0.0 (you have 5.0.0)" as its last banner,
+    without closing and reopening it; **Get the update** opens the release page in a new tab.
+    The banner has no close button. In Thai it reads "มีเวอร์ชันใหม่: 99.0.0 (ที่ใช้อยู่คือ
+    5.0.0)" with the button "ดาวน์โหลดเวอร์ชันใหม่".
+    - **An older or equal "latest".** Store the same with `latest: '5.0.0'`, then `'4.9.9'`:
+      the banner goes each time.
+    - **The real check.** `await chrome.storage.local.remove('updateCheck')`, then close that
+      console, press the extension card's round **reload** arrow, and reload the Studio tab
+      (as "Update" says). Open the service worker console again and look at
+      `await chrome.storage.local.get('updateCheck')`.
+      *Before the first release exists:* `latest` is empty, the console has one warning
+      `[ytup] update check Error: GitHub answered 404`, and the panel shows no banner.
+      *After a release:* `latest` is the released version and there is no banner when you
+      have that version.
+    - **Record** what the request carries: service worker console → Network → the request to
+      `api.github.com` → Request Headers. Expected: no `Cookie` and no `Authorization` line;
+      an `Origin: chrome-extension://<id>` line may be there (write down whether it is).
+    - `await chrome.alarms.getAll()` lists one `update-check` alarm with `periodInMinutes: 1440`.
+78. **Both installed.** Turn the Tampermonkey script on again and reload Studio: within a second
+    or two of the script's own button appearing, the panel shows "The Tampermonkey script is
+    still on in this tab — turn it off in Tampermonkey, then reload this tab. Uploads, trims
+    and Auto-pilot wait until then" as its **first** banner (in Thai: "สคริปต์ Tampermonkey
+    ยังเปิดอยู่ในแท็บนี้ — …"). With a file queued, **Start** toasts the same sentence, shows
+    no summary and uploads nothing. In the Copyright tab, a trim (after its question), an ads
+    run and a Collab invite each toast the sentence and start no run. **Scan claims** still
+    runs to "Scan complete" and opens its list, and the status card keeps updating. Turn the
+    script off and reload the tab: the banner is gone and Start shows its summary.
+    - **No false alarm.** With Tampermonkey off, on a video's details page and on its claims
+      page, run `document.querySelectorAll('#ytp-root').length` in Studio's console: 0 (YouTube
+      has no element of that name itself), and the panel shows no Tampermonkey banner.
+    - **Timing (record).** Both on, the panel open with a file queued: reload the tab and press
+      Start as early as the button allows, several times. **Record** whether a run ever starts,
+      before the banner or a moment after it. If one does: it finishes its current video and
+      stops ("Queue stopped (N video(s) done)"), the page shows the Tampermonkey sentence once
+      (it does not say "Will stop after the current video finishes"; the panel shows the run as
+      stopping), the other videos stay waiting, and nothing starts again by itself, also not
+      after the script is turned off and the tab reloaded.
+    - **A run already stored.** With the script off, start a trim run of two claims in review
+      mode (item 59). While it waits on the first video's page, turn the script on and reload
+      the tab. The status card stays on the run and its step line is "⏸ The Tampermonkey script
+      is still on in this tab — …" (not "Waiting for another Studio tab"); the page shows the
+      sentence once; the page does not change; **Stop** ends the run ("You stopped it: …").
+      Before pressing Stop, turn the script off again and reload only a second Studio tab:
+      that tab can start its queue (the waiting tab gave the lock back).
+    - **The run goes on afterwards.** Repeat without pressing Stop, then turn the script off and
+      reload the tab: the run goes on. A claim that was trimmed meanwhile ends "✅ Claim gone";
+      it is not trimmed again.
+    - **Save is not pressed for the script's run.** Userscript: "Fully automatic trim" off.
+      Extension: Copyright settings → "When trimming manually…" on, no trim run of its own.
+      Start a trim run in the userscript: its editor opens and stays open until you press Save
+      yourself; the extension presses neither Save nor "Confirm changes". Turn the script off,
+      reload, open a trim by hand: the extension presses Save as in item 62.
+    - **Auto-pilot with both on.** Auto-pilot on and due, the script on: the extension's cycle
+      scans, the activity log says "🤖 Auto-trimming N claims", then it waits; it opens no
+      video page.
+    - **A quiet wait (record, for a developer).** Leave a waiting tab open for a minute with
+      `chrome.runtime.onMessage.addListener((m) => console.log(new Date().toLocaleTimeString(), m && m.type))`
+      pasted into the service worker console: one `runner:holds` about 30 s after the wait
+      began, then none. **Record** a steady stream of them.
+    - **A tab from the build before.** A Studio tab left open from an older build shows "This
+      tab is not connected to the extension yet — reload this tab" in the panel (the tab and
+      the panel check that they are the same build).
+79. **The move.** In the userscript (v4.29.0): the drawer shows "This script has moved to a Chrome
+    extension"; **Export my data** saves `yt-upload-presets-move-YYYY-MM-DD.json`. Import it in
+    the extension as **My file**: the question says "With "My file" this file also adds N
+    upload history rows and M channels from the Tampermonkey script and sets the panel's
+    language to ไทย" (or English), and its first sentence ends "(the locked channel stays
+    unchanged)". Afterwards Copyright → Upload history has the old uploads, the ⇄ channel
+    list has your channels, the panel is in the language the userscript was in, and a clip
+    you uploaded before shows "Already uploaded …" when added to the queue on the same channel.
+    - Import the same file again: no row and no channel appears twice.
+    - Import it as **Someone else's** on a clean profile: no upload history, no channels, and
+      the language stays as it was.
+    - Import an ordinary backup (**Export (.json)**): the question reads as before ("locked
+      channel and language stay unchanged") and has no Tampermonkey line.
+    - A channel the userscript knew only by its id (added by hand, never opened) arrives in
+      the list without a name, as it was there.
+80. **The userscript's notice.** With v4.29.0: the notice is at the top of the drawer on every
+    tab of it; **How to move** opens the README's "Moving to the Chrome extension" on GitHub; a
+    toast "This script has moved to a Chrome extension — …" appears a few seconds after Studio
+    loads with an empty queue, once a day, and not while the queue holds videos; everything
+    else in the script works as before (upload one clip).
+81. **Read the differences (gate).** Run `npm run parity -- --release` (or ask for its output):
+    it lists every row that is *changed* or *dropped* on purpose, each with its reason. Read the
+    whole list. The release waits until you have said, in your own words, that you read it and
+    accept it; anything you do not accept goes back to the controller as a `missing` row.
+82. **Which tab the panel shows.** The round Studio button, the "queue finished" notification
+    and a pick in Studio's own dialog each ask the panel for a tab.
+    - **The button, panel closed.** During an upload run, close the panel and click the round
+      button: the panel opens on Upload. During a copyright scan or trim with no upload
+      running: it opens on Copyright. (This needs Chrome to accept the click, as in item 7.)
+    - **The button, panel open.** During an upload run, put the panel on Settings and click the
+      button: the panel switches to Upload. During copyright work with the panel on Presets: it
+      switches to Copyright. With nothing running, the button leaves the panel on its tab.
+    - **The notification.** With "Notify when the queue finishes" on, put the panel on Settings
+      (or close it), switch to another window, let the queue finish and click the notification:
+      the Studio tab comes forward and the panel shows Upload. If Chrome does not open a closed
+      panel from the notification (item 24), open it with the toolbar button within a few
+      seconds: it shows Upload.
+    - **Studio's own dialog.** With the panel on Presets and no other tab running, pick two
+      videos in Studio's own upload dialog: they go to the queue, Studio's dialog closes and
+      the panel shows Upload. **Record** whether a closed panel opens after such a pick.
+    - **Two Studio tabs, one window (record).** Open the panel on tab A and put it on Settings.
+      Go to tab B, start a run there and click B's round button. Go back to A. **Record**
+      whether A's panel is still on Settings.
+    - **Speed (record).** An open panel switches at once. **Record** a switch that takes more
+      than a second or two, or a panel opened by the click that comes up on the wrong tab.
+    - Settings → Troubleshooting → **Open debug page** → Stored data → `storage.session`: after
+      a click on the button during a run, `panelTab` reads `{"tabId":…,"tab":"queue","at":…}`.
+83. **A second Studio tab leaves a multi-file pick to Studio, and says so.** Start the queue in
+    Studio tab A. In tab B open Studio's own upload dialog and pick two videos: Studio uploads
+    them itself, and B's page shows once "Another Studio tab is running the upload queue or
+    copyright work — these files were left to YouTube's own upload and get no preset". Do it
+    again with a drop of two videos on Studio's dialog: one toast again. **Record** two toasts
+    for one drop.
+    - Pick or drop **one** video in B: no such message.
+    - With Settings → "Take multiple files from YouTube's dialog" turned off: no message
+      either.
+    - The "progress bar stopped" message ("⚠ The progress bar stopped: … — try reloading the
+      page") cannot be made to appear by hand on a healthy page. **Record** it if you ever see
+      it, with the `[ytup] progress` or `[ytup] fab` lines of the debug page.
+84. **The page toast's look.** In Studio with the side panel closed, press Alt+1. "Main preset:
+    …" appears at the bottom centre for about 4 seconds: a dark see-through box with the page
+    behind it blurred (like the round Studio button) and a thin light edge, light text, and a
+    white round tick with a dark check mark, not a red-orange one.
+    - Do it with Studio's light theme and with the dark theme: the same dark box, and the text
+      is easy to read on both. On a white page the edge is almost invisible; that is expected.
+    - **A long message.** The message of item 83 is a long one: its box is no wider than
+      560 px and the text wraps inside it.
+    - **Thai.** With the panel in Thai, the message's letters are normally spaced and digits
+      are equal in width.
+    - The toast fades and slides in, goes after about 4 s, never blocks a click on what is
+      under it, and sits above Studio's own dialogs.
+85. **Folders at every depth.** Make a folder with a clip five folders down
+    (`Mixes/a/b/c/d/Deep.mp4`) and its `Deep.txt` in the top folder. Click "pick a whole
+    folder" and choose `Mixes`: the clip is queued with its `.txt` attached. Remove it, then
+    drag `Mixes` onto the panel: the same.
+    - **Too many files.** Pick, then drag, a folder with more than 2000 files (a project
+      folder): nothing is queued, and a message says "The folder(s) hold more than 2000 files,
+      so nothing was added — pick only the folder with the videos to upload". It comes back
+      quickly. The same when several folders dragged together hold more than 2000 files in all.
+    - **Near the limit (record).** A folder of about 1500 files with a few videos: **record**
+      how long it takes before the cards appear and whether the panel stays usable. Again with
+      several folders dragged together, each under 2000 files.
+    - **A folder that can't be read (record).** Pick a drive or card root that has
+      `.Spotlight-V100` or `.Trashes`, and a folder holding a subfolder you have no read rights
+      for: the clips are queued and "Some folders couldn't be read — the files in them were not
+      added" shows once, however many folders failed. **Record** which folders raised it.
+    - **Hidden files.** A folder holding `.DS_Store` and `._Clip.mp4`: neither is queued, and
+      neither is counted in "Skipped N file(s)".
+    - **On a card.** Drag a `.txt` onto a waiting card together with a folder: the `.txt`
+      attaches and the folder is ignored. A folder alone dragged onto a card goes to the queue.
+86. **The trim question and the Auto-pilot question open on Cancel.** In the claim list tick a
+    claim and press **Trim selected**: the question opens with **Cancel** outlined, in light
+    and in dark. Press Enter: the question closes, nothing is trimmed, the list is still open.
+    Open it again, wait a second and click **Start trim** once: the trim starts. Turn the
+    **Auto-pilot** switch on: the question opens with Cancel outlined; Enter closes it and
+    Auto-pilot stays off; **Turn on** needs a click.
+    - **Double-click.** Make the window short (the panel about 420 to 640 px high), tick a
+      claim and double-click **Trim selected**, fast and then slowly: the question stays open
+      with the outline on Cancel and nothing is trimmed. Press Enter straight after: it closes,
+      nothing is trimmed. Repeat with a warning line showing (your own song ticked, or the
+      upload queue busy) and in Thai.
+    - Double-click with a long second press (hold it half a second), and click **Trim
+      selected** six times fast without moving the mouse: no trim.
+    - **A click in the first 0.8 s does nothing.** That is intended: wait a moment and click
+      again. Tab then Enter straight after the question opens starts the trim with no delay.
+    - Escape, **Cancel** and a click outside the box cancel at once.
+    - Tab to **Trim selected** and hold Enter; the same on the Auto-pilot switch: no trim,
+      Auto-pilot stays off.
+    - Scroll so the Auto-pilot switch sits where **Turn on** appears and double-click the
+      switch: Auto-pilot stays off, and Enter then closes the question.
+    - With a touch screen or a pen, if one is to hand: tap **Trim selected** twice quickly: no
+      trim.
+    - **Record** where keyboard focus is after a cancel (expected: on the page, not back on the
+      button that asked; see "Known behaviour, Phase 5").
+    - Every other question (delete a preset, start an upload, import) still opens on its main
+      button: Enter and an immediate click both answer yes.
+87. **Two things nobody has checked (record).** Both are suspected from reading the code.
+    - **Option+P on a Mac.** With **Alt+P** assigned on `chrome://extensions/shortcuts`, click
+      into a Studio text field (a video's title) and press Option+P. **Record** whether the
+      panel opens or a character is typed ("π" on a US keyboard). The userscript let the
+      character be typed.
+    - **A copy that fails.** On a video's details page click the quick-action **Copy** under
+      the title, then paste somewhere: the title is pasted. **Record** any time "Title copied"
+      shows and the paste gives something else (a refused clipboard write is not reported
+      there).
+
 ### Known behaviour, Phase 4a (note, don't test)
 
 - **A schedule list that arrives late can move the slots after you confirmed.** Before a start
@@ -887,6 +1428,127 @@ English. Write down pass or fail; items marked **record** ask for an observation
   If you click over to another video's page while a step is waiting, the ads step (and a trim
   step on a video with a single claim) acts on the page that is there. Don't click around in the
   working tab during a run.
+
+### Known behaviour, Phase 5 (note, don't test)
+
+Not in 5.0.0 yet (also in `CHANGELOG.md`):
+
+- **"Copy a pattern from a video"** (userscript v4.28.0). Planned as extension 5.1.0. A preset
+  export from v4.28.0 whose main preset is such a pattern imports with the first preset as
+  the main one.
+- **The schedule summary's tooltip** lists the times of the videos already scheduled on the
+  channel, without their titles (the userscript showed "time · title").
+- **The copyright activity log** keeps only the lines logged while a side panel is open on
+  that tab. After a night of Auto-pilot with the panel closed it is empty, the red "scan is
+  incomplete" line included. The userscript kept its lines until the page next loaded.
+- **Keyboard focus after a question** goes to the page, not back to the button that asked,
+  for every question. Returning it would let a held Enter answer the same question again and
+  again (measured in a test page: a held Enter answered yes 20 times in a row), so it waits
+  for a guard against the key repeat.
+
+The update check:
+
+- **It asks `api.github.com`** for this repo's latest release, about once a day: whenever the
+  extension's background starts and on a daily alarm, but never more than once in 23 hours.
+  The request carries no cookies and nothing about you or your channels; GitHub sees your IP
+  address, as for any page visit. If GitHub can't be reached, or an office has used up its
+  hourly allowance, nothing is shown and it tries again a day later, not sooner. The result
+  is `updateCheck` in `chrome.storage.local`; it is not part of a settings backup.
+- **The banner can't be dismissed.** It goes when the installed version is the newest.
+- **A newer build than the newest release** (a test build) shows no banner.
+- **The repository must stay public.** The update check and the install link read it without
+  signing in. If it is ever made private, both stop working silently.
+
+Both installed (see "While the userscript is still on" for what waits and what doesn't):
+
+- **A wait has no time limit.** A copyright run that waits for the script to be turned off
+  can wait for days and then goes on with the claims it picked back then. Before it trims, it
+  asks YouTube again: a claim that is gone is recorded as gone, not trimmed twice. Press Stop
+  on a waiting run you no longer want.
+- **One step can slip through.** A copyright step that took the lock just before the script
+  appeared in the page finishes its one video; the next step waits.
+- **With the script on and no panel open,** an Auto-pilot cycle that comes due still scans and
+  then waits; the Studio page shows the Tampermonkey sentence once per page load.
+- **The extension looks for the script's own element in the page** (`#ytp-root`), nothing
+  else. A script that crashed before it drew its button is not seen.
+- **Studio tabs opened before this build** must be reloaded once: the tab and the panel check
+  that they are the same build, and the panel says "This tab is not connected to the extension
+  yet — reload this tab" until they are.
+
+The move file:
+
+- **Importing a move file twice** adds nothing twice, and sets the language to the file's again.
+- **Upload history keeps the newest 1000 rows** in all, as before. A row needs a date, a
+  channel and a file name; a row the script logged before it knew the channel is left out, and
+  so is a row dated more than a day in the future. Rows without a video id are kept.
+- **A channel needs only its id.** One the script knew without a name arrives without a name.
+  A channel the extension already has keeps its own entry, unless that entry has no name and
+  the file's has one. A channel picture is kept only when it is an `https:` link.
+- **The import reads the whole file at once** and has no size limit of its own.
+- **Any import, move file or not,** replaces presets, settings and EP numbers with the file's.
+
+The panel's tab, and messages in the Studio page:
+
+- **A request for a tab lasts 10 seconds.** The round Studio button, the "queue finished"
+  notification and a multi-file pick in Studio's dialog store which tab the panel should show
+  (`panelTab` in `chrome.storage.session`). A panel you open by hand within 10 s of a refused
+  open shows that tab. Two Studio tabs asking in the same moment can overwrite each other
+  before a closed panel has opened.
+- **The round Studio button with the panel open** switches the panel to the running task's tab
+  (the userscript closed its drawer on that click; a page cannot close the side panel). The
+  button stays visible while the panel is open.
+- **"The progress bar stopped"** is said once per page load, for the progress display and the
+  round button together; every failure is still in the debug log (`[ytup] progress`,
+  `[ytup] fab`).
+- **The second-tab message names both jobs** ("the upload queue or copyright work"): the page
+  only knows that another tab holds the one lock.
+- **Text in the Studio page** (the round button, the page toast, the reload banner) uses the
+  computer's fonts, unless IBM Plex Sans Thai is installed there: the font is bundled for
+  the panel only.
+- **"Leave site?"** is asked only during a run, or while files picked in Studio's own dialog
+  wait. Files added in the panel survive a reload, so a reload with only those waiting asks
+  nothing.
+- **A wait message is out of date.** A copyright step that waits for the upload queue says
+  "upload or remove stuck/failed videos from the queue", but failed videos no longer hold it
+  back: only waiting and uploading ones do.
+
+Folders:
+
+- **Hidden files are left out** of a picked or dropped folder (names starting with a dot:
+  `.DS_Store`, and the `._Clip.mp4` side files some drives make). A real video named with a
+  leading dot is left out too when it comes from a folder. Hidden *folders* are still read.
+- **2000 files from folders, per pick or drop in total.** Over that, nothing is added and a
+  message says so. Files dropped loose, beside a folder or without one, are not counted. The
+  limit is on the files taken, not on the search: a tree of thousands of hidden files or empty
+  folders is still read to the end, and there is no cancel. 2000 is a judgment, not a
+  measurement.
+- **A folder that can't be read** is passed over; one message says some folders were not read.
+- **A folder dropped on a card** beside a `.txt` or an image is not opened, as in the
+  userscript.
+
+Questions:
+
+- **The trim question and the Auto-pilot question open on Cancel.** Enter and Space answer as
+  Cancel. A press on "Start trim" / "Turn on" in the first 0.8 s, and the second click of a
+  double-click at any time, are ignored without a message; Cancel keeps its outline. Tab then
+  Enter answers yes at once. A click made after the 0.8 s by someone still clicking the same
+  spot, with the mouse moving between clicks, is taken as an answer.
+- **The other questions still open on their main button,** as in the userscript: Enter answers
+  yes for "Reset all presets", "Delete preset", the import ("My file"), "Upload N video(s)"
+  and the retry of a video that already has a draft.
+
+The package:
+
+- **No artwork yet.** The toolbar button and the card show Chrome's own tile with a letter, and
+  the two desktop notifications ("Upload finished ✅", "Auto-pilot is due") show a small red dot.
+- **The extension's ID follows the folder it is loaded from.** A manifest key that gives one
+  ID on every computer is approved (`scripts/parity/DECISIONS.md`, P5-5) but not in the build
+  yet. The debug page's address (`chrome-extension://<id>/debug.html`) therefore differs per
+  machine.
+
+  TODO(key): once the key is in `wxt.config.ts`, replace the bullet above with: "**One ID on every computer:** `<the id computed from the key>`, from the manifest key (its private half is the owner's and is not in the repo). The debug page is `chrome-extension://<the id>/debug.html` everywhere."
+
+  TODO(icons): when artwork is added, replace the "No artwork yet" bullet with what the icon is and that both notifications show it.
 
 ### Known, dev only (note, don't test)
 

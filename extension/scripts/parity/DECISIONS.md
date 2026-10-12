@@ -75,3 +75,9 @@ in that phase's planning report; `owner-<date>` is an answer given outside a num
 - **P5-7-run-stop** 2026-10-12: An upload run that started before the Tampermonkey script appeared in the page stops after the video in progress.
 - **P5-8-nameless** 2026-10-12: A move file's channel without a name is imported (the userscript and the extension both store such channels).
 - **P5-folder-extras** 2026-10-12: Keep all three. A folder's hidden (dot-named) files are left out; a folder with more than 2000 files is refused whole with a message; a folder dropped on the panel is read at every depth, like a picked one.
+
+## Phase 5: what the answers of 2026-10-11 carry with them
+
+- **P5-16** 2026-10-11: Follows from P5-7. The tab-and-panel protocol number goes from 2 to 3, because the queue view gains a field (is the Tampermonkey script in the page); a Studio tab left open from an older build is reloaded once.
+- **P5-18** 2026-10-11: Part of P5-8, as planned. A move file's language replaces the language chosen in the extension, each time the file is imported as "My file".
+- **P5-19** 2026-10-11: Part of P5-8, as planned. Upload-history rows without a video id are imported; a row needs a date, a channel and a file name.

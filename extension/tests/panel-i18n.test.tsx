@@ -28,7 +28,8 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
   await fakeBrowser.storage.local.remove(['logOpen', 'claimScan:UC1', 'trimQueue:UC1', 'trimResults:UC1', 'songHistory', 'uploads',
-    'adsScan:UC1', 'adsResults:UC1', 'collabScan:UC1', 'collabResults:UC1', 'collabLinks:UC1', 'collabHandles', 'cfg']);
+    'adsScan:UC1', 'adsResults:UC1', 'collabScan:UC1', 'collabResults:UC1', 'collabLinks:UC1', 'collabHandles', 'cfg', 'updateCheck']);
+  vi.restoreAllMocks(); // the update banner's manifest version
   document.querySelector('#ytup-fab')?.remove();
   document.querySelector('#ytup-reload')?.remove();
   setLang('en');
@@ -223,6 +224,20 @@ describe('the panel in Thai', () => {
     });
     expect(dialog().textContent).toContain('นำเข้าพรีเซ็ต 1 รายการ');
     clean(document.body);
+    await cancel();
+
+    // A move file from the last userscript version: what "My file" adds, and the language it sets.
+    await act(async () => {
+      const input = document.querySelector<HTMLInputElement>('input[type=file][accept*=json]')!;
+      const d = '2026-10-01T00:00:00.000Z';
+      const moveFile = JSON.stringify({ app: 'yt-upload-presets', format: 1, presets: [{ id: 'a', label: 'ก' }],
+        move: { lang: 'th', uploads: [{ date: d, channel: 'UC1', file: 'a.mp4' }, { date: d, channel: 'UC1', file: 'b.mp4' }], channels: [{ id: 'UC2', name: 'สอง' }] } });
+      fireEvent.change(input, { target: { files: [new File([moveFile], 'm.json', { type: 'application/json' })] } });
+    });
+    expect(dialog().textContent).toContain('พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน)');
+    expect(dialog().textContent).toContain('เมื่อเลือก "ไฟล์ของฉัน" ไฟล์นี้จะเพิ่มประวัติการอัปโหลด 2 รายการ และช่อง 1 ช่องจากสคริปต์ Tampermonkey และเปลี่ยนภาษาของแผงเป็น ไทย');
+    expect(dialog().textContent).not.toContain('และภาษาไม่เปลี่ยน');
+    clean(document.body);
   });
 
   it('…nor while running, with another tab running, or with a channel problem', async () => {
@@ -396,6 +411,23 @@ describe('the panel in Thai', () => {
     vi.mocked(needingGrant).mockResolvedValue([{ id: 'i0', state: 'prompt' }, { id: 'i1', state: 'prompt' }]);
     const root = await renderThai(fakePanel({ data: thData(), view: thView() }));
     expect(root.textContent).toContain('อนุญาตอีกครั้ง (2 ไฟล์)');
+    clean(document.body);
+  });
+
+  it('…nor with the update banner (a newer release on GitHub)', async () => {
+    // fakeBrowser's own getManifest throws, and the banner then never shows.
+    vi.spyOn(fakeBrowser.runtime, 'getManifest').mockReturnValue({ version: '5.0.0' } as never);
+    await fakeBrowser.storage.local.set({ updateCheck: { at: 1, latest: '9.9.9', url: 'https://github.com/TAEJK88/youtube-upload-presets/releases/tag/v9.9.9' } });
+    const root = await renderThai(fakePanel({ data: thData(), view: thView() }));
+    await act(async () => {}); // the banner's storage read
+    expect(root.textContent).toContain('มีเวอร์ชันใหม่: 9.9.9 (ที่ใช้อยู่คือ 5.0.0)');
+    expect(screen.getByRole('button', { name: 'ดาวน์โหลดเวอร์ชันใหม่' })).toBeTruthy();
+    clean(document.body);
+  });
+
+  it('…nor with the userscript banner (the Tampermonkey script is still on in the tab)', async () => {
+    const root = await renderThai(fakePanel({ data: thData(), view: thView({ userscript: true }) }));
+    expect(root.textContent).toContain('สคริปต์ Tampermonkey ยังเปิดอยู่ในแท็บนี้ — ปิดใน Tampermonkey แล้วโหลดแท็บนี้ใหม่');
     clean(document.body);
   });
 });

@@ -108,9 +108,9 @@ export default [
     note: 'the Collab list\'s frame: title, the line about sending the invite link, the handles\' label, "This channel has no videos yet", Reload list and Close. A view' },
 
   // questions
-  { lines: ['5672-5696'], status: 'changed', home: [VIEW + 'ClaimList.tsx', 'lib/panel/claims.ts', 'lib/claims/claims.ts'], cite: 'decision: P4-17', test: [T_RUN, T_PICK, 'tests/claims-trim.test.ts'], readme: [57],
+  { lines: ['5672-5696'], status: 'changed', home: [VIEW + 'ClaimList.tsx', 'lib/panel/claims.ts', 'lib/claims/claims.ts'], cite: 'decision: P4-17', test: [T_RUN, T_PICK, 'tests/claims-trim.test.ts'], readme: [57, 86],
     note: 'the trim question (openTrimConfirm): asked with ask() in the panel, the same texts and warnings (own music, a busy upload queue, Studio not in English, automatic or review mode); "Start trim" sends the picks and the tab starts the run from its stored scan; the question opens with Cancel selected, so Enter does not answer yes, and a hasty or double click on "Start trim" in its first 0.8 s is ignored (decision P5-ask-cancel; ask.tsx, pinned by tests/panel-ask.test.tsx). The box of the userscript had no focus and no key handler: "Start trim" needed a click there too' },
-  { lines: ['5875-5904'], status: 'changed', home: [VIEW + 'AutopilotSwitch.tsx', 'lib/panel/claims.ts'], cite: 'decision: P4-17', test: [T_RUN, T_PICK], readme: [69],
+  { lines: ['5875-5904'], status: 'changed', home: [VIEW + 'AutopilotSwitch.tsx', 'lib/panel/claims.ts'], cite: 'decision: P4-17', test: [T_RUN, T_PICK], readme: [69, 86],
     note: 'toggleAutopilot(): off at once, on after a question that lists the rules, asked with ask() in the panel. On and off are one write of autopilot:<channel>; the "Auto-pilot turned on / off for …" line is added to the log of the panel that clicked; the question opens with Cancel selected, so Enter does not answer yes, and a hasty or double click on "Turn on" in its first 0.8 s is ignored (decision P5-ask-cancel; ask.tsx, pinned by tests/panel-ask.test.tsx). The box of the userscript had no focus and no key handler: "Turn on" needed a click there too' },
 
   // the pane (buildPane)
