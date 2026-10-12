@@ -31,7 +31,7 @@ The extension has no picture of its own yet. Chrome draws a plain tile with the 
 it. If you can't find the button, click the puzzle-piece button in the toolbar and pin
 "YouTube Upload Presets".
 
-TODO(icons): when artwork is added under `public/icon/`, replace the paragraph above with what the icon looks like, and the "red dot" sentence in "Known behaviour, Phase 5"; the Thai paragraph under "ติดตั้งส่วนขยาย" says the same.
+TODO(icons): when artwork is added under `public/icon/`, say what the icon looks like in five places: the paragraph above; its Thai twin under "ติดตั้งส่วนขยาย"; the record line of exit-check item 75; the "No artwork yet" bullet of "Known behaviour, Phase 5" (both desktop notifications then show the icon, not a red dot); and the last paragraph of `CHANGELOG.md`'s 5.0.0 section. Then delete this line.
 
 When Chrome starts it may show a box "Disable developer mode extensions". Close the box;
 don't press its button.
@@ -1547,8 +1547,6 @@ The package:
   machine.
 
   TODO(key): once the key is in `wxt.config.ts`, replace the bullet above with: "**One ID on every computer:** `<the id computed from the key>`, from the manifest key (its private half is the owner's and is not in the repo). The debug page is `chrome-extension://<the id>/debug.html` everywhere."
-
-  TODO(icons): when artwork is added, replace the "No artwork yet" bullet with what the icon is and that both notifications show it.
 
 ### Known, dev only (note, don't test)
 

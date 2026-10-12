@@ -67,5 +67,3 @@ The extension has no icon artwork yet: Chrome shows its own tile with a letter, 
 notifications show a red dot.
 
 TODO(key): once the public key line is in `wxt.config.ts`, add under "New in this release": "- One extension ID on every computer and for every folder: `<the id computed from the key>`. A test build installed before 5.0.0 has another ID: see README, "Update"."
-
-TODO(icons): when artwork is added, delete the paragraph about the tile and the red dot.
