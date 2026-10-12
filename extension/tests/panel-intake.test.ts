@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dropHandles, expandHandles, hasFiles, MAX_FOLDER_FILES, pickAttachments, pickFiles, pickFolder, PICK_ATTACH, sendFiles, storeHandles, TooManyFiles } from '../lib/panel/intake';
+import { dropHandles, expandHandles, hasFiles, intakeFailed, MAX_FOLDER_FILES, pickAttachments, pickFiles, pickFolder, PICK_ATTACH, sendFiles, storeHandles, TooManyFiles } from '../lib/panel/intake';
 
 const file = (name: string) => ({ kind: 'file', name }) as unknown as FileSystemFileHandle;
 const dir = (name: string, kids: unknown[]) => ({
@@ -9,7 +9,12 @@ const dir = (name: string, kids: unknown[]) => ({
 // kids, inside `levels` folders: nest(3, …) puts them three folders below the one it returns.
 const nest = (levels: number, kids: unknown[]): unknown[] => (levels ? [dir(`L${levels}`, nest(levels - 1, kids))] : kids);
 const names = (hs: FileSystemFileHandle[]) => hs.map((h) => h.name).sort();
-const picked = (tree: FileSystemDirectoryHandle) => pickFolder({ showDirectoryPicker: async () => tree } as unknown as Window);
+const picked = (tree: FileSystemDirectoryHandle, unread?: (folder: string) => void) => pickFolder({ showDirectoryPicker: async () => tree } as unknown as Window, unread);
+// A folder whose listing fails (no read rights, a drive's system folder).
+const locked = (name: string) => ({
+  kind: 'directory', name,
+  values() { throw new DOMException('no', 'NotReadableError'); },
+}) as unknown as FileSystemDirectoryHandle;
 
 describe('intake', () => {
   it('only a drag that carries files counts', () => {
@@ -70,6 +75,65 @@ describe('intake', () => {
     await expect(picked(over())).rejects.toThrow(`more than ${MAX_FOLDER_FILES} files`);
     // Files dropped without a folder are never walked, so never counted.
     expect(await expandHandles(many(MAX_FOLDER_FILES + 1))).toHaveLength(MAX_FOLDER_FILES + 1);
+  });
+
+  it('the walk stops at the first file over the limit: the rest of the folder is not read', async () => {
+    let read = 0;
+    let opened = false;
+    const big = {
+      kind: 'directory', name: 'big',
+      async *values() { for (let i = 0; i < MAX_FOLDER_FILES * 5; i++) { read++; yield file(`f${i}.mp4`); } },
+    };
+    const next = { kind: 'directory', name: 'next', async *values() { opened = true; } };
+    await expect(expandHandles([dir('Mixes', [big, next])])).rejects.toBeInstanceOf(TooManyFiles);
+    expect(read).toBe(MAX_FOLDER_FILES + 1);
+    expect(opened).toBe(false);
+  });
+
+  it('the limit is for each dropped folder: files and other folders dropped beside it are not counted in', async () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => file(`f${i}.mp4`));
+    const got = await expandHandles([...many(MAX_FOLDER_FILES), dir('A', many(MAX_FOLDER_FILES)), dir('B', [file('b.mp4')])]);
+    expect(got).toHaveLength(MAX_FOLDER_FILES * 2 + 1);
+    await expect(expandHandles([file('a.mp4'), dir('B', [file('b.mp4')]), dir('A', many(MAX_FOLDER_FILES + 1))])).rejects.toBeInstanceOf(TooManyFiles);
+  });
+
+  it('a folder that cannot be read is passed over and named; the folders around it are still taken (filesFromDrop 3520)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const tree = () => dir('Mixes', [file('A.mp4'), locked('.Trashes'), dir('sub', [file('C.mp4'), locked('deep')]), file('B.mp4')]);
+    const unread: string[] = [];
+    expect((await expandHandles([tree()], (f) => unread.push(f))).map((h) => h.name)).toEqual(['A.mp4', 'C.mp4', 'B.mp4']);
+    expect(unread).toEqual(['.Trashes', 'deep']);
+    expect(err).toHaveBeenCalledTimes(2);
+    unread.length = 0;
+    expect((await picked(tree(), (f) => unread.push(f))).map((h) => h.name)).toEqual(['A.mp4', 'C.mp4', 'B.mp4']);
+    expect(unread).toEqual(['.Trashes', 'deep']);
+    // A listing that fails halfway keeps what it gave; nobody listening is fine too.
+    const half = { kind: 'directory', name: 'half', async *values() { yield file('one.mp4'); throw new Error('gone'); } };
+    expect((await expandHandles([half as unknown as FileSystemHandle])).map((h) => h.name)).toEqual(['one.mp4']);
+    // The picked folder itself: no files, and it is named.
+    unread.length = 0;
+    expect(await picked(locked('Card'), (f) => unread.push(f))).toEqual([]);
+    expect(unread).toEqual(['Card']);
+    err.mockRestore();
+  });
+
+  it('a folder over the limit inside a folder that reads badly is still refused', async () => {
+    const many = Array.from({ length: MAX_FOLDER_FILES + 1 }, (_, i) => file(`f${i}.mp4`));
+    const unread = vi.fn();
+    await expect(expandHandles([dir('Mixes', [dir('sub', [dir('deep', many)])])], unread)).rejects.toBeInstanceOf(TooManyFiles);
+    expect(unread).not.toHaveBeenCalled();
+  });
+
+  it('a failed drop or pick is logged; only the refused folder is said to the user', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const say = vi.fn();
+    intakeFailed('drop', say)(new DOMException('no', 'SecurityError'));
+    intakeFailed('drop', say)(new Error('quota'));
+    expect(say).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledTimes(2);
+    intakeFailed('drop', say)(new TooManyFiles());
+    expect(say).toHaveBeenCalledWith(`This folder has more than ${MAX_FOLDER_FILES} files, so nothing was added — pick the folder that holds only the videos to upload`);
+    err.mockRestore();
   });
 
   it('hidden files dropped next to a folder are skipped too; dropped alone they are kept (filesFromDrop)', async () => {

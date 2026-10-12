@@ -122,6 +122,7 @@ export default [
   // 5 C1 (page: progress toast, tab choice, second-tab intercept)
   // 5 C3 (folder depth)
   { th: 'โฟลเดอร์นี้มีไฟล์เกิน ${} ไฟล์ จึงไม่ได้เพิ่มอะไรเข้าคิว — เลือกโฟลเดอร์ที่มีเฉพาะคลิปที่จะอัป', en: 'This folder has more than ${} files, so nothing was added — pick the folder that holds only the videos to upload', why: 'a folder is now read at every depth (P5-row-folder-depth), and every file it holds is stored and read through the bridge: a drive or a project folder is refused with a message instead of freezing the panel' },
+  { th: 'อ่านบางโฟลเดอร์ไม่ได้ — ไฟล์ในโฟลเดอร์นั้นไม่ได้ถูกเพิ่ม', en: "Some folders couldn't be read — the files in them were not added", why: 'a folder inside a picked or dropped one that cannot be listed is passed over, as the userscript did silently; at every depth that can hide clips, so the panel says it once' },
   // 5 C4 (questions that open on Cancel)
   // 5 M (move file)
   { th: 'พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน)', en: 'Existing presets and settings on this device will be replaced (the locked channel stays unchanged).', why: "the import question for a move file that carries a language: the userscript's sentence also promised the language stays" },

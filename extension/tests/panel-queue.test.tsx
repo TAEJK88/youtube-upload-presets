@@ -19,6 +19,8 @@ import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake'
 vi.mock('../lib/panel/intake', async (orig) => ({ ...(await orig<typeof import('../lib/panel/intake')>()), sendFiles: vi.fn(), dropHandles: vi.fn(), pickFiles: vi.fn(async () => []), pickFolder: vi.fn(async () => []) }));
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
 const RELOAD = 'This tab is not connected to the extension yet — reload this tab';
+const UNREAD = "Some folders couldn't be read — the files in them were not added";
+const locked = () => ({ kind: 'directory', name: 'x', values() { throw new Error('no'); } });
 const TOO_MANY = `This folder has more than ${intake.MAX_FOLDER_FILES} files, so nothing was added — pick the folder that holds only the videos to upload`;
 // A folder three levels down with one file more than a walk takes.
 const hugeFolder = () => {
@@ -178,16 +180,17 @@ describe('queue card: attach failures', () => {
     await act(async () => void fireEvent.click(screen.getByText('Attach .txt / thumbnail')));
     expect(toast).toHaveBeenCalledWith(RELOAD);
   });
-  it('a folder with too many files dropped on a card next to a .txt: nothing is attached and a toast says why', async () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(intake.dropHandles).mockResolvedValueOnce([{ kind: 'file', name: 'a.txt' } as FileSystemHandle, hugeFolder()]);
+  it('a folder dropped on a card next to a .txt is not read: the card takes the dropped files only (3862–3866)', async () => {
+    const txt = { kind: 'file', name: 'a.txt' } as FileSystemHandle;
+    const hidden = { kind: 'file', name: '.cover.jpg' } as FileSystemHandle;
+    const values = vi.fn();
+    vi.mocked(intake.dropHandles).mockResolvedValueOnce([txt, { kind: 'directory', name: 'more', values } as unknown as FileSystemHandle, null, hidden]);
     one({ status: 'pending' });
     const dataTransfer = { types: ['Files'], files: [new File(['x'], 'a.txt')], items: [{ webkitGetAsEntry: () => ({ isDirectory: false }) }] };
     await act(async () => void fireEvent.drop(screen.getByText('Attach .txt / thumbnail'), { dataTransfer }));
-    expect(intake.dropHandles).toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledWith(TOO_MANY);
-    expect(intake.sendFiles).not.toHaveBeenCalled();
-    err.mockRestore();
+    expect(vi.mocked(intake.sendFiles).mock.calls[0]![0]).toEqual([txt, hidden]);
+    expect(values).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
   });
 });
 
@@ -333,7 +336,20 @@ describe('upload tab', () => {
     renderPanel(<QueueTab />, fakePanel({ view: viewWith([]) }));
     await act(async () => void fireEvent.click(screen.getByRole('button', { name: 'pick a whole folder' })));
     expect(toast).toHaveBeenCalledWith(TOO_MANY);
+    expect(toast).toHaveBeenCalledTimes(1);
     expect(intake.sendFiles).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('a picked folder with folders that cannot be read: the rest is added and one toast says some were not', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const a = { kind: 'file', name: 'A.mp4' };
+    const tree = { kind: 'directory', name: 'Mixes', async *values() { yield a; yield locked(); yield locked(); } };
+    vi.mocked(intake.pickFolder).mockImplementationOnce((_win, unread) => intake.expandHandles([tree as unknown as FileSystemHandle], unread));
+    renderPanel(<QueueTab />, fakePanel({ view: viewWith([]) }));
+    await act(async () => void fireEvent.click(screen.getByRole('button', { name: 'pick a whole folder' })));
+    expect(vi.mocked(intake.sendFiles).mock.calls[0]![0]).toEqual([a]);
+    expect(vi.mocked(toast).mock.calls).toEqual([[UNREAD, { id: 'folder-unread' }], [UNREAD, { id: 'folder-unread' }]]); // one id: one toast on screen
     err.mockRestore();
   });
 
@@ -402,6 +418,12 @@ describe('the panel-wide drop target', () => {
     await act(async () => void fireEvent.drop(screen.getByTestId('t'), { dataTransfer: dt }));
     expect(toast).toHaveBeenCalledWith(TOO_MANY);
     expect(intake.sendFiles).not.toHaveBeenCalled();
+    // A folder that cannot be read beside a file: the file is added, a toast says some were not.
+    vi.mocked(toast).mockClear();
+    vi.mocked(intake.dropHandles).mockResolvedValueOnce([deep, locked()] as unknown as FileSystemHandle[]);
+    await act(async () => void fireEvent.drop(screen.getByTestId('t'), { dataTransfer: dt }));
+    expect(vi.mocked(intake.sendFiles).mock.calls[0]![0]).toEqual([deep]);
+    expect(vi.mocked(toast).mock.calls).toEqual([[UNREAD, { id: 'folder-unread' }]]);
     err.mockRestore();
   });
 

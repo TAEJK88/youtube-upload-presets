@@ -17,6 +17,9 @@ const notConnected = (e: unknown) => {
   console.error('[ytup] upload tab', e);
   toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
 };
+// A folder inside a dropped or picked one couldn't be listed: its files are not in the queue.
+// One toast, however many folders.
+const folderUnread = () => void toast(L('อ่านบางโฟลเดอร์ไม่ได้ — ไฟล์ในโฟลเดอร์นั้นไม่ได้ถูกเพิ่ม', "Some folders couldn't be read — the files in them were not added"), { id: 'folder-unread' });
 
 // Files from a drop or a picker → stored → the Studio tab's queue (addFiles there).
 export function useAddFiles() {
@@ -57,7 +60,7 @@ export function usePanelDrop(onDropped: () => void) {
     setDropping(false);
     const pending = dropHandles(e.dataTransfer); // inside the event, before any await
     onDropped();
-    void pending.then(expandHandles).then(add, intakeFailed('drop', toast));
+    void pending.then((hs) => expandHandles(hs, folderUnread)).then(add, intakeFailed('drop', toast));
   };
   return { dropping, handlers: { onDragEnter: accept, onDragOver: accept, onDrop } };
 }
@@ -105,7 +108,7 @@ export function QueueTab() {
             <button type="button" className="cursor-pointer rounded-sm" onClick={(e) => { e.stopPropagation(); pick(pickFiles); }}>
               {L('หรือคลิกเพื่อเลือกไฟล์ · ', 'or click to select files · ')}
             </button>
-            <button type="button" className="cursor-pointer rounded-sm text-tint underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(pickFolder); }}>
+            <button type="button" className="cursor-pointer rounded-sm text-tint underline-offset-2 hover:underline" onClick={(e) => { e.stopPropagation(); pick(() => pickFolder(window, folderUnread)); }}>
               {L('เลือกทั้งโฟลเดอร์', 'pick a whole folder')}
             </button>
           </span>

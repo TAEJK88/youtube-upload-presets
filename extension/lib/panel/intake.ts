@@ -15,7 +15,9 @@ export const dropHandles = (dt: DataTransfer | null | undefined): Promise<(FileS
 // Every file a walk takes is written to IndexedDB here and read through the bridge in the
 // Studio tab, one after another, whether it is a video or not. A folder with more files than
 // this is not a folder of videos (a drive, a project with its dependencies): it is refused
-// whole, with a message, and nothing of it is queued.
+// with a message, and nothing of the drop or the pick is queued. The count is of the files
+// taken from one picked or dropped folder; it does not bound the walk itself (hidden files
+// and folders without files are read to the end).
 export const MAX_FOLDER_FILES = 2000;
 export class TooManyFiles extends Error {
   constructor() {
@@ -36,20 +38,34 @@ export const intakeFailed = (what: string, say: (msg: string) => void) => (e: un
 // are; once a folder is part of the drop, or a folder is picked, folders are read at every
 // depth, as the folder input's file list was (filesFromDrop() stopped two levels down), and
 // hidden files (macOS ._ and .DS_Store) are skipped everywhere, as filesFromDrop() did.
-export async function expandHandles(handles: (FileSystemHandle | null)[]): Promise<FileSystemFileHandle[]> {
+// A folder that can't be read is passed over, as readDir() did (3520–3523): what it gave
+// before failing is kept, the folders around it are still read, and `unread` gets its name.
+export type Unread = (folder: string) => void;
+export async function expandHandles(handles: (FileSystemHandle | null)[], unread: Unread = () => {}): Promise<FileSystemFileHandle[]> {
   const present = handles.filter((h): h is FileSystemHandle => !!h);
   if (!present.some((h) => h.kind === 'directory')) return present as FileSystemFileHandle[];
   const out: FileSystemFileHandle[] = [];
+  let taken = 0; // from the dropped or picked folder being walked
   const walk = async (h: FileSystemHandle) => {
     if (h.kind === 'file') {
       if (h.name.startsWith('.')) return;
-      if (out.length >= MAX_FOLDER_FILES) throw new TooManyFiles();
+      if (taken >= MAX_FOLDER_FILES) throw new TooManyFiles();
+      taken++;
       out.push(h as FileSystemFileHandle);
-    } else {
+      return;
+    }
+    try {
       for await (const c of (h as FileSystemDirectoryHandle).values()) await walk(c);
+    } catch (e) {
+      if (e instanceof TooManyFiles) throw e;
+      console.error('[ytup] folder', h.name, e);
+      unread(h.name);
     }
   };
-  for (const h of present) await walk(h);
+  for (const h of present) {
+    taken = 0;
+    await walk(h);
+  }
   return out;
 }
 
@@ -112,9 +128,9 @@ export const pickAttachments = (win: Window = window) => pickFiles(win, PICK_ATT
 
 // The drawer's webkitdirectory input took every file at any depth; a picked folder is read
 // here like a dropped one (every depth, no hidden files).
-export async function pickFolder(win: Window = window): Promise<FileSystemFileHandle[]> {
+export async function pickFolder(win: Window = window, unread?: Unread): Promise<FileSystemFileHandle[]> {
   try {
-    return await expandHandles([await win.showDirectoryPicker()]);
+    return await expandHandles([await win.showDirectoryPicker()], unread);
   } catch (e) {
     if (cancelled(e)) return [];
     throw e;
