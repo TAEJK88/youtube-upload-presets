@@ -188,6 +188,6 @@ export default [
   general(['4553-4557'], 'Pause between files: seconds, at least 0, saved when the field is left'),
   { lines: ['4558-4565'], status: 'same', home: SETTINGS, test: T_SETTINGS, readme: [36], note: 'the Back up / share section: its hint and the Export (.json) and Import buttons' },
   { lines: ['4566-4568'], status: 'changed', home: SETTINGS, cite: SPEC_UI, readme: [1], note: 'the shortcut hint: Alt+P "open the panel" (it cannot close it), Alt+1…9 select the default preset' },
-  { lines: ['4569-4572'], status: 'same', home: SETTINGS, readme: [35], note: 'the hint "While the queue is running, don\'t close or refresh this tab · YouTube limits uploads per day…"' },
+  { lines: ['4569-4572'], status: 'changed', home: SETTINGS, cite: 'decision: P5-daily-limit', test: 'tests/panel-limits.test.tsx', readme: [35, 93], note: 'the hint "While the queue is running, don\'t close or refresh this tab · YouTube limits uploads per day…". Its ending is no longer "if you hit the limit the queue stops automatically" but "at the limit the queue pauses and resumes by itself 24 hours later", which is what happens now' },
   { lines: ['4574-4585'], status: 'same', home: [FAB, QUEUE, 'lib/studio/queue-edit.ts'], test: ['tests/fab.test.ts', 'tests/queue-edit.test.ts'], readme: [12, 34], note: 'refreshLabels(): after a preset, default preset, counter or setting change, the FAB\'s preset name, the preset lists and every waiting card\'s title and number follow' },
 ];
