@@ -47,5 +47,14 @@ export default {
     ['await uploadOne(it);', 'await uploadCurrent(it);', 1],
     // the schedule refresh before a start waits START_SCHED_WAIT_MS at most (youtubei calls take up to 30 s)
     ['await refreshChanSched(true);', 'await refreshForStart();', 1],
+    // the weekly schedule (P5-week-schedule), which the userscript did not have: a step is one day in that mode,
+    // the next time is the next generated one (nextSlot), and a start that has passed goes on with the first
+    // generated time still allowed; without `mode: 'week'` every line computes what it did
+    ["const stepMs = () => Math.max(1, Number(settings.schedule.every) || 1) * (settings.schedule.unit === 'hour' ? 3600e3 : 86400e3);",
+      "const stepMs = () => (week() ? 86400e3 : Math.max(1, Number(settings.schedule.every) || 1) * (settings.schedule.unit === 'hour' ? 3600e3 : 86400e3));", 1],
+    ['t += step;', 't = nextSlot(t);', 2],
+    ['  return start < floor ? start + Math.ceil((floor - start) / step) * step : start;',
+      '  const w = week();\n  if (w) return w.notBefore(Math.max(start, floor));\n  return start < floor ? start + Math.ceil((floor - start) / step) * step : start;', 1],
+    ['toLocalInput(publishAt + stepMs())', 'toLocalInput(nextSlot(publishAt))', 1],
   ],
 };

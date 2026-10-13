@@ -3,6 +3,7 @@ import { applyBackup, cleanPresets, writeBackup, type BackupImport } from './bac
 import { applyOp, isClaimsOp, opKey } from './claims/ops';
 import { getLang } from './i18n';
 import { isStudioUrl } from './panel-scope';
+import { weekField } from './schedule-week';
 import { applySettingsPatch, defaultSettings, loadSettings, type SettingsPatch } from './settings';
 import { load } from './storage';
 import type { StoredChannel } from './studio/channels';
@@ -46,8 +47,9 @@ export function mayWrite(type: 'store:patch' | 'backup:write' | 'files:delete' |
 }
 
 // The payload crosses a message boundary: only known settings keys holding the type their
-// default has get through (lockChannel: null or { id, name }; lang: th / en). Own keys only:
-// `in` would let __proto__, constructor and the like through.
+// default has get through (lockChannel: null or { id, name }; lang: th / en; the weekly
+// schedule's fields, which have no default: weekField). Own keys only: `in` would let
+// __proto__, constructor and the like through.
 const isLock = (v: unknown) => v === null || (isObj(v) && typeof v.id === 'string' && typeof v.name === 'string');
 const sameType = (v: unknown, d: unknown) => typeof v === typeof d && (typeof v !== 'number' || Number.isFinite(v));
 function cleanSettingsPatch(patch: Record<string, unknown>): SettingsPatch {
@@ -59,7 +61,7 @@ function cleanSettingsPatch(patch: Record<string, unknown>): SettingsPatch {
     else if (k === 'schedule') {
       if (!isObj(v)) continue;
       const sd = defs.schedule as Record<string, unknown>;
-      const sch = Object.fromEntries(Object.entries(v).filter(([sk, sv]) => Object.hasOwn(sd, sk) && sameType(sv, sd[sk]) && (sk !== 'unit' || sv === 'hour' || sv === 'day')));
+      const sch = Object.fromEntries(Object.entries(v).filter(([sk, sv]) => weekField(sk, sv) || (Object.hasOwn(sd, sk) && sameType(sv, sd[sk]) && (sk !== 'unit' || sv === 'hour' || sv === 'day'))));
       if (Object.keys(sch).length) out.schedule = sch;
     } else if (Object.hasOwn(defs, k) && sameType(v, defs[k])) out[k] = v;
   }

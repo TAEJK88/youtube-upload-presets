@@ -43,6 +43,12 @@ New in this release:
   no upload and no copyright run there, its copyright steps wait, it does not press Save on a
   trim for you, and a queue already running stops after its current video. The side panel and
   the status card say so. Scans, the status and Stop keep working.
+- **Per week** (the userscript did not have this). The schedule box has a second way to make
+  the release times, next to "Every N days/hours", which is unchanged and stays the default:
+  a number of videos a week (1 to 7) between two times of day. The days change from week to
+  week, are spread over the week and never hold two videos; the times are quarter hours
+  inside the window and change from video to video. "Shuffle" draws another set. Not yet
+  tried in Chrome (README item 90).
 - Studio tabs opened before this build must be reloaded once: the tab and the panel now check
   that they are the same build.
 - The round Studio button opens the side panel on the tab of what is running (Upload during a

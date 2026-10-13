@@ -3,6 +3,7 @@ import { isChannelId } from './claims/keys';
 import { VISIBILITIES, type Visibility } from './constants';
 import { fixLegacyTrapsoulTitles, runMigrations } from './migrations';
 import type { Preset } from './presets';
+import { withWeek } from './schedule-week';
 import type { Settings } from './settings';
 import type { StoredChannel } from './studio/channels';
 import type { UploadRecord } from './studio/queue-runner';
@@ -164,7 +165,8 @@ export function applyBackup(
     for (const [k, v] of Object.entries(data.settings)) {
       if (!Object.hasOwn(base, k) || k === 'lockChannel' || k === 'lang' || (!own && PERSONAL_SETTINGS.includes(k))) continue;
       if (k === 'schedule') {
-        if (isObj(v)) next.schedule = { ...cur.settings.schedule, on: !!v.on, start: typeof v.start === 'string' ? v.start : '', every: Math.max(1, parseInt(String(v.every), 10) || 1), unit: v.unit === 'hour' ? 'hour' : 'day' };
+        // The file's schedule replaces the one here: without week fields it is the interval mode.
+        if (isObj(v)) next.schedule = withWeek({ on: !!v.on, start: typeof v.start === 'string' ? v.start : '', every: Math.max(1, parseInt(String(v.every), 10) || 1), unit: v.unit === 'hour' ? 'hour' : 'day' }, v);
         continue;
       }
       if (typeof v === typeof base[k]) next[k] = v; // the type must match the current value

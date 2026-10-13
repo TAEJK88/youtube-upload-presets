@@ -152,4 +152,17 @@ export default [
   { th: 'พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน)', en: 'Existing presets and settings on this device will be replaced (the locked channel stays unchanged).', why: "the import question for a move file that carries a language: the userscript's sentence also promised the language stays" },
   { th: 'เมื่อเลือก "ไฟล์ของฉัน" ไฟล์นี้จะเพิ่มประวัติการอัปโหลด ${} รายการ และช่อง ${} ช่องจากสคริปต์ Tampermonkey', en: 'With "My file" this file also adds ${} upload history rows and ${} channels from the Tampermonkey script', why: "the last userscript's move export carries personal data the shared backup never did" },
   { th: 'และเปลี่ยนภาษาของแผงเป็น ${}', en: 'and sets the panel\'s language to ${}', why: 'the move file carries the language the userscript was in (call 18)' },
+  // 5 S (weekly schedule)
+  { th: 'รูปแบบการปล่อย', en: 'Release pattern', why: 'names the two-way choice in the schedule box for screen readers: the weekly schedule (P5-week-schedule) is a second mode the userscript did not have' },
+  { th: 'ทุก ๆ …', en: 'Every …', why: 'the choice for the interval mode the userscript had (one video every N days or hours); it needed no name while it was the only mode' },
+  { th: 'รายสัปดาห์', en: 'Per week', why: 'the choice for the weekly schedule: N videos a week on days and times that vary (P5-week-schedule)' },
+  { th: 'คลิปต่อสัปดาห์', en: 'Videos a week', why: 'weekly schedule: how many videos each 7-day block gets, 1 to 7' },
+  { th: 'ตั้งแต่', en: 'From', why: 'weekly schedule: the earliest time of day a video is released at' },
+  { th: 'ถึง', en: 'Until', why: 'weekly schedule: the latest time of day a video is released at' },
+  { th: 'สุ่มใหม่', en: 'Shuffle', why: 'weekly schedule: stores a new seed, so every waiting video gets another day and time' },
+  { th: 'สุ่มวันและเวลาชุดใหม่', en: 'Draw a new set of days and times', why: 'weekly schedule: the Shuffle button\'s tooltip' },
+  { th: ' · ${} คลิปต่อสัปดาห์ ${}–${}', en: ' · ${} a week, ${}–${}', why: 'weekly schedule: the end of the box\'s summary line, where the interval mode says "every N days"' },
+  { th: 'ตั้งแต่ ${}', en: 'From ${}', why: 'weekly schedule, summary with no answer from a Studio tab yet: the stored start is where the times begin, not the first video\'s time (the tab works that out), so it does not say "Starts"' },
+  { th: 'เริ่ม ${}', en: 'Starts ${}', why: 'weekly schedule, summary with one video or none waiting: the first generated time, as the tab gave it; the userscript\'s pair has "every N days" in the same sentence' },
+  { th: 'วันและเวลาจะสุ่มใหม่ทุกสัปดาห์ ไม่มีวันไหนได้เกินหนึ่งคลิป · กด "สุ่มใหม่" เพื่อเปลี่ยนทั้งชุด', en: 'Days and times are drawn anew each week, never two videos on one day · "Shuffle" draws a new set', why: 'weekly schedule: the hint under its fields, what the mode does that the interval mode does not' },
 ];
