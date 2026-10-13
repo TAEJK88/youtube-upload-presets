@@ -1589,9 +1589,12 @@ observation.
     **Seen in the owner's Chrome on 2026-10-14 (build `666b202`):** "Per week" shows its
     fields (step 1); 7 queued clips land on different days and on quarter-hour times
     between 17:00 and 21:00 (step 2); the times stay after the panel is reopened (step 3);
-    Shuffle changes them (step 5). **Not reported yet:** the finer rules of step 2 (exactly
-    3 a week, no neighbouring days, a time unlike the card before), the Studio tab reload
-    of step 3, and steps 4 and 6 to 11, among them the one real scheduled upload (step 9).
+    Shuffle changes them (step 5); and a run of 2 clips was started and the first video
+    was "Scheduled" in Studio → Content at exactly the time its card showed (step 9).
+    **Not reported yet:** the finer rules of step 2 (exactly 3 a week, no neighbouring
+    days, a time unlike the card before), the Studio tab reload of step 3, the rest of
+    step 9 (the second video, and "First video releases" moving on while the second card
+    stays), and steps 4, 6 to 8, 10 and 11.
     The rules are also checked by the automated tests (`tests/schedule-week.test.ts`,
     `tests/queue-week.test.ts`, `tests/panel-week.test.tsx`). Record what you see at each
     step.
