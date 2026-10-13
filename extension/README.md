@@ -599,8 +599,7 @@ The panel's own console: right-click inside the panel → Inspect.
     the panel: everything is added, with one toast. With the Presets tab open, drop a video
     anywhere on the panel: the panel switches to the Upload tab and the card appears there.
 11. **Card edits.** Expand a card: edit the title (the counter follows; ↻ regenerates it);
-    change its preset (the title follows); type artists, then clear them (back to "auto from
-    .txt"); with scheduling on, type a release time into its date-time field (nothing resets
+    change its preset (the title follows); type artists, then clear them (back to "auto"); with scheduling on, type a release time into its date-time field (nothing resets
     it to the queue time while you type; it saves once complete, "Manual"; ↻ goes back to
     "Queue"); move cards up and down (EP numbers / times follow); **Apply to all**; **Expand
     all / Collapse all**. Drop a `.txt` or an image on a waiting card: it attaches; drop a

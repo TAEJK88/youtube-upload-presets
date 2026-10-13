@@ -4,6 +4,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import type { ClaimsOp } from '../lib/claims/ops';
 import { disposeClaimsStore, flushClaims, initClaimsStore, useMemoryClaims, write } from '../lib/claims/store';
 import { PROTOCOL, type QueueState } from '../lib/messages';
+import { defaultPresets } from '../lib/presets';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as Q from '../lib/studio/queue-runner';
 import { forgetClaimed, queueView } from '../lib/studio/queue-view';
@@ -65,7 +66,10 @@ describe('queueView', () => {
     expect(v.items.map((i) => i.id)).toEqual(['a', 'b']);
     expect(v.items[0]!.tracklist?.count).toBe(3);
     expect(v.items[0]!.usesArtists).toBe(true); // the trapsoul preset title has {artists}
-    expect(v.items[0]!.artists).toBe('A, B, C');
+    // {artists} is drawn from the preset's artist pool, not from the tracklist
+    const names = v.items[0]!.artists.split(', ');
+    expect(names).toHaveLength(4);
+    expect(defaultPresets()[0]!.artistPriority).toEqual(expect.arrayContaining(names));
     expect(v.items[1]!.tracklist).toBe(null);
     expect(v.channel.id).toBe('UCaaaaaaaaaaaaaaaaaaaaaa');
     expect(v.state).toBe(state);

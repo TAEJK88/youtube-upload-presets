@@ -40,12 +40,29 @@ describe('presets tab', () => {
     renderPanel(<PresetsTab />, api);
     const title = screen.getByLabelText('Video title') as HTMLInputElement;
     expect(title.value).toBe('TrapSoul Mix[[ | {artists}]] - Dark & Smokey R&B Playlist {year}');
-    // the preview fills the sample tracklist's artists
-    expect(screen.getByText(/^TrapSoul Mix \| SZA, Chris Brown, Brent Faiyaz, Nessy J\. - /)).toBeTruthy();
+    // the preview fills four names from the preset's artist pool
+    const names = screen.getByText(/^TrapSoul Mix \| /).textContent!.replace(/^TrapSoul Mix \| | - Dark.*$/g, '').split(', ');
+    expect(names).toHaveLength(4);
+    expect(api.data!.presets[0]!.artistPriority).toEqual(expect.arrayContaining(names));
     fireEvent.change(title, { target: { value: '{name} {oops}' } });
     const saved = vi.mocked(api.write.presets).mock.calls.at(-1)![0];
     expect(saved[0]!.title).toBe('{name} {oops}');
     expect(saved.slice(1)).toEqual(api.data!.presets.slice(1));
+  });
+
+  it('edits the artist pool as chips', () => {
+    const api = fakePanel();
+    renderPanel(<PresetsTab />, api);
+    const pool = () => vi.mocked(api.write.presets).mock.calls.at(-1)![0][0]!.artistPriority!;
+    const before = api.data!.presets[0]!.artistPriority!;
+    const add = screen.getByLabelText('Add an artist') as HTMLInputElement;
+    fireEvent.change(add, { target: { value: 'Tems, sza, Giveon,' } }); // a comma adds; a name already there is not added twice
+    expect(pool()).toEqual([...before, 'Tems', 'Giveon']);
+    fireEvent.change(add, { target: { value: 'Drake' } });
+    fireEvent.keyDown(add, { key: 'Enter' });
+    expect(pool().at(-1)).toBe('Drake');
+    fireEvent.click(screen.getByLabelText('Remove SZA'));
+    expect(pool()).not.toContain('SZA');
   });
 
   it('warns about unknown variables', () => {

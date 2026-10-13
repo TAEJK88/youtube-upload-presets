@@ -324,9 +324,9 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
             <div>
               <div className="mb-1 text-xs text-fg2">
                 {L('ศิลปิน', 'Artists')}{' '}
-                <span className="text-fg3">{it.artistsEdited ? L('· พิมพ์เอง (ลบให้ว่าง = อัตโนมัติ)', '· manual (clear = auto)') : L('· อัตโนมัติจาก .txt', '· auto from .txt')}</span>
+                <span className="text-fg3">{it.artistsEdited ? L('· พิมพ์เอง (ลบให้ว่าง = อัตโนมัติ)', '· manual (clear = auto)') : L('· อัตโนมัติ', '· auto')}</span>
               </div>
-              <TextField aria-label={L('ศิลปิน', 'Artists')} placeholder={L('คั่นด้วย , (อัตโนมัติจาก .txt)', 'Comma-separated (auto from .txt)')} disabled={!editable}
+              <TextField aria-label={L('ศิลปิน', 'Artists')} placeholder={L('คั่นด้วย , (ว่าง = อัตโนมัติ)', 'Comma-separated (empty = auto)')} disabled={!editable}
                 value={it.artists} onValue={(v) => edit({ op: 'artists', artists: v })} />
             </div>
           )}

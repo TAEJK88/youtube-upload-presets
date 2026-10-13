@@ -35,7 +35,7 @@ export const defaultPresets = (): Preset[] => [
     ].join('\n'),
     tags: ['trapsoul', 'trapsoul mix', 'dark r&b', 'smokey r&b', 'r&b playlist', 'r&b playlist {year}', '{artists}'],
     visibility: 'PRIVATE',
-    // Artists listed here sort first (only those present in the tracklist); the rest by track count.
+    // The artist pool: {artists} is a random pick of artistMax names from it, a different one per clip.
     artistPriority: ['SZA', 'Chris Brown', 'Summer Walker', 'Bryson Tiller', 'Brent Faiyaz', 'Kehlani', 'Ella Mai', 'Nessy J.', 'BLXD'],
     artistMax: 4,
   },

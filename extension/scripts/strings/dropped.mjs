@@ -30,4 +30,10 @@ export default [
   { th: 'เพลงที่เคยโดน', en: 'Claimed songs', why: "the button's text before the pane's first status (6191): the panel's button always shows its count (6246)" },
   { th: '⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า) — อัปหรือลบคลิปที่ค้าง/ผิดพลาดในคิวออก', en: '⏸ Waiting for the upload queue to clear (page change needed) — upload or remove stuck/failed videos from the queue', why: 'the ads and trim wait (5386, 5982): failed videos no longer hold page changes back (P4-12), so the sentence names the waiting ones instead (extension-only.mjs)' },
   { th: '⏸ รอคิวอัปโหลดว่างก่อน (ต้องเปลี่ยนหน้า)', en: '⏸ Waiting for the upload queue to clear (page change needed)', why: 'the Collab wait (5609): the queue need not be empty, a failed video can stay in it (P4-12); it says the ads and trim sentence (extension-only.mjs)' },
+  // the artist pool (P5-artist-pool)
+  { th: 'ให้ขึ้นก่อนใน {artists}', en: 'Prioritised in {artists}', why: 'P5-artist-pool: the list is a pool to draw from, not an order (4338); the panel says "Artist pool for {artists}"' },
+  { th: 'เฉพาะคนที่อยู่ใน tracklist', en: 'Only those in the tracklist', why: 'P5-artist-pool: the tracklist is not read for {artists} any more (4338)' },
+  { th: 'เช่น SZA, Chris Brown, Nessy J., BLXD', en: 'e.g. SZA, Chris Brown, Nessy J., BLXD', why: 'P5-artist-pool: the placeholder of the comma-separated field (4149); the pool is chips with their own placeholder' },
+  { th: '· อัตโนมัติจาก .txt', en: '· auto from .txt', why: 'P5-artist-pool: the card says "· auto" (3903); the names come from the pool unless the preset has none' },
+  { th: 'คั่นด้วย , (อัตโนมัติจาก .txt)', en: 'Comma-separated (auto from .txt)', why: 'P5-artist-pool: the same field\'s placeholder (3768)' },
 ];

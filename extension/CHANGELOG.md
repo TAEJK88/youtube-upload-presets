@@ -26,6 +26,9 @@ What is different from the userscript:
   the queued files are expected to stay readable through restarts and updates with no
   click; that part is from Chrome's documentation and not yet confirmed in Chrome (README
   item 89).
+- A preset's artist list is a pool: `{artists}` is a random pick from it for each video, not
+  the names found in the tracklist (a preset with an empty pool still reads the tracklist).
+  The pool is edited as chips.
 - One Studio tab works at a time: an upload run, or a trim / ads / Collab run.
 - Auto-pilot wakes its Studio tab on time, and a desktop notification says when a cycle is due
   and no Studio tab is open.

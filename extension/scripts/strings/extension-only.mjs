@@ -152,4 +152,12 @@ export default [
   { th: 'พรีเซ็ตและการตั้งค่าเดิมในเครื่องนี้จะถูกแทนที่ (ช่องที่ล็อกไว้ไม่เปลี่ยน)', en: 'Existing presets and settings on this device will be replaced (the locked channel stays unchanged).', why: "the import question for a move file that carries a language: the userscript's sentence also promised the language stays" },
   { th: 'เมื่อเลือก "ไฟล์ของฉัน" ไฟล์นี้จะเพิ่มประวัติการอัปโหลด ${} รายการ และช่อง ${} ช่องจากสคริปต์ Tampermonkey', en: 'With "My file" this file also adds ${} upload history rows and ${} channels from the Tampermonkey script', why: "the last userscript's move export carries personal data the shared backup never did" },
   { th: 'และเปลี่ยนภาษาของแผงเป็น ${}', en: 'and sets the panel\'s language to ${}', why: 'the move file carries the language the userscript was in (call 18)' },
+  // the artist pool (P5-artist-pool)
+  { th: 'กลุ่มศิลปินสำหรับ {artists}', en: 'Artist pool for {artists}', why: 'P5-artist-pool: the preset\'s artist list is the pool {artists} is drawn from, no longer an order for the tracklist\'s names' },
+  { th: 'สุ่มให้แต่ละคลิป', en: 'Picked at random per video', why: 'P5-artist-pool: the note beside the pool' },
+  { th: 'เพิ่มศิลปิน', en: 'Add an artist', why: 'P5-artist-pool: the pool is edited as chips; this names the field a new name is typed in' },
+  { th: 'พิมพ์ชื่อ คั่นด้วย ,', en: 'Type names, separated by ,', why: 'P5-artist-pool: the placeholder of the chips field' },
+  { th: 'เอา ${} ออก', en: 'Remove ${}', why: 'P5-artist-pool: what a screen reader reads on one chip\'s × (the tooltip is the userscript\'s "Remove")' },
+  { th: '· อัตโนมัติ', en: '· auto', why: 'P5-artist-pool: the card\'s Artists field no longer fills from the .txt when the preset has a pool' },
+  { th: 'คั่นด้วย , (ว่าง = อัตโนมัติ)', en: 'Comma-separated (empty = auto)', why: 'P5-artist-pool: the same field\'s placeholder' },
 ];

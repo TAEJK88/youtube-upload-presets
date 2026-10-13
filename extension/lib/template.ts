@@ -40,8 +40,27 @@ export function parseTracks(txt: unknown, priority: string[] = []) {
   return { track1: tracks[0] || '', trackcount: tracks.length ? String(tracks.length) : '', artistList };
 }
 
+// The preset's artist pool in a random order. The order is drawn from the seed (the clip's file
+// name and number), so one clip keeps its names every time its title, description and tags are built.
+export function pickArtists(pool: string[], seed: string): string[] {
+  const out = [...new Set(pool.map((a) => String(a).trim()).filter(Boolean))];
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  const rand = () => {
+    h = (h + 0x6d2b79f5) | 0;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
 export interface VarsEnv { year: string; producer: string; channelName: string }
-// preset = the preset in use (artistPriority / artistMax); artists = names typed on the queue card
+// preset = the preset in use (artistPriority = its artist pool / artistMax); artists = names typed on the queue card
 export interface BuildOpts { preset?: Partial<Preset>; artists?: string }
 export interface Vars {
   name: string; filename: string; bpm: string; n: string; date: string; year: string; producer: string;
@@ -63,10 +82,12 @@ export function buildVars(
     .replace(/^[\s\-–|,.]+|[\s\-–|,.]+$/g, '');
   const d = new Date();
   const p = opt.preset || {};
-  const { artistList, ...tr } = parseTracks(txt, p.artistPriority || []);
+  const { artistList, ...tr } = parseTracks(txt);
   const max = Math.max(1, Number(p.artistMax) || 4);
   const manual = (opt.artists || '').trim();
-  const shown = manual ? [] : artistList.slice(0, max);
+  // {artists} comes from the preset's pool, not from the tracklist; a preset with no pool still reads the tracklist
+  const pool = pickArtists(p.artistPriority || [], `${base}|${n}`);
+  const shown = manual ? [] : (pool.length ? pool : artistList).slice(0, max);
   return {
     name: name || base,
     filename: base,

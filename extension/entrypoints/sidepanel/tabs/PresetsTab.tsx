@@ -31,6 +31,39 @@ const stopDrag = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); };
 // `activeId = editId = presets[0].id`, 4353).
 const resetListeners = new Set<(id: string) => void>();
 
+// The preset's artist pool as chips: Enter or a comma adds what is typed, × removes a name.
+function ArtistChips({ value, onChange }: { value: string[]; onChange(v: string[]): void }) {
+  const [text, setText] = useState('');
+  const add = (raw: string) => {
+    const next = [...value];
+    for (const name of splitList(raw)) if (!next.some((a) => a.toLowerCase() === name.toLowerCase())) next.push(name);
+    if (next.length > value.length) onChange(next);
+    setText('');
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-[10px] border border-line bg-surface p-1.5 focus-within:border-fg3">
+      {value.map((a) => (
+        <span key={a} className="inline-flex items-center gap-1 rounded-full bg-surface2 py-0.5 pl-2 pr-1 text-xs text-fg2">
+          {a}
+          <button type="button" title={L('เอาออก', 'Remove')} aria-label={L(`เอา ${a} ออก`, `Remove ${a}`)} onClick={() => onChange(value.filter((x) => x !== a))}
+            className="cursor-pointer rounded-full p-0.5 opacity-70 hover:opacity-100">
+            <Icon name="x" size={11} />
+          </button>
+        </span>
+      ))}
+      <input aria-label={L('เพิ่มศิลปิน', 'Add an artist')} placeholder={L('พิมพ์ชื่อ คั่นด้วย ,', 'Type names, separated by ,')}
+        className="h-6 min-w-[8rem] flex-1 bg-transparent px-1 text-[13px] text-fg outline-none"
+        value={text}
+        onChange={(e) => (e.target.value.includes(',') ? add(e.target.value) : setText(e.target.value))}
+        onBlur={() => add(text)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); add(text); }
+          else if (e.key === 'Backspace' && !text && value.length) onChange(value.slice(0, -1));
+        }} />
+    </div>
+  );
+}
+
 export function PresetsTab() {
   const { data, view, write } = usePanel();
   const ask = useAsk();
@@ -284,9 +317,8 @@ export function PresetsTab() {
       </Section>
 
       <Section title={L('ศิลปิน', 'Artists')} icon="queue">
-        <Label><span>{L('ให้ขึ้นก่อนใน {artists}', 'Prioritised in {artists}')}</span><span>{L('เฉพาะคนที่อยู่ใน tracklist', 'Only those in the tracklist')}</span></Label>
-        <TextField aria-label={L('ให้ขึ้นก่อนใน {artists}', 'Prioritised in {artists}')} placeholder={L('เช่น SZA, Chris Brown, Nessy J., BLXD', 'e.g. SZA, Chris Brown, Nessy J., BLXD')}
-          value={(p.artistPriority || []).join(', ')} onValue={(v) => update({ artistPriority: splitList(v) })} />
+        <Label><span>{L('กลุ่มศิลปินสำหรับ {artists}', 'Artist pool for {artists}')}</span><span>{L('สุ่มให้แต่ละคลิป', 'Picked at random per video')}</span></Label>
+        <ArtistChips value={p.artistPriority || []} onChange={(v) => update({ artistPriority: v })} />
         <Kv title={L('จำนวนสูงสุดในชื่อคลิป', 'Max in video title')} note={L('ถ้าชื่อยาวเกิน 100 ตัวอักษรจะลดให้อัตโนมัติ', 'Auto-reduced if the title exceeds 100 characters')}>
           <TextField type="number" min={1} max={10} className="w-24" aria-label={L('จำนวนสูงสุดในชื่อคลิป', 'Max in video title')} value={String(p.artistMax || 4)} onValue={(v) => update({ artistMax: artistMaxOf(v) })} />
         </Kv>

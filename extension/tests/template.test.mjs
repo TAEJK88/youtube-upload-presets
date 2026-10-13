@@ -130,6 +130,32 @@ test('makeTitle drops artists one at a time until the title fits in 100 chars', 
   assert.ok(!t.includes('Dwight Eisenhower'), 'drops the last artist to fit');
 });
 
+test('buildVars takes {artists} from the preset\'s artist pool, not from the tracklist', () => {
+  const pool = ['SZA', 'Chris Brown', 'Kehlani', 'Ella Mai', 'BLXD', 'Nessy J.'];
+  const p = { title: '{artists}', artistPriority: pool, artistMax: 3 };
+  const v = S.buildVars('mix.mp4', 1, '00:00 Nobody - One\n01:00 Someone - Two', { preset: p });
+  assert.equal(v._artists.length, 3);
+  assert.equal(new Set(v._artists).size, 3);
+  assert.ok(v._artists.every((a) => pool.includes(a)), v.artists);
+  assert.equal(v.trackcount, '2'); // the tracklist still fills its own variables
+  // with no tracklist at all the pool is still used
+  assert.equal(S.buildVars('mix.mp4', 1, '', { preset: p })._artists.length, 3);
+});
+
+test('buildVars keeps one clip\'s artists and gives other clips other ones', () => {
+  const pool = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+  const p = { title: '{artists}', artistPriority: pool, artistMax: 4 };
+  const pick = (name, n) => S.buildVars(name, n, '', { preset: p }).artists;
+  assert.equal(pick('mix.mp4', 1), pick('mix.mp4', 1));
+  assert.ok(new Set(Array.from({ length: 20 }, (_, i) => pick('mix.mp4', i + 1))).size > 10);
+});
+
+test('buildVars: typed artists win over the pool, and a preset with no pool reads the tracklist', () => {
+  const p = { title: '{artists}', artistPriority: ['SZA', 'BLXD'] };
+  assert.equal(S.buildVars('a.mp4', 1, '', { preset: p, artists: 'Me, You' }).artists, 'Me, You');
+  assert.equal(S.buildVars('a.mp4', 1, '00:00 BLXD - One\n01:00 SZA - Two', { preset: { title: '{artists}' } }).artists, 'BLXD, SZA');
+});
+
 test('makeTitle hard-truncates a title with no artists to spare', () => {
   const p = { title: 'x'.repeat(150) };
   const t = S.makeTitle(p, S.buildVars('a.mp4', 1, '', { preset: p }));
