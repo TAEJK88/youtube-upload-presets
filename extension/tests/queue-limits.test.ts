@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
+import { weekOf } from '../lib/schedule-week';
+import { SCHEDULE_MIN_LEAD } from '../lib/constants';
+import type { Schedule } from '../lib/settings';
 import { createContentUi, resumeFromPause } from '../lib/studio/content-ui';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as B from '../lib/studio/queue-batch';
@@ -32,6 +35,7 @@ const refused = () => studio.uploads.length > studio.limitFrom;
 vi.mock('../lib/studio/video-duration', () => ({ videoDuration: async () => 0 }));
 vi.mock('../lib/studio/page-toast', () => ({ pageToast: vi.fn() }));
 vi.mock('../lib/studio/queue-store', () => ({ persistQueue: vi.fn() }));
+vi.mock('../lib/studio/schedule', () => ({ setSchedule: async () => '' })); // the date picker answers "done"
 vi.mock('../lib/studio/automation', async (orig) => ({
   ...(await orig<typeof import('../lib/studio/automation')>()),
   sleep: async () => {},
@@ -469,6 +473,55 @@ describe('batches', () => {
     await Q.resumeAfterPause();
     expect(statuses()).toEqual(['done', 'done', 'done', 'done']);
     expect(at).toEqual([4]); // after B and C (2 + the 2 from before), not after B alone
+  });
+});
+
+// The weekly schedule (P5-week-schedule) with the pause and the batches of this unit.
+describe('with the weekly schedule', () => {
+  const week: Schedule = { on: true, start: '2026-10-13T10:00', every: 1, unit: 'day', mode: 'week', perWeek: 3, from: '17:00', to: '21:00', seed: 20261013, anchor: '2026-10-13T10:00' };
+  const slots = (n: number) => {
+    const w = weekOf(week)!;
+    const out: number[] = [];
+    for (let t = w.notBefore(Date.now() + SCHEDULE_MIN_LEAD); out.length < n; t = w.after(t)) out.push(t);
+    return out;
+  };
+  const finals = () => Q.queue.map((i) => i.publishFinal ?? null);
+  let wasSchedule: Schedule;
+  beforeEach(() => {
+    wasSchedule = settings.schedule;
+    settings.schedule = { ...week };
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+  });
+  afterEach(() => { settings.schedule = wasSchedule; });
+
+  it('a batch wait does not move the weekly times', async () => {
+    settings.batch = 1;
+    const want = slots(3);
+    await add('A.mp4', 'B.mp4', 'C.mp4');
+    vi.spyOn(B, 'waitForUploads').mockImplementation(async () => (vi.setSystemTime(Date.now() + 10 * 60_000), 'done')); // ten minutes each
+    await Q.startQueue(binding());
+    expect(statuses()).toEqual(['done', 'done', 'done']);
+    expect(finals()).toEqual(want);
+  });
+
+  it('a run resumed after the daily limit goes on with the generated weekly times', async () => {
+    const want = slots(1);
+    await add('A.mp4', 'B.mp4', 'C.mp4');
+    studio.limitFrom = 1;
+    await Q.startQueue(binding());
+    expect(finals()).toEqual([want[0], null, null]);
+    studio.limitFrom = Infinity;
+    const resumeAt = NOW + PAUSE_MS + 60_000;
+    vi.setSystemTime(resumeAt);
+    await Q.resumeAfterPause();
+    expect(statuses()).toEqual(['done', 'done', 'done']);
+    // The next generated time after A's that can still be scheduled, then the one after it:
+    // the same sequence a run without a pause walks, never a time of the interval mode.
+    const w = weekOf(week)!;
+    const b = w.notBefore(Math.max(w.after(want[0]!), resumeAt + SCHEDULE_MIN_LEAD));
+    expect(finals()).toEqual([want[0], b, w.after(b)]);
+    expect(settings.schedule).toMatchObject({ mode: 'week', anchor: week.anchor, seed: week.seed });
   });
 });
 

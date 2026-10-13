@@ -1839,8 +1839,9 @@ The daily upload limit and batches (additions the userscript did not have; items
 
 - **A paused queue resumes only in a Studio tab on the channel that met the limit.** The tab
   looks at the clock itself (the background cannot drive a page), so nothing resumes while no
-  such tab is open, and no notification says the time has come: the pause and its time are
-  kept, and the first Studio tab on that channel after the time goes on, also days later.
+  such tab is open, and no notification says the time has come (decided so: unlike
+  Auto-pilot, a passed resume time is not announced): the pause and its time are kept, and
+  the first Studio tab on that channel after the time goes on, also days later.
 - **After a browser restart the resume needs the files' read access** like any start: the
   page says "The queued files need read access again…", and the queue goes on within a
   minute of **Re-grant access** (or by itself with "Allow on every visit", item 89). Clips
@@ -1862,6 +1863,8 @@ The daily upload limit and batches (additions the userscript did not have; items
   ends the pause.
 - **The warning before Start counts only this browser's upload history** for the channel
   (the last 24 hours), not uploads from a phone, another computer or Studio's own dialog.
+- **Batch size and the daily number travel in a backup**, also one imported as "Someone
+  else's": they are general settings, not personal ones.
 - **Batches are counted per run.** A run resumed after the daily limit, and a run started
   again by hand, start a new batch. A video that failed is not counted.
 - **How a batch's end is known is partly a guess** (item 91). A batch whose uploads had all
