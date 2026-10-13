@@ -1586,9 +1586,15 @@ observation.
     week no two videos in a row are on neighbouring days; a block's days differ from the
     block before; each time is one of Studio's 15-minute steps between the two times and
     differs from the video before.
-    **None of this has been run in Chrome yet**; the rules are checked by the automated
-    tests (`tests/schedule-week.test.ts`, `tests/queue-week.test.ts`,
-    `tests/panel-week.test.tsx`). Record what you see at each step.
+    **Seen in the owner's Chrome on 2026-10-14 (build `666b202`):** "Per week" shows its
+    fields (step 1); 7 queued clips land on different days and on quarter-hour times
+    between 17:00 and 21:00 (step 2); the times stay after the panel is reopened (step 3);
+    Shuffle changes them (step 5). **Not reported yet:** the finer rules of step 2 (exactly
+    3 a week, no neighbouring days, a time unlike the card before), the Studio tab reload
+    of step 3, and steps 4 and 6 to 11, among them the one real scheduled upload (step 9).
+    The rules are also checked by the automated tests (`tests/schedule-week.test.ts`,
+    `tests/queue-week.test.ts`, `tests/panel-week.test.tsx`). Record what you see at each
+    step.
     1. **Switch the mode.** Upload tab, switch "Schedule releases" on, open the box, click
        **Per week**. The "Every" fields give way to "Videos a week" (3), "From" (17:00),
        "Until" (21:00) and a **Shuffle** button. "First video releases" and the quick picks
