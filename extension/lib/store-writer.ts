@@ -4,7 +4,7 @@ import { applyOp, isClaimsOp, opKey } from './claims/ops';
 import { getLang } from './i18n';
 import { isStudioUrl } from './panel-scope';
 import { weekField } from './schedule-week';
-import { applySettingsPatch, defaultSettings, loadSettings, type SettingsPatch } from './settings';
+import { applySettingsPatch, cleanLimits, defaultSettings, loadSettings, type SettingsPatch } from './settings';
 import { load } from './storage';
 import type { StoredChannel } from './studio/channels';
 import type { UploadRecord } from './studio/queue-runner';
@@ -65,7 +65,7 @@ function cleanSettingsPatch(patch: Record<string, unknown>): SettingsPatch {
       if (Object.keys(sch).length) out.schedule = sch;
     } else if (Object.hasOwn(defs, k) && sameType(v, defs[k])) out[k] = v;
   }
-  return out as SettingsPatch;
+  return cleanLimits(out) as SettingsPatch;
 }
 function cleanStorePatch(p: unknown): StorePatch {
   if (!isObj(p) || (p.key !== 'settings' && p.key !== 'counters')) throw new Error(`store:patch: ${String(isObj(p) ? p.key : p)} is not patched here`);

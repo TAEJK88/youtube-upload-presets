@@ -36,4 +36,5 @@ export default [
   { th: 'เช่น SZA, Chris Brown, Nessy J., BLXD', en: 'e.g. SZA, Chris Brown, Nessy J., BLXD', why: 'P5-artist-pool: the placeholder of the comma-separated field (4149); the pool is chips with their own placeholder' },
   { th: '· อัตโนมัติจาก .txt', en: '· auto from .txt', why: 'P5-artist-pool: the card says "· auto" (3903); the names come from the pool unless the preset has none' },
   { th: 'คั่นด้วย , (อัตโนมัติจาก .txt)', en: 'Comma-separated (auto from .txt)', why: 'P5-artist-pool: the same field\'s placeholder (3768)' },
+  { th: 'ระหว่างที่คิวทำงาน อย่าปิดหรือรีเฟรชแท็บนี้ · YouTube จำกัดจำนวนอัปโหลดต่อวัน ถ้าชนลิมิตคิวจะหยุดเอง', en: 'While the queue is running, don\'t close or refresh this tab · YouTube limits uploads per day; if you hit the limit the queue stops automatically', why: 'P5-daily-limit: at the limit the queue now pauses and resumes 24 hours later; the same hint with that ending is in extension-only' },
 ];

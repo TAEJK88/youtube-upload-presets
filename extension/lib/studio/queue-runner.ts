@@ -4,11 +4,14 @@ import { DESC_MAX, IMG_EXT, SCHEDULE_MIN_LEAD, TITLE_MAX, TXT_EXT, VIDEO_EXT } f
 import { L, locale } from '../i18n';
 import { visLabels } from '../presets';
 import { weekOf } from '../schedule-week';
+import { BATCH_MAX, wholeIn } from '../settings';
 import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../template';
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
 import { ui } from './page-ui';
+import { saysUploading, waitForUploads } from './queue-batch';
 import { dropFiles, probeBridge, getQueueFile, getThumbFile, pageFiles } from './queue-files';
+import { endPause, PAUSE_MS, pauseQueue, type QueuePause } from './queue-pause';
 import { setSchedule } from './schedule';
 import { SEL } from './sel';
 import { activeId, counters, load, presetById, presets, save, saveSettings, settings } from './state';
@@ -545,7 +548,7 @@ async function runQueue() {
         it.draftId = it.draftId || dialogVideoId();
         setItem(it, 'error', e.message + (it.draftId ? L(` · ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ลบใน Content ก่อนกดลองใหม่ จะได้ไม่ซ้ำ`, ` · The file is already uploaded as a draft (${it.draftId}). Delete it in Content before retrying to avoid duplicates`) : ''));
         closeStudioUploadDialog();
-        if (TXT.uploadLimit.test(e.message)) break;
+        if (TXT.uploadLimit.test(e.message)) { dailyLimitHit(it, e.message); break; }
       }
       if (!stopReq && queue.some((i) => i.status === 'pending')) await sleep(settings.delay * 1000);
     }
@@ -554,6 +557,7 @@ async function runQueue() {
     lock.release();
     assignNumbers();
     ui.queue();
+    if (limitPause) return announcePause(ok);
     const errN = queue.filter((i) => i.status === 'error').length;
     const left = queue.filter((i) => i.status === 'pending').length;
     const msg = stopReq ? L(`หยุดคิวแล้ว (สำเร็จ ${ok} คลิป)`, `Queue stopped (${ok} video(s) done)`) : L(`คิวเสร็จแล้ว สำเร็จ ${ok} คลิป ✅`, `Queue finished: ${ok} video(s) done ✅`);
@@ -596,10 +600,76 @@ async function uploadCurrent(it: QueueItem): Promise<void> {
   if (torn) throw tornError();
   if (aborted) throw aborted;
   current = it.id;
+  endPause(); // a run that reaches a video is not paused any more
+  // What Studio's dialog last said about this upload, for the batch wait below.
+  let said = '';
+  const watch = setInterval(() => { said = uploadProgressText() || said; }, 500);
   try {
     await uploadOne(it);
   } finally {
     current = null;
+    clearInterval(watch);
+  }
+  if (batchSize()) handed.push(!said || saysUploading(said));
+  await batchWait().catch((e) => console.error('[ytup] batch wait', e)); // never fails the video that is done
+}
+
+// YouTube's daily upload limit (P5-daily-limit; the userscript ended the queue here). The run
+// still ends, and with it the automation lock is free for the pause's 24 hours, but
+// lib/studio/queue-pause.ts keeps when to go on. The video that met the limit goes back to
+// waiting: Studio refused its file. Only when the dialog already showed a video link is it left
+// as the error it was, with the "delete the draft first" text, so no resume uploads it twice.
+// Nothing is paused when the user had pressed Stop, or when nothing is left to upload.
+// TXT.uploadLimit is as loose as the userscript's; Studio's real wording goes to the debug log.
+let limitPause: QueuePause | null = null;
+function dailyLimitHit(it: QueueItem, text: string): void {
+  console.warn(`[ytup] daily upload limit: Studio said "${text}"${it.draftId ? ` (draft ${it.draftId})` : ''}`);
+  if (stopReq) return;
+  if (!it.draftId) setItem(it, 'pending');
+  if (queue.some((i) => i.status === 'pending')) limitPause = pauseQueue({ id: getChannel().id, name: chanLabel(getChannel()) });
+}
+// The end of a run that paused: not "finished", and not the ⚠️ of a run that needs a look.
+function announcePause(ok: number): void {
+  const when = fmtWhen(limitPause!.until);
+  limitPause = null;
+  const left = queue.filter((i) => i.status === 'pending').length;
+  ui.toast(L(`คิวพักไว้: ชนขีดจำกัดอัปโหลดต่อวันของ YouTube — จะอัปโหลดต่อเอง ${when}`, `Queue paused: YouTube's daily upload limit — resumes by itself ${when}`));
+  ui.notifyDone(L('คิวพักไว้ — ชนขีดจำกัดอัปโหลดต่อวัน', 'Queue paused — daily upload limit'),
+    `${chanLabel(getChannel())} · ` + L(`สำเร็จ ${ok}`, `${ok} done`) + L(` · ค้าง ${left}`, ` · ${left} left`) + L(` · อัปโหลดต่อ ${when}`, ` · resumes ${when}`), false);
+  ui.setTitleMark(document.hasFocus() ? '' : '⚠️');
+}
+
+// Batches (P5-upload-batches; the userscript went on however many files Studio was still
+// uploading). Counted per run, and afresh after a daily-limit pause: 24 hours later nothing of
+// the old batch is still uploading. `handed` has one entry per video of the batch so far: was
+// its upload still going when its dialog closed (or unknown, which counts as going)? A batch
+// whose uploads had all finished by then needs no wait; otherwise lib/studio/queue-batch.ts
+// watches Studio's upload monitor.
+let handed: boolean[] = [];
+let batchNo = 0;
+const batchReset = () => { handed = []; batchNo = 0; };
+const batchSize = () => wholeIn(settings.batch, BATCH_MAX);
+// What the run is waiting for between two videos (QueueState.wait); '' = nothing.
+let waitNote = '';
+export const runWait = () => waitNote;
+async function batchWait(): Promise<void> {
+  const size = batchSize();
+  if (!size || handed.length < size) return;
+  const going = handed.filter(Boolean).length;
+  handed = [];
+  batchNo++;
+  if (stopReq || !queue.some((i) => i.status === 'pending')) return;
+  if (!going) return console.info(`[ytup] batch ${batchNo}: every upload had finished before its dialog closed, no wait`);
+  const head = L(`รอ Studio อัปโหลดชุดที่ ${batchNo} ให้เสร็จ (ยังอัปโหลดอยู่ ${going} จาก ${size} คลิป)`, `Waiting for Studio to finish uploading batch ${batchNo} (${going} of ${size} still uploading)`);
+  try {
+    const end = await waitForUploads({
+      stopped: () => stopReq || torn || aborted !== null,
+      say: (m) => { waitNote = head + (m ? ' · ' + m.slice(0, 60) : ''); }, // the tick broadcasts it
+    });
+    if (end === 'blind') ui.toast(L(`อ่านความคืบหน้าการอัปโหลดของ Studio ไม่ได้ — รอชุดที่ ${batchNo} ครบ 2 นาทีแล้วอัปโหลดต่อ`, `Could not read Studio's upload progress — waited 2 minutes for batch ${batchNo}, then went on`));
+    if (end === 'long') ui.toast(L(`Studio ยังอัปโหลดชุดที่ ${batchNo} ไม่เสร็จหลัง 6 ชั่วโมง — อัปโหลดต่อ`, `Studio was still uploading batch ${batchNo} after 6 hours — went on`));
+  } finally {
+    waitNote = '';
   }
 }
 
@@ -705,21 +775,50 @@ export async function startQueue(seen: StartBinding): Promise<void> {
   if (aborted) return ui.toast(L('มีแท็บ Studio อื่นกำลังอัปโหลดคิวหรือทำงานด้านลิขสิทธิ์อยู่', 'Another Studio tab is already running the queue or copyright work'));
   let problem = bindingProblem(seen);
   if (problem) return ui.toast(problem);
+  const unread = await filesProblem();
+  if (unread) return ui.toast(unread);
+  // The probe can take seconds: check again right before the run.
+  problem = bindingProblem(seen);
+  if (problem) return ui.toast(problem);
+  batchReset();
+  return runQueue();
+}
+// Does the file bridge answer, and can it read every file of the run? '' when it can.
+async function filesProblem(): Promise<string> {
   const reads = queue.filter((i) => i.status === 'pending')
     .flatMap((i) => [...(i.src === 'bridge' ? [i.id] : []), ...(settings.thumb && i.thumb?.src === 'bridge' ? [i.thumb.id] : [])]);
   const probe = !channelProblem() && reads.length ? await probeBridge(reads) : 'answers';
   if (probe === 'silent') {
-    return ui.toast(L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again"));
+    return L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again");
   }
   // Files of the run lost read access (the browser or the extension was restarted, or Chrome
   // withdrew it): one Re-grant click fixes all of them, a run would fail each one in turn.
   if (probe === 'permission') {
-    return ui.toast(L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง แล้วกดเริ่มอีกครั้ง', 'The queued files need read access again — click "Re-grant access" in the side panel, then start again'));
+    return L('ไฟล์ในคิวต้องขออนุญาตอ่านอีกครั้ง — กด "อนุญาตอีกครั้ง" ในแผงด้านข้าง แล้วกดเริ่มอีกครั้ง', 'The queued files need read access again — click "Re-grant access" in the side panel, then start again');
   }
-  // The probe can take seconds: check again right before the run.
-  problem = bindingProblem(seen);
-  if (problem) return ui.toast(problem);
-  return runQueue();
+  return '';
+}
+
+// The daily-limit pause is over (queue-pause.ts createPauseWatch): the run the user started goes
+// on, after the checks of a start. Returns why it could not, for the page to say; '' when it
+// ran, and when another tab holds the automation lock (that is no news: tried again later).
+// The lock is asked for here first, so a second tab on the channel is refused quietly.
+export async function resumeAfterPause(): Promise<string> {
+  await freshCfg();
+  if (running || aborted || otherTabRuns) return '';
+  const problem = channelProblem();
+  if (problem) return '⛔ ' + problem;
+  const unread = await filesProblem();
+  if (unread) return unread;
+  if (running || !(await lock.acquire())) return '';
+  try {
+    ui.toast(L('ครบ 24 ชั่วโมงหลังชนขีดจำกัดอัปโหลดต่อวัน — อัปโหลดคิวต่อ', '24 hours since the daily upload limit — the queue goes on'));
+    batchReset();
+    await runQueue();
+  } finally {
+    if (!running) lock.release(); // a run that never started (nothing waiting, not confirmed) holds nothing
+  }
+  return '';
 }
 
 // The userscript built STATUS once at load; here that is before initI18n() has read the
@@ -765,8 +864,15 @@ export interface StartSummary {
   badTime: { name: string; at: number }[];
   prevUp: { name: string; title: string }[];
   badTl: { name: string; error: string }[];
+  // Over the user's own daily number (Settings → dailyLimit): this browser's uploads to the
+  // channel in the last 24 hours, plus this run. An estimate; absent when within it or off.
+  daily?: { recent: number; limit: number };
   needsConfirm: boolean;
 }
+
+// This browser's uploads to the channel since `since`, from the upload history.
+const uploadsSince = (channelId: string, since: number) =>
+  getUploads().filter((u) => u.channel === channelId && Date.parse(u.date) > since).length;
 
 export async function startSummary(): Promise<StartSummary | { error: string }> {
   const pendingN = queue.filter((i) => i.status === 'pending').length;
@@ -782,6 +888,9 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
   const prevUp = pendingItems.filter((i) => i.prev);
   await refreshForStart();
   const ch = getChannel();
+  const limit = wholeIn(settings.dailyLimit, Infinity);
+  const recent = uploadsSince(ch.id, Date.now() - PAUSE_MS);
+  const over = limit > 0 && recent + pendingN > limit;
   return {
     pendingN,
     channel: { id: ch.id, name: chanLabel(ch), avatar: ch.avatar },
@@ -795,7 +904,8 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
     badTime: badTime.map((i) => ({ name: i.file.name, at: itemPublishAt(i) ?? 0 })),
     prevUp: prevUp.map((i) => ({ name: i.file.name, title: i.prev?.title || i.prev?.videoId || '' })),
     badTl: badTl.map(([i, tc]) => ({ name: i.file.name, error: tc.errors[0] ?? '' })),
-    needsConfirm: !!(settings.confirmStart || badTl.length || badTime.length || prevUp.length),
+    ...(over ? { daily: { recent, limit } } : {}),
+    needsConfirm: !!(settings.confirmStart || badTl.length || badTime.length || prevUp.length || over),
   };
 }
 

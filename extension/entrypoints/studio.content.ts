@@ -17,7 +17,7 @@ import { rpcClient, windowEndpoint } from '@/lib/rpc';
 import { createSyncStore } from '@/lib/sync-store';
 import { getChannel, refreshCfg } from '@/lib/studio/channel';
 import { rememberChannel, switchChannel } from '@/lib/studio/channels';
-import { createContentUi, startFromPanel, storeWriteFailed } from '@/lib/studio/content-ui';
+import { createContentUi, resumeFromPause, startFromPanel, storeWriteFailed } from '@/lib/studio/content-ui';
 import { activityTab, fabModel, mountFab } from '@/lib/studio/fab';
 import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
@@ -27,7 +27,8 @@ import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
-import { abortRun, installIntercept, isStartBinding, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
+import { createPauseWatch } from '@/lib/studio/queue-pause';
+import { abortRun, installIntercept, isStartBinding, queue, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
 import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
@@ -234,6 +235,15 @@ export default defineContentScript({
     // or taken a Start: the panel is told at once (its banner, QueueView.userscript), and a
     // queue found running with it there stops after its current video (userscript-here userscriptWatch).
     const watchUserscript = userscriptWatch({ running: () => running, stop: requestStop, said: sayUserscript, changed: () => ui.schedule() });
+    // A queue paused at YouTube's daily limit goes on from here when its 24 hours are over
+    // (queue-pause.ts); not while the userscript is in the page, as no run starts then.
+    const pauseWatch = createPauseWatch({
+      channelId: () => getChannel().id,
+      pending: () => queue.filter((i) => i.status === 'pending').length,
+      running: () => running || userscriptHere(),
+      resume: () => resumeFromPause(ui).finally(elsewhere),
+      toast: (m) => ui.toast(m),
+    });
     ctx.setInterval(() => {
       lockFollower.tick();
       watchUserscript();
@@ -252,6 +262,11 @@ export default defineContentScript({
         claims.tick();
       } catch (e) {
         console.error('[ytup] copyright tick', e);
+      }
+      try {
+        pauseWatch.tick();
+      } catch (e) {
+        console.error('[ytup] pause watch', e);
       }
       // Its own try too: a failing tick must not freeze the FAB, nor the FAB the tick. Said on
       // the page with the progress half, once for both (renderActivity() was in that half, 6375).

@@ -21,6 +21,9 @@ export const SEL = {
   uploadMenuButton: '#upload-icon, #upload-button, ytcp-button#upload-button, ytcp-icon-button#upload-icon',
   uploadProgress: 'ytcp-video-upload-progress, ytcp-video-upload-progress-hover',
   uploadProgressFallback: '.progress-label', // คลาสทั่วไป — ใช้เฉพาะตอนไม่พบ element เฉพาะข้างบน
+  // Not from the userscript (P5-upload-batches): Studio's monitor of uploads still going after the
+  // dialog closed. A guess, never checked against a real Studio (lib/studio/queue-batch.ts).
+  uploadMonitor: 'ytcp-multi-progress-monitor',
   // --- หน้ากรอกรายละเอียด ---
   titleBox: '#title-textarea #textbox',
   descBox: '#description-textarea #textbox',

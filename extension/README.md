@@ -1633,6 +1633,79 @@ observation.
         time as it is now (after step 9 moved it, they are not the times of step 5).
     11. **Backup.** Settings → Export, then Import that file as **My file**: the mode, the
         count, the two times and the times on the cards are as before the import.
+91. **Batches (an addition: the userscript had none).** What is built: after "Batch size"
+    videos (Settings → General, default 15, 0 = off) the queue waits until Studio has finished
+    uploading them, then goes on. Nothing of this has run in Chrome. Two things are read from
+    Studio: the upload dialog's own progress text (the one the userscript read), to know
+    whether a video was still uploading when its dialog closed; and Studio's small monitor of
+    background uploads, whose element name (`ytcp-multi-progress-monitor`) and wording
+    ("Uploading…") are **a guess**.
+    1. Settings → General → **Batch size**: set 3. Queue 17 short clips (a few MB each), no
+       thumbnails, Auto-press Save on. Open the Studio tab's console filtered by `[ytup]`.
+    2. Start. After the 3rd clip is saved, one of two things happens. **Record which**, for
+       each batch:
+       - the footer shows "Waiting for Studio to finish uploading batch 1 (N of 3 still
+         uploading)", perhaps followed by " · " and Studio's own words, and the 4th clip starts
+         when Studio is done. The console then has `[ytup] batch wait: done after … s ·
+         monitor said "…"`: **record that line** (it holds Studio's real wording);
+       - or no wait at all, and the console has `[ytup] batch 1: every upload had finished
+         before its dialog closed, no wait`. Short clips usually finish uploading before Save,
+         so this is the expected result with small files.
+    3. To see the wait itself, repeat with 4 clips of 200 MB or more and Batch size 2. Expect
+       the waiting line after the 2nd clip. **Record** whether it ended when Studio's uploads
+       ended. If instead the page says "Could not read Studio's upload progress — waited 2
+       minutes for batch 1, then went on" and the console has `monitor not found`, the guess
+       about Studio's monitor is wrong: **record it** together with what Studio showed in the
+       bottom corner of the page (a screenshot) so the selector can be fixed.
+    4. During a wait press **Stop**: the run ends within a few seconds ("Queue stopped"), the
+       clips not yet uploaded stay queued.
+    5. Batch size 0: the queue never waits (as before).
+92. **The warning before Start (an addition).** Settings → General → **Daily upload limit
+    (your own number)**, default 15, 0 = off.
+    1. Set it to 1. Queue 2 clips and press Start. Expect the start summary, also when
+       "Confirm channel name before starting the queue" is off, with a yellow box "May go
+       over the daily upload limit (an estimate)" and three lines: the sum ("This browser
+       uploaded 0 to this channel in the last 24 hours + 2 in this queue = 2 · your limit is
+       1"; the first number is higher when this browser uploaded there in the last 24
+       hours), "YouTube publishes no number and counts uploads from every device — the extension
+       only knows its own", and "You can still start: …".
+    2. Confirm: the run starts and uploads both (the warning blocks nothing).
+    3. Queue 1 more clip and press Start: the sum now reads "uploaded 2 … + 1 in this queue =
+       3". Set the number to 0 and press Start again: no box.
+93. **The pause at YouTube's daily limit (an addition: the userscript ended the queue).** What
+    is built: when a video's upload dialog shows an error whose text holds "limit", "daily" or
+    "ขีดจำกัด" (the userscript's test), the run ends, that video goes back to Queued, and the
+    queue is paused for 24 hours; a Studio tab on that channel resumes it by itself. **The
+    detection can only be tested at YouTube's real limit**, and Studio's real wording has
+    never been captured: if you ever meet it, **record** the console line `[ytup] daily upload
+    limit: Studio said "…"` and whether the refused video was left as a draft in Content.
+    The paused state and the resume can be seen without the limit, by writing the pause by
+    hand (nothing in the extension's own UI does this):
+    1. Queue 2 clips, do not start. Right-click inside the side panel → Inspect → Console, and
+       run, with the test channel's id (the `UC…` in the Studio address):
+       `chrome.storage.local.set({ queuePause: { channel: 'UC…', name: 'Test', at: Date.now(), until: Date.now() + 180000 } })`
+    2. Within a second the footer shows "Paused: daily upload limit on Test — resumes <a time
+       3 minutes from now> if a Studio tab on that channel is open", the Start button reads
+       "Resume now: 2 video(s)" and the stop button is "Cancel the pause". The Copyright tab's
+       buttons are not held back (the pause holds no lock).
+    3. Reload the Studio tab, close and reopen the side panel: the same line is back.
+    4. Wait for the time. Expect, with nobody touching anything: the page toast "24 hours
+       since the daily upload limit — the queue goes on", the paused line gone, and both clips
+       uploaded. **Record** how long after the time it started, once with the Studio tab in
+       front and once with it in a background tab (Chrome slows a hidden tab's timers: up to
+       about a minute is expected).
+    5. Again from step 1, then **Cancel the pause**: the toast "Pause cancelled — the queue
+       will not resume by itself", the line gone, the clips still Queued; after the time
+       nothing starts.
+    6. Again from step 1, then **Resume now**: the usual start (summary if one is due), the
+       clips upload, the line is gone.
+    7. Again from step 1 with a `channel` that is another channel's id: after the time
+       nothing starts in this tab; the line stays.
+    8. Again from step 1, then quit Chrome, wait past the time, open Chrome and the Studio
+       tab. **Record** what happens: expected is the page toast "The queued files need read
+       access again — click "Re-grant access" in the side panel, then start again" (unless
+       "Allow on every visit" was given, item 89), the pause kept, and the upload starting
+       within a minute of **Re-grant access**.
 
 ### Known behaviour, Phase 4a (note, don't test)
 
@@ -1760,6 +1833,39 @@ Not in 5.0.0 yet (also in `CHANGELOG.md`):
   for every question. Returning it would let a held Enter answer the same question again and
   again (measured in a test page: a held Enter answered yes 20 times in a row), so it waits
   for a guard against the key repeat.
+
+The daily upload limit and batches (additions the userscript did not have; items 91 to 93):
+
+- **A paused queue resumes only in a Studio tab on the channel that met the limit.** The tab
+  looks at the clock itself (the background cannot drive a page), so nothing resumes while no
+  such tab is open, and no notification says the time has come: the pause and its time are
+  kept, and the first Studio tab on that channel after the time goes on, also days later.
+- **After a browser restart the resume needs the files' read access** like any start: the
+  page says "The queued files need read access again…", and the queue goes on within a
+  minute of **Re-grant access** (or by itself with "Allow on every visit", item 89). Clips
+  that were picked in Studio's own dialog are lost with a reload, as before, and fail one by
+  one with "This file came from Studio's own upload dialog…".
+- **A resumed run asks nothing again.** It is the run you started; a release time you typed
+  on a card that has passed meanwhile fails that one video with "Release time must be at least
+  15 minutes in the future".
+- **The video that met the limit** goes back to Queued. If Studio's dialog already showed a
+  video link for it, it stays an error with "The file is already uploaded as a draft … Delete
+  it in Content before retrying" and is not uploaded again by the resume.
+- **Stop pressed before the limit shows** ends the run as before: no pause.
+- **The limit test is loose** (the userscript's): any dialog error that holds "limit" or
+  "daily" pauses the queue. **Resume now** or **Cancel the pause** undo a wrong pause.
+- **Pressing Start in a tab on another channel while paused** uploads the queue there and
+  ends the pause.
+- **The warning before Start counts only this browser's upload history** for the channel
+  (the last 24 hours), not uploads from a phone, another computer or Studio's own dialog.
+- **Batches are counted per run.** A run resumed after the daily limit, and a run started
+  again by hand, start a new batch. A video that failed is not counted.
+- **How a batch's end is known is partly a guess** (item 91). A batch whose uploads had all
+  finished when their dialogs closed is not waited for. Otherwise the wait ends when Studio's
+  upload monitor stops saying "Uploading" (or "กำลังอัปโหลด": a Studio in another language
+  ends the wait at once), after 2 minutes when no monitor is found, and after 6 hours at
+  most. The footer cannot say how many of the batch are done, only how many were still
+  uploading when their dialogs closed.
 
 Read access to the queued files (the reasons are from Chrome's source code and
 documentation; none of it is measured in Chrome yet, items 88 and 89 are where it is):

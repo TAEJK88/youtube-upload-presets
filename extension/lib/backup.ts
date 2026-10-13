@@ -4,7 +4,7 @@ import { VISIBILITIES, type Visibility } from './constants';
 import { fixLegacyTrapsoulTitles, runMigrations } from './migrations';
 import type { Preset } from './presets';
 import { withWeek } from './schedule-week';
-import type { Settings } from './settings';
+import { cleanLimits, type Settings } from './settings';
 import type { StoredChannel } from './studio/channels';
 import type { UploadRecord } from './studio/queue-runner';
 
@@ -171,7 +171,7 @@ export function applyBackup(
       }
       if (typeof v === typeof base[k]) next[k] = v; // the type must match the current value
     }
-    w.settings = next as unknown as Settings;
+    w.settings = cleanLimits(next) as unknown as Settings;
   }
   if (isObj(data.claimsCfg)) {
     const c = { ...cur.cfg };

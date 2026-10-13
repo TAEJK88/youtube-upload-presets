@@ -15,7 +15,7 @@ import type { ChannelView, QueueView } from './studio/queue-view';
 // panel takes a queue view or state only from a tab with its own number, and otherwise asks for
 // that tab to be reloaded. Raise it whenever QueueView, QueueState or ClaimsState gains, loses or
 // changes a field.
-export const PROTOCOL = 3;
+export const PROTOCOL = 4;
 
 // What the side panel needs to follow a run live; the items themselves are in
 // chrome.storage.local ('queue'). `rev` goes up whenever the page changed something the
@@ -25,6 +25,9 @@ export interface QueueState {
   running: boolean;
   stopping: boolean;
   prog: { pct: number | null; text: string } | null;
+  wait: string; // what the run waits for between two videos (a batch still uploading); '' = nothing
+  // The queue met YouTube's daily upload limit and goes on at `until` in a tab on `channel`.
+  paused: { until: number; channel: string; name: string } | null;
   rev: number;
   channel: ChannelView; // what the channel bar shows; a change makes the panel re-read
 }
