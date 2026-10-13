@@ -620,11 +620,15 @@ async function uploadCurrent(it: QueueItem): Promise<void> {
 // waiting: Studio refused its file. Only when the dialog already showed a video link is it left
 // as the error it was, with the "delete the draft first" text, so no resume uploads it twice.
 // Nothing is paused when the user had pressed Stop, or when nothing is left to upload.
-// TXT.uploadLimit is as loose as the userscript's; Studio's real wording goes to the debug log.
+// TXT.uploadLimit stops the run as loosely as the userscript's did ("limit" alone is enough),
+// but only a message that speaks of a day pauses: another limit (a file too large or too long)
+// would be refused again every 24 hours and never show as the error it is. The Thai words are a
+// guess; a message they miss ends the queue as before. Studio's real wording goes to the debug log.
+const DAILY = /daily|\b24\b|รายวัน|ต่อวัน/i;
 let limitPause: QueuePause | null = null;
 function dailyLimitHit(it: QueueItem, text: string): void {
-  console.warn(`[ytup] daily upload limit: Studio said "${text}"${it.draftId ? ` (draft ${it.draftId})` : ''}`);
-  if (stopReq) return;
+  console.warn(`[ytup] upload limit: Studio said "${text}"${it.draftId ? ` (draft ${it.draftId})` : ''}`);
+  if (stopReq || !DAILY.test(text)) return;
   if (!it.draftId) setItem(it, 'pending');
   if (queue.some((i) => i.status === 'pending')) limitPause = pauseQueue({ id: getChannel().id, name: chanLabel(getChannel()) });
 }

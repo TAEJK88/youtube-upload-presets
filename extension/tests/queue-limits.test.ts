@@ -17,6 +17,7 @@ import { makeDocument } from './fake-dom.mjs';
 // (P5-daily-limit, P5-upload-batches), through runQueue() with Studio's dialog faked at the
 // automation layer as in queue-run-flow.test.ts.
 const LIMIT = 'Daily upload limit reached. You can upload more videos in 24 hours.';
+const said = vi.hoisted(() => ({ error: '' }));
 const CH = 'UCabcdefghijklmn';
 const studio = vi.hoisted(() => ({
   open: false,
@@ -56,7 +57,7 @@ vi.mock('../lib/studio/upload-dialog', async (orig) => ({
   goToVisibility: async () => true,
   ackNoticeDialogs: () => false,
   closeAfterDialogs: () => {},
-  dialogError: () => (refused() ? LIMIT : ''),
+  dialogError: () => (refused() ? said.error : ''),
   uploadProgressText: () => studio.progress,
 }));
 
@@ -98,6 +99,7 @@ beforeEach(() => {
   Q.queue.splice(0);
   toasts.length = 0;
   notes.length = 0;
+  said.error = LIMIT;
   Object.assign(studio, { open: false, uploads: [], limitFrom: Infinity, draft: '', progress: '', fill: async () => {}, onInject: () => {} });
   was = { batch: settings.batch, dailyLimit: settings.dailyLimit, confirmStart: settings.confirmStart };
   Object.assign(settings, { batch: 0, dailyLimit: 0, confirmStart: false });
@@ -127,7 +129,7 @@ describe('the daily upload limit', () => {
     expect(Q.running).toBe(false);
     expect(lock.release).toHaveBeenCalled();
     // Studio's exact wording goes to the debug log (console.warn is captured there).
-    expect(warn).toHaveBeenCalledWith(`[ytup] daily upload limit: Studio said "${LIMIT}"`);
+    expect(warn).toHaveBeenCalledWith(`[ytup] upload limit: Studio said "${LIMIT}"`);
   });
 
   it('says "paused" with the time, not "finished" and not "needs attention"', async () => {
@@ -170,6 +172,28 @@ describe('the daily upload limit', () => {
     expect(statuses()).toEqual(['done', 'error', 'pending']);
     expect(queuePause()).toBe(null);
     expect(toasts).toEqual(['Queue stopped (1 video(s) done)']);
+  });
+
+  it('another limit (a file too large) is no daily limit: the run ends as before, with the error on the video', async () => {
+    await add('A.mp4', 'B.mp4', 'C.mp4');
+    studio.limitFrom = 1;
+    said.error = 'The file is larger than the upload size limit.';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await Q.runQueue();
+    expect(statuses()).toEqual(['done', 'error', 'pending']);
+    expect(queuePause()).toBe(null);
+    expect(notes[0]!.title).toBe('Queue stopped — needs attention ⚠️');
+    expect(warn).toHaveBeenCalledWith('[ytup] upload limit: Studio said "The file is larger than the upload size limit."');
+  });
+
+  it('Thai wording that speaks of a day pauses too', async () => {
+    await add('A.mp4', 'B.mp4');
+    studio.limitFrom = 0;
+    said.error = 'ถึงขีดจำกัดการอัปโหลดรายวันแล้ว';
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await Q.runQueue();
+    expect(statuses()).toEqual(['pending', 'pending']);
+    expect(queuePause()).not.toBe(null);
   });
 
   it('the broadcast state carries the pause while no run is going', async () => {

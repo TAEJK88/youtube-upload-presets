@@ -1674,11 +1674,12 @@ observation.
        3". Set the number to 0 and press Start again: no box.
 93. **The pause at YouTube's daily limit (an addition: the userscript ended the queue).** What
     is built: when a video's upload dialog shows an error whose text holds "limit", "daily" or
-    "ขีดจำกัด" (the userscript's test), the run ends, that video goes back to Queued, and the
-    queue is paused for 24 hours; a Studio tab on that channel resumes it by itself. **The
+    "ขีดจำกัด" (the userscript's test), the run ends as it did. When that text also speaks of
+    a day ("daily", "24", "รายวัน", "ต่อวัน"; the Thai words are a guess), that video goes back
+    to Queued and the queue is paused for 24 hours; a Studio tab on that channel resumes it by itself. **The
     detection can only be tested at YouTube's real limit**, and Studio's real wording has
-    never been captured: if you ever meet it, **record** the console line `[ytup] daily upload
-    limit: Studio said "…"` and whether the refused video was left as a draft in Content.
+    never been captured: if you ever meet it, **record** the console line `[ytup] upload limit:
+    Studio said "…"` and whether the refused video was left as a draft in Content.
     The paused state and the resume can be seen without the limit, by writing the pause by
     hand (nothing in the extension's own UI does this):
     1. Queue 2 clips, do not start. Right-click inside the side panel → Inspect → Console, and
@@ -1852,8 +1853,11 @@ The daily upload limit and batches (additions the userscript did not have; items
   video link for it, it stays an error with "The file is already uploaded as a draft … Delete
   it in Content before retrying" and is not uploaded again by the resume.
 - **Stop pressed before the limit shows** ends the run as before: no pause.
-- **The limit test is loose** (the userscript's): any dialog error that holds "limit" or
-  "daily" pauses the queue. **Resume now** or **Cancel the pause** undo a wrong pause.
+- **Only a limit that speaks of a day pauses.** Any dialog error that holds "limit" still
+  ends the run (the userscript's test), but the pause needs "daily", "24", "รายวัน" or "ต่อวัน"
+  in it; a size or length limit stays an error on its video. If Studio's Thai message uses
+  other words the queue ends as it did before, with no pause. **Resume now** or **Cancel the
+  pause** undo a wrong pause.
 - **Pressing Start in a tab on another channel while paused** uploads the queue there and
   ends the pause.
 - **The warning before Start counts only this browser's upload history** for the channel
