@@ -1644,31 +1644,50 @@ observation.
         count, the two times and the times on the cards are as before the import.
 91. **Batches (an addition: the userscript had none).** What is built: after "Batch size"
     videos (Settings → General, default 15, 0 = off) the queue waits until Studio has finished
-    uploading them, then goes on. Nothing of this has run in Chrome. Two things are read from
-    Studio: the upload dialog's own progress text (the one the userscript read), to know
-    whether a video was still uploading when its dialog closed; and Studio's small monitor of
-    background uploads, whose element name (`ytcp-multi-progress-monitor`) and wording
-    ("Uploading…") are **a guess**.
-    1. Settings → General → **Batch size**: set 3. Queue 17 short clips (a few MB each), no
+    uploading them, then goes on.
+    **Seen in the owner's Chrome on 2026-10-14 (first build of this, Batch size 2, 4 large
+    clips):** while an upload dialog is open, its progress line reads "Uploading 5% ... 8
+    minutes left"; after the dialogs closed, nothing in the page showed the uploads still
+    going (Studio's upload monitor did not appear in 2 minutes), and that build went on blind
+    with "Could not read Studio's upload progress". What is built since then, **not yet run in
+    Chrome**:
+    - the batch's **last** video keeps its dialog open, Save not pressed, while that line
+      still says "Uploading"; this is the one signal that was seen;
+    - for the batch's **earlier** videos that were still uploading when their dialogs closed,
+      the page is looked at for 6 seconds for anything that says so (Studio's monitor, or a
+      leftover progress line); this is a guess. When nothing is found the page says the
+      earlier uploads could not be checked, and the run goes on.
+    1. Settings → General → **Batch size**: set 2. Queue 5 clips of 200 MB or more, no
        thumbnails, Auto-press Save on. Open the Studio tab's console filtered by `[ytup]`.
-    2. Start. After the 3rd clip is saved, one of two things happens. **Record which**, for
-       each batch:
-       - the footer shows "Waiting for Studio to finish uploading batch 1 (N of 3 still
-         uploading)", perhaps followed by " · " and Studio's own words, and the 4th clip starts
-         when Studio is done. The console then has `[ytup] batch wait: done after … s ·
-         monitor said "…"`: **record that line** (it holds Studio's real wording);
-       - or no wait at all, and the console has `[ytup] batch 1: every upload had finished
-         before its dialog closed, no wait`. Short clips usually finish uploading before Save,
-         so this is the expected result with small files.
-    3. To see the wait itself, repeat with 4 clips of 200 MB or more and Batch size 2. Expect
-       the waiting line after the 2nd clip. **Record** whether it ended when Studio's uploads
-       ended. If instead the page says "Could not read Studio's upload progress — waited 2
-       minutes for batch 1, then went on" and the console has `monitor not found`, the guess
-       about Studio's monitor is wrong: **record it** together with what Studio showed in the
-       bottom corner of the page (a screenshot) so the selector can be fixed.
-    4. During a wait press **Stop**: the run ends within a few seconds ("Queue stopped"), the
-       clips not yet uploaded stay queued.
-    5. Batch size 0: the queue never waits (as before).
+    2. Start. On the 2nd clip expect: its dialog stays open after the details are filled in
+       (Save is not pressed yet), and the
+       footer and the clip's card show "Waiting for Studio to finish uploading batch 1 before
+       saving its last video", the footer followed by " · " and Studio's own words
+       ("Uploading 40% ... 3 minutes left", changing). When that upload is done the clip is
+       saved and the dialog closes. The console has `[ytup] batch wait (dialog): done after …
+       s · Studio said "…"`: **record that line** (it holds what Studio says when an upload
+       is complete).
+    3. Right after, the 1st clip is looked for. **Record which** of these happens, and **record
+       every `[ytup] batch census:` line** from the console in full (they list what Studio had
+       in the page; with them no console snippet is needed to fix this):
+       - the toast "Could not check whether batch 1's earlier videos have finished uploading
+         (1 were still uploading when their dialogs closed) — went on" about 6 seconds later.
+         Expected, going by what was seen on 2026-10-14;
+       - or the footer shows "Waiting for Studio to finish uploading batch 1 (1 of 2 still
+         uploading) · …" and the 3rd clip starts when it ends, with `[ytup] batch wait (page):
+         done after … s · Studio said "…"` in the console;
+       - or neither, and the console has `[ytup] batch 1: every upload had finished before its
+         dialog closed, no wait` (the 1st clip was already uploaded when it was saved).
+    4. **Record** whether the 1st clip's upload had in fact finished by the time the 3rd clip
+       started (Studio's Content page shows it).
+    5. The 5th clip is the last of the queue: it is saved without waiting.
+    6. During the wait of step 2 press **Stop**: within a few seconds that clip is saved (Stop
+       means "after the current video"), "Queue stopped" shows, the rest stays queued.
+    7. With short clips (a few MB) and Batch size 3: no wait at all, and the console has
+       `every upload had finished before its dialog closed, no wait`.
+    8. Auto-press Save **off**, Batch size 2: no dialog is held (you press Save when you
+       choose); after the 2nd clip at most the look at the page of step 3 happens.
+    9. Batch size 0: the queue never waits (as before).
 92. **The warning before Start (an addition).** Settings → General → **Daily upload limit
     (your own number)**, default 15, 0 = off.
     1. Set it to 1. Queue 2 clips and press Start. Expect the start summary, also when
@@ -1876,12 +1895,22 @@ The daily upload limit and batches (additions the userscript did not have; items
   else's": they are general settings, not personal ones.
 - **Batches are counted per run.** A run resumed after the daily limit, and a run started
   again by hand, start a new batch. A video that failed is not counted.
-- **How a batch's end is known is partly a guess** (item 91). A batch whose uploads had all
-  finished when their dialogs closed is not waited for. Otherwise the wait ends when Studio's
-  upload monitor stops saying "Uploading" (or "กำลังอัปโหลด": a Studio in another language
-  ends the wait at once), after 2 minutes when no monitor is found, and after 6 hours at
-  most. The footer cannot say how many of the batch are done, only how many were still
-  uploading when their dialogs closed.
+- **How a batch's end is known** (item 91). Sure: the batch's last video is not saved while
+  its own dialog still says "Uploading" (seen in Chrome, 2026-10-14). Not sure: the batch's
+  earlier videos. Nothing was found in the page that shows an upload going on after its
+  dialog closed, so when the look at the page finds nothing the run says "Could not check
+  whether batch N's earlier videos have finished uploading" and goes on. Uploads run side by
+  side and the last video started last, so the earlier ones have usually finished by then;
+  a much larger earlier file may not have.
+- **The last video of a batch is held only with "Auto-press Save" on.** With it off you press
+  Save yourself and nothing holds the dialog.
+- **A release time can pass while a batch's last video is held**: Studio may then refuse
+  the time, and that video fails. Leave more than the upload time between now and the first slot.
+- **A wait ends early** when the progress line has not changed for 10 minutes, and after 6
+  hours at most; each says so on the page. A Studio in a language other than English or Thai
+  never reads as "uploading": no dialog is held, and the look at the page ends in seconds.
+- **The footer cannot say how many of a batch are done**, only how many were still uploading
+  when their dialogs closed.
 
 Read access to the queued files (the reasons are from Chrome's source code and
 documentation; none of it is measured in Chrome yet, items 88 and 89 are where it is):

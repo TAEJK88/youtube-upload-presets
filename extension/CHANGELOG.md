@@ -85,8 +85,9 @@ New in this release:
   limit message has not been seen yet (README item 93).
 - **Addition the userscript did not have: batches.** After 15 videos (Settings → "Batch
   size", 0 = off, 50 at most) the queue waits until Studio has finished uploading them, then
-  goes on. How Studio's background uploads are read is not yet checked in Chrome (README item
-  91); when it cannot be read the queue says so and goes on after 2 minutes.
+  goes on. The batch's last video is not saved while its own dialog still says "Uploading".
+  Whether the batch's earlier uploads have finished cannot be read from Studio so far; the
+  queue then says "Could not check…" and goes on (README item 91).
 
 Not in the extension yet:
 

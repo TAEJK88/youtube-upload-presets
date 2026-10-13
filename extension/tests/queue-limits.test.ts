@@ -373,30 +373,92 @@ describe('the wake-up (createPauseWatch)', () => {
 });
 
 describe('batches', () => {
-  const waits = () => vi.mocked(B.waitForUploads).mock.calls.length;
-  // The dialog is read every 0.5 s while a video is worked on: let one reading happen.
-  const slowFill = () => { studio.fill = () => new Promise((r) => setTimeout(r, 520)); };
+  const UP = 'Uploading 5% ... 8 minutes left'; // as read in the owner's Chrome, 2026-10-14
+  type Wait = Parameters<typeof B.waitForUploads>[0];
+  const calls = (where: Wait['where']) => vi.mocked(B.waitForUploads).mock.calls.filter(([d]) => d.where === where).length;
+  // Studio as it was seen: the dialog says "Uploading…" until told otherwise; the hold ends
+  // when its upload completes; nothing on the page speaks for the closed dialogs.
+  const studioWaits = (onDialog: (d: Wait) => void = () => {}, onPage: (d: Wait) => void = () => {}) =>
+    vi.mocked(B.waitForUploads).mockImplementation(async (d) => {
+      d.say(d.read() ?? '');
+      if (d.where === 'dialog') {
+        onDialog(d);
+        studio.progress = 'Upload complete ... Processing will begin shortly';
+        return 'done';
+      }
+      onPage(d);
+      return 'blind';
+    });
   beforeEach(() => {
-    vi.spyOn(B, 'waitForUploads').mockImplementation(async (d) => (d.say('Uploading 1 of 2'), 'done'));
+    vi.spyOn(B, 'waitForUploads');
+    vi.spyOn(B, 'pageUploadText').mockReturnValue(null);
+    vi.spyOn(B, 'batchCensus').mockReturnValue('tags (count/visible): none');
     vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    studio.onInject = () => { studio.progress = UP; }; // every new file starts uploading
+    studioWaits();
   });
 
-  it('after `batch` videos the run waits for Studio, then goes on; not after the last video', async () => {
+  it('the batch\'s last video is not saved while its own dialog says "Uploading"; then the earlier ones are looked for', async () => {
     settings.batch = 2;
-    await add('A.mp4', 'B.mp4', 'C.mp4', 'D.mp4', 'E.mp4', 'F.mp4');
-    const seen: { at: number; note: string }[] = [];
-    vi.mocked(B.waitForUploads).mockImplementation(async (d) => {
-      d.say('Uploading 1 of 2');
-      seen.push({ at: studio.uploads.length, note: Q.runWait() });
-      return 'done';
-    });
+    await add('A.mp4', 'B.mp4', 'C.mp4', 'D.mp4', 'E.mp4');
+    const holds: unknown[] = [];
+    const pages: unknown[] = [];
+    studioWaits(
+      (d) => void holds.push({ at: studio.uploads.length, open: studio.open, saved: statuses().filter((x) => x === 'done').length, blindMs: d.blindMs, note: Q.runWait(), card: Q.queue[studio.uploads.length - 1]!.msg }),
+      (d) => void pages.push({ at: studio.uploads.length, open: studio.open, blindMs: d.blindMs, note: Q.runWait() }),
+    );
     await Q.startQueue(binding());
-    expect(statuses()).toEqual(Array(6).fill('done'));
-    expect(seen).toEqual([
-      { at: 2, note: 'Waiting for Studio to finish uploading batch 1 (2 of 2 still uploading) · Uploading 1 of 2' },
-      { at: 4, note: 'Waiting for Studio to finish uploading batch 2 (2 of 2 still uploading) · Uploading 1 of 2' },
+    expect(statuses()).toEqual(Array(5).fill('done'));
+    const head = (k: number) => `Waiting for Studio to finish uploading batch ${k} before saving its last video`;
+    expect(holds).toEqual([
+      { at: 2, open: true, saved: 1, blindMs: 0, note: `${head(1)} · ${UP}`, card: head(1) }, // B: its dialog still open, only A saved
+      { at: 4, open: true, saved: 3, blindMs: 0, note: `${head(2)} · ${UP}`, card: head(2) },
+    ]); // not E: nothing comes after it
+    expect(pages).toEqual([
+      { at: 2, open: false, blindMs: B.BATCH_SETTLE_MS, note: 'Waiting for Studio to finish uploading batch 1 (1 of 2 still uploading)' }, // A; B is known done
+      { at: 4, open: false, blindMs: B.BATCH_SETTLE_MS, note: 'Waiting for Studio to finish uploading batch 2 (1 of 2 still uploading)' },
     ]);
-    expect(Q.runWait()).toBe(''); // over with the wait
+    expect(Q.runWait()).toBe('');
+  });
+
+  it('earlier uploads that cannot be checked are said and logged with a census, and the run goes on', async () => {
+    settings.batch = 2;
+    await add('A.mp4', 'B.mp4', 'C.mp4');
+    await Q.startQueue(binding());
+    expect(statuses()).toEqual(['done', 'done', 'done']);
+    expect(toasts).toContain("Could not check whether batch 1's earlier videos have finished uploading (1 were still uploading when their dialogs closed) — went on");
+    expect(console.info).toHaveBeenCalledWith('[ytup] batch census: batch 1, 1 of 2 still uploading at dialog close · tags (count/visible): none');
+    expect(console.warn).toHaveBeenCalledWith('[ytup] batch census: batch 1 could not be checked · tags (count/visible): none');
+  });
+
+  it('a page that does speak for the earlier uploads is waited on, and nothing is said', async () => {
+    settings.batch = 2;
+    await add('A.mp4', 'B.mp4', 'C.mp4');
+    vi.mocked(B.waitForUploads).mockImplementation(async (d) => (d.where === 'dialog' ? ((studio.progress = 'Upload complete'), 'done') : 'done'));
+    await Q.startQueue(binding());
+    expect(statuses()).toEqual(['done', 'done', 'done']);
+    expect(calls('page')).toBe(1);
+    expect(toasts.filter((t) => /batch/.test(t))).toEqual([]);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('only the last video of a batch is held, and only while its dialog says so', async () => {
+    settings.batch = 3;
+    await add('A.mp4', 'B.mp4', 'C.mp4', 'D.mp4');
+    const at: number[] = [];
+    studioWaits(() => void at.push(studio.uploads.length));
+    await Q.startQueue(binding());
+    expect(at).toEqual([3]);
+    // every upload already finished when Save is due: no hold, and nothing to look for
+    vi.mocked(B.waitForUploads).mockClear();
+    Q.queue.splice(0);
+    studio.onInject = () => { studio.progress = 'Upload complete ... Processing will begin shortly'; };
+    await add('E.mp4', 'F.mp4', 'G.mp4', 'H.mp4');
+    await Q.startQueue(binding());
+    expect(statuses()).toEqual(Array(4).fill('done'));
+    expect(B.waitForUploads).not.toHaveBeenCalled();
+    expect(console.info).toHaveBeenCalledWith('[ytup] batch 1: every upload had finished before its dialog closed, no wait');
   });
 
   it('0 turns it off', async () => {
@@ -404,31 +466,10 @@ describe('batches', () => {
     await add('A.mp4', 'B.mp4', 'C.mp4');
     await Q.startQueue(binding());
     expect(statuses()).toEqual(['done', 'done', 'done']);
-    expect(waits()).toBe(0);
+    expect(B.waitForUploads).not.toHaveBeenCalled();
   });
 
-  it('a batch whose uploads had all finished when their dialogs closed needs no wait', async () => {
-    settings.batch = 2;
-    studio.progress = 'Upload complete … Processing will begin shortly';
-    slowFill();
-    await add('A.mp4', 'B.mp4', 'C.mp4');
-    await Q.startQueue(binding());
-    expect(statuses()).toEqual(['done', 'done', 'done']);
-    expect(waits()).toBe(0);
-  });
-
-  it('counts the videos the dialog still showed uploading', async () => {
-    settings.batch = 2;
-    slowFill();
-    studio.onInject = () => { studio.progress = studio.uploads.length === 1 ? 'Uploading 40% … 3 minutes left' : 'Upload complete'; };
-    await add('A.mp4', 'B.mp4', 'C.mp4');
-    let note = '';
-    vi.mocked(B.waitForUploads).mockImplementation(async (d) => (d.say(''), (note = Q.runWait()), 'done'));
-    await Q.startQueue(binding());
-    expect(note).toBe('Waiting for Studio to finish uploading batch 1 (1 of 2 still uploading)');
-  });
-
-  it('Stop during the wait ends the run', async () => {
+  it('Stop during the hold ends the hold; the video is saved and the run stops after it', async () => {
     settings.batch = 1;
     await add('A.mp4', 'B.mp4');
     const stopped: boolean[] = []; // read here, checked below: a failure inside the wait is swallowed
@@ -441,38 +482,59 @@ describe('batches', () => {
     await Q.startQueue(binding());
     expect(stopped).toEqual([false, true]);
     expect(statuses()).toEqual(['done', 'pending']);
+    expect(calls('page')).toBe(0); // a stopped run looks for nothing more
   });
 
-  it('a progress that cannot be read is said, and the run goes on', async () => {
+  it('a progress that stands still, or 6 hours, ends a wait with a message', async () => {
     settings.batch = 1;
-    await add('A.mp4', 'B.mp4');
-    vi.mocked(B.waitForUploads).mockResolvedValue('blind');
+    await add('A.mp4', 'B.mp4', 'C.mp4');
+    const ends = ['stale', 'done', 'long', 'done'] as const;
+    let i = 0;
+    vi.mocked(B.waitForUploads).mockImplementation(async () => ends[i++]!);
     await Q.startQueue(binding());
-    expect(statuses()).toEqual(['done', 'done']);
-    expect(toasts).toContain("Could not read Studio's upload progress — waited 2 minutes for batch 1, then went on");
+    expect(statuses()).toEqual(['done', 'done', 'done']);
+    expect(toasts).toContain("Batch 1's upload progress has not moved for 10 minutes — went on");
+    expect(toasts).toContain('Studio was still uploading batch 2 after 6 hours — went on');
   });
 
-  it('a wait that fails never turns the uploaded video into an error', async () => {
+  it('a wait that fails never turns the video into an error: neither the hold nor the look at the page', async () => {
     settings.batch = 1;
-    await add('A.mp4', 'B.mp4');
+    await add('A.mp4', 'B.mp4', 'C.mp4');
     vi.mocked(B.waitForUploads).mockRejectedValue(new Error('boom'));
     await Q.startQueue(binding());
+    expect(statuses()).toEqual(['done', 'done', 'done']);
+    expect(calls('dialog')).toBe(2);
+    expect(calls('page')).toBe(2);
+  });
+
+  it('"Auto-press Save" off: the dialog the user reads is not held; the page is still looked at', async () => {
+    settings.batch = 1;
+    const wasSave = settings.autoSave;
+    settings.autoSave = false;
+    setPageUi({ ...recorder, item: (it) => { if (it.status === 'review') studio.open = false; } }); // the user presses Save
+    try {
+      await add('A.mp4', 'B.mp4');
+      await Q.startQueue(binding());
+    } finally {
+      settings.autoSave = wasSave;
+    }
     expect(statuses()).toEqual(['done', 'done']);
+    expect(calls('dialog')).toBe(0);
+    expect(calls('page')).toBe(1); // nothing was read of A's dialog: unknown counts as still uploading
   });
 
   it('each run counts afresh, and so does a run resumed after the daily limit', async () => {
     settings.batch = 2;
     await add('A.mp4', 'B.mp4', 'C.mp4', 'D.mp4');
     studio.limitFrom = 1; // A up, B refused: one video in the batch when the run pauses
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
     await Q.startQueue(binding());
-    expect(waits()).toBe(0);
+    expect(B.waitForUploads).not.toHaveBeenCalled();
     studio.limitFrom = Infinity;
     const at: number[] = [];
-    vi.mocked(B.waitForUploads).mockImplementation(async () => (at.push(studio.uploads.length), 'done'));
+    studioWaits(() => void at.push(studio.uploads.length));
     await Q.resumeAfterPause();
     expect(statuses()).toEqual(['done', 'done', 'done', 'done']);
-    expect(at).toEqual([4]); // after B and C (2 + the 2 from before), not after B alone
+    expect(at).toEqual([4]); // held at C, the 2nd video of the resumed run's batch: not at B
   });
 });
 
@@ -525,66 +587,107 @@ describe('with the weekly schedule', () => {
   });
 });
 
-describe('waitForUploads (Studio\'s upload monitor)', () => {
+describe('waitForUploads', () => {
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW });
     vi.spyOn(console, 'info').mockImplementation(() => {});
   });
-  const run = (read: () => string | null, stopped = () => false) => {
+  const run = (read: () => string | null, over: Partial<Parameters<typeof B.waitForUploads>[0]> = {}) => {
     const said: string[] = [];
-    const p = B.waitForUploads({ read, stopped, say: (m) => void said.push(m) });
-    return { p, said };
+    let ended = '';
+    const p = B.waitForUploads({ where: 'dialog', read, blindMs: 0, stopped: () => false, say: (m) => void said.push(m), ...over });
+    void p.then((r) => { ended = r; });
+    return { p, said, ended: () => ended };
   };
+  const seq = (texts: (string | null)[]) => { let i = 0; return () => texts[Math.min(i++, texts.length - 1)]!; };
 
-  it('waits while the monitor says "uploading" and ends once it stops saying so', async () => {
-    const texts = ['Uploading 1 of 2', 'Uploading 2 of 2 · 80%', 'กำลังอัปโหลด 1 จาก 2', 'Uploads complete', 'Uploads complete'];
-    let i = 0;
-    const { p, said } = run(() => texts[Math.min(i++, texts.length - 1)]!);
+  it('waits while Studio says "uploading" and ends once it has stopped saying so twice in a row', async () => {
+    const texts = ['Uploading 5% ... 8 minutes left', 'Uploading 80% ... 1 minute left', 'กำลังอัปโหลด 99%', 'Upload complete ... Processing will begin shortly', 'Processing up to SD'];
+    const { p, said } = run(seq(texts));
     await vi.advanceTimersByTimeAsync(B.BATCH_POLL_MS * 6);
     expect(await p).toBe('done');
-    expect(said).toEqual(texts.slice(0, 4)); // ended at the fifth reading: twice in a row without "uploading"
+    expect(said).toEqual(texts.slice(0, 4));
+    expect(console.info).toHaveBeenCalledWith('[ytup] batch wait (dialog): done after 8 s · Studio said "Processing up to SD"');
   });
 
-  it('a monitor that was there and is gone means done', async () => {
-    const texts: (string | null)[] = ['Uploading 1 of 1', null, null];
-    let i = 0;
-    const { p } = run(() => texts[Math.min(i++, 2)]!);
+  it('something that was there and is gone means done', async () => {
+    const { p } = run(seq(['Uploading 1 of 1', null, null]));
     await vi.advanceTimersByTimeAsync(B.BATCH_POLL_MS * 3);
     expect(await p).toBe('done');
   });
 
-  it('a monitor never found: gives up after 2 minutes, not before', async () => {
-    let done = '';
-    const { p } = run(() => null);
-    void p.then((r) => { done = r; });
-    await vi.advanceTimersByTimeAsync(B.BATCH_BLIND_MS - B.BATCH_POLL_MS);
-    expect(done).toBe('');
+  it('nothing to read: gives up after `blindMs`, at once when that is 0', async () => {
+    expect(await run(() => null).p).toBe('blind');
+    const page = run(() => null, { where: 'page', blindMs: B.BATCH_SETTLE_MS });
+    await vi.advanceTimersByTimeAsync(B.BATCH_SETTLE_MS - B.BATCH_POLL_MS);
+    expect(page.ended()).toBe('');
     await vi.advanceTimersByTimeAsync(B.BATCH_POLL_MS);
-    expect(done).toBe('blind');
-    expect(B.BATCH_BLIND_MS).toBe(120_000);
+    expect(page.ended()).toBe('blind');
+    expect(B.BATCH_SETTLE_MS).toBe(6000); // not the 2 minutes that showed nothing in Chrome
+    expect(console.info).toHaveBeenLastCalledWith('[ytup] batch wait (page): blind after 6 s · nothing to read');
   });
 
-  it('never longer than 6 hours, whatever the monitor says', async () => {
-    const { p } = run(() => 'Uploading 1 of 1');
+  it('a text that says "uploading" but has not changed for 10 minutes is not waited on any longer', async () => {
+    const stuck = run(() => 'Uploading 5% ... 8 minutes left');
+    await vi.advanceTimersByTimeAsync(B.BATCH_STALL_MS - B.BATCH_POLL_MS);
+    expect(stuck.ended()).toBe('');
+    await vi.advanceTimersByTimeAsync(B.BATCH_POLL_MS);
+    expect(stuck.ended()).toBe('stale');
+    expect(B.BATCH_STALL_MS).toBe(600_000);
+    // one that keeps moving is waited on past that
+    let n = 0;
+    const moving = run(() => `Uploading ${Math.floor(n++ / 100)}%`);
+    await vi.advanceTimersByTimeAsync(B.BATCH_STALL_MS * 2);
+    expect(moving.ended()).toBe('');
+  });
+
+  it('never longer than 6 hours', async () => {
+    let n = 0;
+    const { p } = run(() => `Uploading ${n++}`);
     await vi.advanceTimersByTimeAsync(B.BATCH_MAX_MS);
     expect(await p).toBe('long');
   });
 
   it('Stop ends it at the next reading', async () => {
     let stop = false;
-    const { p } = run(() => 'Uploading 1 of 1', () => stop);
+    const { p } = run(() => 'Uploading 1 of 1', { stopped: () => stop });
     await vi.advanceTimersByTimeAsync(B.BATCH_POLL_MS);
     stop = true;
     await vi.advanceTimersByTimeAsync(B.BATCH_POLL_MS);
     expect(await p).toBe('stopped');
   });
+});
 
-  it('reads the monitor by SEL.uploadMonitor; one that is hidden counts as not there', () => {
-    const el = { hidden: false, getAttribute: () => null, textContent: '  Uploading\n 1 of 2 ' };
-    const doc = (found: unknown) => ({ querySelector: (s: string) => (s === SEL.uploadMonitor ? found : null) }) as unknown as Document;
-    expect(B.monitorText(doc(el))).toBe('Uploading 1 of 2');
-    expect(B.monitorText(doc({ ...el, hidden: true }))).toBe(null);
-    expect(B.monitorText(doc(null))).toBe(null);
+// A page as small as these functions need: elements with a tag, a text and a visibility.
+describe('what the page says about uploads whose dialogs are closed', () => {
+  const el = (localName: string, text = '', visible = true, hidden = false) =>
+    ({ localName, textContent: text, hidden, getAttribute: () => null, getClientRects: () => (visible ? [{}] : []) });
+  const page = (els: ReturnType<typeof el>[]) => {
+    const querySelectorAll = (sel: string) => (sel === '*' ? els : els.filter((e) => sel.split(',').map((x) => x.trim()).includes(e.localName)));
+    return { querySelectorAll, querySelector: (sel: string) => querySelectorAll(sel)[0] ?? null } as unknown as Document;
+  };
+
+  it('Studio\'s monitor or its wrapper first; a hidden one counts as not there', () => {
+    expect(B.pageUploadText(page([el('ytcp-multi-progress-monitor', '  Uploading\n 1 of 2 ')]))).toBe('Uploading 1 of 2');
+    expect(B.pageUploadText(page([el('ytcp-uploads-mini-indicator', 'Uploads complete')]))).toBe('Uploads complete');
+    expect(B.pageUploadText(page([el('ytcp-multi-progress-monitor', 'Uploading 1 of 2', true, true)]))).toBe(null);
+  });
+
+  it('then any upload-progress element that still says "Uploading", a hidden one too; other words prove nothing', () => {
+    expect(B.pageUploadText(page([el('ytcp-video-upload-progress', 'Checks complete'), el('ytcp-video-upload-progress', 'Uploading 40% ... 3 minutes left', false)]))).toBe('Uploading 40% ... 3 minutes left');
+    expect(B.pageUploadText(page([el('ytcp-video-upload-progress', 'Checks complete. No issues found.')]))).toBe(null);
+    expect(B.pageUploadText(page([el('div', 'Uploading')]))).toBe(null);
+  });
+
+  it('the census is one line: every upload / progress / monitor tag as count/visible, and each upload-progress text', () => {
+    const line = B.batchCensus(page([
+      el('ytcp-uploads-dialog'), el('tp-yt-paper-progress'), el('tp-yt-paper-progress', '', false), el('div', 'Uploading'),
+      el('ytcp-video-upload-progress', 'Uploading 5% ... 8 minutes left'), el('ytcp-video-upload-progress', 'x'.repeat(300), false),
+    ]));
+    expect(line).toBe(`tags (count/visible): tp-yt-paper-progress 2/1, ytcp-uploads-dialog 1/1, ytcp-video-upload-progress 2/1 · upload-progress texts: "Uploading 5% ... 8 minutes left" | "${'x'.repeat(120)}"`);
+    expect(line).not.toContain('\n');
+    expect(B.batchCensus(page([]))).toBe('tags (count/visible): none · upload-progress texts: none');
+    expect(B.batchCensus({ querySelectorAll() { throw new Error('gone'); } } as unknown as Document)).toBe('census failed: gone');
   });
 });
 

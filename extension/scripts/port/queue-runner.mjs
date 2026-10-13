@@ -59,6 +59,9 @@ export default {
     // P5-daily-limit: at YouTube's daily limit the queue pauses (lib/studio/queue-pause.ts) instead of only ending;
     // the run still breaks here, and its end says "paused" instead of "finished" / "needs attention"
     ['if (TXT.uploadLimit.test(e.message)) break;', 'if (TXT.uploadLimit.test(e.message)) { dailyLimitHit(it, e.message); break; }', 1],
+    // P5-upload-batches: the batch's last video is not saved while its own dialog still says "Uploading"
+    // (holdBatchSave; verified signal, lib/studio/queue-batch.ts); with no batch due it returns at once
+    ["      setItem(it, 'uploading', L('กำลังบันทึก…', 'Saving…'));", "      await holdBatchSave(it);\n      setItem(it, 'uploading', L('กำลังบันทึก…', 'Saving…'));", 1],
     ['      ui.queue();\n      const errN = ', '      ui.queue();\n      if (limitPause) return announcePause(ok);\n      const errN = ', 1],
   ],
 };

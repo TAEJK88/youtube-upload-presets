@@ -22,8 +22,11 @@ export const SEL = {
   uploadProgress: 'ytcp-video-upload-progress, ytcp-video-upload-progress-hover',
   uploadProgressFallback: '.progress-label', // คลาสทั่วไป — ใช้เฉพาะตอนไม่พบ element เฉพาะข้างบน
   // Not from the userscript (P5-upload-batches): Studio's monitor of uploads still going after the
-  // dialog closed. A guess, never checked against a real Studio (lib/studio/queue-batch.ts).
-  uploadMonitor: 'ytcp-multi-progress-monitor',
+  // dialog closed, and its wrapper. Both are registered elements of Studio (seen 2026-10-14), but
+  // neither was in the page for 2 minutes while uploads ran in the owner's Chrome that day: a
+  // guess that has not paid off yet. What is verified is uploadProgress above, inside an open
+  // dialog: "Uploading 5% ... 8 minutes left" (lib/studio/queue-batch.ts).
+  uploadMonitor: 'ytcp-multi-progress-monitor, ytcp-uploads-mini-indicator',
   // --- หน้ากรอกรายละเอียด ---
   titleBox: '#title-textarea #textbox',
   descBox: '#description-textarea #textbox',

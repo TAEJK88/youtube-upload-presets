@@ -9,7 +9,7 @@ import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../templ
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
 import { ui } from './page-ui';
-import { saysUploading, waitForUploads } from './queue-batch';
+import { BATCH_SETTLE_MS, batchCensus, pageUploadText, saysUploading, waitForUploads, type BatchEnd } from './queue-batch';
 import { dropFiles, probeBridge, getQueueFile, getThumbFile, pageFiles } from './queue-files';
 import { endPause, PAUSE_MS, pauseQueue, type QueuePause } from './queue-pause';
 import { setSchedule } from './schedule';
@@ -423,6 +423,7 @@ async function uploadOne(it: QueueItem): Promise<void> {
   const visText = publishAt ? L(`⏰ ปล่อย ${fmtWhen(publishAt)}`, `⏰ Releases ${fmtWhen(publishAt)}`) : visLabels()[vis];
 
   if (settings.autoSave) {
+    await holdBatchSave(it);
     setItem(it, 'uploading', L('กำลังบันทึก…', 'Saving…'));
     if (!publishAt && !(await goToVisibility(vis))) throw new Error(L('ไปหน้า Visibility ไม่สำเร็จ', 'Could not go to the Visibility page'));
     await sleep(600);
@@ -601,7 +602,9 @@ async function uploadCurrent(it: QueueItem): Promise<void> {
   if (aborted) throw aborted;
   current = it.id;
   endPause(); // a run that reaches a video is not paused any more
-  // What Studio's dialog last said about this upload, for the batch wait below.
+  // What Studio's dialog last said about this upload, for the batch wait below: read right
+  // before Save is pressed (holdBatchSave), and on a timer for a video the user saves by hand.
+  atSave = '';
   let said = '';
   const watch = setInterval(() => { said = uploadProgressText() || said; }, 500);
   try {
@@ -610,7 +613,7 @@ async function uploadCurrent(it: QueueItem): Promise<void> {
     current = null;
     clearInterval(watch);
   }
-  if (batchSize()) handed.push(!said || saysUploading(said));
+  if (batchSize()) handed.push(!(atSave || said) || saysUploading(atSave || said));
   await batchWait().catch((e) => console.error('[ytup] batch wait', e)); // never fails the video that is done
 }
 
@@ -646,32 +649,69 @@ function announcePause(ok: number): void {
 // Batches (P5-upload-batches; the userscript went on however many files Studio was still
 // uploading). Counted per run, and afresh after a daily-limit pause: 24 hours later nothing of
 // the old batch is still uploading. `handed` has one entry per video of the batch so far: was
-// its upload still going when its dialog closed (or unknown, which counts as going)? A batch
-// whose uploads had all finished by then needs no wait; otherwise lib/studio/queue-batch.ts
-// watches Studio's upload monitor.
+// its upload still going when its dialog closed (or unknown, which counts as going)?
+// Two waits, see lib/studio/queue-batch.ts for what is verified and what is a guess:
+// - holdBatchSave(), before Save is pressed on the batch's last video: its own dialog says when
+//   its upload is done. Only with "Auto-press Save" on; with it off the user presses Save, and
+//   nothing holds the dialog they are reading.
+// - batchWait(), after that dialog closed, for the batch's earlier videos that were still
+//   uploading when theirs closed: the page is looked at for anything that says so.
 let handed: boolean[] = [];
 let batchNo = 0;
 const batchReset = () => { handed = []; batchNo = 0; };
 const batchSize = () => wholeIn(settings.batch, BATCH_MAX);
-// What the run is waiting for between two videos (QueueState.wait); '' = nothing.
+// What the run is waiting for (QueueState.wait); '' = nothing.
 let waitNote = '';
 export const runWait = () => waitNote;
+let atSave = '';
+const batchStopped = () => stopReq || torn || aborted !== null;
+// What a wait that ended without "done" says on the page.
+function sayBatchEnd(end: BatchEnd, k: number): void {
+  if (end === 'stale') ui.toast(L(`ความคืบหน้าการอัปโหลดของชุดที่ ${k} ไม่ขยับมา 10 นาที — อัปโหลดต่อ`, `Batch ${k}'s upload progress has not moved for 10 minutes — went on`));
+  if (end === 'long') ui.toast(L(`Studio ยังอัปโหลดชุดที่ ${k} ไม่เสร็จหลัง 6 ชั่วโมง — อัปโหลดต่อ`, `Studio was still uploading batch ${k} after 6 hours — went on`));
+}
+// Called by uploadOne() right before it presses Save. Stop ends the hold and the video is saved:
+// Stop means "after the current video". A dialog whose progress cannot be read holds nothing.
+async function holdBatchSave(it: QueueItem): Promise<void> {
+  const size = batchSize();
+  atSave = uploadProgressText();
+  if (!size || handed.length !== size - 1 || stopReq || !queue.some((i) => i.status === 'pending')) return;
+  if (!saysUploading(atSave)) return;
+  const k = batchNo + 1;
+  const head = L(`รอ Studio อัปโหลดชุดที่ ${k} ให้เสร็จก่อนบันทึกคลิปสุดท้ายของชุด`, `Waiting for Studio to finish uploading batch ${k} before saving its last video`);
+  setItem(it, 'uploading', head);
+  try {
+    sayBatchEnd(await waitForUploads({
+      where: 'dialog', read: () => uploadProgressText() || null, blindMs: 0, stopped: batchStopped,
+      say: (m) => { waitNote = head + (m ? ' · ' + m.slice(0, 60) : ''); }, // the tick broadcasts it
+    }), k);
+  } catch (e) {
+    console.error('[ytup] batch hold', e); // the video is saved all the same
+  } finally {
+    waitNote = '';
+    atSave = uploadProgressText() || atSave;
+  }
+}
 async function batchWait(): Promise<void> {
   const size = batchSize();
   if (!size || handed.length < size) return;
   const going = handed.filter(Boolean).length;
   handed = [];
-  batchNo++;
+  const k = ++batchNo;
   if (stopReq || !queue.some((i) => i.status === 'pending')) return;
-  if (!going) return console.info(`[ytup] batch ${batchNo}: every upload had finished before its dialog closed, no wait`);
-  const head = L(`รอ Studio อัปโหลดชุดที่ ${batchNo} ให้เสร็จ (ยังอัปโหลดอยู่ ${going} จาก ${size} คลิป)`, `Waiting for Studio to finish uploading batch ${batchNo} (${going} of ${size} still uploading)`);
+  if (!going) return console.info(`[ytup] batch ${k}: every upload had finished before its dialog closed, no wait`);
+  console.info(`[ytup] batch census: batch ${k}, ${going} of ${size} still uploading at dialog close · ${batchCensus()}`);
+  const head = L(`รอ Studio อัปโหลดชุดที่ ${k} ให้เสร็จ (ยังอัปโหลดอยู่ ${going} จาก ${size} คลิป)`, `Waiting for Studio to finish uploading batch ${k} (${going} of ${size} still uploading)`);
   try {
     const end = await waitForUploads({
-      stopped: () => stopReq || torn || aborted !== null,
-      say: (m) => { waitNote = head + (m ? ' · ' + m.slice(0, 60) : ''); }, // the tick broadcasts it
+      where: 'page', read: pageUploadText, blindMs: BATCH_SETTLE_MS, stopped: batchStopped,
+      say: (m) => { waitNote = head + (m ? ' · ' + m.slice(0, 60) : ''); },
     });
-    if (end === 'blind') ui.toast(L(`อ่านความคืบหน้าการอัปโหลดของ Studio ไม่ได้ — รอชุดที่ ${batchNo} ครบ 2 นาทีแล้วอัปโหลดต่อ`, `Could not read Studio's upload progress — waited 2 minutes for batch ${batchNo}, then went on`));
-    if (end === 'long') ui.toast(L(`Studio ยังอัปโหลดชุดที่ ${batchNo} ไม่เสร็จหลัง 6 ชั่วโมง — อัปโหลดต่อ`, `Studio was still uploading batch ${batchNo} after 6 hours — went on`));
+    sayBatchEnd(end, k);
+    if (end === 'blind') {
+      console.warn(`[ytup] batch census: batch ${k} could not be checked · ${batchCensus()}`);
+      ui.toast(L(`ตรวจไม่ได้ว่าคลิปก่อนหน้าในชุดที่ ${k} อัปโหลดเสร็จหรือยัง (${going} คลิปยังอัปโหลดอยู่ตอนปิดหน้าต่าง) — อัปโหลดต่อ`, `Could not check whether batch ${k}'s earlier videos have finished uploading (${going} were still uploading when their dialogs closed) — went on`));
+    }
   } finally {
     waitNote = '';
   }
