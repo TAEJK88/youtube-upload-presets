@@ -5,7 +5,8 @@ import { beep, setTitleMark } from './page-notify';
 import { pageToast } from './page-toast';
 import type { PageUi } from './page-ui';
 import { dropFiles } from './queue-files';
-import { abortedRun, assignNumbers, pollUploadProgress, queue, running, setTornDown, startQueue, stopReq, tornDown, tornError, uploadProg, type StartBinding } from './queue-runner';
+import { queuePause } from './queue-pause';
+import { abortedRun, assignNumbers, pollUploadProgress, queue, resumeAfterPause, running, runWait, setTornDown, startQueue, stopReq, tornDown, tornError, uploadProg, type StartBinding } from './queue-runner';
 import { persistQueue } from './queue-store';
 import { settings } from './state';
 import { channelView } from './queue-view';
@@ -29,7 +30,11 @@ export function createContentUi() {
   const mark = (m: string) => {
     if (!tornDown()) setTitleMark(m);
   };
-  const state = (): QueueState => ({ proto: PROTOCOL, running, stopping: running && stopReq, prog: uploadProg, rev, channel: channelView() });
+  const paused = (): QueueState['paused'] => {
+    const p = queuePause();
+    return p && !running ? { until: p.until, channel: p.channel, name: p.name } : null;
+  };
+  const state = (): QueueState => ({ proto: PROTOCOL, running, stopping: running && stopReq, prog: uploadProg, wait: runWait(), paused: paused(), rev, channel: channelView() });
   const broadcast = () => {
     const s = state();
     const sig = JSON.stringify(s);
@@ -140,6 +145,14 @@ export function createContentUi() {
 export function startFromPanel(ui: { setConfirmed(v: boolean): void }, seen: StartBinding): Promise<void> {
   ui.setConfirmed(seen.asked === true);
   return startQueue(seen);
+}
+
+// The daily-limit pause is over (queue-pause.ts): the run goes on without the panel. The user
+// confirmed this run when it started, so runQueue's own question counts as answered; a release
+// time that has passed meanwhile fails its own video, as it does in any run.
+export function resumeFromPause(ui: { setConfirmed(v: boolean): void }): Promise<string> {
+  ui.setConfirmed(true);
+  return resumeAfterPause();
 }
 
 // A settings / counters change the background could not store (state.ts setPatchFailed).

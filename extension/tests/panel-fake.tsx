@@ -10,7 +10,7 @@ import type { QueueView, ViewItem } from '../lib/studio/queue-view';
 
 // A PanelApi / LiveApi for component tests (shared by the panel tests in 3a and 3b).
 export const state = (over: Partial<QueueState> = {}): QueueState => ({
-  proto: PROTOCOL, running: false, stopping: false, prog: null, rev: 1,
+  proto: PROTOCOL, running: false, stopping: false, prog: null, wait: '', paused: null, rev: 1,
   channel: { id: 'UC1', name: 'Mine', avatar: '', handle: '@mine', label: 'Mine', problem: '' }, ...over,
 });
 

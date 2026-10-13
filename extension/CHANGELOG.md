@@ -74,6 +74,19 @@ New in this release:
 - An ads, trim or Collab run that waits for the upload queue now says what ends the wait:
   "upload or remove the videos still waiting in the queue". Failed videos don't hold it back,
   and the ads and trim message no longer says to remove them.
+- **Additions the userscript did not have: the daily upload limit.** When Studio reports
+  YouTube's daily upload limit the queue pauses instead of ending: the refused video goes back
+  to Queued, the panel shows "Paused: daily upload limit … resumes <time>", and 24 hours later
+  a Studio tab on that channel goes on by itself (Start resumes sooner, Stop cancels the
+  pause). The pause survives reloads and a browser restart. Before Start, a warning says when
+  this browser's uploads to the channel in the last 24 hours plus the queue go over your own
+  number (Settings → "Daily upload limit", default 15, 0 = off). It is an estimate and blocks
+  nothing: YouTube publishes no number and counts uploads from every device. Studio's real
+  limit message has not been seen yet (README item 93).
+- **Addition the userscript did not have: batches.** After 15 videos (Settings → "Batch
+  size", 0 = off, 50 at most) the queue waits until Studio has finished uploading them, then
+  goes on. How Studio's background uploads are read is not yet checked in Chrome (README item
+  91); when it cannot be read the queue says so and goes on after 2 minutes.
 
 Not in the extension yet:
 

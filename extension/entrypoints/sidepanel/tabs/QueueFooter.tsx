@@ -58,6 +58,14 @@ export function StartSummaryBody({ s }: { s: StartSummary }) {
       {s.badTl.length > 0 && warn(
         L(`tracklist มีปัญหา ${s.badTl.length} คลิป — YouTube จะไม่สร้าง Chapters`, `${s.badTl.length} tracklist problem(s) — YouTube won't create chapters`),
         s.badTl.map((x) => `${x.name}: ${x.error}`))}
+      {/* P5-daily-limit: a warning, not a block, and only an estimate. */}
+      {s.daily && warn(
+        L('อาจเกินขีดจำกัดอัปโหลดต่อวัน (ประมาณการ)', 'May go over the daily upload limit (an estimate)'),
+        [
+          L(`24 ชั่วโมงที่ผ่านมา เบราว์เซอร์นี้อัปขึ้นช่องนี้ ${s.daily.recent} คลิป + คิวนี้ ${s.pendingN} คลิป = ${s.daily.recent + s.pendingN} · ขีดจำกัดที่คุณตั้งไว้คือ ${s.daily.limit}`, `This browser uploaded ${s.daily.recent} to this channel in the last 24 hours + ${s.pendingN} in this queue = ${s.daily.recent + s.pendingN} · your limit is ${s.daily.limit}`),
+          L('YouTube ไม่เปิดเผยตัวเลขจริง และนับการอัปโหลดจากทุกอุปกรณ์ — ส่วนขยายรู้เฉพาะที่อัปจากเบราว์เซอร์นี้', 'YouTube publishes no number and counts uploads from every device — the extension only knows its own'),
+          L('เริ่มได้ตามปกติ: ถ้าชนขีดจำกัดจริง คิวจะพักแล้วอัปโหลดต่อเองใน 24 ชั่วโมง', 'You can still start: at the real limit the queue pauses and resumes by itself 24 hours later'),
+        ])}
       {(s.badTl.length > 0 || s.badTime.length > 0 || s.prevUp.length > 0) && (
         <div className="mt-2 text-fg3">{L('กดยกเลิกเพื่อกลับไปแก้ — ดูรายละเอียดได้ที่ป้ายสีแดงในการ์ด', 'Cancel to go back and fix — details are on the red badges in each card')}</div>
       )}
@@ -83,9 +91,14 @@ export function QueueFooter() {
   const blocked = !!view?.channel.problem;
   const sched = view?.schedule.set ? L(' · ตั้งเวลา', ' · scheduled') : '';
   const ch = view?.channel.label ?? L('ไม่ทราบช่อง', 'Unknown channel'); // chanLabel()'s fallback
+  // The queue met YouTube's daily limit and waits for its 24 hours (P5-daily-limit): Start resumes
+  // now, Stop cancels the pause. `wait`: the run waits for Studio to upload a batch (P5-upload-batches).
+  const paused = running ? null : state?.paused ?? null;
+  const wait = running ? state?.wait ?? '' : '';
   const title = running
     ? L(`กำลังอัปโหลด ${done + errors + 1}/${total}`, `Uploading ${done + errors + 1}/${total}`)
     : blocked ? L('ช่องไม่ตรงกับที่ล็อกไว้', 'Channel does not match the locked one')
+    : paused && pending ? L(`อัปโหลดต่อเลย ${pending} คลิป${sched}`, `Resume now: ${pending} video(s)${sched}`)
     : pending ? L(`เริ่มอัปโหลด ${pending} คลิป${sched}`, `Upload ${pending} video(s)${sched}`)
     : L('เริ่มอัปโหลด', 'Start upload');
   const sub = blocked ? L('ปลดล็อกหรือสลับกลับไปช่องที่ล็อกไว้', 'Unlock, or switch back to the locked channel') : L(`ไปที่ช่อง ${ch}`, `To channel ${ch}`);
@@ -114,6 +127,10 @@ export function QueueFooter() {
     setBusy(false);
   });
   };
+  const cancelPause = () => void send('queue:stop', undefined).catch((e: unknown) => {
+    console.error('[ytup] cancel pause failed', e);
+    toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
+  });
   const stop = () => void stopFlow({
     bound: target?.tabId ?? null,
     runner,
@@ -126,7 +143,18 @@ export function QueueFooter() {
   });
 
   return (
-    <div className="flex gap-2 border-t border-tint/[0.08] px-[18px] py-3.5">
+    <>
+    {(paused || wait) && (
+      <div role="status" className="flex items-start gap-2 border-t border-tint/[0.08] px-[18px] pt-3 text-xs leading-[1.5] text-fg2">
+        <Icon name={paused ? 'pause' : 'wait'} size={14} className="mt-0.5 shrink-0 text-warn" />
+        <span className="min-w-0 flex-1">
+          {paused
+            ? L(`พักคิว: ชนขีดจำกัดอัปโหลดต่อวันของช่อง ${paused.name} — จะอัปโหลดต่อเอง ${fmtWhen(paused.until)} ถ้ามีแท็บ Studio ของช่องนั้นเปิดอยู่`, `Paused: daily upload limit on ${paused.name} — resumes ${fmtWhen(paused.until)} if a Studio tab on that channel is open`)
+            : wait}
+        </span>
+      </div>
+    )}
+    <div className={cn('flex gap-2 px-[18px] py-3.5', !(paused || wait) && 'border-t border-tint/[0.08]')}>
       <Button variant="go" size="lg" className="group min-w-0 flex-1 justify-start gap-3 text-left"
         disabled={running || !pending || blocked || busyElsewhere || link !== 'ok' || busy} onClick={start}>
         {/* .btn.go .gi: the play icon, spinning while the run goes (.btn.go.running .gi) */}
@@ -138,12 +166,13 @@ export function QueueFooter() {
           <small className="max-w-full truncate text-xs font-medium text-on-fg2 group-disabled:text-fg3">{sub}</small>
         </span>
       </Button>
-      <IconButton icon="stop" title={L('หยุดหลังคลิปปัจจุบันเสร็จ', 'Stop after the current video')}
+      <IconButton icon="stop" title={paused ? L('ยกเลิกการพักคิว', 'Cancel the pause') : L('หยุดหลังคลิปปัจจุบันเสร็จ', 'Stop after the current video')}
         className="h-auto w-12 self-stretch rounded-[14px] border border-tint/[0.16] bg-tint/[0.06] text-tint hover:text-err disabled:opacity-35"
-        disabled={!(liveState?.running || elsewhere)} onClick={stop} />
+        disabled={!(liveState?.running || elsewhere || paused)} onClick={paused && !liveState?.running && !elsewhere ? cancelPause : stop} />
       <IconButton icon="clear" title={L('ล้างคลิปที่อัปเสร็จออกจากรายการ', 'Clear finished videos from the list')}
         className="h-auto w-12 self-stretch rounded-[14px] border border-tint/[0.16] bg-tint/[0.06] text-tint disabled:opacity-35"
         disabled={!done} onClick={clear} />
     </div>
+    </>
   );
 }

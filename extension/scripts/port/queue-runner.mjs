@@ -56,5 +56,9 @@ export default {
     ['  return start < floor ? start + Math.ceil((floor - start) / step) * step : start;',
       '  const w = week();\n  if (w) return w.notBefore(Math.max(start, floor));\n  return start < floor ? start + Math.ceil((floor - start) / step) * step : start;', 1],
     ['toLocalInput(publishAt + stepMs())', 'toLocalInput(nextSlot(publishAt))', 1],
+    // P5-daily-limit: at YouTube's daily limit the queue pauses (lib/studio/queue-pause.ts) instead of only ending;
+    // the run still breaks here, and its end says "paused" instead of "finished" / "needs attention"
+    ['if (TXT.uploadLimit.test(e.message)) break;', 'if (TXT.uploadLimit.test(e.message)) { dailyLimitHit(it, e.message); break; }', 1],
+    ['      ui.queue();\n      const errN = ', '      ui.queue();\n      if (limitPause) return announcePause(ok);\n      const errN = ', 1],
   ],
 };

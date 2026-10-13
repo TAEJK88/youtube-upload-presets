@@ -50,7 +50,9 @@ describe('queueView', () => {
     expect(queueView(state).proto).toBe(PROTOCOL);
     // 3 since the view has `userscript` (call 16): a tab of an older build would send none, and
     // the panel would read that as "no userscript here" instead of asking for a reload.
-    expect(PROTOCOL).toBe(3);
+    // 4 since the state has `wait` and `paused` (P5-upload-batches, P5-daily-limit): an older tab
+    // would send neither, and the panel would show a queue paused at the daily limit as idle.
+    expect(PROTOCOL).toBe(4);
   });
 
   // Call 7: the panel's banner reads this; the page's guards read the same check.

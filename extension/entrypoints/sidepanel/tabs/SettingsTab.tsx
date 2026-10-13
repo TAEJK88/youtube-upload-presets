@@ -8,7 +8,7 @@ import { L, type Lang } from '@/lib/i18n';
 import { exportBackup, importBackup, readImport } from '@/lib/panel/backup-io';
 import { runnerTab } from '@/lib/panel/target';
 import { RUNNER_HELD } from '@/lib/runner-lock';
-import type { Settings, SettingsPatch } from '@/lib/settings';
+import { BATCH_MAX, DAILY_LIMIT_MAX, wholeIn, type Settings, type SettingsPatch } from '@/lib/settings';
 import { useAsk } from '../ask';
 import { crashButtons, openDebugPage } from '../crash-kit';
 import { allowFilesLabel, openAllowPage } from '../file-access';
@@ -222,6 +222,12 @@ export function SettingsTab() {
         <Kv title={L('พักระหว่างไฟล์', 'Pause between files')} note={L('หน่วยวินาที', 'Seconds')}>
           <NumberField aria-label={L('พักระหว่างไฟล์', 'Pause between files')} min={0} max={120} value={String(s.delay)} onValue={(v) => set({ delay: Math.max(0, Number(v) || 0) })} />
         </Kv>
+        <Kv title={L('อัปโหลดเป็นชุด', 'Batch size')} note={L('คลิป · ครบชุดแล้วรอ Studio อัปโหลดให้เสร็จก่อนไปต่อ · 0 = ไม่รอ', 'Videos · after each batch the queue waits until Studio has finished uploading it · 0 = off')}>
+          <NumberField aria-label={L('อัปโหลดเป็นชุด', 'Batch size')} min={0} max={BATCH_MAX} value={String(s.batch)} onValue={(v) => set({ batch: wholeIn(v, BATCH_MAX) })} />
+        </Kv>
+        <Kv title={L('ขีดจำกัดอัปโหลดต่อวัน (ตัวเลขของคุณเอง)', 'Daily upload limit (your own number)')} note={L('คลิป · เตือนก่อนเริ่มเมื่อคิวอาจเกิน (ประมาณการ: YouTube ไม่เปิดเผยตัวเลขจริง) · 0 = ไม่เตือน', 'Videos · warns before Start when the queue may go over it (an estimate: YouTube publishes no number) · 0 = off')}>
+          <NumberField aria-label={L('ขีดจำกัดอัปโหลดต่อวัน (ตัวเลขของคุณเอง)', 'Daily upload limit (your own number)')} min={0} max={DAILY_LIMIT_MAX} value={String(s.dailyLimit)} onValue={(v) => set({ dailyLimit: wholeIn(v, DAILY_LIMIT_MAX) })} />
+        </Kv>
       </Section>
 
       <Section title={L('สำรอง / แชร์การตั้งค่า', 'Back up / share settings')} icon="copy">
@@ -241,7 +247,7 @@ export function SettingsTab() {
         <Hint icon="sliders">
           <kbd className={kbd}>Alt</kbd> + <kbd className={kbd}>P</kbd>{L(' เปิดแผง · ', ' open the panel · ')}<kbd className={kbd}>Alt</kbd> + <kbd className={kbd}>1…9</kbd>{L(' เลือกพรีเซ็ตหลัก', ' select default preset')}
         </Hint>
-        <Hint className="mt-2">{L('ระหว่างที่คิวทำงาน อย่าปิดหรือรีเฟรชแท็บนี้ · YouTube จำกัดจำนวนอัปโหลดต่อวัน ถ้าชนลิมิตคิวจะหยุดเอง', 'While the queue is running, don\'t close or refresh this tab · YouTube limits uploads per day; if you hit the limit the queue stops automatically')}</Hint>
+        <Hint className="mt-2">{L('ระหว่างที่คิวทำงาน อย่าปิดหรือรีเฟรชแท็บนี้ · YouTube จำกัดจำนวนอัปโหลดต่อวัน ถ้าชนลิมิตคิวจะพักแล้วอัปโหลดต่อเองใน 24 ชั่วโมง', 'While the queue is running, don\'t close or refresh this tab · YouTube limits uploads per day; at the limit the queue pauses and resumes by itself 24 hours later')}</Hint>
       </Section>
     </div>
   );

@@ -19,6 +19,8 @@ export interface Settings {
   thumbWaitMin: number; // max minutes to wait for the upload before setting the thumbnail
   intercept: boolean; // route multi-file picks in Studio's dialog into the queue
   delay: number; // seconds to pause between files
+  batch: number; // queue mode: after this many videos, wait until Studio has uploaded them; 0 = off
+  dailyLimit: number; // the user's own daily number for the warning before Start (an estimate); 0 = off
   pace: 'normal' | 'slow' | 'slower'; // stretches every wait (x1 / x1.6 / x2.5)
   year: string; // {year}; empty = this year
   confirmStart: boolean; // confirm the channel before starting the queue
@@ -44,6 +46,8 @@ export const defaultSettings = (legacy: { autoApply?: boolean; autoNext?: boolea
   thumbWaitMin: 120,
   intercept: true,
   delay: 3,
+  batch: 15,
+  dailyLimit: 15,
   pace: 'slow',
   year: '',
   confirmStart: true,
@@ -64,6 +68,18 @@ export const defaultSettings = (legacy: { autoApply?: boolean; autoNext?: boolea
 // autoApply / autoNext keys) ← stored.
 export function mergeSettings(stored: Partial<Settings> | undefined, legacy: { autoApply?: boolean; autoNext?: boolean } = {}): Settings {
   return Object.assign(defaultSettings(legacy), stored ?? {});
+}
+
+// batch and dailyLimit are whole numbers in a range, wherever they come from (a store patch, a
+// backup file). Only the ones the object has are touched.
+export const BATCH_MAX = 50;
+export const DAILY_LIMIT_MAX = 1000;
+export const wholeIn = (v: unknown, max: number) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
+export function cleanLimits<T extends object>(s: T): T {
+  const out = { ...s } as Record<string, unknown>;
+  if (Object.hasOwn(s, 'batch')) out.batch = wholeIn(out.batch, BATCH_MAX);
+  if (Object.hasOwn(s, 'dailyLimit')) out.dailyLimit = wholeIn(out.dailyLimit, DAILY_LIMIT_MAX);
+  return out as T;
 }
 
 // Read-only: the background stores the language once (store-writer ensureLang) and is the

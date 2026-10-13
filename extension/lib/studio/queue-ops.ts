@@ -1,6 +1,7 @@
 import { L } from '../i18n';
 import { ui } from './page-ui';
 import { dropFiles } from './queue-files';
+import { endPause } from './queue-pause';
 import { assignNumbers, currentItemId, queue, requestStop, running, setItem, type QueueItem } from './queue-runner';
 
 // What the userscript's queue tab buttons did to the queue (UI section "แท็บคิว",
@@ -9,7 +10,10 @@ const refsOf = (it: QueueItem) => [{ id: it.id, src: it.src }, ...(it.thumb ? [i
 
 // The panel sends Stop to one Studio tab; when the run is in another tab, say so rather
 // than promise a stop that won't happen (stop it from the running tab).
+// With no run going, Stop ends a daily-limit pause (queue-pause.ts): the queue stays as it is and
+// nothing resumes by itself.
 export function stopQueue(): void {
+  if (!running && endPause()) return ui.toast(L('ยกเลิกการพักคิวแล้ว — คิวจะไม่อัปโหลดต่อเอง', 'Pause cancelled — the queue will not resume by itself'));
   if (!running) return ui.toast(L('แท็บ Studio นี้ไม่ได้อัปโหลดคิวอยู่', 'Nothing is running in this Studio tab'));
   requestStop();
   ui.toast(L('จะหยุดหลังคลิปปัจจุบันเสร็จ', 'Will stop after the current video finishes'));
