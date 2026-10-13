@@ -63,6 +63,44 @@ describe('applyBackup', () => {
     expect(w.counters).toEqual({ mine: 7 });
   });
 
+  // P5-week-schedule
+  describe('the weekly schedule', () => {
+    const withSchedule = (schedule: Record<string, unknown>, own = true, curSchedule = {}) => {
+      const r = parseBackup(exported({ settings: { schedule } }));
+      if (!r.ok) throw new Error('fixture');
+      const c = cur();
+      return applyBackup(r.data, r.presets, own, { ...c, settings: { ...c.settings, schedule: { ...c.settings.schedule, ...curSchedule } } }).settings!.schedule;
+    };
+    const four = { on: true, start: '2026-10-06T10:00', every: 3, unit: 'day' };
+    const week = { mode: 'week', perWeek: 5, from: '08:00', to: '12:30', seed: 123456, anchor: '2026-10-01T10:00' };
+
+    it('my own file: its week fields come along', () => {
+      expect(withSchedule({ ...four, ...week })).toEqual({ ...four, ...week });
+    });
+    it('bad values in the file are left out, one by one', () => {
+      expect(withSchedule({ ...four, ...week, perWeek: 8, seed: 'x' })).toEqual({ ...four, mode: 'week', from: '08:00', to: '12:30', anchor: '2026-10-01T10:00' });
+      expect(withSchedule({ ...four, ...week, perWeek: 0, mode: 'daily', seed: null, anchor: 3 })).toEqual({ ...four, from: '08:00', to: '12:30' });
+      expect(withSchedule({ ...four, ...week, from: '12:30' })).toEqual({ ...four, mode: 'week', perWeek: 5, seed: 123456, anchor: '2026-10-01T10:00' });
+      expect(withSchedule({ ...four, ...week, from: '12:20' })).toEqual({ ...four, mode: 'week', perWeek: 5, seed: 123456, anchor: '2026-10-01T10:00' });
+      // one good end is a window with the default other end (08:00–21:00)
+      expect(withSchedule({ ...four, ...week, to: 'noon' })).toEqual({ ...four, mode: 'week', perWeek: 5, from: '08:00', seed: 123456, anchor: '2026-10-01T10:00' });
+    });
+    it('a file from before the weekly schedule is the interval mode, whatever this device had', () => {
+      expect(withSchedule(four, true, week)).toEqual(four);
+    });
+    it("someone else's file: the schedule here stays, week fields too", () => {
+      expect(withSchedule({ ...four, ...week, perWeek: 2 }, false, week)).toEqual({ ...defaultSettings().schedule, ...week });
+    });
+    it('an export carries them, and they come back', () => {
+      const settings = { ...defaultSettings(), schedule: { ...four, ...week } as never };
+      const file = JSON.parse(JSON.stringify(buildBackup({ presets: [mine], activeId: 'mine', counters: {}, settings, cfg: {} }, '5.0.0')));
+      expect(file.settings.schedule).toEqual({ ...four, ...week });
+      const r = parseBackup(JSON.stringify(file));
+      if (!r.ok) throw new Error('fixture');
+      expect(applyBackup(r.data, r.presets, true, cur()).settings!.schedule).toEqual({ ...four, ...week });
+    });
+  });
+
   it('falls back to the first preset when activeId is unknown', () => {
     const r = parseBackup(exported({ activeId: 'gone' }));
     if (!r.ok) throw new Error('fixture');

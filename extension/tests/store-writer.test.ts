@@ -83,6 +83,14 @@ describe('writeBackupInOrder', () => {
     expect(got).toMatchObject({ delay: 5, producer: 'Me', lang: 'en', schedule: { on: true, start: 'Z' } });
   });
 
+  it('a file of your own with a weekly schedule: stored as cleaned here, bad values left out', async () => {
+    await browser.storage.local.set({ settings: { producer: 'Me', lang: 'en', schedule: { on: true, start: 'W', every: 1, unit: 'day', mode: 'week', perWeek: 2 } } });
+    const { data, presets } = file({ schedule: { on: true, start: 'F', every: 2, unit: 'day', mode: 'week', perWeek: 9, from: '09:00', to: '09:10', seed: 5 } });
+    await writeBackupInOrder({ data, presets, own: true });
+    expect(((await browser.storage.local.get('settings')).settings as { schedule: object }).schedule)
+      .toEqual({ on: true, start: 'F', every: 2, unit: 'day', mode: 'week', seed: 5 });
+  });
+
   it('a file with the old glass / glassV2 settings leaves neither in storage', async () => {
     await browser.storage.local.set({ schemaVersion: 5, presets: [], settings: { lang: 'en' } });
     const { data, presets } = file({ glass: 0.8, glassV2: true, delay: 4 });
@@ -191,6 +199,32 @@ describe('who may write, and what', () => {
     const got = (await browser.storage.local.get('settings')).settings as Record<string, unknown>;
     expect(Object.keys(got)).toEqual(['producer']);
     expect(got).toEqual({ producer: 'Me' });
+  });
+
+  // P5-week-schedule: the week fields are not in the defaults (old data without them is the
+  // interval mode), so each has its own rule.
+  it('a settings patch takes the weekly schedule\'s fields and refuses bad values', async () => {
+    const stored = async () => ((await browser.storage.local.get('settings')).settings as { schedule: Record<string, unknown> }).schedule;
+    await browser.storage.local.set({ settings: { producer: 'Me' } });
+    await patchStore({ key: 'settings', patch: { schedule: { mode: 'week', perWeek: 4, from: '08:00', to: '12:00', seed: 77, anchor: '2026-10-13T19:00' } } });
+    const good = { ...defaultSettings().schedule, mode: 'week', perWeek: 4, from: '08:00', to: '12:00', seed: 77, anchor: '2026-10-13T19:00' };
+    expect(await stored()).toEqual(good);
+    for (const bad of [
+      { mode: 'month' }, { perWeek: 0 }, { perWeek: 8 }, { perWeek: 2.5 }, { perWeek: '3' }, { seed: Number.NaN }, { seed: Infinity }, { seed: '1' },
+      { from: '8:00' }, { to: '25:00' }, { anchor: 7 },
+      { from: '12:00' }, { from: '11:50' }, { to: '08:00' }, { to: '08:14' }, { from: '13:00', to: '12:00' }, // no window left
+    ]) await patchStore({ key: 'settings', patch: { schedule: bad } } as never);
+    expect(await stored()).toEqual(good);
+    await patchStore({ key: 'settings', patch: { schedule: { from: '11:45', mode: 'every' } } });
+    expect(await stored()).toEqual({ ...good, from: '11:45', mode: 'every' });
+  });
+
+  it('a window end alone is checked against the default other end while none is stored', async () => {
+    await browser.storage.local.set({ settings: { producer: 'Me' } });
+    await patchStore({ key: 'settings', patch: { schedule: { from: '21:30' } } });
+    expect(((await browser.storage.local.get('settings')).settings as { schedule: object }).schedule).toEqual(defaultSettings().schedule);
+    await patchStore({ key: 'settings', patch: { schedule: { from: '20:00' } } });
+    expect(((await browser.storage.local.get('settings')).settings as { schedule: object }).schedule).toEqual({ ...defaultSettings().schedule, from: '20:00' });
   });
 
   it('a malformed patch is refused before anything is written', async () => {

@@ -1,8 +1,15 @@
 import { resolveLang, type Lang } from './i18n';
+import { keepWindow } from './schedule-week';
 import { load } from './storage';
 
 // First clip goes out at `start`, each next one `every` hours/days later.
-export interface Schedule { on: boolean; start: string; every: number; unit: 'hour' | 'day' }
+// mode 'week' (lib/schedule-week.ts; absent = 'every'): perWeek videos a week instead, on varied
+// days, between `from` and `to` ("HH:MM"). `seed` picks the days and times, and the weeks are
+// counted from `anchor`, the start as the user last set it.
+export interface Schedule {
+  on: boolean; start: string; every: number; unit: 'hour' | 'day';
+  mode?: 'every' | 'week'; perWeek?: number; from?: string; to?: string; seed?: number; anchor?: string;
+}
 
 export interface Settings {
   autoApply: boolean; // manual single-file upload → fill in details
@@ -94,7 +101,12 @@ export function settingsDiff(before: Settings, after: Settings): SettingsPatch {
 
 export function applySettingsPatch(stored: Record<string, unknown>, patch: SettingsPatch): Record<string, unknown> {
   const next: Record<string, unknown> = { ...stored, ...patch };
-  if (patch.schedule) next.schedule = { ...defaultSettings().schedule, ...(isObj(stored.schedule) ? stored.schedule : {}), ...patch.schedule };
+  if (patch.schedule) {
+    const was: Record<string, unknown> = { ...defaultSettings().schedule, ...(isObj(stored.schedule) ? stored.schedule : {}) };
+    const sch = { ...was, ...patch.schedule };
+    keepWindow(sch, was); // week mode's from–to, changed one end at a time
+    next.schedule = sch;
+  }
   return next;
 }
 

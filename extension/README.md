@@ -634,6 +634,8 @@ The panel's own console: right-click inside the panel → Inspect.
       release has moved to the slot after the last one.
     - Set a time in the past: the box gets an amber border and a note says when the queue will
       start instead; **Use this time** stores it. Clear the time: the border and note go.
+    - Above the fields, **Every …** / **Per week** chooses how the times are made. All of
+      the above is "Every …", which is what a new install has. "Per week" is item 90.
 14. **Reload survival.** Queue 2 clips and reload the Studio tab before Start: the queue is still
     there, Start works (the files come through the bridge again). The reload shows no "Leave
     site?" prompt (the files are kept by the extension).
@@ -1575,6 +1577,63 @@ observation.
         icon in the page's address bar, or Chrome's site settings for the extension) and
         that removing it brings the banner back after the next reload of the extension.
 
+90. **The weekly schedule ("Per week").** What is built: a second way to schedule, next to
+    "Every N days/hours" (which is unchanged and stays the default). You say how many videos
+    a week and between which times of day; the extension picks the days and times, different
+    from week to week. The rules: weeks are 7-day blocks counted from the day of "First video
+    releases"; each block gets that many different days, one from each of that many
+    near-equal stretches of the block (3 a week is never three days in a row), and up to 3 a
+    week no two videos in a row are on neighbouring days; a block's days differ from the
+    block before; each time is one of Studio's 15-minute steps between the two times and
+    differs from the video before.
+    **None of this has been run in Chrome yet**; the rules are checked by the automated
+    tests (`tests/schedule-week.test.ts`, `tests/queue-week.test.ts`,
+    `tests/panel-week.test.tsx`). Record what you see at each step.
+    1. **Switch the mode.** Upload tab, switch "Schedule releases" on, open the box, click
+       **Per week**. The "Every" fields give way to "Videos a week" (3), "From" (17:00),
+       "Until" (21:00) and a **Shuffle** button. "First video releases" and the quick picks
+       stay. The summary ends "· 3 a week, 17:00–21:00".
+    2. **Queue 7 or more clips** (small test files will do; nothing is uploaded yet). Open
+       the cards. Write down each card's release time. Expected: every card on a different
+       day; in each 7 days from the first-release day exactly 3 cards; no two cards in a row
+       on neighbouring days; every time between 17:00 and 21:00 on a quarter hour (17:00,
+       17:15, …, 21:00); no card has the same time of day as the card before it; the days
+       of the second week are not the first week's days shifted by 7. The first card is not
+       before "First video releases".
+    3. **Stable.** Close the side panel and open it again; reload the Studio tab. The cards
+       show the same times as in step 2.
+    4. **Remove a middle clip** (say the 4th). The first three cards keep their times; the
+       cards after it each move up to the time of the card before them. Add a clip: it gets
+       the next time after the last card, and no other card changes.
+    5. **Shuffle.** Click **Shuffle**: the cards get other days and times, under the same
+       rules. Click it again: another set. Reopen the panel: the last set stays.
+    6. **The window and the count.** Set "Videos a week" to 1, then 7: one card a week; one
+       card every day. Set "From" 20:00 and "Until" 20:15: every card is at 20:00 or 20:15,
+       alternating. Drag "From" past "Until" (say 22:00): "Until" follows to 22:15, so there
+       is always one step to pick. Put both back to 3, 17:00 and 21:00.
+    7. **A time the channel already uses.** In Studio, schedule a video of the channel for
+       the same day as the second card, a few hours from its time. Reopen the panel (or wait
+       for the scheduled list to be read again, 5 minutes): the summary adds "· 1 already
+       scheduled on the channel (next …) — skipped 1 slot(s)", the second card moves to what
+       was the third card's time, and the later cards each move up one the same way. A time
+       typed on a card stays; the cards around it avoid that day the same way.
+    8. **A start that has passed.** Type a "First video releases" of a week ago: the amber
+       border and the note "The set time (…) has passed — the queue will start … instead",
+       and the first card is at the first generated time at least 15 minutes ahead. **Use
+       this time** stores that time and the cards do not move.
+    9. **One real upload.** Leave 2 clips in the queue and press Start. The summary's times
+       are the two cards' times. After the first clip, in Studio → Content the video is
+       "Scheduled" for exactly the date and time its card showed. In the box, "First video
+       releases" now shows the second card's time, and the second card has not moved. Stop
+       there, or let the second one go and check it the same way.
+    10. **The interval mode still works.** Click **Every …**: the "Every" fields are back
+        with the values they had, and item 13's last-but-one step (every 1 day, 2 clips one
+        day apart) reads as before. Click **Per week** again: the week fields are back with
+        their values, and the cards get week times again, counted from the first-release
+        time as it is now (after step 9 moved it, they are not the times of step 5).
+    11. **Backup.** Settings → Export, then Import that file as **My file**: the mode, the
+        count, the two times and the times on the cards are as before the import.
+
 ### Known behaviour, Phase 4a (note, don't test)
 
 - **A schedule list that arrives late can move the slots after you confirmed.** Before a start
@@ -1671,6 +1730,29 @@ Not in 5.0.0 yet (also in `CHANGELOG.md`):
   the main one.
 - **The schedule summary's tooltip** lists the times of the videos already scheduled on the
   channel, without their titles (the userscript showed "time · title").
+- **The weekly schedule** (item 90; the userscript had none). Things to know, none of them
+  seen in Chrome yet:
+  - The weeks are counted from the "First video releases" time as you last set it (typed, a
+    quick pick, or the moment "Per week" was chosen). The run moving that field on after an
+    upload, and "Use this time", do not start the count again, so waiting cards keep their
+    times. Setting the field yourself does, and so do a new count, new times or Shuffle:
+    every waiting card then gets a new time.
+  - On the first-release day itself a video is not before that time: its time is drawn from
+    the quarter hours still ahead, and when the "Until" time is already past, that day gets
+    no video (the first week then has one fewer).
+  - "Never two videos on one day" covers the times the extension makes. A time the channel
+    already uses, or one typed on a card, counts as taken when it is less than 12 hours
+    from a generated time, and that video moves to the next generated time; a video of the
+    channel 12 hours or more away on the same calendar day is not in the way.
+  - Removing a card moves every card after it up one time, as in the interval mode.
+  - On a day the clocks change, a time that does not exist that day (02:30 when the clocks
+    go forward) is released an hour later by the clock.
+  - 4 or more a week cannot avoid neighbouring days.
+  - Choosing "Per week" again after "Every …" counts the weeks from the first-release time
+    as it is then, so waiting cards can get other times than they had.
+  - The Studio tab makes the times. A Studio tab still running a build from before this mode
+    (possible only with a test build, between rebuilding and reloading it) would go on
+    making interval times while the box says "a week"; reload that tab.
 - **The copyright activity log** keeps only the lines logged while a side panel is open on
   that tab. After a night of Auto-pilot with the panel closed it is empty, the red "scan is
   incomplete" line included. The userscript kept its lines until the page next loaded.

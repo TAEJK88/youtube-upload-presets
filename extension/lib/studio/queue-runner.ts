@@ -3,6 +3,7 @@ import { checkTracklist } from '../chapters';
 import { DESC_MAX, IMG_EXT, SCHEDULE_MIN_LEAD, TITLE_MAX, TXT_EXT, VIDEO_EXT } from '../constants';
 import { L, locale } from '../i18n';
 import { visLabels } from '../presets';
+import { weekOf } from '../schedule-week';
 import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../template';
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
@@ -99,6 +100,14 @@ async function refreshForStart(): Promise<void> {
   const r = await Promise.race([refreshChanSched(true), late]).finally(() => clearTimeout(timer));
   if (r === 'late') console.warn(`[YT Presets] scheduled list still loading after ${START_SCHED_WAIT_MS / 1000} s — starting with the slots known so far`);
 }
+
+// The weekly schedule (P5-week-schedule, lib/schedule-week.ts): the times come from a generated
+// sequence instead of start + n x step. The rest is the interval mode's code. A time counts as
+// taken when a video of the channel or an edited card is less than half a step from it, and a
+// step is one day here ("never two videos on one day"); a taken time moves to the next
+// generated one; a start that has passed goes on with the first time still allowed.
+const week = () => weekOf(settings.schedule);
+const nextSlot = (t: number) => week()?.after(t) ?? t + stepMs();
 
 // @port-begin
 // ความคืบหน้าของคลิปที่กำลังอัป · อัปเดตจาก tick ทุก 0.8 วินาที (uploadOne ไม่ต้องรู้เรื่องนี้)
@@ -254,7 +263,7 @@ function assignNumbers() {
 
 // เวลาปล่อยของแต่ละคลิป: แก้เองในการ์ด หรือคำนวณจากเวลาเริ่ม + ลำดับในคิว x ระยะห่าง
 const scheduleOn = () => settings.schedule.on && !!settings.schedule.start;
-const stepMs = () => Math.max(1, Number(settings.schedule.every) || 1) * (settings.schedule.unit === 'hour' ? 3600e3 : 86400e3);
+const stepMs = () => (week() ? 86400e3 : Math.max(1, Number(settings.schedule.every) || 1) * (settings.schedule.unit === 'hour' ? 3600e3 : 86400e3));
 // คลิปที่อัปเสร็จจะจำเวลาไว้ (publishFinal) และเลื่อนเวลาเริ่มไปช่องถัดไป -> ล้างรายการแล้วเพิ่มใหม่ เวลาจะไม่ชนของเดิม
 function itemPublishAt(it: QueueItem): number | null {
   if (it.publishFinal) return it.publishFinal;
@@ -279,9 +288,9 @@ function queueSlots() {
   let t = start;
   let skipped = 0;
   for (const x of queue.filter((q) => live(q) && !(q.publishEdited && q.publishAt))) {
-    for (let g = 0; busy(t) && g < 1000; g++) { t += step; skipped++; }
+    for (let g = 0; busy(t) && g < 1000; g++) { t = nextSlot(t); skipped++; }
     map.set(x, t);
-    t += step;
+    t = nextSlot(t);
   }
   return { map, skipped };
 }
@@ -316,6 +325,8 @@ function effectiveStart() {
   if (!start) return 0;
   const step = stepMs();
   const floor = Date.now() + SCHEDULE_MIN_LEAD;
+  const w = week();
+  if (w) return w.notBefore(Math.max(start, floor));
   return start < floor ? start + Math.ceil((floor - start) / step) * step : start;
 }
 const startIsPast = () => scheduleOn() && new Date(settings.schedule.start).getTime() < Date.now() + SCHEDULE_MIN_LEAD;
@@ -445,7 +456,7 @@ async function uploadOne(it: QueueItem): Promise<void> {
   if (publishAt) {
     it.publishFinal = publishAt;
     if (!it.publishEdited) {
-      settings.schedule.start = toLocalInput(publishAt + stepMs()); // คลิปถัดไปต่อจากคลิปนี้
+      settings.schedule.start = toLocalInput(nextSlot(publishAt)); // คลิปถัดไปต่อจากคลิปนี้
       saveSettings();
     }
   }
