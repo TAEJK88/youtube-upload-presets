@@ -641,8 +641,9 @@ The panel's own console: right-click inside the panel → Inspect.
     site?" prompt (the files are kept by the extension).
 15. **Interrupted run.** Start 2 clips and reload Studio while the first uploads: that card comes
     back as an error, "The page reloaded during the upload — …". **Retry** with a draft id asks
-    "This video is already in Studio"; **Open draft** opens it in Studio in a new tab; "Deleted
-    it, upload again" puts it back in the queue.
+    "This video is already in Studio" with two answers, **Resume draft** (selected) and
+    **Upload again**; either puts it back in the queue (what each then does is item 94).
+    **Open draft** opens it in Studio in a new tab.
 16. **Browser restart, then re-grant.** Queue 2 clips (one with a thumbnail), quit Chrome fully,
     reopen Studio and the panel: the banner "Files in the queue need read access again — the
     browser has withdrawn it" with **Re-grant access (N files)**; the card's thumbnail preview
@@ -758,7 +759,7 @@ The panel's own console: right-click inside the panel → Inspect.
     Turn Auto-press Save back on.
 29. **The running tab closes while another is open.** Start in A, close A during clip 1: within
     about a second (at once when B gets focus) clip 1 shows the reload error in B's panel; the
-    rest wait; after deleting the draft, Retry and Start in B work. Also let a run in A end
+    rest wait; Retry (**Upload again**, after deleting the draft) and Start in B work. Also let a run in A end
     normally with B open: every card ends Done.
 30. **Channel lock and the confirmation.** Lock to another channel (item 4) and Start: the toast
     "⛔ Currently on channel … but locked to …" and nothing runs; unlock. Click Start and leave
@@ -777,7 +778,7 @@ The panel's own console: right-click inside the panel → Inspect.
     this page` (the Thai text in Thai) when the run reaches its next step; the orphaned run
     clicks nothing more and starts nothing; no ✅/⚠️ comes back to the title. Finish the upload in the
     dialog by hand, reload the tab: clip 1 shows the reload error and clip 2 waits. Remove clip 1
-    (Retry would upload it twice).
+    (it is uploaded: Retry → **Upload again** would upload it twice).
 33. **Navigation during an add (rare).** Drop a large folder and navigate Studio to another page
     while the cards are still arriving. **Record** whether any item later fails with "no longer
     available" (the panel may forget handles the old page had already queued).
@@ -1736,6 +1737,67 @@ observation.
        "Allow on every visit" was given, item 89), the pause kept, and the upload starting
        within a minute of **Re-grant access**.
 
+94. **Retry on the draft (an addition: the userscript said "delete the draft, then retry").**
+    What is built: a video that fails after its file became a draft in Studio is not uploaded
+    again. The run closes the dialog, waits 5 seconds, opens that draft's own upload dialog
+    again and redoes what is left (details, thumbnail, release time, Save), up to 2 times
+    before it moves on to the next video. A card's **Retry** on such a video does the same on
+    request. **None of this has been seen in Chrome**: how Studio opens a draft's dialog (its
+    "Edit draft" button in the Content list, or its address
+    `/channel/<id>/videos/upload?d=ud&udvid=<video id>` told to Studio without a page load) is
+    a guess. Keep Studio's console open with the filter `[ytup] draft retry` for every step
+    below and **record** its lines: each step of a retry logs one.
+    1. Schedule on, "Auto-press Save" on. Queue 2 clips of a few hundred MB, the first with a
+       thumbnail, so that there is time. Start. When the first card says "Waiting to set
+       thumbnail" or "Scheduling for …", close Studio's upload dialog yourself with its X.
+    2. Expect, within about half a minute: the card says "Retrying on the draft (1 of 2)…",
+       then Studio's upload dialog opens again on the same video, the card says "Filling in
+       details on the draft…", and the video ends Done with the release time its card had.
+       Then clip 2 uploads as usual. **Record** which console line says "its dialog is open"
+       ("by row" or "by address"), or what the lines say if no dialog opened.
+    3. In Studio's Content list there is **one** video for clip 1, scheduled, with the title,
+       description and thumbnail of its card: no second upload, no leftover draft. The
+       upload history (the CSV) has one line for it. **Record** whether its tags are there
+       once or twice (the details are typed into a draft that already has them; the title
+       and description are replaced, the tags are typed again).
+    4. If no dialog opened in step 2: the card ends as an error "Could not open the draft in
+       Studio (after 2 retries on the draft) · The file is already a draft in Studio (…).
+       Retry goes on with that draft, without uploading again", with **Retry** and **Open
+       draft**; clip 2 still uploads; the Studio tab was not reloaded and its address is
+       what it was. **Record** this as the result: the guess was wrong, nothing is lost.
+    5. If the card showed an error with no draft id in step 2 (no "…is already a draft…"),
+       the dialog had not shown the video's link yet when it was closed: **record** it and
+       repeat, closing the dialog later.
+    6. The manual way. Do step 1 again with 1 clip, and close Studio's dialog each time it
+       opens: three times in all (the first try and both retries). The card ends as an error
+       "… (after 2 retries on the draft) · The file is already a draft in Studio (…). Retry
+       goes on with that draft, without uploading again". Press **Retry**: the question "This
+       video is already in Studio" has **Resume draft** selected and **Upload again** beside
+       it. Choose **Resume draft**, then Start: the card says "Opening the draft in
+       Studio…", the draft's dialog opens, and the video ends Done, with one video in
+       Content. If its release time has passed meanwhile, the card says "Release time must
+       be at least 15 minutes in the future" instead: type a new time on the card and Retry.
+    7. **Upload again**: on another failed card with a draft, choose **Upload again** and
+       Start: the file is uploaded once more, as Retry always did (delete the draft in
+       Content first, or there are two videos).
+    8. In the background. Repeat step 1 and switch to another browser tab right after closing
+       the dialog, for two minutes. **Record** what the card and the console say: every line
+       ends with "tab hidden" or "tab visible". This is the lead on the failure that started
+       this item: on 2026-10-14 a 3.5-hour video failed with "Could not open the calendar",
+       its dialog then would not close, and the two later videos failed on it. Studio draws
+       its pop-ups a frame later and a hidden tab gets no frames, which would explain both;
+       it is not proven.
+    9. A dialog that will not close cannot be made on purpose. If it happens, expect: one
+       error on that video ending "Studio's upload dialog could not be closed — the queue
+       stopped at this video. Close that dialog yourself, then start again" (with "(the
+       Studio tab was in the background)" when it was), the page toast "⛔ Queue stopped: …",
+       and **every later video still Queued**, none with an error and none with a draft id.
+       **Record** the console lines `[ytup] draft retry: closing…` and `… still open after 3
+       tries at its X`. Close the dialog, press Start: the first video is retried on its
+       draft through **Retry**, the rest upload.
+    10. If "Could not open the calendar" shows again, **record** the console line `[ytup]
+       calendar: not open after 3 clicks · tab … · date field … · N calendar input(s) …`.
+
 ### Known behaviour, Phase 4a (note, don't test)
 
 - **A schedule list that arrives late can move the slots after you confirmed.** Before a start
@@ -1879,8 +1941,8 @@ The daily upload limit and batches (additions the userscript did not have; items
   on a card that has passed meanwhile fails that one video with "Release time must be at least
   15 minutes in the future".
 - **The video that met the limit** goes back to Queued. If Studio's dialog already showed a
-  video link for it, it stays an error with "The file is already uploaded as a draft … Delete
-  it in Content before retrying" and is not uploaded again by the resume.
+  video link for it, it stays an error with "The file is already a draft in Studio (…). Retry goes on
+  with that draft, without uploading again" and is not uploaded again by the resume.
 - **Stop pressed before the limit shows** ends the run as before: no pause.
 - **Only a limit that speaks of a day pauses.** Any dialog error that holds "limit" still
   ends the run (the userscript's test), but the pause needs "daily", "24", "รายวัน" or "ต่อวัน"
@@ -2079,7 +2141,43 @@ Questions:
   spot, with the mouse moving between clicks, is taken as an answer.
 - **The other questions still open on their main button,** as in the userscript: Enter answers
   yes for "Reset all presets", "Delete preset", the import ("My file"), "Upload N video(s)"
-  and the retry of a video that already has a draft.
+  and the retry of a video that already has a draft (Enter answers "Resume draft").
+
+Retry on the draft (item 94; none of it seen in Chrome yet):
+
+- **A video that failed as a draft is tried again on that draft, twice, by itself,** 5 seconds
+  after each failure, before the run goes on. The file is not uploaded again. Not retried: a
+  video with no draft id, after Stop, at the upload limit, and a video in "Waiting for you to
+  Save" that nobody saved for an hour.
+- **Only a dialog that shows this very video's link is filled in.** A dialog that shows
+  another video, or no link within 15 seconds, is closed and the video stays the error it was,
+  with its draft id, **Retry** and **Open draft**. The draft is never deleted and never
+  discarded by the extension.
+- **The Studio tab is not reloaded** to open a draft. The address bar may show the draft's
+  address for a moment; it is put back when no dialog opened. The Back button then has one
+  entry more.
+- **A resumed video is part of a batch only when its file was handed to Studio in this run.**
+  A draft from an earlier run is not counted in a batch and its Save is not held. It is still
+  one of the "N in this queue" of the daily-limit estimate before Start (it is not in the
+  upload history until it is saved), and it is written to the upload history once, when saved.
+- **The release time of a resumed video** is worked out as for any waiting video: the time
+  typed on its card, or its slot in the schedule ("Every …" or "Per week"). A typed time that
+  is less than 15 minutes ahead by then fails the video as before; change it on the card.
+- **A failed video's dialog that cannot be closed stops the run** with one error on that
+  video; the videos after it stay Queued. Before, each of them failed with "An upload dialog
+  is still open" and was shown the first video's draft id.
+- **Cards that still carry such a wrong draft id** (from a run before this build: the same id
+  on several cards) are not resumed: "Draft … is named on more than one card". Use **Open
+  draft** to see which video it is, and Retry → **Upload again** on the others.
+- **A video that never handed its file to Studio has no draft id,** whatever dialog is open.
+- **"Could not open the calendar"**: the three clicks now go to the date field that is in the
+  dialog at that moment, and the message ends with "(the Studio tab was in the background)"
+  when it was. Why the calendar did not open on 2026-10-14 is not known.
+- **The page-reload error** ("The page reloaded during the upload — check Content for a
+  leftover draft, then retry (…)") keeps its wording; its Retry asks the same question.
+- **Closing a dialog whose upload is still running**: the extension presses the dialog's X,
+  as it always did, and should Studio then ask, only an answer that reads "Save as draft" is
+  pressed. What Studio really asks there has not been seen.
 
 The package:
 

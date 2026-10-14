@@ -26,6 +26,9 @@ export const TXT = {
   thumbButton: /upload|thumbnail|ภาพปก|ภาพขนาดย่อ|อัปโหลดไฟล์/i, // ปุ่มที่เกี่ยวกับภาพปก (ใช้ตอนตรวจปัญหา)
   uploadLimit: /limit|ขีดจำกัด|daily/i, // ชนขีดจำกัดการอัปต่อวัน -> หยุดคิว
   uploadPct: /(\d{1,3})\s*%/, // เปอร์เซ็นต์ในข้อความความคืบหน้าของ Studio
+  // Not from the userscript (P5-draft-retry), and UNVERIFIED in Chrome: guesses at Studio's words.
+  editDraft: /^(edit draft|แก้ไขฉบับร่าง)$/i, // the button on a draft's row in the Content list
+  keepDraft: /^(save as draft|save draft|บันทึกเป็นฉบับร่าง|บันทึกฉบับร่าง)$/i, // the keeping answer, should closing the dialog ask
   // --- ยังต้องใช้ Studio ภาษาอังกฤษ (ส่วนลิขสิทธิ์ — ดู studioIsEnglish) ---
   monetStatus: /moneti[sz]ation status/i, // ปุ่มแก้สถานะการสร้างรายได้
   nextOrDone: /^(Next|Done)$/i, // ปุ่ม Next / Done ในแบบสอบถาม

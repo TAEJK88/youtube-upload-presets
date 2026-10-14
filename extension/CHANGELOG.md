@@ -88,6 +88,20 @@ New in this release:
   goes on. The batch's last video is not saved while its own dialog still says "Uploading".
   Whether the batch's earlier uploads have finished cannot be read from Studio so far; the
   queue then says "Could not check…" and goes on (README item 91).
+- **Addition the userscript did not have: retry on the draft.** A video that fails after its
+  file became a draft in Studio is no longer uploaded again. The queue opens that draft's
+  upload dialog again and redoes what is left (details, thumbnail, release time, Save), twice
+  by itself before it moves on; the card says "Retrying on the draft (1 of 2)…". **Retry** on
+  such a card asks "Resume draft" (selected) or "Upload again". When the draft cannot be
+  opened the card is the error it was, with its draft id. How Studio opens a draft's dialog
+  is a guess that has not been tried in Chrome (README item 94).
+- A failed video whose Studio dialog cannot be closed now stops the queue with one message;
+  the videos after it stay Queued. Before, each of them failed with "An upload dialog is still
+  open" and was shown the first video's draft id. A video that never handed its file to
+  Studio gets no draft id any more.
+- "Could not open the calendar": the clicks go to the date field that is in the dialog at
+  that moment, and the message says when the Studio tab was in the background. The cause of
+  the failure seen on a 3.5-hour video is not known.
 
 Not in the extension yet:
 

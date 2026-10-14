@@ -130,13 +130,16 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
     void pending.then((hs) => attachFiles(hs.filter((h): h is FileSystemFileHandle => h?.kind === 'file')))
       .catch((err) => console.error('[ytup] card drop', err));
   };
+  // A video that is a draft in Studio goes on in that draft (P5-draft-retry; the userscript's
+  // question offered only "Deleted it, upload again"). Uploading the file again stays possible.
   const retry = async () => {
-    if (it.draftId && !(await ask({
+    const resume = !it.draftId ? false : await ask({
       title: L('คลิปนี้อยู่ใน Studio แล้ว', 'This video is already in Studio'),
-      body: L(`อัปขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ถ้าลองใหม่จะได้คลิปซ้ำ\nลบฉบับร่างในหน้า Content ก่อน แล้วค่อยอัปใหม่`, `It was already uploaded as a draft (${it.draftId}). Retrying will create a duplicate.\nDelete the draft in Content first, then upload again.`),
-      ok: L('ลบแล้ว อัปใหม่', 'Deleted it, upload again'), icon: 'refresh',
-    }))) return;
-    void send('queue:retry', it.id).catch(notConnected);
+      body: L(`ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId})\n"ทำต่อบนฉบับร่าง" จะเปิดฉบับร่างนั้นแล้วกรอกส่วนที่เหลือ ไม่อัปโหลดไฟล์ซ้ำ\n"อัปโหลดใหม่" จะส่งไฟล์ขึ้นไปอีกครั้ง: ลบฉบับร่างในหน้า Content ก่อน ไม่อย่างนั้นจะได้คลิปซ้ำ`, `The file is already a draft in Studio (${it.draftId}).\n"Resume draft" opens that draft and fills in what is left, without uploading the file again.\n"Upload again" sends the file once more: delete the draft in Content first, or there will be two videos.`),
+      ok: L('ทำต่อบนฉบับร่าง', 'Resume draft'), no: L('อัปโหลดใหม่', 'Upload again'), icon: 'refresh',
+    });
+    if (resume == null) return;
+    void send(resume ? 'queue:resume' : 'queue:retry', it.id).catch(notConnected);
   };
 
   // renderAttachments()
@@ -271,7 +274,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
             )}
             {it.status === 'error' && <Button size="sm" onClick={() => void retry()}><Icon name="refresh" size={13} />{L('ลองใหม่', 'Retry')}</Button>}
             {it.status === 'error' && it.draftId && (
-              <Button size="sm" title={L('เปิดฉบับร่างที่ค้างใน Studio (แท็บใหม่) เพื่อลบก่อนลองใหม่', 'Open the leftover draft in Studio (new tab) to delete it before retrying')}
+              <Button size="sm" title={L('เปิดฉบับร่างที่ค้างใน Studio (แท็บใหม่)', 'Open the leftover draft in Studio (new tab)')}
                 onClick={() => openTab(`https://studio.youtube.com/video/${it.draftId}/edit`)}>
                 <Icon name="ext" size={13} />{L('เปิดฉบับร่าง', 'Open draft')}
               </Button>

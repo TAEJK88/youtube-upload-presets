@@ -1,7 +1,20 @@
 import { L } from '../i18n';
 import { pad } from '../template';
 import { getDialog, isVisible, sleep, waitFor } from './automation';
+import { hiddenTabNote } from './draft-retry';
 import { SEL } from './sel';
+
+// "Could not open the calendar" failed a 3.5-hour video (the owner's run, 2026-10-14) and nothing
+// said why. Two changes to setSchedule(), neither seen in Chrome (P5-draft-retry):
+// - each of the three clicks goes to the date field that is in the dialog now. The field was
+//   looked up once, and a click on an element Studio has since drawn again does nothing: three
+//   clicks on it open no calendar. A page that keeps its element is clicked as before.
+// - the failure says when the tab was in the background, and logs what the page held, so the next
+//   failure can be told from this one.
+function calendarNote(trigger: HTMLElement): string {
+  console.warn(`[ytup] calendar: not open after 3 clicks · tab ${document.visibilityState} · date field ${trigger.isConnected ? 'still in the page' : 'was drawn again'} · ${document.querySelectorAll(SEL.datePickerInput).length} calendar input(s) in the page, none visible`);
+  return hiddenTabNote();
+}
 
 // @port-begin
 // ----- ตั้งเวลาปล่อย -----
@@ -75,10 +88,10 @@ async function setSchedule(date: Date) {
   };
   let dateInput = pickerInput();
   for (let k = 0; !dateInput && k < 3; k++) {
-    trigger.click();
+    (dlg.querySelector<HTMLElement>(SEL.datePickerTrigger) || trigger).click();
     dateInput = await waitFor(pickerInput, 4000);
   }
-  if (!dateInput) return L('เปิดปฏิทินไม่ได้', 'Could not open the calendar');
+  if (!dateInput) return L('เปิดปฏิทินไม่ได้', 'Could not open the calendar') + calendarNote(trigger);
   const dateText = formatStudioDate(date, dateInput.value);
   await typeInto(dateInput, dateText);
   if (isVisible(dateInput)) {

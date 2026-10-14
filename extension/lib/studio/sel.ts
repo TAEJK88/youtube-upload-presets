@@ -27,6 +27,14 @@ export const SEL = {
   // guess that has not paid off yet. What is verified is uploadProgress above, inside an open
   // dialog: "Uploading 5% ... 8 minutes left" (lib/studio/queue-batch.ts).
   uploadMonitor: 'ytcp-multi-progress-monitor, ytcp-uploads-mini-indicator',
+  // Not from the userscript (P5-draft-retry), and UNVERIFIED: nothing here was seen in Chrome.
+  // A video's row in the Content list; a draft's row is believed to hold an "Edit draft" button
+  // (TXT.editDraft) that opens the same ytcp-uploads-dialog. The row is matched by the video id in
+  // a link or a thumbnail address inside it (lib/studio/draft-retry.ts).
+  contentRow: 'ytcp-video-row',
+  // The X of the upload dialog itself, for a second try at closing it: closeDialogBtn above takes
+  // the first visible match, which is the ytcp-button host and not the button inside it.
+  closeDialogInner: '#ytcp-uploads-dialog-close-button button',
   // --- หน้ากรอกรายละเอียด ---
   titleBox: '#title-textarea #textbox',
   descBox: '#description-textarea #textbox',
@@ -104,3 +112,8 @@ export const SEL = {
   trimContinue: '#continue-button',
   studioSaveHost: 'ytcp-button#save',
 };
+
+// Not from the userscript (P5-draft-retry), and UNVERIFIED in Chrome: the address Studio shows
+// while a draft's upload dialog is open (known from use, not from documentation). It is given to
+// Studio's router inside the page, never loaded: a page load would end the run.
+export const draftUrl = (channelId: string, videoId: string) => `/channel/${channelId}/videos/upload?d=ud&udvid=${videoId}`;

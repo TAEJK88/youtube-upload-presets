@@ -37,4 +37,8 @@ export default [
   { th: '· อัตโนมัติจาก .txt', en: '· auto from .txt', why: 'P5-artist-pool: the card says "· auto" (3903); the names come from the pool unless the preset has none' },
   { th: 'คั่นด้วย , (อัตโนมัติจาก .txt)', en: 'Comma-separated (auto from .txt)', why: 'P5-artist-pool: the same field\'s placeholder (3768)' },
   { th: 'ระหว่างที่คิวทำงาน อย่าปิดหรือรีเฟรชแท็บนี้ · YouTube จำกัดจำนวนอัปโหลดต่อวัน ถ้าชนลิมิตคิวจะหยุดเอง', en: 'While the queue is running, don\'t close or refresh this tab · YouTube limits uploads per day; if you hit the limit the queue stops automatically', why: 'P5-daily-limit: at the limit the queue now pauses and resumes 24 hours later; the same hint with that ending is in extension-only' },
+  // 5 D (draft retry, P5-draft-retry)
+  { th: 'อัปขึ้นไปเป็นฉบับร่างแล้ว (${}) ถ้าลองใหม่จะได้คลิปซ้ำ\nลบฉบับร่างในหน้า Content ก่อน แล้วค่อยอัปใหม่', en: 'It was already uploaded as a draft (${}). Retrying will create a duplicate.\nDelete the draft in Content first, then upload again.', why: 'Retry on a video that is a draft now goes on in that draft; the question offers "Resume draft" and "Upload again" (extension-only)' },
+  { th: 'ลบแล้ว อัปใหม่', en: 'Deleted it, upload again', why: 'that question\'s only answer; replaced by "Resume draft" and "Upload again"' },
+  { th: 'เปิดฉบับร่างที่ค้างใน Studio (แท็บใหม่) เพื่อลบก่อนลองใหม่', en: 'Open the leftover draft in Studio (new tab) to delete it before retrying', why: 'the draft need not be deleted before a retry any more; the tooltip without its last words is in extension-only' },
 ];

@@ -32,11 +32,13 @@ export function removeItem(id: string): void {
   ui.queue();
 }
 
-// The panel asks first when the item left a draft in Studio (the userscript's ask()).
-export function retryItem(id: string): void {
+// The panel asks first when the item left a draft in Studio (the userscript's ask()): upload the
+// file again (the draft id is forgotten), or `resume` (P5-draft-retry): the video waits again with
+// its draft id, and the run goes on in that draft instead of uploading the file.
+export function retryItem(id: string, resume = false): void {
   const it = queue.find((x) => x.id === id);
   if (!it || it.status !== 'error') return;
-  it.draftId = '';
+  if (!resume) it.draftId = '';
   setItem(it, 'pending');
   assignNumbers();
   ui.queue();

@@ -60,16 +60,28 @@ describe('queue card', () => {
     expect(screen.queryByRole('button', { name: 'Remove from queue' })).toBe(null);
   });
 
-  it('Retry with a leftover draft asks first', async () => {
+  it('Retry with a leftover draft asks first: go on in the draft, or upload the file again', async () => {
     const api = one({ status: 'error', draftId: 'abcdefghijk', msg: 'boom' });
     expect(screen.getByRole('button', { name: 'Open draft' })).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })));
     expect(screen.getByText('This video is already in Studio')).toBeTruthy();
+    expect(screen.getByText(/The file is already a draft in Studio \(abcdefghijk\)/)).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })));
     expect(api.send).not.toHaveBeenCalled();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })));
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Deleted it, upload again' })));
-    expect(api.send).toHaveBeenCalledWith('queue:retry', 'i0');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Resume draft' })));
+    expect(vi.mocked(api.send).mock.calls).toEqual([['queue:resume', 'i0']]);
+    vi.mocked(api.send).mockClear();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Upload again' })));
+    expect(vi.mocked(api.send).mock.calls).toEqual([['queue:retry', 'i0']]);
+  });
+
+  it('Enter in that question resumes the draft: no second upload by default', async () => {
+    const api = one({ status: 'error', draftId: 'abcdefghijk', msg: 'boom' });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Resume draft' }));
+    expect(api.send).not.toHaveBeenCalled();
   });
 
   it('Remove and Retry that do not reach the tab say so', async () => {

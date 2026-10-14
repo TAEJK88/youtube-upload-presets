@@ -66,6 +66,7 @@ export type ProtocolMap = {
   'queue:start'(seen: StartBinding): void; // the summary's channel and items, as confirmed
   'queue:stop'(): void;
   'queue:retry'(id: string): void;
+  'queue:resume'(id: string): void; // Retry on the video's draft in Studio, the file is not uploaded again
   'queue:remove'(id: string): void;
   'queue:clearDone'(): void;
   'queue:view'(): QueueView;
