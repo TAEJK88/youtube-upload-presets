@@ -1742,7 +1742,10 @@ observation.
     again. The run closes the dialog, waits 5 seconds, opens that draft's own upload dialog
     again and redoes what is left (details, thumbnail, release time, Save), up to 2 times
     before it moves on to the next video. A card's **Retry** on such a video does the same on
-    request. **None of this has been seen in Chrome**: how Studio opens a draft's dialog (its
+    request. **Seen in the owner's Chrome on 2026-10-14 (build `256e3c8`):** after he closed
+    Studio's dialog on an uploading video, the card said "Retrying on the draft (1 of 2)…"
+    (the start of step 2). **Not reported yet:** whether the draft's dialog opened again
+    and the video ended Done, and every other step. **Still a guess**: how Studio opens a draft's dialog (its
     "Edit draft" button in the Content list, or its address
     `/channel/<id>/videos/upload?d=ud&udvid=<video id>` told to Studio without a page load) is
     a guess. Keep Studio's console open with the filter `[ytup] draft retry` for every step
