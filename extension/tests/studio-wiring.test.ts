@@ -77,4 +77,11 @@ describe('the Studio content script', () => {
   it('a failing FAB update is logged each time and said once with the progress toast', () => {
     expect(studio).toMatch(/try \{\s*fab\.update\(fabModel\(\)\);\s*\} catch \(e\) \{\s*console\.error\('\[ytup\] fab', e\);\s*ui\.progressFailed\(e\);\s*\}/);
   });
+
+  // P5-draft-retry: the two answers of the card's Retry question. retryItem is tested in
+  // queue-ops.test.ts; these pin which message keeps the draft id.
+  it('Retry uploads again, Resume draft keeps the draft id; both only when this tab may edit the queue', () => {
+    expect(studio).toMatch(/onMessage\('queue:retry', async \(\{ data: id \}\) => \{\s*if \(typeof id === 'string' && await mayEdit\(\)\) retryItem\(id\);/);
+    expect(studio).toMatch(/onMessage\('queue:resume', async \(\{ data: id \}\) => \{\s*if \(typeof id === 'string' && await mayEdit\(\)\) retryItem\(id, true\);/);
+  });
 });

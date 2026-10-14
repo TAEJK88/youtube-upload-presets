@@ -152,7 +152,7 @@ describe('the daily upload limit', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     await Q.runQueue();
     expect(statuses()).toEqual(['done', 'error', 'pending']);
-    expect(Q.queue[1]!.msg).toContain('already uploaded as a draft (abcdefghijk)');
+    expect(Q.queue[1]!.msg).toContain('already a draft in Studio (abcdefghijk)');
     expect(queuePause()?.until).toBe(NOW + PAUSE_MS);
   });
 

@@ -22,8 +22,25 @@ export default {
     ['LOCALE', 'locale()', 2],
     // the Files are fetched by id; a thumbnail that can't be read says it was the thumbnail
     ["'An upload dialog is still open. Close it, then start again'));",
-      "'An upload dialog is still open. Close it, then start again'));\n    const file = await getQueueFile(it.id, it.src);\n    const thumbFile = settings.thumb && it.thumb ? await getThumbFile(it.thumb) : null;", 1],
-    ['injectUploadFile(input, it.file)', 'injectUploadFile(input, file)', 1],
+      "'An upload dialog is still open. Close it, then start again'));\n    const file = it.draftId ? null : await getQueueFile(it.id, it.src);\n    const thumbFile = settings.thumb && it.thumb ? await getThumbFile(it.thumb) : null;", 1],
+    // P5-draft-retry: a video waiting with a draft id goes on in that draft's own dialog. It is given no file
+    // (the fetch above is skipped), openDialog() opens the draft instead of the picker, handFile() hands over
+    // nothing, and the card says what it is doing. Without a draft id every line does what it did
+    ['await openFilePicker();', 'await openDialog(it);', 1],
+    ['injectUploadFile(input, it.file)', 'handFile(it, input, file)', 1],
+    ["setItem(it, 'uploading', L('กำลังอัปโหลดและกรอกรายละเอียด…', 'Uploading and filling in details…'));",
+      "setItem(it, 'uploading', file ? L('กำลังอัปโหลดและกรอกรายละเอียด…', 'Uploading and filling in details…') : L('กำลังกรอกรายละเอียดในฉบับร่าง…', 'Filling in details on the draft…'));", 1],
+    // a draft's dialog may not show its link yet: the id it was opened by is kept
+    ['it.draftId = dialogVideoId();', 'it.draftId = dialogVideoId() || it.draftId;', 1],
+    // P5-draft-retry, the end of a failed video: the dialog's video link is read only when this video's file is in
+    // that dialog (`given`; a video that failed on a dialog left open took the other video's id); the card says Retry
+    // goes on with the draft, where the userscript said to delete it; closing the dialog is tried until it is closed
+    // (closeUploadDialog), and a dialog that stays open ends the run instead of failing every later video
+    ["          it.draftId = it.draftId || dialogVideoId();\n          setItem(it, 'error'", "          if (given) it.draftId = it.draftId || dialogVideoId();\n          setItem(it, 'error'", 1],
+    ['` · ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ลบใน Content ก่อนกดลองใหม่ จะได้ไม่ซ้ำ`, ` · The file is already uploaded as a draft (${it.draftId}). Delete it in Content before retrying to avoid duplicates`',
+      '` · ไฟล์เป็นฉบับร่างใน Studio แล้ว (${it.draftId}) กด "ลองใหม่" เพื่อทำต่อบนฉบับร่างนั้น ไม่ต้องอัปโหลดซ้ำ`, ` · The file is already a draft in Studio (${it.draftId}). Retry goes on with that draft, without uploading again`', 1],
+    ['          closeStudioUploadDialog();\n          if (TXT.uploadLimit.test(e.message)) break;',
+      '          const closed = await closeUploadDialog();\n          if (TXT.uploadLimit.test(e.message)) break;\n          if (!closed) { dialogStuck(it); break; }', 1],
     ['setThumbnail(it.thumb, 3000)', 'setThumbnail(thumbFile, 3000)', 1],
     ['VIS[vis]', 'visLabels()[vis]', 1],
     ['openDrawer(', 'ui.openDrawer(', 3],

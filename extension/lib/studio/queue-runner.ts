@@ -8,6 +8,7 @@ import { BATCH_MAX, wholeIn } from '../settings';
 import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../template';
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
+import { closeUploadDialog, DRAFT_RETRIES, DRAFT_RETRY_PAUSE_MS, hiddenTabNote, openDraft } from './draft-retry';
 import { ui } from './page-ui';
 import { BATCH_SETTLE_MS, batchCensus, pageUploadText, saysUploading, waitForUploads, type BatchEnd } from './queue-batch';
 import { dropFiles, probeBridge, getQueueFile, getThumbFile, pageFiles } from './queue-files';
@@ -367,20 +368,20 @@ async function uploadOne(it: QueueItem): Promise<void> {
   const publishAt = itemPublishAt(it);
   if (scheduleProblem(publishAt)) throw new Error(`${scheduleProblem(publishAt)} (${fmtWhen(publishAt!)})`);
   if (uploadDialogOpen()) throw new Error(L('มีหน้าต่างอัปโหลดค้างอยู่ ปิดก่อนแล้วกดเริ่มใหม่', 'An upload dialog is still open. Close it, then start again'));
-  const file = await getQueueFile(it.id, it.src);
+  const file = it.draftId ? null : await getQueueFile(it.id, it.src);
   const thumbFile = settings.thumb && it.thumb ? await getThumbFile(it.thumb) : null;
   setItem(it, 'uploading', L('กำลังเปิดหน้าต่างอัปโหลด…', 'Opening upload dialog…'));
-  const { input, err: pickErr } = await openFilePicker();
+  const { input, err: pickErr } = await openDialog(it);
   if (!input) {
     throw new Error(L(`เปิดหน้าต่างอัปโหลดของ Studio ไม่ได้ (${pickErr}) — ลองเปิดหน้าต่างอัปโหลดเองค้างไว้ที่หน้า "เลือกไฟล์" แล้วกด "ลองใหม่" สคริปต์จะใช้หน้าต่างนั้นต่อ`, `Could not open Studio's upload dialog (${pickErr}) — try opening the upload dialog yourself, leave it on the "Select files" page, then click "Retry". The script will continue from that dialog`));
   }
 
-  if (!(await injectUploadFile(input, file))) {
+  if (!(await handFile(it, input, file))) {
     closeStudioUploadDialog();
     throw new Error(L('Studio ไม่รับไฟล์ที่สคริปต์ส่งให้ (ทั้งแบบเลือกไฟล์และแบบลากวาง) — ส่งข้อความนี้ให้ผู้พัฒนาสคริปต์', 'Studio did not accept the file sent by the script (via both file picker and drag-and-drop) — send this message to the script developer'));
   }
 
-  setItem(it, 'uploading', L('กำลังอัปโหลดและกรอกรายละเอียด…', 'Uploading and filling in details…'));
+  setItem(it, 'uploading', file ? L('กำลังอัปโหลดและกรอกรายละเอียด…', 'Uploading and filling in details…') : L('กำลังกรอกรายละเอียดในฉบับร่าง…', 'Filling in details on the draft…'));
   const titleBox = await waitFor(() => {
     const t = getTitleBox(getDialog());
     return (isVisible(t) && t) || (dialogError() && 'error');
@@ -391,7 +392,7 @@ async function uploadOne(it: QueueItem): Promise<void> {
 
   const description = renderDesc(p, vars);
   const tagsOk = await fillDetails({ title, description, tags: renderTags(p, vars) });
-  it.draftId = dialogVideoId(); // อาจยังไม่มีลิงก์ จะอ่านซ้ำก่อนกด Save
+  it.draftId = dialogVideoId() || it.draftId; // อาจยังไม่มีลิงก์ จะอ่านซ้ำก่อนกด Save
   const vis = p.visibility || 'PRIVATE';
   let note = tagsOk ? '' : L(' (หาช่องแท็กไม่เจอ)', ' (tags field not found)');
   if (settings.thumb && it.thumb) {
@@ -546,10 +547,11 @@ async function runQueue() {
         ok++;
       } catch (e: any) {
         console.error('[YT Presets]', e);
-        it.draftId = it.draftId || dialogVideoId();
-        setItem(it, 'error', e.message + (it.draftId ? L(` · ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId}) ลบใน Content ก่อนกดลองใหม่ จะได้ไม่ซ้ำ`, ` · The file is already uploaded as a draft (${it.draftId}). Delete it in Content before retrying to avoid duplicates`) : ''));
-        closeStudioUploadDialog();
+        if (given) it.draftId = it.draftId || dialogVideoId();
+        setItem(it, 'error', e.message + (it.draftId ? L(` · ไฟล์เป็นฉบับร่างใน Studio แล้ว (${it.draftId}) กด "ลองใหม่" เพื่อทำต่อบนฉบับร่างนั้น ไม่ต้องอัปโหลดซ้ำ`, ` · The file is already a draft in Studio (${it.draftId}). Retry goes on with that draft, without uploading again`) : ''));
+        const closed = await closeUploadDialog();
         if (TXT.uploadLimit.test(e.message)) { dailyLimitHit(it, e.message); break; }
+        if (!closed) { dialogStuck(it); break; }
       }
       if (!stopReq && queue.some((i) => i.status === 'pending')) await sleep(settings.delay * 1000);
     }
@@ -608,20 +610,83 @@ async function uploadCurrent(it: QueueItem): Promise<void> {
   let said = '';
   const watch = setInterval(() => { said = uploadProgressText() || said; }, 500);
   try {
-    await uploadOne(it);
+    await uploadOrResume(it);
   } finally {
     current = null;
     clearInterval(watch);
   }
-  if (batchSize()) handed.push(!(atSave || said) || saysUploading(atSave || said));
+  if (batchSize() && fileRun === it.id) handed.push(!(atSave || said) || saysUploading(atSave || said));
   await batchWait().catch((e) => console.error('[ytup] batch wait', e)); // never fails the video that is done
+}
+
+// A video that failed after its file became a draft in Studio (P5-draft-retry; the userscript said
+// "delete the draft, then retry", and the retry uploaded the file again). The draft's own upload
+// dialog is opened again (lib/studio/draft-retry.ts) and uploadOne() fills in what is left:
+// - by itself, DRAFT_RETRIES times within the run, before the run moves on;
+// - when the card's Retry → "Resume draft" put the video back in line with its draft id.
+// A video waiting with a draft id is never given its file again: uploadOne() skips the file, the
+// picker and the hand-over. When the draft cannot be opened the video is the error it was.
+// `given`: this try's file is in the open dialog (handed over, or its draft opened), so the
+// dialog's video link is this video's. A video that failed before that reads no link: the dialog
+// still open is then another video's, and its id was once written on every later card.
+// `fileRun`: the video whose file this run handed to Studio last; only such a video is one of a
+// batch (a draft resumed from an earlier run was uploaded long ago).
+let given = false;
+let fileRun = '';
+let retryNo = 0; // 0 = the video's first try in this run
+const retryText = (n: number) => L(`ลองใหม่บนฉบับร่าง (ครั้งที่ ${n} จาก ${DRAFT_RETRIES})…`, `Retrying on the draft (${n} of ${DRAFT_RETRIES})…`);
+// The draft id read from another video's dialog by 5.0.0 builds before this fix can still be
+// stored on several cards: which one it belongs to cannot be told, so none of them resumes it.
+const sharedDraft = (it: QueueItem) => queue.some((x) => x !== it && x.draftId === it.draftId);
+const RESUMED = {} as HTMLInputElement; // what uploadOne() takes for "the dialog is open": a draft has no file input to fill
+async function openDialog(it: QueueItem): Promise<{ input?: HTMLInputElement; err?: string }> {
+  if (!it.draftId) return openFilePicker();
+  if (sharedDraft(it)) throw new Error(L(`ฉบับร่าง ${it.draftId} ถูกระบุในการ์ดมากกว่าหนึ่งใบ — เปิดฉบับร่างดูว่าเป็นคลิปไหน แล้วใช้ "ลองใหม่" → "อัปโหลดใหม่" กับใบที่ไม่ใช่`, `Draft ${it.draftId} is named on more than one card — open the draft to see which video it is, then use Retry → "Upload again" on the others`));
+  setItem(it, 'uploading', retryNo ? retryText(retryNo) : L('กำลังเปิดฉบับร่างใน Studio…', 'Opening the draft in Studio…'));
+  const err = await openDraft({ id: it.draftId, channel: getChannel().id, shownId: () => dialogVideoId() || '' });
+  if (err) throw new Error(err);
+  given = true;
+  return { input: RESUMED };
+}
+async function handFile(it: QueueItem, input: HTMLInputElement, file: File | null): Promise<boolean> {
+  if (!file) return true; // a draft: its file is in Studio
+  given = true;
+  const ok = await injectUploadFile(input, file);
+  if (ok) fileRun = it.id;
+  return ok;
+}
+// Not retried: Stop was pressed, the upload limit (the pause's business), a video the user was
+// asked to Save and did not (an hour's wait is not started again), a draft id on several cards.
+async function uploadOrResume(it: QueueItem): Promise<void> {
+  for (retryNo = 0; ; retryNo++) {
+    given = false;
+    try {
+      return await uploadOne(it);
+    } catch (e: any) {
+      if (torn || aborted) throw e;
+      if (given) it.draftId = it.draftId || dialogVideoId();
+      if (retryNo) e.message += L(` (ลองใหม่บนฉบับร่างแล้ว ${retryNo} ครั้ง)`, ` (after ${retryNo} retries on the draft)`);
+      if (retryNo >= DRAFT_RETRIES || !it.draftId || sharedDraft(it) || it.status === 'review' || stopReq || TXT.uploadLimit.test(e.message)) throw e;
+      console.warn(`[ytup] draft retry: "${it.file.name}" failed as draft ${it.draftId} ("${e.message}"), try ${retryNo + 1} of ${DRAFT_RETRIES} follows`);
+      if (!(await closeUploadDialog())) throw e; // runQueue() stops the run there
+      setItem(it, 'uploading', retryText(retryNo + 1));
+      await sleep(DRAFT_RETRY_PAUSE_MS);
+    }
+  }
+}
+// The dialog of a failed video would not close: every later video would fail on it ("an upload
+// dialog is still open"), so the run ends here and the rest keep waiting.
+function dialogStuck(it: QueueItem): void {
+  const why = L('ปิดหน้าต่างอัปโหลดของ Studio ไม่ได้ — คิวหยุดที่คลิปนี้ ปิดหน้าต่างนั้นเอง แล้วกดเริ่มใหม่', "Studio's upload dialog could not be closed — the queue stopped at this video. Close that dialog yourself, then start again") + hiddenTabNote();
+  setItem(it, 'error', `${it.msg} · ${why}`);
+  ui.toast(L('⛔ หยุดคิว: ', '⛔ Queue stopped: ') + why);
 }
 
 // YouTube's daily upload limit (P5-daily-limit; the userscript ended the queue here). The run
 // still ends, and with it the automation lock is free for the pause's 24 hours, but
 // lib/studio/queue-pause.ts keeps when to go on. The video that met the limit goes back to
 // waiting: Studio refused its file. Only when the dialog already showed a video link is it left
-// as the error it was, with the "delete the draft first" text, so no resume uploads it twice.
+// as the error it was, naming its draft (Retry goes on with that draft), so no resume uploads it twice.
 // Nothing is paused when the user had pressed Stop, or when nothing is left to upload.
 // TXT.uploadLimit stops the run as loosely as the userscript's did ("limit" alone is enough),
 // but only a message that speaks of a day pauses: another limit (a file too large or too long)
@@ -658,7 +723,7 @@ function announcePause(ok: number): void {
 //   uploading when theirs closed: the page is looked at for anything that says so.
 let handed: boolean[] = [];
 let batchNo = 0;
-const batchReset = () => { handed = []; batchNo = 0; };
+const batchReset = () => { handed = []; batchNo = 0; fileRun = ''; };
 const batchSize = () => wholeIn(settings.batch, BATCH_MAX);
 // What the run is waiting for (QueueState.wait); '' = nothing.
 let waitNote = '';
@@ -675,7 +740,7 @@ function sayBatchEnd(end: BatchEnd, k: number): void {
 async function holdBatchSave(it: QueueItem): Promise<void> {
   const size = batchSize();
   atSave = uploadProgressText();
-  if (!size || handed.length !== size - 1 || stopReq || !queue.some((i) => i.status === 'pending')) return;
+  if (!size || fileRun !== it.id || handed.length !== size - 1 || stopReq || !queue.some((i) => i.status === 'pending')) return;
   if (!saysUploading(atSave)) return;
   const k = batchNo + 1;
   const head = L(`รอ Studio อัปโหลดชุดที่ ${k} ให้เสร็จก่อนบันทึกคลิปสุดท้ายของชุด`, `Waiting for Studio to finish uploading batch ${k} before saving its last video`);

@@ -59,6 +59,14 @@ describe('queue ops', () => {
     expect(Q.queue[0]).toMatchObject({ status: 'pending', draftId: '' });
   });
 
+  it('retry on the draft puts it back in line with its draft id (P5-draft-retry)', () => {
+    Q.queue.push(item('a', 'error', { draftId: 'abcdefghijk' }), item('b', 'done', { draftId: 'bbbbbbbbbbb' }));
+    retryItem('a', true);
+    retryItem('b', true); // only a failed video is retried
+    expect(Q.queue[0]).toMatchObject({ status: 'pending', draftId: 'abcdefghijk' });
+    expect(Q.queue[1]).toMatchObject({ status: 'done' });
+  });
+
   it('clear done removes finished items only', () => {
     Q.queue.push(item('a', 'done'), item('b', 'error'), item('c', 'done'));
     clearDone();

@@ -211,6 +211,9 @@ export default defineContentScript({
     onMessage('queue:retry', async ({ data: id }) => {
       if (typeof id === 'string' && await mayEdit()) retryItem(id);
     });
+    onMessage('queue:resume', async ({ data: id }) => {
+      if (typeof id === 'string' && await mayEdit()) retryItem(id, true);
+    });
     onMessage('queue:remove', async ({ data: id }) => {
       if (typeof id === 'string' && await mayEdit()) removeItem(id);
     });
