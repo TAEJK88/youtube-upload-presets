@@ -1800,6 +1800,27 @@ observation.
        draft through **Retry**, the rest upload.
     10. If "Could not open the calendar" shows again, **record** the console line `[ytup]
        calendar: not open after 3 clicks · tab … · date field … · N calendar input(s) …`.
+    11. **Resume drafts (N)**, all at once (not seen in Chrome). Make two or three failed
+       cards with a draft id as in step 6 (close Studio's dialog at each of the three tries,
+       for each clip), and leave one more failed card without a draft (for example a clip
+       whose file you renamed on disk before Start). Above the Start button a line reads "N
+       failed video(s) are drafts in Studio" with the button **Resume drafts (N)**; N counts
+       only the cards with a draft id. It is there while Start itself shows "Start upload"
+       greyed out (no video is waiting).
+    12. Press **Resume drafts (N)**. Expect: the N cards go to Queued; the page toast "Left
+       as errors: 1 with no draft (use Retry on the card to upload the file)"; then what
+       Start always does: the start summary if one is due (one question, for all of them),
+       and the run. Each draft is opened and finished in queue order ("Opening the draft in
+       Studio…", "Filling in details on the draft…", Done). The card without a draft is
+       still an error. In Content: one video per clip, no second upload.
+    13. **Cancel** in that summary: nothing runs and nothing is uploaded; the N cards stay
+       Queued with their draft ids, and Start resumes them later the same way.
+    14. The daily-limit warning in that summary (item 92) does not count the drafts: with 2
+       drafts and 1 new clip waiting it reads "+ 1 in this queue".
+    15. While a run goes, on a channel that is not the locked one, and while another Studio
+       tab runs the queue or copyright work, **Resume drafts** is greyed out as Start is.
+       With the Tampermonkey script on in the tab it can be pressed, and the page then says
+       why nothing starts (the same toast as for Start); the cards stay errors.
 
 ### Known behaviour, Phase 4a (note, don't test)
 
@@ -2160,9 +2181,15 @@ Retry on the draft (item 94; none of it seen in Chrome yet):
   address for a moment; it is put back when no dialog opened. The Back button then has one
   entry more.
 - **A resumed video is part of a batch only when its file was handed to Studio in this run.**
-  A draft from an earlier run is not counted in a batch and its Save is not held. It is still
-  one of the "N in this queue" of the daily-limit estimate before Start (it is not in the
-  upload history until it is saved), and it is written to the upload history once, when saved.
+  A draft from an earlier run is not counted in a batch and its Save is not held. A video
+  waiting with a draft id is not one of the "N in this queue" of the daily-limit estimate
+  before Start (it is no new upload), and it is written to the upload history once, when saved.
+- **A video waiting with a draft id does not need its video file readable** to start: the
+  file is not read. Its thumbnail still is.
+- **Resume drafts (N)** puts every failed video with a draft back in line, then starts the
+  queue; videos already waiting are uploaded by that run too, as with Start. Failed videos
+  without a draft, and cards whose draft id is on more than one card, stay errors; one page
+  toast says how many of each. Cancelling the start summary leaves the drafts Queued.
 - **The release time of a resumed video** is worked out as for any waiting video: the time
   typed on its card, or its slot in the schedule ("Every …" or "Per week"). A typed time that
   is less than 15 minutes ahead by then fails the video as before; change it on the card.

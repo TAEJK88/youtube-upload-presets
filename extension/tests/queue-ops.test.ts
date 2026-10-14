@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
-import { clearDone, removeItem, retryItem, stopQueue } from '../lib/studio/queue-ops';
+import { clearDone, removeItem, resumeDrafts, retryItem, stopQueue } from '../lib/studio/queue-ops';
 import * as Q from '../lib/studio/queue-runner';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
@@ -65,6 +65,34 @@ describe('queue ops', () => {
     retryItem('b', true); // only a failed video is retried
     expect(Q.queue[0]).toMatchObject({ status: 'pending', draftId: 'abcdefghijk' });
     expect(Q.queue[1]).toMatchObject({ status: 'done' });
+  });
+
+  describe('Resume drafts (P5-draft-retry)', () => {
+    it('every failed video with a draft waits again with its draft id; the others are left and said once', () => {
+      Q.queue.push(
+        item('a', 'error', { draftId: 'aaaaaaaaaaa' }), item('b', 'error'), item('c', 'pending'),
+        item('d', 'error', { draftId: 'ddddddddddd' }), item('e', 'error', { draftId: 'xxxxxxxxxxx' }), item('f', 'error', { draftId: 'xxxxxxxxxxx' }),
+        item('g', 'error'), item('h', 'done', { draftId: 'hhhhhhhhhhh' }),
+      );
+      expect(resumeDrafts()).toBe(2);
+      expect(Q.queue.map((i) => `${i.id}:${i.status}:${i.draftId ?? ''}`)).toEqual([
+        'a:pending:aaaaaaaaaaa', 'b:error:', 'c:pending:', 'd:pending:ddddddddddd', 'e:error:xxxxxxxxxxx', 'f:error:xxxxxxxxxxx', 'g:error:', 'h:done:hhhhhhhhhhh',
+      ]);
+      expect(calls).toEqual(['queue', 'toast:Left as errors: 2 with no draft (use Retry on the card to upload the file) · 2 whose draft id is on more than one card']);
+    });
+
+    it('nothing is said when every failed video was put back in line', () => {
+      Q.queue.push(item('a', 'error', { draftId: 'aaaaaaaaaaa' }));
+      expect(resumeDrafts()).toBe(1);
+      expect(calls).toEqual(['queue']);
+    });
+
+    it('nothing to resume: answers 0 and says what is left', () => {
+      Q.queue.push(item('a', 'error'));
+      expect(resumeDrafts()).toBe(0);
+      expect(Q.queue[0]!.status).toBe('error');
+      expect(calls).toEqual(['queue', 'toast:Left as errors: 1 with no draft (use Retry on the card to upload the file)']);
+    });
   });
 
   it('clear done removes finished items only', () => {

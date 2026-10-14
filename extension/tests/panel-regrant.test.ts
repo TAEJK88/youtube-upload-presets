@@ -24,6 +24,13 @@ describe('re-grant', () => {
     expect(runReads(items, false)).toEqual(['a']);
   });
 
+  it('a video waiting with a draft id goes on in its draft: its video file is not read, its thumbnail is', () => {
+    const thumb = { id: 'ta', src: 'bridge' as const, name: 'a.jpg', size: 1, type: '' };
+    const items = [item('a', 'pending', { draftId: 'abcdefghijk', thumb }), item('b', 'pending')];
+    expect(runReads(items, true)).toEqual(['ta', 'b']);
+    expect(runReads(items, false)).toEqual(['b']);
+  });
+
   it('finds the queued files without read access; a file that is gone or can\'t be asked about is not one', async () => {
     const all: Record<string, FileSystemFileHandle> = { a: handle('granted'), b: handle('prompt'), c: handle('denied'), x: throwing };
     const files = createHandles(async (id) => { if (id === 'db') throw new Error('idb'); return all[id]; }, async () => []);

@@ -79,6 +79,11 @@ describe('start summary: the daily estimate', () => {
     expect(screen.queryByText(/Cancel to go back and fix/)).toBe(null); // nothing on a card to fix
   });
 
+  it('the sum counts the videos that will be uploaded, not the drafts that are resumed (P5-draft-retry)', () => {
+    render(<StartSummaryBody s={summary({ daily: { recent: 12, limit: 15, queued: 4 } })} />);
+    expect(screen.getByText('This browser uploaded 12 to this channel in the last 24 hours + 4 in this queue = 16 · your limit is 15')).toBeTruthy();
+  });
+
   it('within the number: no warning', () => {
     render(<StartSummaryBody s={summary()} />);
     expect(screen.queryByText(/daily upload limit/)).toBe(null);

@@ -707,8 +707,19 @@ describe('the estimate before Start', () => {
     expect((await summary()).daily).toBeUndefined(); // 2 + 2 = 4: not over
     await add('C.mp4');
     const s = await summary();
-    expect(s.daily).toEqual({ recent: 2, limit: 4 });
+    expect(s.daily).toEqual({ recent: 2, limit: 4, queued: 3 });
     expect(s.needsConfirm).toBe(true); // the panel asks, although "confirm before start" is off
+  });
+
+  it('a video waiting with a draft id is no new upload: it is not in the sum (P5-draft-retry)', async () => {
+    settings.dailyLimit = 2;
+    save('uploads', [row(CH, 1 * H)]);
+    await add('A.mp4', 'B.mp4');
+    expect((await summary()).daily).toEqual({ recent: 1, limit: 2, queued: 2 });
+    Q.queue[0]!.draftId = 'abcdefghijk'; // put back in line by "Resume draft"
+    const s = await summary();
+    expect(s.daily).toBeUndefined(); // 1 + 1 = 2: not over
+    expect(s.pendingN).toBe(2);
   });
 
   it('0 turns the warning off; a warning never blocks the start', async () => {
@@ -719,7 +730,7 @@ describe('the estimate before Start', () => {
     expect(off.daily).toBeUndefined();
     expect(off.needsConfirm).toBe(false);
     settings.dailyLimit = 1;
-    expect((await summary()).daily).toEqual({ recent: 1, limit: 1 });
+    expect((await summary()).daily).toEqual({ recent: 1, limit: 1, queued: 2 });
     await Q.startQueue(binding());
     expect(statuses()).toEqual(['done', 'done']);
   });

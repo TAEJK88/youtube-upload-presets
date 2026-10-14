@@ -26,7 +26,7 @@ import { installQuickActions } from '@/lib/studio/quick-actions';
 import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
-import { clearDone, removeItem, retryItem, stopQueue } from '@/lib/studio/queue-ops';
+import { clearDone, removeItem, resumeDrafts, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { createPauseWatch } from '@/lib/studio/queue-pause';
 import { abortRun, installIntercept, isStartBinding, queue, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
@@ -213,6 +213,11 @@ export default defineContentScript({
     });
     onMessage('queue:resume', async ({ data: id }) => {
       if (typeof id === 'string' && await mayEdit()) retryItem(id, true);
+    });
+    // Followed by a Start from the panel: held like one while the userscript is in the page.
+    onMessage('queue:resumeAll', async () => {
+      if (userscriptHere()) return ui.toast(USERSCRIPT_HERE()), 0;
+      return await mayEdit() ? resumeDrafts() : 0;
     });
     onMessage('queue:remove', async ({ data: id }) => {
       if (typeof id === 'string' && await mayEdit()) removeItem(id);

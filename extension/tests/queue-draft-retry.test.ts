@@ -5,7 +5,7 @@ import { DRAFT_RETRIES } from '../lib/studio/draft-retry';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as B from '../lib/studio/queue-batch';
 import { setBridge } from '../lib/studio/queue-files';
-import { retryItem } from '../lib/studio/queue-ops';
+import { resumeDrafts, retryItem } from '../lib/studio/queue-ops';
 import * as Q from '../lib/studio/queue-runner';
 import { SEL } from '../lib/studio/sel';
 import { load, save, settings } from '../lib/studio/state';
@@ -406,6 +406,41 @@ describe('Retry → Resume draft', () => {
     // B and the draft are two videos but one upload of this run: the draft's Save is not held as
     // "the batch's last", and no batch is full before C, after which nothing waits.
     expect(waits).toEqual([]);
+  });
+});
+
+// The Upload tab's "Resume drafts (N)": queue:resumeAll, then the usual Start.
+describe('Resume drafts, then Start', () => {
+  it('finishes every failed draft in queue order in one run without a file; a failed video with no draft stays an error', async () => {
+    await add('A.mp4', 'B.mp4', 'C.mp4');
+    const [a, b, c] = Q.queue;
+    Object.assign(a!, { status: 'error', draftId: 'aaaaaaaaaaa' });
+    Object.assign(b!, { status: 'error' });
+    Object.assign(c!, { status: 'error', draftId: 'ccccccccccc' });
+    expect(resumeDrafts()).toBe(2);
+    expect(toasts).toEqual(['Left as errors: 1 with no draft (use Retry on the card to upload the file)']);
+    await Q.startQueue(binding());
+    expect(statuses()).toEqual(['done', 'error', 'done']);
+    expect(studio.opened).toEqual(['aaaaaaaaaaa', 'ccccccccccc']);
+    expect(studio.uploads).toEqual([]);
+    expect(getFile).not.toHaveBeenCalled();
+    expect(load<Q.UploadRecord[]>('uploads', [])).toHaveLength(2);
+  });
+
+  it('a draft\'s video file that lost read access does not hold the Start back: it is not read', async () => {
+    await add('A.mp4', 'B.mp4');
+    const [a, b] = Q.queue;
+    Object.assign(a!, { status: 'error', draftId: 'aaaaaaaaaaa' });
+    setBridge(fakeBridge(getFile, (id) => (id === a!.id ? 'prompt' : 'granted')));
+    resumeDrafts();
+    await Q.startQueue(binding());
+    expect(statuses()).toEqual(['done', 'done']);
+    // and a waiting video without a draft still does
+    await add('C.mp4');
+    setBridge(fakeBridge(getFile, (id) => (id === b!.id ? 'granted' : 'prompt')));
+    toasts.length = 0;
+    await Q.startQueue(binding());
+    expect(toasts[0]).toMatch(/need read access again/);
   });
 });
 

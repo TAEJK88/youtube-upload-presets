@@ -95,6 +95,11 @@ New in this release:
   such a card asks "Resume draft" (selected) or "Upload again". When the draft cannot be
   opened the card is the error it was, with its draft id. How Studio opens a draft's dialog
   is a guess that has not been tried in Chrome (README item 94).
+- **Resume drafts (N).** When failed videos are drafts in Studio, the Upload tab shows one
+  button above Start that puts all of them back in line and starts the queue: each is
+  finished in its draft, no file is uploaded again. Failed videos with no draft stay errors
+  and a toast says how many. Drafts being resumed are not counted in the daily-limit warning
+  and their video files need not be readable. Not tried in Chrome (README item 94).
 - A failed video whose Studio dialog cannot be closed now stops the queue with one message;
   the videos after it stay Queued. Before, each of them failed with "An upload dialog is still
   open" and was shown the first video's draft id. A video that never handed its file to

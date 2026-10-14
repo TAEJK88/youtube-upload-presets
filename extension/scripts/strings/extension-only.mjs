@@ -211,4 +211,10 @@ export default [
   { th: 'ทำต่อบนฉบับร่าง', en: 'Resume draft', why: 'P5-draft-retry: that question\'s main answer' },
   { th: 'อัปโหลดใหม่', en: 'Upload again', why: 'P5-draft-retry: that question\'s other answer, what "Deleted it, upload again" did' },
   { th: 'เปิดฉบับร่างที่ค้างใน Studio (แท็บใหม่)', en: 'Open the leftover draft in Studio (new tab)', why: 'P5-draft-retry: the Open draft button\'s tooltip without "to delete it before retrying", which Retry no longer needs' },
+  { th: 'ทำต่อบนฉบับร่าง (${})', en: 'Resume drafts (${})', why: 'P5-draft-retry (owner: "add a btn to resume all draft"): the Upload tab\'s button that puts every failed video whose file is a draft back in line and starts the queue; the number is how many' },
+  { th: '${} คลิปที่ผิดพลาดเป็นฉบับร่างใน Studio แล้ว', en: '${} failed video(s) are drafts in Studio', why: 'P5-draft-retry: the line beside that button, which is why the button is there' },
+  { th: 'ทำต่อบนฉบับร่างของทุกคลิปที่ผิดพลาด แล้วเริ่มคิว — ไม่อัปโหลดไฟล์ซ้ำ', en: 'Go on in the draft of every failed video, then start the queue — no file is uploaded again', why: 'P5-draft-retry: that button\'s tooltip' },
+  { th: 'ยังเป็นข้อผิดพลาดอยู่: ', en: 'Left as errors: ', why: 'P5-draft-retry: the page toast after "Resume drafts" when some failed videos were not put back in line' },
+  { th: '${} คลิปไม่มีฉบับร่าง (กด "ลองใหม่" ที่การ์ดเพื่ออัปโหลดไฟล์)', en: '${} with no draft (use Retry on the card to upload the file)', why: 'P5-draft-retry: in that toast, the failed videos that have no draft and need a real upload' },
+  { th: '${} คลิปมีรหัสฉบับร่างซ้ำกับการ์ดอื่น', en: '${} whose draft id is on more than one card', why: 'P5-draft-retry: in that toast, the cards an earlier build gave another video\'s draft id; said once with their number' },
 ];

@@ -82,6 +82,8 @@ describe('the Studio content script', () => {
   // queue-ops.test.ts; these pin which message keeps the draft id.
   it('Retry uploads again, Resume draft keeps the draft id; both only when this tab may edit the queue', () => {
     expect(studio).toMatch(/onMessage\('queue:retry', async \(\{ data: id \}\) => \{\s*if \(typeof id === 'string' && await mayEdit\(\)\) retryItem\(id\);/);
+    // "Resume drafts" is followed by a Start: held while the userscript is in the page, and it answers 0
+    expect(studio).toMatch(/onMessage\('queue:resumeAll', async \(\) => \{\s*if \(userscriptHere\(\)\) return ui\.toast\(USERSCRIPT_HERE\(\)\), 0;\s*return await mayEdit\(\) \? resumeDrafts\(\) : 0;/);
     expect(studio).toMatch(/onMessage\('queue:resume', async \(\{ data: id \}\) => \{\s*if \(typeof id === 'string' && await mayEdit\(\)\) retryItem\(id, true\);/);
   });
 });

@@ -895,7 +895,7 @@ export async function startQueue(seen: StartBinding): Promise<void> {
 // Does the file bridge answer, and can it read every file of the run? '' when it can.
 async function filesProblem(): Promise<string> {
   const reads = queue.filter((i) => i.status === 'pending')
-    .flatMap((i) => [...(i.src === 'bridge' ? [i.id] : []), ...(settings.thumb && i.thumb?.src === 'bridge' ? [i.thumb.id] : [])]);
+    .flatMap((i) => [...(i.src === 'bridge' && !i.draftId ? [i.id] : []), ...(settings.thumb && i.thumb?.src === 'bridge' ? [i.thumb.id] : [])]);
   const probe = !channelProblem() && reads.length ? await probeBridge(reads) : 'answers';
   if (probe === 'silent') {
     return L('แผงด้านข้างไม่ตอบเรื่องไฟล์ — โหลดแท็บ Studio ใหม่ แล้วกดเริ่มอีกครั้ง', "The side panel's file access is not answering — reload the Studio tab, then start again");
@@ -974,8 +974,9 @@ export interface StartSummary {
   prevUp: { name: string; title: string }[];
   badTl: { name: string; error: string }[];
   // Over the user's own daily number (Settings → dailyLimit): this browser's uploads to the
-  // channel in the last 24 hours, plus this run. An estimate; absent when within it or off.
-  daily?: { recent: number; limit: number };
+  // channel in the last 24 hours, plus this run's uploads (`queued`: the waiting videos that are
+  // not drafts in Studio already, P5-draft-retry). An estimate; absent when within it or off.
+  daily?: { recent: number; limit: number; queued?: number };
   needsConfirm: boolean;
 }
 
@@ -999,7 +1000,8 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
   const ch = getChannel();
   const limit = wholeIn(settings.dailyLimit, Infinity);
   const recent = uploadsSince(ch.id, Date.now() - PAUSE_MS);
-  const over = limit > 0 && recent + pendingN > limit;
+  const queued = queue.filter((i) => i.status === 'pending' && !i.draftId).length;
+  const over = limit > 0 && recent + queued > limit;
   return {
     pendingN,
     channel: { id: ch.id, name: chanLabel(ch), avatar: ch.avatar },
@@ -1013,7 +1015,7 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
     badTime: badTime.map((i) => ({ name: i.file.name, at: itemPublishAt(i) ?? 0 })),
     prevUp: prevUp.map((i) => ({ name: i.file.name, title: i.prev?.title || i.prev?.videoId || '' })),
     badTl: badTl.map(([i, tc]) => ({ name: i.file.name, error: tc.errors[0] ?? '' })),
-    ...(over ? { daily: { recent, limit } } : {}),
+    ...(over ? { daily: { recent, limit, queued } } : {}),
     needsConfirm: !!(settings.confirmStart || badTl.length || badTime.length || prevUp.length || over),
   };
 }

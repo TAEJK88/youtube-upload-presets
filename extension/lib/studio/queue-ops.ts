@@ -1,3 +1,4 @@
+import { failedByDraft } from '../drafts';
 import { L } from '../i18n';
 import { ui } from './page-ui';
 import { dropFiles } from './queue-files';
@@ -42,6 +43,23 @@ export function retryItem(id: string, resume = false): void {
   setItem(it, 'pending');
   assignNumbers();
   ui.queue();
+}
+
+// The Upload tab's "Resume drafts (N)" (P5-draft-retry): every failed video whose file is a draft
+// in Studio waits again with its draft id, as a card's Retry → "Resume draft" does one at a
+// time; the panel then starts the queue the usual way. Failed videos it leaves alone are said
+// once, with their number. Returns how many wait again.
+export function resumeDrafts(): number {
+  const { resumable, shared, plain } = failedByDraft(queue);
+  for (const it of resumable) setItem(it, 'pending');
+  if (resumable.length) assignNumbers();
+  ui.queue();
+  const left = [
+    ...(plain.length ? [L(`${plain.length} คลิปไม่มีฉบับร่าง (กด "ลองใหม่" ที่การ์ดเพื่ออัปโหลดไฟล์)`, `${plain.length} with no draft (use Retry on the card to upload the file)`)] : []),
+    ...(shared.length ? [L(`${shared.length} คลิปมีรหัสฉบับร่างซ้ำกับการ์ดอื่น`, `${shared.length} whose draft id is on more than one card`)] : []),
+  ];
+  if (left.length) ui.toast(L('ยังเป็นข้อผิดพลาดอยู่: ', 'Left as errors: ') + left.join(' · '));
+  return resumable.length;
 }
 
 export function clearDone(): void {

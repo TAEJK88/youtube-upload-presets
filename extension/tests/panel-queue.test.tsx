@@ -644,6 +644,104 @@ describe('schedule box', () => {
 });
 
 describe('upload footer', () => {
+  describe('Resume drafts (P5-draft-retry)', () => {
+    const thumb = { id: 't0', src: 'bridge' as const, name: 'Clip 1.jpg', size: 1, type: 'image/jpeg' };
+    const failed = (over: Partial<QueueView> = {}) => viewWith([
+      { status: 'error', draftId: 'aaaaaaaaaaa', thumb }, { status: 'error' }, { status: 'pending' },
+      { status: 'error', draftId: 'ddddddddddd' }, { status: 'error', draftId: 'xxxxxxxxxxx' }, { status: 'error', draftId: 'xxxxxxxxxxx' },
+    ], over);
+    const SUMMARY = { pendingN: 3, channel: { id: 'UC1', name: 'Mine', avatar: '' }, ids: ['i0', 'i2', 'i3'], editRev: 2, sig: 's', times: [], vis: 'PRIVATE', noTxt: 0, noThumb: 0, badTime: [], prevUp: [], badTl: [], needsConfirm: true };
+    const answering = (api: ReturnType<typeof fakePanel>, resumed: number, summary: object = SUMMARY) =>
+      vi.mocked(api.send).mockImplementation((async (type: string) => (type === 'queue:resumeAll' ? resumed : type === 'queue:preflight' ? summary : undefined)) as never);
+    const button = () => screen.getByRole('button', { name: 'Resume drafts (2)' }) as HTMLButtonElement;
+
+    it('is there only when a failed video has a draft no other card names, with their number', () => {
+      renderPanel(<QueueFooter />, fakePanel({ view: failed() }));
+      expect(button().disabled).toBe(false);
+      expect(screen.getByText('2 failed video(s) are drafts in Studio')).toBeTruthy();
+      cleanup();
+      renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'error' }, { status: 'error', draftId: 'x' }, { status: 'error', draftId: 'x' }, { status: 'pending', draftId: 'y' }]) }));
+      expect(screen.queryByRole('button', { name: /Resume drafts/ })).toBe(null);
+    });
+
+    it('asks for read access first (the drafts\' thumbnails, not their video files), puts them in line, then starts the usual way with one question', async () => {
+      const api = fakePanel({ view: failed(), data: toPanelData({ settings: { thumb: true } }) });
+      answering(api, 2);
+      renderPanel(<QueueFooter />, api);
+      await act(async () => fireEvent.click(button()));
+      expect(api.accessForStart).toHaveBeenCalledWith(['t0', 'i2']);
+      expect(vi.mocked(api.send).mock.calls.map((c) => c[0])).toEqual(['queue:resumeAll', 'queue:preflight']);
+      expect(screen.getAllByRole('dialog')).toHaveLength(1); // the start summary, and no other question
+      await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'Upload 3 video(s)' }).at(-1)!));
+      expect(api.send).toHaveBeenLastCalledWith('queue:start', { channelId: 'UC1', ids: ['i0', 'i2', 'i3'], editRev: 2, sig: 's', asked: true });
+    });
+
+    it('Cancel in that question starts nothing', async () => {
+      const api = fakePanel({ view: failed() });
+      answering(api, 2);
+      renderPanel(<QueueFooter />, api);
+      await act(async () => fireEvent.click(button()));
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })));
+      expect(api.send).not.toHaveBeenCalledWith('queue:start', expect.anything());
+      expect(button().disabled).toBe(false);
+    });
+
+    it('no question when none is due: the run starts from the click', async () => {
+      const api = fakePanel({ view: failed() });
+      answering(api, 2, { ...SUMMARY, needsConfirm: false });
+      renderPanel(<QueueFooter />, api);
+      await act(async () => fireEvent.click(button()));
+      expect(screen.queryByRole('dialog')).toBe(null);
+      expect(api.send).toHaveBeenLastCalledWith('queue:start', { channelId: 'UC1', ids: ['i0', 'i2', 'i3'], editRev: 2, sig: 's', asked: false });
+    });
+
+    it('nothing was put in line (the tab held it, or another tab changed the queue): no start', async () => {
+      const api = fakePanel({ view: failed() });
+      answering(api, 0);
+      renderPanel(<QueueFooter />, api);
+      await act(async () => fireEvent.click(button()));
+      expect(vi.mocked(api.send).mock.calls.map((c) => c[0])).toEqual(['queue:resumeAll']);
+    });
+
+    it('read access that did not come back: nothing is sent to the tab', async () => {
+      const api = fakePanel({ view: failed(), accessForStart: vi.fn(async () => false) });
+      renderPanel(<QueueFooter />, api);
+      await act(async () => fireEvent.click(button()));
+      expect(api.send).not.toHaveBeenCalled();
+    });
+
+    it('a tab that does not answer says so, and starts nothing', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const api = fakePanel({ view: failed() });
+      vi.mocked(api.send).mockRejectedValue(new Error('no receiver'));
+      renderPanel(<QueueFooter />, api);
+      await act(async () => fireEvent.click(button()));
+      expect(toast).toHaveBeenCalledWith(RELOAD);
+      expect(vi.mocked(api.send).mock.calls.map((c) => c[0])).toEqual(['queue:resumeAll']);
+      err.mockRestore();
+    });
+
+    it('is held as Start is: while a run goes, on a channel that is not the locked one, while another tab works, without a connected tab', () => {
+      const off = (api: ReturnType<typeof fakePanel>, live = fakeLive()) => {
+        renderPanel(<QueueFooter />, api, live);
+        const d = button().disabled;
+        cleanup();
+        return d;
+      };
+      expect(off(fakePanel({ view: failed() }), fakeLive({ state: state({ running: true }), liveState: state({ running: true }) }))).toBe(true);
+      expect(off(fakePanel({ view: failed({ channel: { ...state().channel, problem: 'locked to "Other"' } }) }))).toBe(true);
+      expect(off(fakePanel({ view: failed(), busyElsewhere: true }))).toBe(true);
+      expect(off(fakePanel({ view: failed(), link: 'reload' as never }))).toBe(true);
+      expect(off(fakePanel({ view: failed() }))).toBe(false);
+    });
+
+    it('needs no waiting video: it is on when every video failed, where Start is off', () => {
+      renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'error', draftId: 'aaaaaaaaaaa' }]) }));
+      expect((screen.getByRole('button', { name: 'Resume drafts (1)' }) as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByRole('button', { name: /Start upload/ }) as HTMLButtonElement).disabled).toBe(true);
+    });
+  });
+
   it('Start shows the count, the schedule and the channel; Clear needs a finished video', () => {
     renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }, { status: 'pending' }], { schedule: { on: true, set: true, start: 1, late: false, times: [], skipped: 0, taken: [] } }) }));
     expect(screen.getByText('Upload 2 video(s) · scheduled')).toBeTruthy();

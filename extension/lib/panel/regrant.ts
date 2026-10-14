@@ -11,11 +11,12 @@ export const queuedFileIds = (items: QueueItem[]): string[] =>
     .flatMap((it) => [...(it.src === 'bridge' ? [it.id] : []), ...(it.thumb?.src === 'bridge' ? [it.thumb.id] : [])]);
 
 // What a run reads (runQueue uploads pending items only; a thumbnail only with Settings →
-// thumbnails on): Start asks for these alone, so an error card's file never stops it.
+// thumbnails on): Start asks for these alone, so an error card's file never stops it. A video
+// waiting with a draft id goes on in its draft (P5-draft-retry): its video file is not read.
 export const runReads = (items: QueueItem[], thumbs: boolean): string[] =>
   items
     .filter((it) => it.status === 'pending')
-    .flatMap((it) => [...(it.src === 'bridge' ? [it.id] : []), ...(thumbs && it.thumb?.src === 'bridge' ? [it.thumb.id] : [])]);
+    .flatMap((it) => [...(it.src === 'bridge' && !it.draftId ? [it.id] : []), ...(thumbs && it.thumb?.src === 'bridge' ? [it.thumb.id] : [])]);
 
 export interface Lost { id: string; state: PermissionState }
 
