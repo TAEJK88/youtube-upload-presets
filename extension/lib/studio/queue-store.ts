@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { repairCascade } from '../drafts';
 import { L } from '../i18n';
 import { mergeQueue } from './queue-merge';
 import { abortedRun, abortRun, bumpEditRev, otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
@@ -61,8 +62,11 @@ export function restoreQueue(markInterrupted: boolean): void {
   const cut = (it: QueueItem) => markInterrupted && unfinished(it);
   queue.splice(0, queue.length, ...items.map((it) => (cut(it) ? interrupted(it) : it)));
   remember(items);
+  // Draft ids an earlier build wrote on cards that own no draft (lib/drafts.ts). Not in a tab
+  // that only mirrors a running one: that tab's copy is the queue, and it repaired its own.
+  const repaired = markInterrupted ? repairCascade(queue) : { freed: 0, reworded: 0 };
   // Written back at once, so the side panel (which reads storage) shows the error too.
-  if (items.some(cut)) {
+  if (items.some(cut) || repaired.freed || repaired.reworded) {
     save(KEY, queue);
     remember(queue);
   }

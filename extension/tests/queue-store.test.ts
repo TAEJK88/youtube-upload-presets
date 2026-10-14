@@ -38,6 +38,60 @@ describe('queue store', () => {
     expect(((await browser.storage.local.get('queue')).queue as QueueItem[]).map((i) => i.status)).toEqual(['done', 'error', 'pending']);
   });
 
+  // P5-draft-retry: what an earlier build stored when a dialog stayed open (lib/drafts.ts).
+  describe('draft ids on cards that never handed a file to Studio', () => {
+    const TAIL = ' · The file is already uploaded as a draft (M-A1h9Vno7M). Delete it in Content before retrying to avoid duplicates';
+    const cascade = () => [
+      item('118.mp4', 'error', { draftId: 'M-A1h9Vno7M', msg: 'Scheduling failed: Could not open the calendar' + TAIL }),
+      item('119.mp4', 'error', { draftId: 'M-A1h9Vno7M', msg: 'An upload dialog is still open. Close it, then start again' + TAIL }),
+    ];
+    const repaired = [
+      item('118.mp4', 'error', { draftId: 'M-A1h9Vno7M', msg: 'Scheduling failed: Could not open the calendar · The file is already a draft in Studio (M-A1h9Vno7M). Retry goes on with that draft, without uploading again' }),
+      item('119.mp4', 'error', { draftId: '', msg: 'An upload dialog is still open. Close it, then start again · This file was not uploaded. Retry uploads it' }),
+    ];
+
+    it('are repaired when the queue is loaded, and written back for the side panel', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await browser.storage.local.set({ queue: cascade() });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(true);
+      expect(queue).toEqual(repaired);
+      await flushState();
+      expect((await browser.storage.local.get('queue')).queue).toEqual(repaired);
+      expect(info).toHaveBeenCalledTimes(1);
+      info.mockRestore();
+    });
+
+    it('a message that was only reworded is written back too', async () => {
+      vi.spyOn(console, 'info').mockImplementation(() => {});
+      await browser.storage.local.set({ queue: [cascade()[0]] });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(true);
+      await flushState();
+      expect((await browser.storage.local.get('queue')).queue).toEqual([repaired[0]]);
+      vi.restoreAllMocks();
+    });
+
+    it('not in a tab that mirrors another tab\'s run: nothing is changed or written there', async () => {
+      await browser.storage.local.set({ queue: cascade() });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(false);
+      expect(queue).toEqual(cascade());
+      await flushState();
+      expect((await browser.storage.local.get('queue')).queue).toEqual(cascade());
+    });
+
+    it('a queue with nothing to repair is not written', async () => {
+      await browser.storage.local.set({ queue: repaired });
+      await initState(async () => SCHEMA_VERSION);
+      const set = vi.spyOn(browser.storage.local, 'set');
+      restoreQueue(true);
+      await flushState();
+      expect(set).not.toHaveBeenCalled();
+      set.mockRestore();
+    });
+  });
+
   it("leaves another tab's running upload alone", async () => {
     await browser.storage.local.set({ queue: [item('B.mp4', 'uploading')] });
     await initState(async () => SCHEMA_VERSION);

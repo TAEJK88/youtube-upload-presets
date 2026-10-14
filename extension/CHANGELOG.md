@@ -104,6 +104,9 @@ New in this release:
   the videos after it stay Queued. Before, each of them failed with "An upload dialog is still
   open" and was shown the first video's draft id. A video that never handed its file to
   Studio gets no draft id any more.
+  Cards an earlier build of 5.0.0 left that way are repaired when the Studio tab loads the
+  queue: the cards that failed on "An upload dialog is still open" lose the draft id that
+  was not theirs, and the card that owns the draft can be resumed.
 - "Could not open the calendar": the clicks go to the date field that is in the dialog at
   that moment, and the message says when the Studio tab was in the background. The cause of
   the failure seen on a 3.5-hour video is not known.

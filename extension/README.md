@@ -1821,6 +1821,23 @@ observation.
        tab runs the queue or copyright work, **Resume drafts** is greyed out as Start is.
        With the Tampermonkey script on in the tab it can be pressed, and the page then says
        why nothing starts (the same toast as for Start); the cards stay errors.
+    16. **Cards left by the builds before this fix** (the owner's queue of 2026-10-14 has
+       them; not seen in Chrome). They are a failed card ending "… The file is already
+       uploaded as a draft (ID). Delete it in Content before retrying to avoid duplicates",
+       followed by cards "An upload dialog is still open. Close it, then start again · The
+       file is already uploaded as a draft (the same ID)…". Reload the Studio tab with this
+       build. Expect, with nothing pressed: the first card (the one whose file really is
+       that draft) keeps its draft id and now ends "… The file is already a draft in Studio
+       (ID). Retry goes on with that draft, without uploading again"; its **Retry** asks
+       with **Resume draft** selected; it is counted in **Resume drafts (N)** (one per
+       group: 2 for the two groups of that queue). Each "An upload dialog is still open"
+       card of the group is still an error, has no draft id and no **Open draft** button,
+       and ends "· This file was not uploaded. Retry uploads it"; its Retry puts it back in
+       line without a question. Cards that had no draft id are untouched. The console has
+       one line `[ytup] draft retry: repaired N card(s) that never handed a file to Studio
+       (draft id dropped), M message(s) reworded`; a second reload logs nothing. If another
+       Studio tab is running the queue when this one loads, nothing is repaired until a
+       load without one.
 
 ### Known behaviour, Phase 4a (note, don't test)
 
@@ -2196,9 +2213,15 @@ Retry on the draft (item 94; none of it seen in Chrome yet):
 - **A failed video's dialog that cannot be closed stops the run** with one error on that
   video; the videos after it stay Queued. Before, each of them failed with "An upload dialog
   is still open" and was shown the first video's draft id.
-- **Cards that still carry such a wrong draft id** (from a run before this build: the same id
-  on several cards) are not resumed: "Draft … is named on more than one card". Use **Open
-  draft** to see which video it is, and Retry → **Upload again** on the others.
+- **Cards that carry such a wrong draft id** (from a run before this build) are repaired when
+  the Studio tab loads the queue: a failed card whose stored message is "An upload dialog is
+  still open. Close it, then start again" followed by the old "already uploaded as a draft
+  (…). Delete it in Content…" never handed its file to Studio, so it loses the draft id and
+  says "This file was not uploaded. Retry uploads it". The card left with the id owns the
+  draft and can be resumed; its message no longer says to delete it. Only messages stored in
+  exactly that form are touched (English or Thai). If a draft id is still on more than one
+  card afterwards, none of them is resumed: "Draft … is named on more than one card"; use
+  **Open draft** to see which video it is, and Retry → **Upload again** on the others.
 - **A video that never handed its file to Studio has no draft id,** whatever dialog is open.
 - **"Could not open the calendar"**: the three clicks now go to the date field that is in the
   dialog at that moment, and the message ends with "(the Studio tab was in the background)"
