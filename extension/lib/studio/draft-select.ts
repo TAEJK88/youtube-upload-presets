@@ -42,9 +42,11 @@ export function tickedRows(doc: Document = document): { drafts: DraftRow[]; othe
 
 function apply(doc: Document) {
   const { drafts, others } = tickedRows(doc);
-  const added = drafts.length ? addDrafts(drafts) : 0;
+  // First, before any other message: the panel opens only inside the click's user gesture
+  // (seen 2026-10-15: asked after the "added" toast's message, it did not open).
+  if (drafts.length) ui.openDrawer('queue');
+  if (drafts.length) addDrafts(drafts);
   if (others) ui.toast(L(`ข้าม ${others} คลิปที่ไม่ใช่ฉบับร่าง`, `Skipped ${others} video(s) that are not drafts`));
-  if (added) ui.openDrawer('queue'); // a click: the panel may open (a user gesture)
 }
 
 // Keeps the button in Studio's bar (Studio draws the bar again as the ticks change) and its count
@@ -55,9 +57,12 @@ export function installDraftApply(doc: Document = document): () => void {
     const old = doc.getElementById(BUTTON_ID);
     const n = bar ? tickedRows(doc).drafts.length : 0;
     if (!bar || !n) return void old?.remove();
-    const btn = old && bar.contains(old) ? old : bar.appendChild(h('button', {
+    // After Studio's own buttons in the bar's row (seen 2026-10-15: div.toolbar holds "Add to
+    // playlist" and "More actions"); on the bar itself the button fell below it, over the list.
+    const row = bar.querySelector<HTMLElement>(SEL.bulkToolbar) || bar;
+    const btn = old && row.contains(old) ? old : row.appendChild(h('button', {
       id: BUTTON_ID, type: 'button',
-      style: 'margin:0 8px;padding:8px 14px;border:0;border-radius:18px;background:#3ea6ff;color:#0f0f0f;font:500 14px Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap',
+      style: 'align-self:center;margin:0 8px;padding:8px 14px;border:0;border-radius:18px;background:#3ea6ff;color:#0f0f0f;font:500 14px Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap',
       onclick: () => apply(doc),
     }));
     if (old && old !== btn) old.remove();

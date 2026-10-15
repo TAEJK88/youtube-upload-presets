@@ -20,7 +20,7 @@ const row = (o: { id: string; title: string; ticked: boolean; draft: boolean; le
     ${o.draft ? '<ytcp-button><button>Edit draft</button></ytcp-button>' : ''}
   </ytcp-video-row>`;
 const list = (bar: boolean) => {
-  document.body.innerHTML = (bar ? '<ytcp-bulk-actions>3 selected</ytcp-bulk-actions>' : '') + [
+  document.body.innerHTML = (bar ? '<ytcp-bulk-actions><div id="header"><div class="label">3 selected</div><span class="toolbar-wrapper"><div class="toolbar"><ytcp-bulk-add-playlists>Add to playlist</ytcp-bulk-add-playlists><ytcp-select>More actions</ytcp-select></div></span></div></ytcp-bulk-actions>' : '') + [
     row({ id: 'gj2dLpVL8Mw', title: 'TrapSoul Mix', ticked: true, draft: false, length: '55:39' }),
     row({ id: 'exClnwv7QDo', title: '290126 1218', ticked: true, draft: true, length: '58:26' }),
     row({ id: 'vUQWpXgS1KM', title: '290126 1217', ticked: true, draft: true, length: '1:02:03' }),
@@ -29,10 +29,11 @@ const list = (bar: boolean) => {
 };
 
 const toasts: string[] = [];
-const opened: (string | undefined)[] = [];
+// Each panel request with the toasts said before it: the panel opens only inside the click's gesture.
+const opened: string[] = [];
 const recorder: PageUi = {
   item: () => {}, run: () => {}, queue: () => {}, schedule: () => {}, presetPreview: () => {},
-  toast: (m) => void toasts.push(m), openDrawer: (t) => void opened.push(t), notifyDone: () => {}, setTitleMark: () => {},
+  toast: (m) => void toasts.push(m), openDrawer: (t) => void opened.push(`${t} after ${toasts.length} toast(s)`), notifyDone: () => {}, setTitleMark: () => {},
   confirmStart: async () => true,
 };
 beforeEach(() => {
@@ -68,7 +69,8 @@ describe('Apply preset in Studio\'s selection bar', () => {
     const off = installDraftApply();
     vi.advanceTimersByTime(1000);
     expect(button()?.textContent).toBe('Apply preset (2)');
-    expect(document.querySelector('ytcp-bulk-actions')!.contains(button())).toBe(true);
+    expect(button()!.parentElement).toBe(document.querySelector('ytcp-bulk-actions .toolbar')); // in the row, after More actions
+    expect(button()!.previousElementSibling!.textContent).toBe('More actions');
     expect(button()!.title).toMatch(/^Queue the 2 ticked draft\(s\) with preset ".+", then press Start upload in the panel$/);
     document.querySelector('ytcp-bulk-actions')!.remove(); // the ticks were cleared
     vi.advanceTimersByTime(1000);
@@ -92,7 +94,11 @@ describe('Apply preset in Studio\'s selection bar', () => {
     button()!.click();
     expect(Q.queue.map((i) => [i.file.name, i.draftId])).toEqual([['290126 1217', 'vUQWpXgS1KM'], ['290126 1218', 'exClnwv7QDo']]);
     expect(toasts).toEqual(['Added 2 draft(s) to the queue', 'Skipped 1 video(s) that are not drafts']);
-    expect(opened).toEqual(['queue']);
+    expect(opened).toEqual(['queue after 0 toast(s)']);
+    button()!.click(); // again: nothing new, and the panel still opens on the queue
+    expect(Q.queue).toHaveLength(2);
+    expect(toasts.at(-2)).toBe('2 already in the queue');
+    expect(opened).toEqual(['queue after 0 toast(s)', 'queue after 2 toast(s)']);
     off();
     expect(button()).toBe(null); // the disposer takes the button away
   });
