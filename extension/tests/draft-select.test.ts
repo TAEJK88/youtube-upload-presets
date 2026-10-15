@@ -29,10 +29,11 @@ const list = (bar: boolean) => {
 };
 
 const toasts: string[] = [];
-const opened: (string | undefined)[] = [];
+// Each panel request with the toasts said before it: the panel opens only inside the click's gesture.
+const opened: string[] = [];
 const recorder: PageUi = {
   item: () => {}, run: () => {}, queue: () => {}, schedule: () => {}, presetPreview: () => {},
-  toast: (m) => void toasts.push(m), openDrawer: (t) => void opened.push(`${t} after ${toasts.length} toast(s)`), // the order: the panel opens only inside the click's gesture notifyDone: () => {}, setTitleMark: () => {},
+  toast: (m) => void toasts.push(m), openDrawer: (t) => void opened.push(`${t} after ${toasts.length} toast(s)`), notifyDone: () => {}, setTitleMark: () => {},
   confirmStart: async () => true,
 };
 beforeEach(() => {
