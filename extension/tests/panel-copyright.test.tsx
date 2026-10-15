@@ -421,6 +421,26 @@ describe('moving between the tools', () => {
     expect(at(300, click(/Mix v1/))).toBe(BAR); // picker to editor
   });
 
+  // THAIB-1 review 3: the scroll follows the tool that shows, so a tool picked before the data
+  // lands (a finished scan's) is brought into sight when it does.
+  it('a tool picked before the data lands opens with the bar in sight once it shows', async () => {
+    await both();
+    const get = fakeBrowser.storage.local.get.bind(fakeBrowser.storage.local);
+    let land = () => {};
+    const gate = new Promise<void>((ok) => { land = ok; });
+    vi.spyOn(fakeBrowser.storage.local, 'get').mockImplementation(((k: never) => gate.then(() => get(k))) as never);
+    const { container } = renderPanel(<div data-pane-scroll=""><CopyrightTab /></div>, fakePanel(), undefined, fakeClaims({ shown: { view: 'ads', n: 1 } }));
+    const scroller = container.querySelector<HTMLElement>('[data-pane-scroll]')!;
+    const BAR = 120;
+    vi.spyOn(screen.getByRole('tablist'), 'getBoundingClientRect').mockImplementation(() => ({ top: BAR - scroller.scrollTop }) as DOMRect);
+    await act(async () => {});
+    scroller.scrollTop = 300; // scrolled down the claim list while the data loads
+    await act(async () => { land(); });
+    await ready();
+    expect(active(/Ads/)).toBe(true);
+    expect(scroller.scrollTop).toBe(BAR);
+  });
+
   it('a tool opened by its sub-tab leaves focus on the tab; the tracklist editor takes it to its title', async () => {
     await both();
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
@@ -1102,6 +1122,33 @@ describe('Tools tab review fixes', () => {
     expect(active(/Claim list/)).toBe(true);
     expect(screen.getByRole('tabpanel').contains(screen.getByRole('button', { name: /Scan claims/ }))).toBe(true);
     expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
+  });
+  // THAIB-1 review 3: a new channel remounts every tool, so only what shows there is built again.
+  it('on another channel the tools opened on the last one are not built until they show', async () => {
+    const claims = fakeClaims();
+    const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
+    await ready();
+    pick(/Songs/);
+    pick(/Claim list/);
+    const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
+    r.rerender(wrap({ ...claims, state: moved, live: moved }));
+    await ready();
+    expect(screen.queryByRole('heading', { name: /Previously claimed songs/, hidden: true })).toBe(null);
+    pick(/Songs/);
+    expect(screen.getByRole('heading', { name: /Previously claimed songs/ })).toBeTruthy();
+  });
+
+  // THAIB-1 review 3: scans take no lock (D26): another tab's run holds back Trim and Turn on ads,
+  // not Rescan or Recheck, as it does not hold back Scan claims.
+  it('another Studio tab running a job leaves Rescan and Recheck on, and Trim and Turn on ads off', async () => {
+    const r1 = { videoId: 'a', video: 'A', privacy: 'public', length: 1, ineligible: false, status: '' };
+    await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date: '2026-01-01', total: 1, rows: [r1] } });
+    const elsewhere = claimsStateWith({ channel: 'UC2', busyRun: true, status: { icon: '✂️', kind: 'busy', title: 'Trimming claim 1 of 2', detail: '' } });
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith(), live: elsewhere }));
+    await ready();
+    pick(/Ads/);
+    expect((screen.getByRole('button', { name: '↻ Recheck' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: '💰 Turn on ads (1)' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

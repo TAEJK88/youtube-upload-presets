@@ -24,9 +24,10 @@ const TRIM_LABEL = (): Record<string, string> => ({
 const STATE_TONE: Record<string, string> = { saved: 'text-ok', gone: 'text-ok', failed: 'text-err', skipped: 'text-warn', later: 'text-warn' };
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-// `busy`: a scan or run is on in the bound tab: no rescan or trim from this (maybe outgoing) list until it ends.
-export function ClaimList({ data, state, busy, onTracklist }: {
-  data: ClaimsData; state: ClaimsState; busy: boolean; onTracklist(videoId: string): void;
+// `busy`: a scan or run is on (here, or another tab's run): no trim from this (maybe outgoing) list until it
+// ends. `idle`: the bound tab itself is free: a rescan takes no lock (D26), so only that gates it.
+export function ClaimList({ data, state, busy, idle, onTracklist }: {
+  data: ClaimsData; state: ClaimsState; busy: boolean; idle: boolean; onTracklist(videoId: string): void;
 }) {
   const { send } = usePanel();
   const ask = useAsk();
@@ -91,7 +92,7 @@ export function ClaimList({ data, state, busy, onTracklist }: {
       footer={<>
         <span className="basis-full text-xs text-fg3">{L('ติ๊กเลือกแค่สร้างรายการ ยังไม่มีอะไรเปลี่ยนบน YouTube จนกว่าจะกดเริ่มตัด', 'Ticking only builds a list — nothing changes on YouTube until you start trimming')}</span>
         <Button size="sm" onClick={() => downloadCsv(claimsCsvRows(scan), `youtube-claims-${scan.date.slice(0, 10)}.csv`)}>⬇ CSV</Button>
-        <Button size="sm" disabled={busy} onClick={rescan}>{L('↻ สแกนใหม่', '↻ Rescan')}</Button>
+        <Button size="sm" disabled={!idle} onClick={rescan}>{L('↻ สแกนใหม่', '↻ Rescan')}</Button>
         <Button variant="go" size="sm" disabled={!pickedRows.length || busy} onClick={() => void trim()}>
           {L(`✂ ตัดที่เลือก (${pickedRows.length})`, `✂ Trim selected (${pickedRows.length})`)}
         </Button>

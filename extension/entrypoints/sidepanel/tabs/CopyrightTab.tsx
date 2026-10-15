@@ -76,7 +76,6 @@ export function CopyrightTab() {
   const [tool, setTool] = useState<ToolTab>('claims');
   const [videoId, setVideoId] = useState(''); // the tracklist being fixed; '' shows the picker
   const [from, setFrom] = useState(''); // the video the editor was left by Back: the picker focuses it
-  const [cancels, setCancels] = useState(0); // Cancel: the settings form starts again from storage
   const [openLog, setOpenLog] = useState<boolean | null>(null);
   const root = useRef<HTMLDivElement>(null);
   // A different real channel (or another tab): an open tool was the old one's (its video, its text).
@@ -84,12 +83,15 @@ export function CopyrightTab() {
   // A scan started here ended in the bound tab: open its list (showClaims() after scanClaims()).
   useEffect(() => { if (opened) setTool(opened.view); }, [opened]);
   const tracklist = (id: string) => { setVideoId(id); setTool('tracklist'); };
+  const ready = !!data && !!shown;
+  // Only Claims shows without the channel's data: a tool picked before it went shows Claims meanwhile.
+  const current = ready ? tool : 'claims';
 
   // Each tool opens with the sub-tab bar in sight (the pane scrolls: App's [data-pane-scroll]): a pane
   // scrolled past the bar comes back to it; one that shows the bar stays where it is, so the bar
   // just clicked does not move from under the pointer.
   const bar = useRef<HTMLDivElement>(null);
-  const at = tool + ':' + (tool === 'tracklist' ? videoId : '');
+  const at = current + ':' + (current === 'tracklist' ? videoId : ''); // what shows: the data landing counts too
   useEffect(() => {
     // Not while another panel tab shows (a scan can end and open its list then): the panes share the scroller.
     const scroller = root.current?.closest('[data-state="inactive"]') ? null : root.current?.closest('[data-pane-scroll]');
@@ -126,18 +128,17 @@ export function CopyrightTab() {
     setOpenLog(!logOpen);
     void claimsWrite({ op: 'set', key: 'logOpen', value: !logOpen }).catch(saveFailed);
   };
-  const ready = !!data && !!shown;
-  // Only Claims shows without the channel's data: a tool picked before it went shows Claims meanwhile.
-  const current = ready ? tool : 'claims';
-  // …and while another Studio tab runs a copyright job (`live`): this tab would only refuse it.
+  // While another Studio tab runs a copyright job (`live`): this tab would only refuse it.
   const busy = !idle || !!live?.busyRun;
   // forceMount keeps Radix from unmounting an inactive panel; `hidden` takes it out of sight and of the accessibility tree.
   const pane = (k: ToolTab) => ({ value: k, forceMount: true as const, hidden: current !== k });
   // A tool mounts the first time it shows, then stays: the hidden ones are not built (or re-rendered
   // on every status push) before they are ever opened.
-  const [visited, setVisited] = useState<ReadonlySet<ToolTab>>(() => new Set(['claims']));
-  if (!visited.has(current)) setVisited(new Set([...visited, current]));
-  const once = (k: ToolTab, node: () => ReactNode) => (visited.has(k) || k === current ? node() : null);
+  // Another channel starts again (the Fragment key below remounts every tool): only what shows builds.
+  const [visited, setVisited] = useState<{ ch: string | null; tools: ReadonlySet<ToolTab> }>(() => ({ ch, tools: new Set(['claims']) }));
+  const built = visited.ch === ch ? visited.tools : new Set<ToolTab>(['claims']);
+  if (visited.ch !== ch || !built.has(current)) setVisited({ ch, tools: new Set([...built, current]) });
+  const once = (k: ToolTab, node: () => ReactNode) => (built.has(k) || k === current ? node() : null);
   const scanButton = (what: 'ads' | 'collab', label: string, hint: string) => (
     <div className="flex flex-col gap-2">
       <div className="text-xs text-fg3">{hint}</div>
@@ -177,7 +178,7 @@ export function CopyrightTab() {
         <TabsContent {...pane('claims')} className="flex flex-col gap-3">
           <Button variant="go" onClick={() => scan('claims')} disabled={!idle || !here}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>
           {data && shown && <AutopilotSwitch data={data} state={shown} />}
-          {data && shown && <ClaimList key={ch} data={data} state={shown} busy={busy} onTracklist={tracklist} />}
+          {data && shown && <ClaimList key={ch} data={data} state={shown} busy={busy} idle={idle} onTracklist={tracklist} />}
         </TabsContent>
         {data && shown && <Fragment key={ch}>
           <TabsContent {...pane('songs')}>{once('songs', () => <Songs data={data} />)}</TabsContent>
@@ -185,15 +186,15 @@ export function CopyrightTab() {
             {once('tracklist', () => <TracklistFix data={data} videoId={videoId} from={from} onPick={tracklist} onClose={() => { setFrom(videoId); setVideoId(''); }} />)}
           </TabsContent>
           <TabsContent {...pane('ads')}>
-            {once('ads', () => (data.adsScan ? <AdsView data={data} state={shown} busy={busy} />
+            {once('ads', () => (data.adsScan ? <AdsView data={data} state={shown} busy={busy} idle={idle} />
               : scanButton('ads', L('เช็กคลิปที่ปิดโฆษณา', 'Check for ads off'), L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on'))))}
           </TabsContent>
           <TabsContent {...pane('collab')}>
-            {once('collab', () => (data.collabScan ? <CollabView data={data} state={shown} busy={busy} />
+            {once('collab', () => (data.collabScan ? <CollabView data={data} state={shown} busy={busy} idle={idle} />
               : scanButton('collab', L('อ่านรายการคลิป', 'Read video list'), L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators'))))}
           </TabsContent>
           <TabsContent {...pane('settings')}>
-            {once('settings', () => <CopyrightSettings key={cancels} data={data} onCancel={() => setCancels((k) => k + 1)} />)}
+            {once('settings', () => <CopyrightSettings data={data} />)}
           </TabsContent>
         </Fragment>}
       </Tabs>

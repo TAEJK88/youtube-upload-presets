@@ -9,13 +9,15 @@ import { adsInitial, adsWhere, type AdsPick } from '@/lib/panel/claims-runs';
 import { usePanel } from '../../panel';
 import { notConnected } from '../../save-failed';
 import { SubView } from './SubView';
+import { useDropFinished } from './use-drop-finished';
 
 // showAds() (5289–5334): one card per video with ads off (D23), the pick chips, Recheck, Close and
 // "Turn on ads (N)". The ticks are the view's own; the bound tab starts the run from its stored scan.
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-// `busy`: a scan or run is on in the bound tab: nothing new starts from this list until it ends.
-export function AdsView({ data, state, busy }: { data: ClaimsData; state: ClaimsState; busy: boolean }) {
+// `busy`: a scan or run is on (here, or another tab's run): no run starts from this list until it ends.
+// `idle`: the bound tab itself is free: a rescan takes no lock (D26), so only that gates it.
+export function AdsView({ data, state, busy, idle }: { data: ClaimsData; state: ClaimsState; busy: boolean; idle: boolean }) {
   const { send } = usePanel();
   const id = useId();
   const scan = data.adsScan!; // the route opens this view only with a scan
@@ -27,14 +29,7 @@ export function AdsView({ data, state, busy }: { data: ClaimsData; state: Claims
     setOf(scan.date);
     setPicked(new Set(adsInitial(scan, data.adsResults)));
   }
-  // The list stays mounted after its run (a Tools sub-tab): a video the run just turned on leaves
-  // the picks, so a second press does not run the batch again (THAIB-1 review).
-  const [seen, setSeen] = useState(data.adsResults);
-  if (seen !== data.adsResults) {
-    const on = [...picked].filter((v) => data.adsResults[v]?.state === 'on' && seen[v]?.state !== 'on');
-    setSeen(data.adsResults);
-    if (on.length) setPicked((p) => new Set([...p].filter((v) => !on.includes(v))));
-  }
+  useDropFinished(data.adsResults, 'on', picked, setPicked);
   const chip = (kind: AdsPick, label: string) => <Button size="sm" className="h-auto min-h-8 py-1 whitespace-normal" onClick={() => setPicked(new Set(adsWhere(kind, scan.rows)))}>{label}</Button>;
   const ok = scan.rows.filter((r) => !r.ineligible).length;
   const go = () => {
@@ -50,7 +45,7 @@ export function AdsView({ data, state, busy }: { data: ClaimsData; state: Claims
         <div className="mt-1">{L('"ไม่มีสิทธิ์" หมายถึง YouTube บล็อกโฆษณาเอง (เช่นโดน claim หรือติดนโยบาย) เปิดการตั้งค่าได้ แต่คลิปนั้นอาจยังไม่มีรายได้จนกว่าจะแก้สาเหตุ', '"Ineligible" means YouTube blocks ads itself (e.g. a claim or policy issue). You can turn the setting on, but the video may not earn until the cause is fixed.')}</div>
       </>}
       footer={<>
-        <Button size="sm" disabled={busy} onClick={() => void send('claims:scan', 'ads').catch(notConnected)}>{L('↻ เช็กใหม่', '↻ Recheck')}</Button>
+        <Button size="sm" disabled={!idle} onClick={() => void send('claims:scan', 'ads').catch(notConnected)}>{L('↻ เช็กใหม่', '↻ Recheck')}</Button>
         <span className="flex-1" />
         <Button variant="go" size="sm" disabled={!picked.size || busy} onClick={go}>{L(`💰 เปิดโฆษณา (${picked.size})`, `💰 Turn on ads (${picked.size})`)}</Button>
       </>}

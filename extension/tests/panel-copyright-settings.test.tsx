@@ -22,14 +22,13 @@ afterEach(() => {
 const mockSend = async () => vi.spyOn(await import('../lib/messages'), 'sendMessage').mockResolvedValue(undefined as never);
 // The view by itself (the home's button is another unit's): its data and the panel's log.
 function show(cfg: Partial<ClaimsCfg> = {}) {
-  const onCancel = vi.fn();
   const claims: ClaimsApi = { state: null, live: null, log: [], shown: null, addLog: vi.fn() };
   render(
     <ClaimsContext.Provider value={claims}>
-      <CopyrightSettings data={toClaimsData('UC1', { cfg })} onCancel={onCancel} />
+      <CopyrightSettings data={toClaimsData('UC1', { cfg })} />
     </ClaimsContext.Provider>,
   );
-  return { onCancel, addLog: claims.addLog };
+  return { addLog: claims.addLog };
 }
 const box = (name: string | RegExp) => screen.getByRole('checkbox', { name }) as HTMLInputElement;
 const text = (name: string | RegExp) => screen.getByRole('textbox', { name }) as HTMLInputElement;
@@ -85,7 +84,7 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
 
   it('Save writes what was edited as one merge of cfg, says so, and the form keeps what was saved', async () => {
     const send = await mockSend();
-    const { onCancel } = show();
+    show();
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
     fireEvent.change(text('Your own artist / label names'), { target: { value: 'Me' } });
     fireEvent.click(box('Fully automatic trim'));
@@ -93,7 +92,6 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(send).not.toHaveBeenCalled(); // nothing is written before Save
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith('Settings saved'));
-    expect(onCancel).not.toHaveBeenCalled();
     expect(text('Run every N hours').value).toBe('12');
     expect(send).toHaveBeenCalledTimes(1);
     // only the edits: a value another panel window saved meanwhile is not written back (THAIB-1 review)
@@ -105,14 +103,13 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
 
   it('Reset to defaults asks twice, then empties cfg and logs it', async () => {
     const send = await mockSend();
-    const { onCancel, addLog } = show({ apEveryHours: '12' });
+    const { addLog } = show({ apEveryHours: '12' });
     fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
     expect(send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Click again to reset' }));
     // the form shows the defaults at once, not the stored cfg its write has not changed yet
     await waitFor(() => expect(text('Run every N hours').value).toBe(DEFAULTS.apEveryHours));
     expect(screen.getByRole('button', { name: 'Reset to defaults' })).toBeTruthy(); // disarmed
-    expect(onCancel).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'set', key: 'cfg', value: {} });
     expect(addLog).toHaveBeenCalledWith('Copyright settings reset', 'ok');
@@ -124,7 +121,7 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     const send = await mockSend();
     const claims: ClaimsApi = { state: null, live: null, log: [], shown: null, addLog: vi.fn() };
     const tree = (cfg: Partial<ClaimsCfg>) => (
-      <ClaimsContext.Provider value={claims}><CopyrightSettings data={toClaimsData('UC1', { cfg })} onCancel={() => {}} /></ClaimsContext.Provider>
+      <ClaimsContext.Provider value={claims}><CopyrightSettings data={toClaimsData('UC1', { cfg })} /></ClaimsContext.Provider>
     );
     const r = render(tree({}));
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
@@ -135,19 +132,46 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     await waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'merge', key: 'cfg', entries: { apEveryHours: '12' } }));
   });
 
-  it('Cancel leaves without writing', async () => {
+  // THAIB-1 review 3: Cancel no longer remounts the form, which dropped focus to the page.
+  it('Cancel drops the edits in place, writes nothing, and keeps focus on itself', async () => {
     const send = await mockSend();
-    const { onCancel } = show();
+    show({ apEveryHours: '8' });
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    cancel.focus();
+    fireEvent.click(cancel);
+    expect(text('Run every N hours').value).toBe('8');
+    expect(document.activeElement).toBe(cancel);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // THAIB-1 review 3: stored-cfg pushes landing while Save is on its way must not leave a value
+  // changed elsewhere as an edit of this form, for the next Save to write back.
+  it('a cfg change that lands during Save is not an edit: the next Save writes only its own edit', async () => {
+    let done = () => {};
+    const send = vi.spyOn(await import('../lib/messages'), 'sendMessage')
+      .mockImplementationOnce(() => new Promise((r) => { done = () => r(undefined as never); }))
+      .mockResolvedValue(undefined as never);
+    const claims: ClaimsApi = { state: null, live: null, log: [], shown: null, addLog: vi.fn() };
+    const tree = (cfg: Partial<ClaimsCfg>) => (
+      <ClaimsContext.Provider value={claims}><CopyrightSettings data={toClaimsData('UC1', { cfg })} /></ClaimsContext.Provider>
+    );
+    const r = render(tree({}));
+    fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    r.rerender(tree({ autoSaveTrim: false, apEveryHours: '12' })); // another window's save, then this one's
+    done();
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('Settings saved'));
+    fireEvent.change(text('Max claims per cycle'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'merge', key: 'cfg', entries: { apMaxPerCycle: '3' } });
   });
 
   it('a write that fails says so and keeps the view open with what was typed', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
-    const { onCancel, addLog } = show();
+    const { addLog } = show();
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't save (gone)", { id: 'save-failed' }));
@@ -156,7 +180,6 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     await waitFor(() => expect(toast).toHaveBeenCalledTimes(2));
     expect(toast).not.toHaveBeenCalledWith('Settings saved');
     expect(addLog).not.toHaveBeenCalled();
-    expect(onCancel).not.toHaveBeenCalled();
     expect(text('Run every N hours').value).toBe('12');
   });
 

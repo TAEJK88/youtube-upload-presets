@@ -16,18 +16,17 @@ import { SubView } from './SubView';
 // that fails leaves the view open with what was typed; a click while one is on its way is ignored.
 // The form stays mounted (a Tools sub-tab): it follows the stored cfg (another panel window, a
 // Reset) and keeps only what was edited here on top; Save writes those edits alone, so it never
-// puts back a value changed elsewhere. Cancel (onCancel) is the Tools tab starting it again.
-export function CopyrightSettings({ data, onCancel }: { data: ClaimsData; onCancel(): void }) {
+// puts back a value changed elsewhere. Cancel drops the edits in place (focus stays on it).
+export function CopyrightSettings({ data }: { data: ClaimsData }) {
   const { addLog } = useClaims();
   const [c, setC] = useState<ClaimsCfg>(data.cfg);
   const [base, setBase] = useState<ClaimsCfg>(data.cfg); // what the form's values are edits against
   const edits = (): Partial<ClaimsCfg> => Object.fromEntries(Object.entries(c).filter(([k, v]) => v !== base[k as keyof ClaimsCfg]));
-  // A change of the stored cfg itself (not the props catching up late with this form's own write):
-  // the form takes it, with its edits on top.
-  const stored = JSON.stringify(data.cfg);
-  const [seen, setSeen] = useState(stored);
-  if (stored !== seen) {
-    setSeen(stored);
+  // A change of the stored cfg (watchClaims keeps the object while the cfg key is untouched): the
+  // form takes it, with its edits on top.
+  const [seen, setSeen] = useState(data.cfg);
+  if (data.cfg !== seen) {
+    setSeen(data.cfg);
     setC({ ...data.cfg, ...edits() });
     setBase(data.cfg);
   }
@@ -41,8 +40,10 @@ export function CopyrightSettings({ data, onCancel }: { data: ClaimsData; onCanc
   };
   const set = (k: keyof ClaimsCfg, v: string | boolean) => setC((x) => ({ ...x, [k]: v }));
   const save = async () => {
-    await claimsWrite({ op: 'merge', key: 'cfg', entries: edits() });
-    setBase(c); // saved: nothing left to keep on top of the stored cfg
+    const saved = edits();
+    await claimsWrite({ op: 'merge', key: 'cfg', entries: saved });
+    // Only what was written stops being an edit: a change from elsewhere during the write stays the base.
+    setBase((b) => ({ ...b, ...saved }));
     toast(L('บันทึกการตั้งค่าแล้ว', 'Settings saved'));
   };
   const reset = async () => {
@@ -57,7 +58,7 @@ export function CopyrightSettings({ data, onCancel }: { data: ClaimsData; onCanc
       footer={<>
         <Button size="sm" variant="danger" onClick={() => (armed ? once(reset) : busy.current || setArmed(true))}>{armed ? L('กดอีกครั้งเพื่อคืนค่า', 'Click again to reset') : L('คืนค่าเริ่มต้น', 'Reset to defaults')}</Button>
         <span className="flex-1" />
-        <Button size="sm" onClick={onCancel}>{L('ยกเลิก', 'Cancel')}</Button>
+        <Button size="sm" onClick={() => { setC(data.cfg); setBase(data.cfg); setArmed(false); }}>{L('ยกเลิก', 'Cancel')}</Button>
         <Button size="sm" variant="go" onClick={() => once(save)}>{L('บันทึก', 'Save')}</Button>
       </>}
     >
