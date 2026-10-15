@@ -16,6 +16,11 @@ the tracklist, artists, track count, year, BPM and quoted beat name become varia
 gets its own values in the same format. You review the learned pattern before it's used; it is stored per
 channel and is not added to your preset list.
 
+## Working on this repo with Claude Code
+
+`CLAUDE.md` holds the agent rules. The skills, plugins and tools they assume, and how to
+install them, are in [`docs/agents/setup.md`](docs/agents/setup.md).
+
 ## Running tests
 
 The pure functions (templating, chapter rules, tracklist rewriting, storage migrations,
