@@ -32,8 +32,6 @@ the extension reaches parity.
 | File intake | Drop on the Side Panel; files reach Studio through an extension-origin bridge iframe |
 | Tests | Vitest + WXT `fakeBrowser`; existing fake-dom mocks kept |
 
-TODO(key): the `key` is approved but not in `extension/wxt.config.ts` yet: until the owner hands over the public key line, the extension's id follows the folder it is loaded from. When the key is in, delete this line.
-
 ## Architecture
 
 ```

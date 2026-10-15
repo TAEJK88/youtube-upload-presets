@@ -21,6 +21,10 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   vite: () => ({ plugins: [tailwindcss(), renderBlocking()] }),
   manifest: {
+    // The public half of the owner's key: it fixes the extension's id
+    // (cllefnlbgkbdnmifojjflfcpholhniio) on every computer and for every folder. The private
+    // half is the owner's and is not in the repo.
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuZWTgj9Of6ONn3LX2oWrIhI4RKmrVtn7iEISokkfANJnjUY1J8YSKEI63J/SBKxvTOY9BAcdd3dECHvufjTROxImUQOoQDedClxTkKXHHD1GYt3j1DEoAn7jgRZeW5q/1hDy8XE7NUAbTD2UskXRNMbbsj5KLzCUdIoD+VmjPwYyi33H+O0zSGusBLUhopVm2zsZFYMdE1A0Ro38c8r2sD7pHGgLf3CuFGXKeQe7YwRBuonmSIyMoGBhd8M0DXExSU+4Mx1ItIjAbZHz460sWkl4+HaHfUBRhTJVPd7Y2DN6nB0P+gPt6cdCYpsF+ZjCrOZ2jPOnk4b/hqOHoAQwfQIDAQAB',
     name: 'YouTube Upload Presets',
     description: 'Bulk-upload videos to YouTube Studio with presets and scheduling, plus scan and trim copyright-claimed segments',
     permissions: ['sidePanel', 'storage', 'unlimitedStorage', 'alarms', 'notifications'],

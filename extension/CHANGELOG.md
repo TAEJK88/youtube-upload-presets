@@ -3,9 +3,7 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
-TODO(key): once the public key line is in `wxt.config.ts`, add to the 5.0.0 section, under "New in this release": "- One extension ID on every computer and for every folder: `<the id computed from the key>`. A test build installed before 5.0.0 has another ID: see README, "Update"." This line sits above the section on purpose: the section is cut as the release notes.
-
-## 5.0.0 — unreleased
+## 5.0.0 — 2026-10-15
 
 The first release of the extension. It replaces the Tampermonkey userscript (v4.27.1); see
 `README.md`, "Install" and "Moving from the userscript", and `PARITY.md` for every difference.
@@ -36,6 +34,8 @@ What is different from the userscript:
 
 New in this release:
 
+- One extension ID on every computer and for every folder: `cllefnlbgkbdnmifojjflfcpholhniio`.
+  A test build installed before 5.0.0 has another ID: see README, "Update".
 - **Update available.** About once a day the extension looks at this repo's latest GitHub
   release, and the panel shows a banner with a link when it is newer than the installed
   version. The banner stays until you update.
