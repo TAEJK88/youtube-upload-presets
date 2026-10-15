@@ -3,6 +3,18 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.0.1 — 2026-10-15
+
+A fix for switching channels. To update, follow README, "Update"; the extension ID stays
+`cllefnlbgkbdnmifojjflfcpholhniio`, so presets, settings and history stay.
+
+- **Switching channels no longer sticks on "Oops, you don't have permission to view this
+  page".** Right after a switch, YouTube often lands on that page (`?sttick=0`) before the
+  new channel takes effect, and the extension then loads the channel's page again by itself.
+  In 5.0.0 that step failed on every Studio tab ("TypeError: Illegal invocation" in the debug
+  log, hundreds of times), so the tab stayed on Oops although the switch had worked. It now
+  loads the page again and the tab arrives in Studio.
+
 ## 5.0.0 — 2026-10-15
 
 The first release of the extension. It replaces the Tampermonkey userscript (v4.27.1); see
