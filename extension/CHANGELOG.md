@@ -3,6 +3,25 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.0.2 — 2026-10-15
+
+Two more fixes for switching channels. To update, follow README, "Update"; the extension ID
+stays `cllefnlbgkbdnmifojjflfcpholhniio`, so presets, settings and history stay.
+
+- **A switch picks the channel by its @handle, never by its name.** YouTube's channel
+  switcher lists each channel by name and @handle only. Before, a channel with no stored
+  @handle was picked by the first row starting with its name, so "TrapSoul Mix" could pick
+  "TrapSoul Mix 2" and move every Studio tab to the wrong channel. Now Switch in the channel
+  list looks a missing @handle up on the channel's public YouTube page and remembers it. If
+  none is found, it says "Couldn't find the @handle of "…", so not switching" and stays on
+  the current channel; use YouTube's own Switch account then.
+- **No more Oops after a switch when the channel's own page refuses.** After a switch, the
+  extension opens the channel's page again when YouTube shows "Oops, you don't have
+  permission to view this page". Sometimes that page kept refusing, while Studio's own
+  "Return to Studio" worked. Now, after two tries, it opens the Studio home page once, as
+  that button does. You then land on the channel's dashboard rather than the page you came
+  from.
+
 ## 5.0.1 — 2026-10-15
 
 A fix for switching channels. To update, follow README, "Update"; the extension ID stays
