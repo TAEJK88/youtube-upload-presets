@@ -6,7 +6,7 @@
 // With a single request YouTube skips the list and opens the modal directly.
 import { makeDocument } from './fake-dom.mjs';
 
-export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false, loadTicks = 0, dropQuery = false } = {}) {
+export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false, loadTicks = 0, dropQuery = false, withV = false } = {}) {
   const doc = makeDocument();
   const truth = { opened: [], accepted: [], declined: [], tooEarly: 0 };
   // loadTicks: the card and the list show up before what is in them has loaded (seen
@@ -58,8 +58,15 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   let current = null;
   const remaining = [...titles];
 
-  const openModal = (title) => { current = title; truth.opened.push(title); modalHost.hidden = false; loading = loadTicks; details.textContent = loading ? '' : title; };
-  const closeModal = () => { current = null; modalHost.hidden = true; };
+  // withV: the card's URL names its video (seen live 2026-10-15: …/videos/upload?d=acd&v=<id>&…)
+  const setV = (id) => {
+    if (!withV || !win.location) return;
+    const q = new URLSearchParams(win.location.search);
+    if (id) q.set('v', id); else q.delete('v');
+    win.location.search = '?' + q.toString();
+  };
+  const openModal = (title) => { current = title; truth.opened.push(title); modalHost.hidden = false; loading = loadTicks; details.textContent = loading ? '' : title; setV('id-' + title.replace(/\W/g, '')); };
+  const closeModal = () => { current = null; modalHost.hidden = true; setV(''); };
 
   const renderList = () => {
     listPaper.children = [];
@@ -102,6 +109,7 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
     renderList();
   };
 
+  const win = {};
   if (skipList) openModal(remaining[0]);
   else if (loadTicks) {
     // the list's frame first, its rows later; it has a close button like the errored one
@@ -123,10 +131,11 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   }
 
   const u = new URL(url || 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/videos/upload?d=acd&inviterChannelId=UCSd21ggmlMhbvaMT5IGxajA');
-  const win = {
+  Object.assign(win, {
     location: { hostname: u.hostname, pathname: u.pathname, search: u.search, hash: u.hash, href: u.href, origin: u.origin },
     getComputedStyle: () => ({ visibility: 'visible', display: 'block' }),
     console: { info() {} },
-  };
+  });
+  if (withV && current) setV('id-' + current.replace(/\W/g, ''));
   return { doc, win, truth };
 }

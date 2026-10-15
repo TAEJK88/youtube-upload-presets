@@ -814,6 +814,13 @@ The panel's own console: right-click inside the panel → Inspect.
     collaboration requests". The side panel closes on www.youtube.com (**record** it). With
     Settings → **Auto-accept channel permission invites** off, reopening a link logs nothing
     from `invite:`.
+    **Collab to one of your own channels (P5-invite-two-step).** From channel A, 🤝 Collab a
+    video with the @handle of your channel B, with B's Studio tab then left in the background
+    (another tab in front): after the run the tab switches to B's own Studio page first, then
+    `invite: on the channel now — opening the invite link`, and the request is accepted without
+    bringing the tab to the front. Open A's Collab list again: the video shows "🤝 @B accepted";
+    a video still waiting shows "⏳ Waiting for @B to accept", and the invite link row has
+    "Accept now", which switches to B and accepts.
 
 ### During a run
 

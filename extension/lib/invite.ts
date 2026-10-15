@@ -1,17 +1,35 @@
-import { ACCEPT_ROUND_KEY, SWITCHED_KEY, SWITCH_KEY, type SwitchEnv } from './channel-switch';
+import { ACCEPT_ROUND_KEY, SWITCHED_KEY, SWITCH_KEY, SWITCH_TTL, type SwitchEnv } from './channel-switch';
 import { acceptLabelMatches, INVITE_URL, normText } from './collab';
 import { L } from './i18n';
+import { COLLAB_LINK, INVITE_ACCEPTED_KEY, INVITE_NEXT_KEY, type InviteAccepted, type InviteNext } from './invite-keys';
+import { clearSteady, steadyInterval } from './steady-tick';
 import { SEL } from './studio/sel';
+import { TXT } from './studio/txt';
 import type { SyncStore } from './sync-store';
 
 export interface InviteEnv extends SwitchEnv {
   getComputedStyle: (el: Element) => { visibility: string };
   setTimeout: (fn: () => void, ms: number) => unknown;
+  // An interval that keeps its pace in a hidden tab (lib/steady-tick.ts); tests leave it out.
+  steadyInterval?: (fn: () => void, ms: number) => number | ReturnType<typeof setInterval>;
 }
 interface AcceptRound { n: number; at: number }
 
 export function createInviteWatcher(env: InviteEnv) {
   const { document, location, getComputedStyle, setInterval, clearInterval, setTimeout, console, getValue, setValue } = env;
+  const steady = env.steadyInterval ?? setInterval;
+  const oops = () => TXT.noPermission.test(document.body.innerText || '');
+  // P5-invite-two-step: what was accepted (the `v` the card's URL had), or, with no video, that a
+  // visit found no request left. The Collab list reads it to show what still waits.
+  const noteInvites = (me: string | undefined, inviter: string | undefined, videoId: string | null) => {
+    if (!me || !inviter) return;
+    if (!videoId && oops()) return; // signed in as another channel: not "none left"
+    const all = getValue<InviteAccepted>(INVITE_ACCEPTED_KEY, {}) || {};
+    const pair = { ...all[me]?.[inviter] };
+    if (videoId) pair.videos = { ...pair.videos, [videoId]: Date.now() };
+    else pair.clearedAt = Date.now();
+    setValue(INVITE_ACCEPTED_KEY, { ...all, [me]: { ...all[me], [inviter]: pair } });
+  };
   // @port-begin
 const inviteUrlNow = () => INVITE_URL.test(location.pathname + location.search + location.hash);
 const inviteNote = (text: string, ok = true) => {
@@ -76,6 +94,7 @@ function watchInvite() {
   let opened = 0;    // จำนวนแถวที่กดเปิด
   let idle = 0;      // รอบที่ไม่เจออะไรเลยติดต่อกัน
   let lastAction = 0;
+  let acceptingV = ''; // P5-invite-two-step: the video whose Accept was just clicked
   // P5-invite-settle: พอบัตรปิด YouTube ลบ inviterChannelId ออกจาก URL — จำไว้ตั้งแต่ตอนเริ่มเฝ้า
   // (หรือจากลิงก์ /collaboration/<ผู้เชิญ> เดิม) ไม่งั้นเปิดลิงก์ซ้ำเพื่อรับคลิปถัดไปไม่ได้
   const meAtStart = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1];
@@ -85,6 +104,9 @@ function watchInvite() {
   const SETTLE = 3;      // รอบ (วินาที) ที่แถวเดิมต้องนิ่งก่อนกดเปิด
   const SETTLE_CARD = 5; // รอบที่บัตร Accept ต้องนิ่ง (ข้อความไม่เปลี่ยน) ก่อนกด
   const SETTLE_DEAD = 8; // กล่องรายการที่ยังไม่มีแถวอาจแค่ยังโหลดอยู่ รอนานกว่าก่อนปิด
+  // P5-invite-two-step: a reopened link that brings no request means none is left — say so sooner
+  const prevRound = getValue<AcceptRound | null>(ACCEPT_ROUND_KEY, null);
+  const GIVE_UP = prevRound && Date.now() - prevRound.at < 300000 ? 60 : 180;
   let seenKey = '';
   let seenFor = 0;
   // 180 วิ: ลิงก์คำเชิญมักเด้งผ่านหน้าเลือกบัญชี/ล็อกอินก่อน หน้าจริงจึงมาช้ากว่า 60 วิเดิม
@@ -115,13 +137,16 @@ function watchInvite() {
     location.href = `${location.origin}/channel/${me}/collaboration/${inviter}`;
     return true;
   }
-  const timer = setInterval(() => {
-    if (++tries > 180) {
+  const timer = steady(() => {
+    if (++tries > GIVE_UP) {
       stop();
       if (done) inviteNote(L(`ยอมรับไปแล้ว ${done} คลิป แต่ยังมีค้างอยู่ — ช่วยเช็กในหน้าอีกที`, `Accepted ${done}, but some may remain — please check the page`), false);
       // เงียบไป 3 นาทีโดยไม่มีอะไรเกิดขึ้น = หน้านี้ไม่มีคำเชิญให้ยอมรับ (เช่นยอมรับไปแล้ว
       // หรือเข้าผิดบัญชี) บอกไว้ใน console จะได้ไม่ต้องเดาว่าสคริปต์ทำงานไหม
-      else say('gave up — no collaboration request appeared in 180s (already accepted, or signed in as the wrong channel?)');
+      else {
+        noteInvites(meAtStart, inviterAtStart, null);
+        say(`gave up — no collaboration request appeared in ${GIVE_UP}s (already accepted, or signed in as the wrong channel?)`);
+      }
       return;
     }
     const dead = deadList();
@@ -131,6 +156,8 @@ function watchInvite() {
     const key = dead ? 'dead' : b ? 'accept:' + normText((b.closest(SEL.inviteContainer) || document.body).textContent) : row ? 'row:' + rowTitle(row) : '';
     if (key !== seenKey) { seenKey = key; seenFor = 0; }
     seenFor++;
+    const vNow = new URLSearchParams(location.search).get('v') || '';
+    if (acceptingV && vNow !== acceptingV) { noteInvites(meAtStart, inviterAtStart, acceptingV); acceptingV = ''; }
     if (Date.now() - lastAction < 2500) return; // ให้หน้าต่างเปิด/ปิดให้เสร็จก่อนค่อยทำต่อ
 
     // 0) ปิดกล่องรายการที่ค้าง/ว่างเปล่าก่อน ไม่งั้นมันจะบังบัตรคำเชิญที่อยู่ข้างหลัง
@@ -153,6 +180,7 @@ function watchInvite() {
       idle = 0;
       lastAction = Date.now();
       say(`accepting request ${done}`, b);
+      acceptingV = vNow;
       // ytcp-button เป็นเปลือก — กดปุ่มจริงข้างในเหมือนที่ clickIn ทำ
       (b.querySelector('button') || b).click();
       return;
@@ -187,11 +215,41 @@ setInterval(() => {
 }, 1000);
     // @port-end
   }
-  return { inviteUrlNow, watchInvite, armSpaPoll };
+  // P5-invite-two-step: an invite link as the switch's destination goes to the channel's page
+  // first; openAfterSwitch() opens the link once that page has loaded on the new channel.
+  function switchThenOpen(sw: { switchToChannel(t: { handle?: string; name?: string }, next: string): void }, t: { handle?: string; name?: string }, next: string) {
+    const m = next.match(COLLAB_LINK);
+    if (!m) return sw.switchToChannel(t, next);
+    setValue(INVITE_NEXT_KEY, { at: Date.now(), channel: m[1]!, link: next } satisfies InviteNext);
+    sw.switchToChannel(t, `https://studio.youtube.com/channel/${m[1]!}`);
+  }
+  function openAfterSwitch() {
+    if (location.hostname !== 'studio.youtube.com') return;
+    const want = () => {
+      const p = getValue<InviteNext | null>(INVITE_NEXT_KEY, null);
+      return p && Date.now() - (p.at || 0) < SWITCH_TTL ? p : null;
+    };
+    if (!want()) return;
+    let calm = 0;
+    let tries = 0;
+    const timer = steady(() => {
+      const p = want();
+      if (!p || ++tries > 60) return void clearInterval(timer);
+      // on the channel, past the post-switch Oops (lib/channel-switch.ts recovers that), for 3 s
+      const here = (location.pathname.match(/^\/channel\/(UC[\w-]{10,})/) || [])[1];
+      calm = here === p.channel && !/[?&]sttick=/.test(location.search) && !oops() ? calm + 1 : 0;
+      if (calm < 3) return;
+      clearInterval(timer);
+      setValue(INVITE_NEXT_KEY, null);
+      console.info('[ytup] invite: on the channel now — opening the invite link');
+      location.href = p.link;
+    }, 1000);
+  }
+  return { inviteUrlNow, watchInvite, armSpaPoll, switchThenOpen, openAfterSwitch };
 }
 
 // The storage keys these watchers read and write synchronously.
-export const INVITE_KEYS = ['settings', SWITCH_KEY, SWITCHED_KEY, ACCEPT_ROUND_KEY];
+export const INVITE_KEYS = ['settings', SWITCH_KEY, SWITCHED_KEY, ACCEPT_ROUND_KEY, INVITE_NEXT_KEY, INVITE_ACCEPTED_KEY];
 
 // The real page as an InviteEnv: the globals the userscript used, and a chrome.storage
 // mirror in place of GM_getValue / GM_setValue.
@@ -213,7 +271,11 @@ export const browserEnv = (kv: SyncStore, timers: Timers = pageTimers): InviteEn
   location,
   getComputedStyle: (el) => getComputedStyle(el),
   setInterval: (fn, ms) => timers.setInterval(fn, ms),
-  clearInterval: (id) => timers.clearInterval(id),
+  clearInterval: (id) => {
+    clearSteady(id);
+    timers.clearInterval(id);
+  },
+  steadyInterval: (fn, ms) => steadyInterval(timers.setInterval, fn, ms) as number,
   setTimeout: (fn, ms) => timers.setTimeout(fn, ms),
   console,
   getValue: (key, fallback) => kv.get(key, fallback),

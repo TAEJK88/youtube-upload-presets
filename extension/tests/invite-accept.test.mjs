@@ -217,3 +217,35 @@ test('a request list still loading its rows is not closed as empty', () => {
   assert.notEqual(r.truth.closedDeadList, true, 'a list without rows yet may only be loading');
   assert.deepEqual(r.truth.accepted, ['Video A', 'Video B']);
 });
+
+/* ---------- what was accepted, for the Collab list (P5-invite-two-step) ----------
+   YouTube gives one invite link per pair of channels; the card's URL names the video
+   (…&v=<id>), so the watcher notes each video it saw accepted, and a visit that found no
+   request left. */
+
+const ME = 'UCcpMHMjwVRDTH1Bg7DWeYvA';
+const INVITER = 'UCSd21ggmlMhbvaMT5IGxajA';
+
+test('each accepted video is noted under the invited channel and the inviter', () => {
+  const store = {};
+  run({ titles: ['Video A', 'Video B'], withV: true }, 40, store);
+  assert.deepEqual(Object.keys(store.inviteAccepted[ME][INVITER].videos).sort(), ['id-VideoA', 'id-VideoB']);
+});
+
+test('a card closed without a v in its URL notes nothing', () => {
+  const store = {};
+  run({ titles: ['Video A'], skipList: true }, 40, store);
+  assert.equal(store.inviteAccepted, undefined);
+});
+
+test('a reopened link that brings no request gives up after 60 s and notes that none is left', () => {
+  const store = { inviteAcceptRound: { n: 1, at: Date.now() } };
+  const r = run({ titles: [] }, 65, store);
+  assert.equal(r.alive, false, 'a reopen round with nothing must not wait 180 s');
+  assert.equal(typeof store.inviteAccepted[ME][INVITER].clearedAt, 'number');
+});
+
+test('a first visit with no request still waits the full 180 s', () => {
+  const r = run({ titles: [] }, 65);
+  assert.equal(r.alive, true);
+});

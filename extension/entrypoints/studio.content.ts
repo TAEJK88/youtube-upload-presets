@@ -2,7 +2,7 @@ import '@/lib/debug-capture/studio'; // FIRST: the debug page shows what goes wr
 import { stopOnInvalidated } from '@/lib/content-lifecycle';
 import { createChannelSwitch } from '@/lib/channel-switch';
 import {
-  adsFromPanel, autopilotDue, claimsState, collabFromPanel, initClaimsLock, installBackGuard, installConfirmWatch, setCfgRefresh, setChannelSwitcher, setClaimsLock,
+  acceptInvitesFromPanel, adsFromPanel, autopilotDue, claimsState, collabFromPanel, initClaimsLock, installBackGuard, installConfirmWatch, setCfgRefresh, setChannelSwitcher, setClaimsLock,
   setClaimsUi, stopAll, trimFromPanel,
 } from '@/lib/claims/claims';
 import { createClaimsPage } from '@/lib/claims/page';
@@ -65,6 +65,7 @@ export default defineContentScript({
     const invite = createInviteWatcher(env);
     invite.watchInvite();
     invite.armSpaPoll();
+    invite.openAfterSwitch();
 
     const main = rpcClient<MainOps>(windowEndpoint(window, window.location.origin), MAIN_CH);
     stop.add(() => main.dispose('extension reloaded'));
@@ -131,13 +132,15 @@ export default defineContentScript({
     stop.add(installBackGuard());
     setCfgRefresh(() => refreshCfg(readCfg));
     stop.add(() => setCfgRefresh(async () => {}));
-    setChannelSwitcher((t, next) => sw.switchToChannel(t, next));
+    // An invite link as the destination: the channel's page first, then the link (P5-invite-two-step).
+    setChannelSwitcher((t, next) => invite.switchThenOpen(sw, t, next));
     stop.add(installConfirmWatch());
     // A run asked from the panel is refused with the reason while the userscript is there.
     const unlessUserscript = <T,>(run: () => T) => (userscriptHere() ? void ui.toast(USERSCRIPT_HERE()) : run());
     onMessage('claims:trim', ({ data }) => unlessUserscript(() => trimFromPanel(data)));
     onMessage('claims:ads', ({ data }) => unlessUserscript(() => adsFromPanel(data)));
     onMessage('claims:collab', ({ data }) => unlessUserscript(() => collabFromPanel(data)));
+    onMessage('claims:acceptInvites', ({ data }) => unlessUserscript(() => acceptInvitesFromPanel(data)));
     onMessage('claims:stop', () => stopAll());
     onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));
     // The userscript's FAB: opens the side panel (needs the click's user gesture — see README), on

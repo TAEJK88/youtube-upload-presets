@@ -13,6 +13,8 @@ vi.mock('../lib/messages', async (orig) => ({
   onMessage: (type: string, fn: Handler) => { handlers.set(type, fn); return () => {}; },
 }));
 vi.mock('../lib/debug-capture/background', () => ({}));
+// The fake browser has no runtime.onConnect; the tick port is tested in steady-tick.test.ts.
+vi.mock('../lib/steady-tick', () => ({ registerTicks: () => {} }));
 // The background's update checks, as it starts them: each test waits for its own to finish, and
 // `before` is what was stored at the moment the check was called.
 const checks = vi.hoisted(() => [] as { done: Promise<unknown>; before: Promise<Record<string, unknown>> }[]);
