@@ -105,6 +105,15 @@ function recoverAfterSwitch() {
     const here = location.href;
     const clean = [s.next, location.origin + location.pathname].find((u) => u && u !== here);
     if (!clean || (s.tries || 0) >= 2) {
+      // URL ช่องตรง ๆ ยังขึ้น Oops แต่หน้าแรกของ Studio (ปุ่ม "Return to Studio") เข้าได้
+      // ลองหน้าแรกอีกครั้งเดียว ก่อนจะยอมแพ้ (P5-switch-home)
+      const home = location.origin + '/';
+      if ((s.tries || 0) < 3 && here !== home) {
+        setValue(SWITCHED_KEY, { at: s.at, tries: 3, next: s.next || '' });
+        say('still no permission after retrying — going to the Studio home page');
+        location.href = home;
+        return;
+      }
       setValue(SWITCHED_KEY, null);
       say(clean ? 'still no permission after retrying — giving up' : 'no clean URL left to retry — giving up');
       return;
