@@ -3,6 +3,27 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.1.0 — 2026-10-15
+
+The Copyright tab is now the **Tools** tab, with its own sub-tab for each tool. To update,
+follow README, "Update"; the extension ID stays `cllefnlbgkbdnmifojjflfcpholhniio`, so
+presets, settings and history stay.
+
+- **One sub-tab per tool.** Under the status card and Stop, the Tools tab has six sub-tabs:
+  Claim list, Songs, Fix tracklist, Ads, Collab and Options. They replace the buttons that
+  opened each tool over the pane. A tool keeps what was typed or ticked in it when you switch
+  to another one and back. Changing channel starts every tool again.
+- **Ads and Collab open from their sub-tab.** With no check yet for the channel, the sub-tab
+  offers "Check for ads off" or "Read video list". A finished check or scan opens its sub-tab.
+- **A finished run is not run again by a second click.** After a run, the videos it turned on
+  (Ads) or invited (Collab) are unticked; a failed one stays ticked to try again. A new ads or
+  Collab batch is refused while the previous one is still running.
+- **Options follows settings saved elsewhere.** A setting saved from another panel window
+  shows in the open form, and Save writes only what was changed in this one. Cancel drops the
+  changes made here.
+- Rescan, Recheck and Reload list stay available while another Studio tab runs a job. Trim,
+  Turn on ads and Invite wait for that job to end.
+
 ## 5.0.3 — 2026-10-15
 
 A fix for accepting collaboration invites. To update, follow README, "Update"; the extension ID
