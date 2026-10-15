@@ -112,13 +112,12 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(addLog).toHaveBeenCalledWith('Copyright settings reset', 'ok');
   });
 
-  it('Cancel and Close leave without writing', async () => {
+  it('Cancel leaves without writing', async () => {
     const send = await mockSend();
     const { onClose } = show();
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -185,6 +184,6 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(screen.getByRole('heading', { level: 3, name: 'ตั้งค่าลิขสิทธิ์' })).toBeTruthy();
     expect(box('ตัดอัตโนมัติทั้งหมด').checked).toBe(true);
     expect(text('จำนวน claim สูงสุดต่อรอบ').value).toBe('10');
-    for (const name of ['คืนค่าเริ่มต้น', 'ยกเลิก', 'บันทึก', 'ปิด']) expect(screen.getByRole('button', { name })).toBeTruthy();
+    for (const name of ['คืนค่าเริ่มต้น', 'ยกเลิก', 'บันทึก']) expect(screen.getByRole('button', { name })).toBeTruthy();
   });
 });

@@ -27,19 +27,26 @@ const counts = { hasScan: true, scanDate: '', claims: 4, claimVideos: 2, songs: 
 const scanning = claimsStateWith({ busyScan: true,
   status: { icon: '🔍', kind: 'busy', title: "Scanning this channel's claims", detail: 'Reading claim details 1 / 3: Mix', progress: 1 / 3 } });
 
-describe('Copyright tab', () => {
-  it('shows the status card and the buttons, with counts', async () => {
+// The Tools tab's sub-tabs: one per tool (THAIB-1).
+const tab = (name: RegExp | string) => screen.getByRole('tab', { name }) as HTMLButtonElement;
+const pick = (name: RegExp | string) => fireEvent.mouseDown(tab(name));
+const active = (name: RegExp | string) => tab(name).getAttribute('data-state') === 'active';
+// The tools other than Claims open once the channel's data is read.
+const ready = () => waitFor(() => expect(tab(/Songs/).disabled).toBe(false));
+
+describe('Tools tab', () => {
+  it('shows the status card, Scan, and a sub-tab per tool, with counts', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }) }));
     expect(screen.getByText('Ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Claim list \(4\)/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Claimed songs \(9\)/ })).toBeTruthy();
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Claims (4)', 'Songs (9)', 'Tracklist', 'Ads', 'Collab', 'Options']);
+    expect(active('Claims (4)')).toBe(true);
   });
 
-  it('before a scan, the claim list has no count', () => {
+  it('before a scan, Claims has no count', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
-    expect(screen.getByRole('button', { name: 'Claim list' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Claimed songs (0)' })).toBeTruthy();
+    expect(tab('Claims')).toBeTruthy();
+    expect(tab('Songs (0)')).toBeTruthy();
   });
 
   it('Scan claims asks the bound tab', () => {
@@ -57,13 +64,12 @@ describe('Copyright tab', () => {
     await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD, { id: 'not-connected' }));
   });
 
-  it('while scanning, the buttons hide and the card shows the progress', () => {
+  it('while scanning, Scan is disabled and the card shows the progress; the tools stay', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: scanning }));
     expect(screen.getByText('Reading claim details 1 / 3: Mix')).toBeTruthy();
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('33');
-    expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
-    expect(screen.queryByRole('button', { name: /Claim list/ })).toBe(null);
-    expect(screen.getByRole('button', { name: /Fix tracklist/ })).toBeTruthy(); // the second row stays
+    expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(tab(/Tracklist/)).toBeTruthy();
   });
 
   // Scans take no lock (D26): the buttons follow the bound tab, the card follows the tab that works.
@@ -74,14 +80,14 @@ describe('Copyright tab', () => {
     }));
     expect(screen.getByText('Trimming claim 1 of 2')).toBeTruthy();
     expect(screen.queryByText('Ready')).toBe(null);
-    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Claim list (4)' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(tab('Claims (4)')).toBeTruthy();
   });
 
   it('another tab holding the lock, idle: this tab\'s counts, not that tab\'s', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }), live: claimsStateWith({ counts: { ...counts, claims: 7, songs: 1 } }) }));
-    expect(screen.getByRole('button', { name: 'Claim list (4)' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Claimed songs (9)' })).toBeTruthy();
+    expect(tab('Claims (4)')).toBeTruthy();
+    expect(tab('Songs (9)')).toBeTruthy();
   });
 
   it('the card says its kind: the icon and the edge take the kind\'s colour', () => {
@@ -133,49 +139,48 @@ describe('Copyright tab', () => {
   it('no Studio tab bound: no card, and nothing to scan or open', () => {
     renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined, fakeClaims({ state: null, live: null }));
     expect(screen.queryByText('Ready')).toBe(null);
-    for (const name of [/Scan claims/, /Claim list/, /Claimed songs/, /Fix tracklist/]) {
-      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
-    }
+    expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
+    for (const name of [/Songs/, /Tracklist/, /Ads/, /Collab/, /Options/]) expect(tab(name).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /Upload history/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('the lists open once the channel\'s data is read', async () => {
+  it('the tools open once the channel\'s data is read', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
-    const list = screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement;
-    expect(list.disabled).toBe(true);
-    await waitFor(() => expect(list.disabled).toBe(false));
+    expect(tab(/Songs/).disabled).toBe(true);
+    await ready();
+    expect(screen.getByRole('heading', { name: 'Copyright claims — Mine' })).toBeTruthy(); // Claims shows its list
   });
-
-  const ready = () => waitFor(() => expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(false));
 
   it('a scan that ended in the bound tab opens its list', async () => {
     const claims = fakeClaims();
     const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
     await ready();
+    pick(/Songs/);
     r.rerender(wrap({ ...claims, shown: { view: 'claims', n: 1 } }));
     expect(await screen.findByRole('heading', { name: 'Copyright claims — Mine' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null); // the list's view took the tab
+    expect(active(/Claims/)).toBe(true);
   });
 
-  it('each view opens with its title and closes back to the tab', async () => {
+  it('each sub-tab shows its tool', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
-    for (const [button, title] of [
-      [/Claim list/, 'Copyright claims — Mine'], [/Claimed songs/, '🎵 Previously claimed songs'], [/Fix tracklist/, '📝 Choose a video to fix its tracklist'],
+    for (const [name, title] of [
+      [/Songs/, '🎵 Previously claimed songs'], [/Tracklist/, '📝 Choose a video to fix its tracklist'], [/Options/, 'Copyright settings'], [/Claims/, 'Copyright claims — Mine'],
     ] as const) {
-      fireEvent.click(screen.getByRole('button', { name: button }));
-      expect(screen.getByRole('heading', { name: title })).toBeTruthy();
-      expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
-      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-      expect(screen.queryByRole('heading', { name: title })).toBe(null);
-      expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+      pick(name);
+      expect(active(name)).toBe(true);
+      expect(screen.getByRole('heading', { level: 3 }).textContent).toBe(title);
     }
+    // Ads and Collab before their first scan: the button that reads the list
+    pick(/Ads/);
+    expect(screen.getByRole('button', { name: /Check for ads off/ })).toBeTruthy();
+    pick(/Collab/);
+    expect(screen.getByRole('button', { name: /Read video list/ })).toBeTruthy();
   });
 
   it('follows the channel\'s stored data: a scan stored later shows in the open view', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
-    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
     expect(screen.getByRole('heading', { name: 'Copyright claims — Mine' })).toBeTruthy();
     await act(async () => { await fakeBrowser.storage.local.set({ 'claimScan:UC1': { date: '', total: 0, rows: [], channel: 'UC1', channelName: 'Scanned as' } }); });
     expect(await screen.findByRole('heading', { name: 'Copyright claims — Scanned as' })).toBeTruthy();
@@ -191,7 +196,6 @@ describe('Copyright tab', () => {
     const claims = fakeClaims();
     const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
     await ready();
-    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
     expect(screen.getByRole('heading', { name: 'Copyright claims — First' })).toBeTruthy();
 
     let fail!: (e: Error) => void;
@@ -200,10 +204,10 @@ describe('Copyright tab', () => {
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     // the read of UC2 is pending: no view over UC1's data, and nothing to open
     expect(screen.queryByRole('heading', { name: /Copyright claims/ })).toBe(null);
-    for (const name of [/Claim list/, /Claimed songs/, /Fix tracklist/]) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+    for (const name of [/Songs/, /Tracklist/]) expect(tab(name).disabled).toBe(true);
     await act(async () => { fail(new Error('storage gone')); });
     expect(screen.queryByRole('heading', { name: /Copyright claims/ })).toBe(null);
-    expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(tab(/Songs/).disabled).toBe(true);
   });
 
   it('the activity log opens, and keeps that choice', async () => {
@@ -237,10 +241,10 @@ describe('Copyright tab', () => {
     renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined,
       fakeClaims({ state: null, live: null, log: [{ at: 0, msg: 'Scan complete ✓', type: 'ok' }] }));
     expect(await screen.findByText(/Scan complete ✓/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Claimed songs (3)' })).toBeTruthy();
+    expect(tab('Songs (3)')).toBeTruthy();
     // …and follow storage (another panel window, a scan in some Studio tab)
     await act(async () => { await fakeBrowser.storage.local.set({ logOpen: false, songHistory: { a: {} } }); });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Claimed songs (1)' })).toBeTruthy());
+    await waitFor(() => expect(tab('Songs (1)')).toBeTruthy());
     expect(screen.queryByText(/Scan complete ✓/)).toBe(null);
   });
 
@@ -248,7 +252,7 @@ describe('Copyright tab', () => {
     await fakeBrowser.storage.local.set({ songHistory: ['x', 'y'] });
     renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined, fakeClaims({ state: null, live: null }));
     await act(async () => {});
-    expect(screen.getByRole('button', { name: 'Claimed songs (0)' })).toBeTruthy();
+    expect(tab('Songs (0)')).toBeTruthy();
   });
 
   it('a log choice the background never got says so', async () => {
@@ -307,9 +311,8 @@ const scan = scanOf([row('v1', 'c1')]);
 const mockSend = async () => vi.spyOn(await import('../lib/messages'), 'sendMessage').mockResolvedValue(undefined as never);
 const open = async (name: RegExp, claims = fakeClaims(), api = fakePanel()) => {
   renderPanel(<CopyrightTab />, api, undefined, claims);
-  const b = screen.getByRole('button', { name }) as HTMLButtonElement;
-  await waitFor(() => expect(b.disabled).toBe(false));
-  fireEvent.click(b);
+  await ready();
+  pick(name);
   return api;
 };
 const SAVE_FAILED = ["Couldn't save (gone)", { id: 'save-failed' }] as const;
@@ -319,11 +322,9 @@ describe('views', () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan });
     const send = await mockSend();
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts: { hasScan: true, scanDate: '', claims: 1, claimVideos: 1, songs: 0, hasAdsScan: false, adsTodo: 0 } }) }));
-    fireEvent.click(await screen.findByRole('button', { name: /Claim list \(1\)/ }));
+    expect(tab('Claims (1)')).toBeTruthy();
     fireEvent.click(await screen.findByTitle('Add to trim list'));
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v1:c1'] });
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
   });
 
   it('a finished scan from this panel opens the list', async () => {
@@ -332,47 +333,57 @@ describe('views', () => {
     expect(await screen.findByText(/Copyright claims — Mine/)).toBeTruthy();
   });
 
-  it('a finished ads or Collab scan opens its view, and Close goes back to the tab', async () => {
+  it('a finished ads or Collab scan opens its sub-tab', async () => {
     await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date: '2026-01-01', total: 0, rows: [] }, 'collabScan:UC1': { date: '2026-01-01', total: 0, rows: [] } });
     const ads = renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view: 'ads', n: 1 } }));
     expect(await screen.findByText(/Videos with ads off — Mine/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+    expect(active(/Ads/)).toBe(true);
     ads.unmount();
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view: 'collab', n: 1 } }));
     expect(await screen.findByText(/Collab — Mine/)).toBeTruthy();
+    expect(active(/Collab/)).toBe(true);
   });
 
-  // The views read data.adsScan / data.collabScan: without a stored list there is nothing to open (K review m3).
-  it('an ads or Collab list asked for with no stored scan stays on the tab', async () => {
-    for (const view of ['ads', 'collab'] as const) {
-      const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ shown: { view, n: 1 } }));
-      await waitFor(() => expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(false));
-      expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+  // The views read data.adsScan / data.collabScan: without a stored list the sub-tab offers to read one (K review m3).
+  it('an ads or Collab list asked for with no stored scan offers its scan', async () => {
+    for (const [view, button] of [['ads', /Check for ads off/], ['collab', /Read video list/]] as const) {
+      const api = fakePanel();
+      const r = renderPanel(<CopyrightTab />, api, undefined, fakeClaims({ shown: { view, n: 1 } }));
+      await ready();
       expect(screen.queryByRole('heading', { level: 3 })).toBe(null);
+      fireEvent.click(screen.getByRole('button', { name: button }));
+      expect(api.send).toHaveBeenCalledWith('claims:scan', view);
       r.unmount();
     }
   });
+
+  it('Ads and Collab scans wait while the tab is busy', async () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: scanning }));
+    await ready();
+    pick(/Ads/);
+    expect((screen.getByRole('button', { name: /Check for ads off/ }) as HTMLButtonElement).disabled).toBe(true);
+    pick(/Collab/);
+    expect((screen.getByRole('button', { name: /Read video list/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
-describe('moving between the tab and its views', () => {
-  const ready = () => waitFor(() => expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(false));
+describe('moving between the tools', () => {
   const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
   const both = () => fakeBrowser.storage.local.set({
     'claimScan:UC1': scanOf([row('v1', 'c1')]), 'claimScan:UC2': scanOf([row('w1', 'k1')]), uploads: [{ videoId: 'v1', txt: '00:00 A - One' }],
   });
 
-  it('the bound tab moves to another channel: an open list closes instead of reopening on the new channel', async () => {
+  it('the bound tab moves to another channel: an open tool goes back to Claims, on the new channel', async () => {
     await both();
     const claims = fakeClaims();
     const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
     await ready();
-    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
-    expect(screen.getByText('Mix v1')).toBeTruthy();
+    pick(/Songs/);
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     await ready(); // the new channel's data is read
-    expect(screen.queryByRole('heading', { name: /Copyright claims/ })).toBe(null);
-    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+    expect(active(/Claims/)).toBe(true);
+    expect(await screen.findByText('Mix w1')).toBeTruthy();
+    expect(screen.queryByText('Mix v1')).toBe(null);
   });
 
   it('…and an open tracklist editor does not carry its video to the new channel', async () => {
@@ -380,67 +391,43 @@ describe('moving between the tab and its views', () => {
     const claims = fakeClaims();
     const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
     await ready();
-    fireEvent.click(screen.getByRole('button', { name: /Fix tracklist/ }));
+    pick(/Tracklist/);
     fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
     expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     await ready();
+    pick(/Tracklist/);
     expect(screen.queryByRole('heading', { name: /Tracklist after copyright trim/ })).toBe(null);
     expect(screen.queryByDisplayValue('00:00 A - One')).toBe(null);
   });
 
-  it('a view opens at its top, and so does the tab on the way back', async () => {
+  it('each tool opens at its top, and so do the tracklist\'s picker and editor', async () => {
     await both();
     const { container } = renderPanel(<div data-pane-scroll=""><CopyrightTab /></div>, fakePanel(), undefined, fakeClaims());
     const scroller = container.querySelector<HTMLElement>('[data-pane-scroll]')!;
     await ready();
-    const at = (name: RegExp | string, role = 'button') => { scroller.scrollTop = 300; fireEvent.click(screen.getAllByRole(role, { name })[0]!); return scroller.scrollTop; };
-    expect(at(/Claim list/)).toBe(0);
-    expect(at('📝 Tracklist after trim')).toBe(0); // from far down the list
-    expect(at('Close')).toBe(0);
-    expect(at(/Fix tracklist/)).toBe(0);
-    expect(at(/Mix v1/)).toBe(0); // picker to editor
+    const at = (go: () => void) => { scroller.scrollTop = 300; go(); return scroller.scrollTop; };
+    const click = (name: RegExp | string) => () => fireEvent.click(screen.getAllByRole('button', { name })[0]!);
+    expect(at(() => pick(/Songs/))).toBe(0);
+    expect(at(() => pick(/Claims/))).toBe(0);
+    expect(at(click('📝 Tracklist after trim'))).toBe(0); // from far down the list
+    expect(at(click('← Back'))).toBe(0);
+    expect(at(click(/Mix v1/))).toBe(0); // picker to editor
   });
 
-  it('opening a view moves focus to its title; Close gives it back to the button that opened it', async () => {
+  it('a tool opened by its sub-tab leaves focus on the tab; the tracklist editor takes it to its title', async () => {
     await both();
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
-    for (const [button, title] of [[/Claim list/, 'Copyright claims — Mine'], [/Fix tracklist/, '📝 Choose a video to fix its tracklist']] as const) {
-      fireEvent.click(screen.getByRole('button', { name: button }));
-      expect(document.activeElement).toBe(screen.getByRole('heading', { name: title }));
-      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: button }));
+    for (const name of [/Songs/, /Tracklist/]) {
+      tab(name).focus();
+      pick(name);
+      expect(document.activeElement).toBe(tab(name));
     }
-    // the picker's video opens the editor: focus follows to its title
-    fireEvent.click(screen.getByRole('button', { name: /Fix tracklist/ }));
     fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Fix tracklist/ }));
-    // the songs view starts in its search box, as the userscript's did
-    fireEvent.click(screen.getByRole('button', { name: /Claimed songs/ }));
-    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Search song, artist, label or claimant…' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Claimed songs/ }));
-  });
-
-  it('a view closed by a channel change does not pull focus to a button', async () => {
-    await both();
-    const claims = fakeClaims();
-    const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
-    await ready();
-    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
-    r.rerender(wrap({ ...claims, state: moved, live: moved }));
-    await ready();
-    expect(document.activeElement).toBe(document.body);
-    // …nor after an earlier Close: that Close is not remembered
-    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    fireEvent.click(screen.getByRole('button', { name: /Claim list/ }));
-    r.rerender(wrap(claims));
-    await ready();
-    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole('button', { name: '← Back' }));
+    expect(screen.getByRole('heading', { name: '📝 Choose a video to fix its tracklist' })).toBeTruthy();
   });
 
   it('a list opened by a scan that ended while another panel tab is showing leaves that tab\'s scroll alone', async () => {
@@ -454,6 +441,7 @@ describe('moving between the tab and its views', () => {
     const api = fakePanel();
     const { container, rerender } = render(tree(claims));
     await ready();
+    pick(/Songs/);
     const scroller = container.querySelector<HTMLElement>('[data-pane-scroll]')!;
     scroller.scrollTop = 300;
     rerender(tree({ ...claims, shown: { view: 'claims', n: 1 } }));
@@ -471,21 +459,21 @@ describe('claim list', () => {
   const boxes = () => screen.getAllByRole('checkbox') as HTMLInputElement[];
 
   it('before a scan it says so, with the channel\'s name', async () => {
-    await open(/Claim list/);
+    await open(/Claims/);
     expect(screen.getByText('Channel Mine not scanned yet — press "Scan claims" first')).toBeTruthy();
     expect(screen.queryByRole('checkbox')).toBe(null);
   });
 
   it('a scan without claims says so', async () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([]) });
-    await open(/Claim list/);
+    await open(/Claims/);
     expect(screen.getByText('No claims found 🎉')).toBeTruthy();
     expect(screen.getByText(/0 claims in 0 videos \(of 5 total\) · scanned /)).toBeTruthy();
   });
 
   it('one card per claim: the video, the song, the range, the impact', async () => {
     await stored();
-    await open(/Claim list/);
+    await open(/Claims/);
     expect(screen.getByText(/4 claims in 2 videos \(of 5 total\) · scanned /)).toBeTruthy();
     expect(screen.getByText(/1 look like your own songs \(★\)/)).toBeTruthy();
     expect(boxes()).toHaveLength(4);
@@ -513,7 +501,7 @@ describe('claim list', () => {
   it('a claim that can\'t be trimmed, or is done, can\'t be ticked, and says why', async () => {
     await stored({ 'trimQueue:UC1': ['v2:c3', 'v2:c4'], 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' }, 'v2:c4': { state: 'failed', msg: 'no button', date: '' } } });
     await mockSend();
-    await open(/Claim list/);
+    await open(/Claims/);
     const [a, b, c, d] = boxes();
     expect([a!.disabled, b!.disabled, c!.disabled, d!.disabled]).toEqual([false, true, true, false]);
     expect(b!.title).toBe('YouTube offers no Trim option for this claim');
@@ -528,7 +516,7 @@ describe('claim list', () => {
   it('unticking takes the claim off the list', async () => {
     await stored({ 'trimQueue:UC1': ['v2:c3'] });
     const send = await mockSend();
-    await open(/Claim list/);
+    await open(/Claims/);
     fireEvent.click(boxes()[2]!);
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] });
   });
@@ -536,7 +524,7 @@ describe('claim list', () => {
   it('a pick chip ticks what matches and unticks the rest, among the claims that can be ticked', async () => {
     await stored();
     const send = await mockSend();
-    await open(/Claim list/);
+    await open(/Claims/);
     fireEvent.click(screen.getByRole('button', { name: 'Not my own songs' }));
     expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v2:c3', 'v2:c4'], del: ['v1:c1'] });
     fireEvent.click(screen.getByRole('button', { name: '⏰ Scheduled + affected' }));
@@ -549,7 +537,7 @@ describe('claim list', () => {
   it('a pick chip leaves a done claim alone', async () => {
     await stored({ 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' } } });
     const send = await mockSend();
-    await open(/Claim list/);
+    await open(/Claims/);
     fireEvent.click(screen.getByRole('button', { name: 'All trimmable' }));
     expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v1:c1', 'v2:c4'], del: [] });
   });
@@ -557,7 +545,7 @@ describe('claim list', () => {
   it('a pick that gets done while the list is open leaves the stored list too', async () => {
     await stored({ 'trimQueue:UC1': ['v2:c3'] });
     const send = await mockSend();
-    await open(/Claim list/);
+    await open(/Claims/);
     expect(send).not.toHaveBeenCalled();
     await act(async () => { await fakeBrowser.storage.local.set({ 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' } } }); });
     await waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] }));
@@ -566,7 +554,7 @@ describe('claim list', () => {
   it('picks that are done already leave the stored list when it opens', async () => {
     await stored({ 'trimQueue:UC1': ['v1:c1', 'v2:c3'], 'trimResults:UC1': { 'v2:c3': { state: 'gone', msg: '', date: '' } } });
     const send = await mockSend();
-    await open(/Claim list/);
+    await open(/Claims/);
     await waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] }));
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -575,7 +563,7 @@ describe('claim list', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await stored();
     vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
-    await open(/Claim list/);
+    await open(/Claims/);
     fireEvent.click(boxes()[0]!);
     await waitFor(() => expect(toast).toHaveBeenCalledWith(...SAVE_FAILED));
   });
@@ -584,7 +572,7 @@ describe('claim list', () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': scanOf([row('w1', 'k1')]) });
     const send = await mockSend();
     const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
-    await open(/Claim list/, fakeClaims({ state: moved }));
+    await open(/Claims/, fakeClaims({ state: moved }));
     expect(screen.queryByText('Mix v1')).toBe(null);
     fireEvent.click(screen.getByRole('checkbox'));
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC2', add: ['w1:k1'] });
@@ -593,7 +581,7 @@ describe('claim list', () => {
   it('⬇ CSV saves the scan, named by its date', async () => {
     await stored();
     const saved = captureDownload();
-    await open(/Claim list/);
+    await open(/Claims/);
     fireEvent.click(screen.getByRole('button', { name: '⬇ CSV' }));
     expect(saved.name).toBe('youtube-claims-2026-10-01.csv');
     const lines = (await saved.blob!.text()).split('\n');
@@ -601,9 +589,9 @@ describe('claim list', () => {
     expect(lines[1]).toContain('"Mix v1","https://studio.youtube.com/video/v1/claims","public","10:00","Song c1"');
   });
 
-  it('Rescan closes the list and asks the bound tab', async () => {
+  it('Rescan asks the bound tab', async () => {
     await stored();
-    const api = await open(/Claim list/);
+    const api = await open(/Claims/);
     fireEvent.click(screen.getByRole('button', { name: '↻ Rescan' }));
     expect(api.send).toHaveBeenCalledWith('claims:scan', 'claims');
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
@@ -612,7 +600,7 @@ describe('claim list', () => {
   it('a rescan the tab never got says so', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await stored();
-    await open(/Claim list/, fakeClaims(), fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never }));
+    await open(/Claims/, fakeClaims(), fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never }));
     fireEvent.click(screen.getByRole('button', { name: '↻ Rescan' }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD, { id: 'not-connected' }));
   });
@@ -620,7 +608,7 @@ describe('claim list', () => {
   it('the video\'s title opens its claims page in Studio', async () => {
     await stored();
     const create = vi.spyOn(fakeBrowser.tabs, 'create').mockResolvedValue({} as never);
-    await open(/Claim list/);
+    await open(/Claims/);
     const link = screen.getAllByRole('link', { name: 'Mix v1' })[0]!;
     expect(link.getAttribute('href')).toBe('https://studio.youtube.com/video/v1/claims');
     fireEvent.click(link);
@@ -629,7 +617,7 @@ describe('claim list', () => {
 
   it('"Tracklist after trim" is offered once per video and opens that video\'s tracklist', async () => {
     await stored();
-    await open(/Claim list/);
+    await open(/Claims/);
     const buttons = screen.getAllByRole('button', { name: '📝 Tracklist after trim' });
     expect(buttons).toHaveLength(2);
     fireEvent.click(buttons[1]!);
@@ -653,14 +641,14 @@ describe('claimed songs', () => {
   const pick = (f: File) => act(async () => { fireEvent.change(document.querySelector<HTMLInputElement>('input[type=file]')!, { target: { files: [f] } }); });
 
   it('with no history it says how to get one', async () => {
-    await open(/Claimed songs/);
+    await open(/Songs/);
     expect(screen.getByText('No data yet — press "Scan claims" or import a CSV from the old script')).toBeTruthy();
     expect(screen.getByText('0 songs')).toBeTruthy();
   });
 
   it('one card per song, most claimed first', async () => {
     await stored();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     expect(titles()).toEqual(['Beta', 'Alpha']);
     expect(screen.getByText('2 songs')).toBeTruthy();
     const beta = document.querySelector('[data-song="beta|lena"]')!;
@@ -678,7 +666,7 @@ describe('claimed songs', () => {
 
   it('sorts by the chosen order and searches song, artist, label and claimant', async () => {
     await stored();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     fireEvent.change(screen.getByRole('combobox', { name: 'Sort by' }), { target: { value: 'title' } });
     expect(titles()).toEqual(['Alpha', 'Beta']);
     fireEvent.change(screen.getByRole('textbox', { name: 'Search song, artist, label or claimant…' }), { target: { value: 'co' } });
@@ -691,7 +679,7 @@ describe('claimed songs', () => {
   it('removing a song asks once, then goes through the background', async () => {
     await stored();
     const send = await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const del = screen.getAllByRole('button', { name: 'Remove from history' });
     fireEvent.click(del[0]!);
     expect(send).not.toHaveBeenCalled();
@@ -705,7 +693,7 @@ describe('claimed songs', () => {
   it('Delete all asks once, then clears through the background', async () => {
     await stored();
     const send = await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     fireEvent.click(screen.getByRole('button', { name: 'Delete all' }));
     expect(send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Press again to delete all' }));
@@ -717,7 +705,7 @@ describe('claimed songs', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await stored();
     vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
-    await open(/Claimed songs/);
+    await open(/Songs/);
     fireEvent.click(screen.getByRole('button', { name: 'Delete all' }));
     fireEvent.click(screen.getByRole('button', { name: 'Press again to delete all' }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith(...SAVE_FAILED));
@@ -725,14 +713,14 @@ describe('claimed songs', () => {
 
   it('the list follows the stored history', async () => {
     await stored();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     await act(async () => { await fakeBrowser.storage.local.set({ songHistory: { 'alpha|ann': songs['alpha|ann'] } }); });
     await waitFor(() => expect(titles()).toEqual(['Alpha']));
   });
 
   it('Import CSV hands the file\'s text to the background and says how many songs it holds', async () => {
     const send = await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const text = 'song,artists\nOne,A\nTwo,B\n,C\n';
     await pick(csv(text));
     await waitFor(() => expect(toast).toHaveBeenCalledWith('Imported 2 songs into history'));
@@ -741,7 +729,7 @@ describe('claimed songs', () => {
 
   it('a file that is not a song history is refused, and nothing is written', async () => {
     const send = await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     await pick(csv('video,url\nA,B\n'));
     await waitFor(() => expect(toast).toHaveBeenCalledWith('This is not a song history CSV (needs a song column)'));
     expect(send).not.toHaveBeenCalled();
@@ -750,7 +738,7 @@ describe('claimed songs', () => {
   it('an import the background never got says so, and does not claim it worked', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
-    await open(/Claimed songs/);
+    await open(/Songs/);
     await pick(csv('song\nOne\n'));
     await waitFor(() => expect(toast).toHaveBeenCalledWith(...SAVE_FAILED));
     expect(toast).toHaveBeenCalledTimes(1);
@@ -758,7 +746,7 @@ describe('claimed songs', () => {
 
   it('a file over the limit is refused before it is read', async () => {
     const send = await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const f = csv('song\nOne\n');
     Object.defineProperty(f, 'size', { value: SONGS_CSV_MAX + 1 });
     const text = vi.spyOn(f, 'text');
@@ -770,7 +758,7 @@ describe('claimed songs', () => {
 
   it('a file at the limit is read', async () => {
     const send = await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const f = csv('song\nOne\n');
     Object.defineProperty(f, 'size', { value: SONGS_CSV_MAX });
     await pick(f);
@@ -780,7 +768,7 @@ describe('claimed songs', () => {
   it('a file that could not be read says so', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const send = await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const f = csv('song\nOne\n');
     vi.spyOn(f, 'text').mockRejectedValue(new Error('boom'));
     await pick(f);
@@ -790,7 +778,7 @@ describe('claimed songs', () => {
 
   it('the file box is emptied after a pick, so the same file can be picked again', async () => {
     await mockSend();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const input = document.querySelector<HTMLInputElement>('input[type=file]')!;
     const cleared = vi.fn();
     Object.defineProperty(input, 'value', { configurable: true, get: () => '', set: cleared });
@@ -802,7 +790,7 @@ describe('claimed songs', () => {
     await fakeBrowser.storage.local.set({ songHistory: { 'solo|': song('Solo', {
       artists: '', label: 'Lab', videos: { a: { video: 'A', channel: 'Mine', status: 'claimed' }, b: { video: 'B', channel: 'Mine', status: 'claimed' }, c: { video: 'C', channel: '', status: 'claimed' } },
     }) } });
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const card = document.querySelector('[data-song="solo|"]')!;
     expect(card.textContent).toContain('— · Lab');
     expect(card.textContent).toContain('Mine · ');
@@ -811,7 +799,7 @@ describe('claimed songs', () => {
 
   it('values an imported file got wrong are not shown raw: no "Invalid Date", no negative trim count', async () => {
     await fakeBrowser.storage.local.set({ songHistory: { 'bad|': song('Bad', { lastSeen: '<b>x</b>T00:00:00Z', trimmed: -5 }) } });
-    await open(/Claimed songs/);
+    await open(/Songs/);
     const card = document.querySelector('[data-song="bad|"]')!;
     expect(card.textContent).not.toContain('Invalid Date');
     expect(card.textContent).not.toContain('✂');
@@ -822,7 +810,7 @@ describe('claimed songs', () => {
   it('⬇ CSV saves the history', async () => {
     await stored();
     const saved = captureDownload();
-    await open(/Claimed songs/);
+    await open(/Songs/);
     fireEvent.click(screen.getByRole('button', { name: '⬇ CSV' }));
     expect(saved.name).toMatch(/^claimed-songs-\d{4}-\d\d-\d\d\.csv$/);
     const lines = (await saved.blob!.text()).split('\n');
@@ -840,19 +828,19 @@ describe('tracklist fix', () => {
   const out = () => (screen.getByRole('textbox', { name: 'New tracklist' }) as HTMLTextAreaElement).value;
   const src = () => screen.getByRole('textbox', { name: 'Original tracklist' }) as HTMLTextAreaElement;
   const toEditor = async (name = /Mix v1/) => {
-    await open(/Fix tracklist/);
+    await open(/Tracklist/);
     fireEvent.click(await screen.findByRole('button', { name }));
     await act(async () => {});
   };
 
   it('with no claimed video it says to scan first', async () => {
-    await open(/Fix tracklist/);
+    await open(/Tracklist/);
     expect(screen.getByText('No claimed videos yet — press "Scan claims" first')).toBeTruthy();
   });
 
   it('lists each claimed video once, and says where its tracklist will come from', async () => {
     await stored();
-    await open(/Fix tracklist/);
+    await open(/Tracklist/);
     const picks = await screen.findAllByRole('button', { name: /^Mix v/ });
     expect(picks).toHaveLength(2);
     await waitFor(() => expect(picks[0]!.textContent).toContain('10:00 · Tracklist from upload history'));
@@ -929,9 +917,8 @@ describe('tracklist fix', () => {
     const over = vi.fn();
     const drop = vi.fn();
     renderPanel(<div onDragOver={over} onDrop={drop}><CopyrightTab /></div>, fakePanel(), undefined, fakeClaims());
-    const b = screen.getByRole('button', { name: /Fix tracklist/ }) as HTMLButtonElement;
-    await waitFor(() => expect(b.disabled).toBe(false));
-    fireEvent.click(b);
+    await ready();
+    pick(/Tracklist/);
     fireEvent.click(await screen.findByRole('button', { name: /Mix v2/ }));
     await act(async () => {});
     const files = { files: [new File([TXT], 'list.txt', { type: 'text/plain' })], types: ['Files'] };
@@ -997,7 +984,7 @@ describe('tracklist fix', () => {
   it('upload history that could not be read leaves the editor usable', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     await stored();
-    await open(/Fix tracklist/);
+    await open(/Tracklist/);
     const get = fakeBrowser.storage.local.get.bind(fakeBrowser.storage.local);
     vi.spyOn(fakeBrowser.storage.local, 'get').mockImplementation(((k: unknown) => (k === 'uploads' ? Promise.reject(new Error('quota')) : get(k as never))) as never);
     fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
@@ -1008,11 +995,11 @@ describe('tracklist fix', () => {
     expect(out()).toBe('00:00 X - Y');
   });
 
-  it('Close returns to the tab', async () => {
+  it('Back returns to the picker', async () => {
     await stored();
     await toEditor();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '← Back' }));
+    expect(screen.getByRole('heading', { name: '📝 Choose a video to fix its tracklist' })).toBeTruthy();
   });
 });
 

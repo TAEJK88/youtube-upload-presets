@@ -89,7 +89,7 @@ describe('panel views → page handlers → the background writer: payloads and 
   it('claims:trim starts a run of the ticked claims, and Stop ends it', async () => {
     await start({ [`claimScan:${CH}`]: { date, total: 2, channel: CH, channelName: 'Mine', rows: [row(1), row(2)] }, [`trimQueue:${CH}`]: ['v2:c2'] });
     const first = await panel();
-    fireEvent.click(await screen.findByRole('button', { name: 'Claim list (2)' }));
+    await screen.findByRole('tab', { name: 'Claims (2)' });
     fireEvent.click(await screen.findByRole('button', { name: '✂ Trim selected (1)' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Start trim' }));
     await vi.waitFor(() => expect(toTab).toHaveBeenCalledWith('claims:trim', ['v2:c2']));
@@ -107,7 +107,7 @@ describe('panel views → page handlers → the background writer: payloads and 
   it('claims:ads starts a run of the ticked videos', async () => {
     await start({ [`adsScan:${CH}`]: { date, total: 3, rows: [vid(1), { ...vid(2), ineligible: true }, vid(3)] } });
     await panel();
-    fireEvent.click(await screen.findByRole('button', { name: /Ads off/ }));
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: /Ads/ }));
     fireEvent.click(await screen.findByRole('button', { name: '💰 Turn on ads (2)' })); // the eligible ones start ticked
     await vi.waitFor(() => expect(toTab).toHaveBeenCalledWith('claims:ads', ['v1', 'v3']));
     await flushClaims();
@@ -117,7 +117,7 @@ describe('panel views → page handlers → the background writer: payloads and 
   it('claims:collab starts a run with the typed handles, as the page checks them again', async () => {
     await start({ [`collabScan:${CH}`]: { date, total: 2, rows: [vid(1), vid(2)] } });
     await panel();
-    fireEvent.click(await screen.findByRole('button', { name: /Collab/ }));
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: /Collab/ }));
     fireEvent.change(await screen.findByRole('textbox', { name: 'Channels to invite' }), { target: { value: ' @Friend , second.one,@ไทย_ช่อง ' } });
     fireEvent.click(screen.getByRole('button', { name: 'All shown' }));
     fireEvent.click(screen.getByRole('button', { name: '🤝 Invite (2 videos)' }));

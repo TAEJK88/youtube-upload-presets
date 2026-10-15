@@ -14,7 +14,7 @@ import { SubView } from './SubView';
 // "Turn on ads (N)". The ticks are the view's own; the bound tab starts the run from its stored scan.
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-export function AdsView({ data, state, onClose }: { data: ClaimsData; state: ClaimsState; onClose(): void }) {
+export function AdsView({ data, state }: { data: ClaimsData; state: ClaimsState }) {
   const { send } = usePanel();
   const id = useId();
   const scan = data.adsScan!; // the route opens this view only with a scan
@@ -31,7 +31,6 @@ export function AdsView({ data, state, onClose }: { data: ClaimsData; state: Cla
   const go = () => {
     const ids = scan.rows.filter((r) => picked.has(r.videoId)).map((r) => r.videoId);
     if (!ids.length) return;
-    onClose();
     void send('claims:ads', ids).catch(notConnected);
   };
   return (
@@ -41,9 +40,8 @@ export function AdsView({ data, state, onClose }: { data: ClaimsData; state: Cla
         <div>{L(`${scan.rows.length} จาก ${scan.total} คลิป · ${ok} คลิปแค่ปิดในการตั้งค่า · เช็กเมื่อ ${new Date(scan.date).toLocaleString(locale())}`, `${scan.rows.length} of ${scan.total} videos · ${ok} only turned off in settings · checked ${new Date(scan.date).toLocaleString(locale())}`)}</div>
         <div className="mt-1">{L('"ไม่มีสิทธิ์" หมายถึง YouTube บล็อกโฆษณาเอง (เช่นโดน claim หรือติดนโยบาย) เปิดการตั้งค่าได้ แต่คลิปนั้นอาจยังไม่มีรายได้จนกว่าจะแก้สาเหตุ', '"Ineligible" means YouTube blocks ads itself (e.g. a claim or policy issue). You can turn the setting on, but the video may not earn until the cause is fixed.')}</div>
       </>}
-      onClose={onClose}
       footer={<>
-        <Button size="sm" onClick={() => { onClose(); void send('claims:scan', 'ads').catch(notConnected); }}>{L('↻ เช็กใหม่', '↻ Recheck')}</Button>
+        <Button size="sm" onClick={() => void send('claims:scan', 'ads').catch(notConnected)}>{L('↻ เช็กใหม่', '↻ Recheck')}</Button>
         <span className="flex-1" />
         <Button variant="go" size="sm" disabled={!picked.size} onClick={go}>{L(`💰 เปิดโฆษณา (${picked.size})`, `💰 Turn on ads (${picked.size})`)}</Button>
       </>}

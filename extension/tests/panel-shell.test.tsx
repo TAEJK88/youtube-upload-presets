@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
@@ -267,7 +267,7 @@ describe('banners', () => {
 
   it('another tab busy with copyright work: its own banner, and Start is disabled', () => {
     renderPanel(<><Banners /><QueueFooter /></>, fakePanel({ runner: { tabId: 2, windowId: 1, title: 'B', jobs: ['claims'] }, busyElsewhere: true, view: viewWith([{}]) }));
-    expect(screen.getByText('Another Studio tab is busy with copyright work — wait for it, or press Stop in the Copyright tab')).toBeTruthy();
+    expect(screen.getByText('Another Studio tab is busy with copyright work — wait for it, or press Stop in the Tools tab')).toBeTruthy();
     expect(screen.queryByText('Another Studio tab is running the queue — change the queue there')).toBe(null);
     expect((screen.getByRole('button', { name: /Upload 1 video\(s\)/ }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -377,18 +377,18 @@ describe('shell', () => {
   it('four tabs in the drawer\'s order, with the Upload count; labels follow a language change', () => {
     const api = fakePanel({ view: viewWith([{}, {}, {}]) });
     render(<Host first={api}><App /></Host>);
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Upload3', 'Presets', 'Copyright', 'Settings']);
+    expect(within(screen.getAllByRole('tablist')[0]!).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Upload3', 'Presets', 'Tools', 'Settings']);
     act(() => {
       setLang('th');
       setApi({ ...api, lang: 'th' });
     });
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['อัปโหลด3', 'พรีเซ็ต', 'ลิขสิทธิ์', 'ตั้งค่า']);
+    expect(within(screen.getAllByRole('tablist')[0]!).getAllByRole('tab').map((t) => t.textContent)).toEqual(['อัปโหลด3', 'พรีเซ็ต', 'เครื่องมือ', 'ตั้งค่า']);
   });
 
   it('the Copyright tab opens on its status; the activity bar goes back to Upload', () => {
     renderPanel(<App />, fakePanel({ view: viewWith([{ status: 'uploading' }]) }), fakeLive({ liveState: state({ running: true }) }));
-    fireEvent.mouseDown(screen.getByRole('tab', { name: /Copyright/ }));
-    expect(screen.getByRole('tab', { name: /Copyright/ }).getAttribute('data-state')).toBe('active');
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Tools/ }));
+    expect(screen.getByRole('tab', { name: /Tools/ }).getAttribute('data-state')).toBe('active');
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
     expect(screen.getByText('Ready')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Uploading 1\/1/ }));
@@ -399,7 +399,7 @@ describe('shell', () => {
   // notification, a multi-file pick in Studio's own dialog. The request is the background's, in
   // storage.session (lib/panel-tab.ts); the panel is bound to tab 1 (fakePanel).
   describe('a request to show a tab', () => {
-    const active = () => screen.getAllByRole('tab').find((t) => t.getAttribute('data-state') === 'active')?.textContent;
+    const active = () => within(screen.getAllByRole('tablist')[0]!).getAllByRole('tab').find((t) => t.getAttribute('data-state') === 'active')?.textContent;
     const request = (tabId: number, tab: string, at = Date.now()) => act(async () => {
       await browser.storage.session.set({ panelTab: { tabId, tab, at } });
       await new Promise((r) => setTimeout(r, 0));
@@ -411,9 +411,9 @@ describe('shell', () => {
       await flush();
       expect(active()).toBe('Upload');
       await request(1, 'claims');
-      expect(active()).toBe('Copyright');
+      expect(active()).toBe('Tools');
       await request(2, 'queue');
-      expect(active()).toBe('Copyright');
+      expect(active()).toBe('Tools');
       await request(1, 'queue');
       expect(active()).toBe('Upload');
     });
@@ -422,7 +422,7 @@ describe('shell', () => {
       await browser.storage.session.set({ panelTab: { tabId: 1, tab: 'claims', at: Date.now() - 800 } });
       renderPanel(<App />);
       await flush();
-      expect(active()).toBe('Copyright');
+      expect(active()).toBe('Tools');
     });
 
     it('a panel opened long after it shows its own tab', async () => {
@@ -437,7 +437,7 @@ describe('shell', () => {
       render(<Host first={api}><App /></Host>);
       await flush();
       await request(1, 'claims');
-      expect(active()).toBe('Copyright');
+      expect(active()).toBe('Tools');
       fireEvent.mouseDown(screen.getByRole('tab', { name: /Settings/ }));
       expect(active()).toBe('Settings');
       // the window's active tab moves to another Studio tab and back, within the request's 10 s
@@ -456,9 +456,9 @@ describe('shell', () => {
       act(() => setApi({ ...api, target: { ...api.target!, tabId: 2 } }));
       await flush();
       await request(2, 'claims');
-      expect(active()).toBe('Copyright');
+      expect(active()).toBe('Tools');
       await request(1, 'settings');
-      expect(active()).toBe('Copyright');
+      expect(active()).toBe('Tools');
     });
 
     it('no Studio tab bound: nothing is read or followed', async () => {

@@ -18,7 +18,7 @@ import { SubView } from './SubView';
 // view's own; the bound tab starts the run from its stored scan.
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-export function CollabView({ data, state, onClose }: { data: ClaimsData; state: ClaimsState; onClose(): void }) {
+export function CollabView({ data, state }: { data: ClaimsData; state: ClaimsState }) {
   const { send } = usePanel();
   const id = useId();
   const scan = data.collabScan!; // the route opens this view only with a scan
@@ -67,7 +67,6 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
     if (!list.length) return void toast(L('ใส่ @handle ของช่องที่จะเชิญก่อน', 'Enter the @handle of the channel to invite first'));
     const ids = scan.rows.filter((r) => picked.has(r.videoId)).map((r) => r.videoId);
     if (!ids.length) return;
-    onClose();
     void send('claims:collab', { videoIds: ids, handles: list }).catch(notConnected);
   };
   const copy = async (hd: string, link: string) => {
@@ -86,9 +85,8 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
     <SubView
       title={L(`🤝 Collab — ${state.channelName}`, `🤝 Collab — ${state.channelName}`)}
       sub={L(`${scan.total} คลิป · อ่านเมื่อ ${new Date(scan.date).toLocaleString(locale())} · YouTube ไม่ส่งคำเชิญให้เอง หลังเชิญเสร็จต้องส่งลิงก์คำเชิญให้อีกฝ่ายเปิดแล้วกดยอมรับ (ช่องละลิงก์เดียว ใช้ได้กับทุกคลิป)`, `${scan.total} videos · read ${new Date(scan.date).toLocaleString(locale())} · YouTube doesn't send the invite itself: after inviting, send the invite link to the other channel to open and accept (one link per channel, covers every video)`)}
-      onClose={onClose}
       footer={<>
-        <Button size="sm" onClick={() => { onClose(); void send('claims:scan', 'collab').catch(notConnected); }}>{L('↻ อ่านรายการใหม่', '↻ Reload list')}</Button>
+        <Button size="sm" onClick={() => void send('claims:scan', 'collab').catch(notConnected)}>{L('↻ อ่านรายการใหม่', '↻ Reload list')}</Button>
         <span className="flex-1" />
         <Button variant="go" size="sm" disabled={!picked.size} onClick={go}>{L(`🤝 เชิญ (${picked.size} คลิป)`, `🤝 Invite (${picked.size} videos)`)}</Button>
       </>}

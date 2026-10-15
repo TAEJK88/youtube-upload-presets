@@ -37,7 +37,7 @@ export function CopyrightSettings({ data, onClose }: { data: ClaimsData; onClose
     addLog(L('คืนค่าตั้งค่าลิขสิทธิ์แล้ว', 'Copyright settings reset'), 'ok');
   };
   return (
-    <SubView title={L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')} onClose={onClose}
+    <SubView title={L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')}
       footer={<>
         <Button size="sm" variant="danger" onClick={() => (armed ? once(reset) : busy.current || setArmed(true))}>{armed ? L('กดอีกครั้งเพื่อคืนค่า', 'Click again to reset') : L('คืนค่าเริ่มต้น', 'Reset to defaults')}</Button>
         <span className="flex-1" />

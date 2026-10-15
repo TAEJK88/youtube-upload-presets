@@ -24,8 +24,8 @@ const TRIM_LABEL = (): Record<string, string> => ({
 const STATE_TONE: Record<string, string> = { saved: 'text-ok', gone: 'text-ok', failed: 'text-err', skipped: 'text-warn', later: 'text-warn' };
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-export function ClaimList({ data, state, onClose, onTracklist }: {
-  data: ClaimsData; state: ClaimsState; onClose(): void; onTracklist(videoId: string): void;
+export function ClaimList({ data, state, onTracklist }: {
+  data: ClaimsData; state: ClaimsState; onTracklist(videoId: string): void;
 }) {
   const { send } = usePanel();
   const ask = useAsk();
@@ -40,7 +40,7 @@ export function ClaimList({ data, state, onClose, onTracklist }: {
   const title = L(`Claim ลิขสิทธิ์ — ${scan?.channelName || state.channelName}`, `Copyright claims — ${scan?.channelName || state.channelName}`);
   if (!scan) {
     return (
-      <SubView title={title} onClose={onClose}>
+      <SubView title={title}>
         <div className="text-xs text-warn">{L(`ยังไม่ได้สแกนช่อง ${state.channelName} — กด "สแกน claim" ก่อน`, `Channel ${state.channelName} not scanned yet — press "Scan claims" first`)}</div>
       </SubView>
     );
@@ -50,10 +50,7 @@ export function ClaimList({ data, state, onClose, onTracklist }: {
   const ownCount = rows.filter((r) => r.own).length;
   const seen = new Set<string>();
   const chip = (kind: Pick, label: string) => <Button key={kind} size="sm" className="h-auto min-h-8 py-1 whitespace-normal" onClick={() => write(selectWhere(kind, rows, data.trimResults))}>{label}</Button>;
-  const rescan = () => {
-    onClose();
-    void send('claims:scan', 'claims').catch(notConnected);
-  };
+  const rescan = () => void send('claims:scan', 'claims').catch(notConnected);
   // openTrimConfirm() (5672–5696): the tab starts the run from its stored scan (claims:trim, D27).
   const pickedRows = rows.filter((r) => picked.has(rowKey(r)) && !isDone(data.trimResults[rowKey(r)]));
   const trim = async () => {
@@ -72,7 +69,7 @@ export function ClaimList({ data, state, onClose, onTracklist }: {
           <div className="text-xs text-fg3">{L('คลิปหนึ่งตัดได้ทีละครั้ง ถ้าคลิปเดียวมีหลาย claim จะตัดอันแรกก่อน ที่เหลือจะตัดต่อให้เองเมื่อ YouTube ประมวลผลเสร็จ', 'Each video can only be trimmed once at a time. If a video has several claims, the first is trimmed now and the rest continue automatically once YouTube finishes processing')}</div>
           <div className="rounded-[12px] bg-tint/5 p-2.5">
             {data.cfg.autoSaveTrim ? L('⚡ อัตโนมัติทั้งหมด: Save → "I acknowledge" → Confirm changes ทุก claim', '⚡ Fully automatic: Save → "I acknowledge" → Confirm changes for every claim') : L('👀 โหมดตรวจเอง: คุณกด Save และยืนยันการตัดเองทีละอัน', '👀 Review mode: you click Save and confirm each trim yourself')}
-            <div className="text-xs text-fg3">{L('เปลี่ยนได้ที่ ⚙ ตั้งค่าลิขสิทธิ์ → "ตัดอัตโนมัติทั้งหมด"', 'Change this in ⚙ Copyright settings → "Fully automatic trim"')}</div>
+            <div className="text-xs text-fg3">{L('เปลี่ยนได้ที่ เครื่องมือ → ⚙ ตัวเลือก → "ตัดอัตโนมัติทั้งหมด"', 'Change this in Tools → ⚙ Options → "Fully automatic trim"')}</div>
           </div>
         </div>
       ),
@@ -81,7 +78,6 @@ export function ClaimList({ data, state, onClose, onTracklist }: {
       focus: 'cancel',
     });
     if (go !== true) return;
-    onClose();
     await send('claims:trim', pickedRows.map(rowKey)).catch(notConnected);
   };
   return (
@@ -91,7 +87,6 @@ export function ClaimList({ data, state, onClose, onTracklist }: {
         {L(`${rows.length} claim ใน ${videos} คลิป (จากทั้งหมด ${scan.total}) · สแกนเมื่อ ${new Date(scan.date).toLocaleString(locale())}`, `${rows.length} claims in ${videos} videos (of ${scan.total} total) · scanned ${new Date(scan.date).toLocaleString(locale())}`)}
         {ownCount ? L(` · ${ownCount} รายการดูเหมือนเป็นเพลงของคุณเอง (★) — ให้ค่ายเพลง/ดิสทริบิวเตอร์ allowlist ช่องแทนการตัด`, ` · ${ownCount} look like your own songs (★) — have your label/distributor allowlist the channel instead of trimming`) : null}
       </>}
-      onClose={onClose}
       footer={<>
         <span className="basis-full text-xs text-fg3">{L('ติ๊กเลือกแค่สร้างรายการ ยังไม่มีอะไรเปลี่ยนบน YouTube จนกว่าจะกดเริ่มตัด', 'Ticking only builds a list — nothing changes on YouTube until you start trimming')}</span>
         <Button size="sm" onClick={() => downloadCsv(claimsCsvRows(scan), `youtube-claims-${scan.date.slice(0, 10)}.csv`)}>⬇ CSV</Button>

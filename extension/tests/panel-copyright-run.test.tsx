@@ -22,7 +22,8 @@ const counts = { hasScan: true, scanDate: '', claims: 1, claimVideos: 1, songs: 
 const trimming = claimsStateWith({ busyRun: true, status: { icon: '✂️', kind: 'busy', title: 'Trimming claim 1 of 2', detail: '' } });
 const RELOAD = ['This tab is not connected to the extension yet — reload this tab', { id: 'not-connected' }] as const;
 const deaf = () => fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never });
-const ready = () => vi.waitFor(() => expect((screen.getByRole('button', { name: /Claim list/ }) as HTMLButtonElement).disabled).toBe(false));
+const tab = (name: RegExp | string) => screen.getByRole('tab', { name }) as HTMLButtonElement;
+const ready = () => vi.waitFor(() => expect(tab(/Songs/).disabled).toBe(false));
 beforeEach(() => {
   fakeBrowser.reset();
   vi.mocked(toast).mockClear();
@@ -32,11 +33,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Copyright tab, runs', () => {
+describe('Tools tab, runs', () => {
   const openTrim = async (stored: Record<string, unknown> = {}, state: Partial<ClaimsState> = {}, api = fakePanel()) => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'trimQueue:UC1': ['v1:c1'], ...stored });
     renderPanel(<CopyrightTab />, api, undefined, fakeClaims({ state: claimsStateWith({ counts, ...state }) }));
-    fireEvent.click(await screen.findByRole('button', { name: /Claim list \(1\)/ }));
+    await screen.findByRole('tab', { name: 'Claims (1)' });
     return api;
   };
 
@@ -51,7 +52,7 @@ describe('Copyright tab, runs', () => {
     expect(screen.queryByText(/Studio is not set to English/)).toBe(null);
     fireEvent.click(screen.getByRole('button', { name: 'Start trim' }));
     await vi.waitFor(() => expect(api.send).toHaveBeenCalledWith('claims:trim', ['v1:c1']));
-    expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy(); // the list closed, as the modal did
+    expect(screen.getByRole('heading', { name: /Copyright claims/ })).toBeTruthy(); // the list stays: the card above shows the run
   });
 
   // P5-ask-cancel: a trim cannot be undone, so the question opens on Cancel.
@@ -164,10 +165,10 @@ describe('Copyright tab, runs', () => {
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy(); // scans take no lock: this tab's Scan stays
   });
 
-  it('a run in the bound tab: Stop goes to it; Scan, Ads off and the lists hide', () => {
+  it('a run in the bound tab: Stop goes to it; Scan waits', () => {
     const api = fakePanel();
     renderPanel(<CopyrightTab />, api, undefined, fakeClaims({ state: trimming }));
-    for (const name of [/Scan claims/, /Ads off/, /Claim list/, /Claimed songs/, 'Collab']) expect(screen.queryByRole('button', { name })).toBe(null);
+    expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(api.send).toHaveBeenCalledWith('claims:stop', undefined);
   });
@@ -288,17 +289,18 @@ describe('Copyright tab, runs', () => {
   });
 });
 
-describe('Copyright tab, the home buttons of the Ads, Collab and settings views', () => {
-  // The views themselves are units H and J: here only that each button opens its view.
-  for (const [what, label, withList, key, title] of [
-    ['ads', 'Ads off', 'Ads off (3)', 'adsScan:UC1', /Videos with ads off — Mine/],
-    ['collab', 'Collab', 'Collab', 'collabScan:UC1', /Collab — Mine/],
+describe('Tools tab, the Ads, Collab and Options sub-tabs', () => {
+  // The views themselves are units H and J: here only that each sub-tab shows its scan or its view.
+  for (const [what, label, button, key, title] of [
+    ['ads', /Ads/, /Check for ads off/, 'adsScan:UC1', /Videos with ads off — Mine/],
+    ['collab', /Collab/, /Read video list/, 'collabScan:UC1', /Collab — Mine/],
   ] as const) {
-    it(`${label} with no list scans first; with a list it opens it, and Close gives the button its focus back`, async () => {
+    it(`${what}: with no list its sub-tab scans first; with a list it shows it`, async () => {
       const api = fakePanel();
       const r = renderPanel(<CopyrightTab />, api, undefined, fakeClaims());
       await ready();
-      fireEvent.click(screen.getByRole('button', { name: label }));
+      fireEvent.mouseDown(tab(label));
+      fireEvent.click(screen.getByRole('button', { name: button }));
       expect(api.send).toHaveBeenCalledWith('claims:scan', what);
       expect(screen.queryByRole('heading', { level: 3 })).toBe(null);
       r.unmount();
@@ -306,11 +308,10 @@ describe('Copyright tab, the home buttons of the Ads, Collab and settings views'
       const api2 = fakePanel();
       renderPanel(<CopyrightTab />, api2, undefined, fakeClaims({ state: claimsStateWith({ counts: { ...counts, hasAdsScan: true, adsTodo: 3 } }) }));
       await ready();
-      fireEvent.click(screen.getByRole('button', { name: withList }));
-      expect(screen.getByRole('heading', { name: title })).toBeTruthy();
+      if (what === 'ads') expect(tab('Ads (3)')).toBeTruthy();
+      fireEvent.mouseDown(tab(label));
+      expect(await screen.findByRole('heading', { name: title })).toBeTruthy();
       expect(api2.send).not.toHaveBeenCalled();
-      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-      expect(document.activeElement).toBe(screen.getByRole('button', { name: withList }));
     });
   }
 
@@ -318,33 +319,31 @@ describe('Copyright tab, the home buttons of the Ads, Collab and settings views'
     vi.spyOn(console, 'error').mockImplementation(() => {});
     renderPanel(<CopyrightTab />, deaf(), undefined, fakeClaims());
     await ready();
-    for (const name of ['Ads off', 'Collab']) {
+    for (const [label, name] of [[/Ads/, /Check for ads off/], [/Collab/, /Read video list/]] as const) {
       vi.mocked(toast).mockClear();
+      fireEvent.mouseDown(tab(label));
       fireEvent.click(screen.getByRole('button', { name }));
       await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(...RELOAD));
     }
   });
 
-  it('Copyright settings opens its view; Close goes back and gives the button its focus back (K review m3)', async () => {
+  it('Options shows the copyright settings; Scan stays with Claims', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
-    fireEvent.click(screen.getByRole('button', { name: 'Copyright settings' }));
+    fireEvent.mouseDown(tab(/Options/));
     expect(screen.getByRole('heading', { name: 'Copyright settings' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('heading', { level: 3 })).toBe(null);
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Copyright settings' }));
   });
 
-  it('with no Studio tab the three buttons are off', () => {
+  it('with no Studio tab the three sub-tabs are off', () => {
     renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined, fakeClaims({ state: null, live: null }));
-    for (const name of ['Ads off', 'Collab', 'Copyright settings']) expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+    for (const name of [/Ads/, /Collab/, /Options/]) expect(tab(name).disabled).toBe(true);
   });
 });
 
 // A trim, ads or Collab step loads a new page each time: the bound tab's state is null for a moment,
 // or says 'unknown' before ytcfg is there (4a T8 review R3, 4a re-review R1 and (a)).
-describe('Copyright tab, an open view through a page load of the bound tab', () => {
+describe('Tools tab, an open view through a page load of the bound tab', () => {
   const tabView = (state: ClaimsState | null, tabId: number | null = 1, link: LinkStatus = 'ok') => (
     <PanelContext.Provider value={fakePanel({ link, target: tabId === null ? null : { tabId, windowId: 1, url: 'https://studio.youtube.com/', title: 'Studio' } })}>
       <ClaimsContext.Provider value={fakeClaims({ state, live: state })}>
@@ -356,8 +355,15 @@ describe('Copyright tab, an open view through a page load of the bound tab', () 
   const openList = async () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': { ...scan, channel: 'UC2', channelName: 'Other' } });
     const r = render(tabView(on('UC1')));
-    fireEvent.click(await screen.findByRole('button', { name: /Claim list \(1\)/ }));
+    await screen.findByRole('tab', { name: 'Claims (1)' });
     expect(await screen.findByText(/Copyright claims — Mine/)).toBeTruthy();
+    return r;
+  };
+  const openSongs = async () => {
+    const r = await openList();
+    await ready();
+    fireEvent.mouseDown(tab(/Songs/));
+    expect(screen.getByRole('heading', { name: /Previously claimed songs/ })).toBeTruthy();
     return r;
   };
 
@@ -380,22 +386,23 @@ describe('Copyright tab, an open view through a page load of the bound tab', () 
     expect(screen.getByText('Mix 1')).toBe(list);
   });
 
-  it('a different real channel closes the view; so does another bound tab, and no bound tab', async () => {
-    const { rerender } = await openList();
+  it('a different real channel takes an open tool back to Claims; so does another bound tab, and no bound tab', async () => {
+    const { rerender } = await openSongs();
     rerender(tabView(on('UC2')));
-    expect(await screen.findByRole('button', { name: /Scan claims/ })).toBeTruthy(); // back home: another channel's
-    expect(screen.queryByText(/Copyright claims/)).toBe(null);
+    expect(await screen.findByText(/Copyright claims — Other/)).toBeTruthy(); // another channel's list
+    expect(screen.queryByText(/Previously claimed songs/)).toBe(null);
     cleanup();
-    const again = await openList();
+    const again = await openSongs();
     again.rerender(tabView(null, 2)); // the panel is bound to another tab, which hasn't answered
-    expect(screen.queryByText(/Copyright claims — Mine/)).toBe(null);
-    again.rerender(tabView(on('UC1'), 2)); // …and when it does, on the same channel, the list is not reopened
+    expect(screen.queryByText(/Previously claimed songs/)).toBe(null);
+    expect(tab(/Songs/).disabled).toBe(true);
+    again.rerender(tabView(on('UC1'), 2)); // …and when it does, on the same channel, the tool is not reopened
     await ready();
-    expect(screen.queryByText(/Copyright claims — Mine/)).toBe(null);
+    expect(tab(/Claims/).getAttribute('data-state')).toBe('active');
     cleanup();
-    const third = await openList();
+    const third = await openSongs();
     third.rerender(tabView(null, null));
-    expect(screen.queryByText(/Copyright claims — Mine/)).toBe(null);
+    expect(screen.queryByText(/Previously claimed songs/)).toBe(null);
     expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true); // nothing kept from the old tab
   });
 
@@ -405,11 +412,11 @@ describe('Copyright tab, an open view through a page load of the bound tab', () 
     await ready();
     rerender(tabView(null));
     expect(screen.getByText('Ready')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Claim list (1)' })).toBeTruthy();
+    expect(tab('Claims (1)')).toBeTruthy();
     expect(screen.getByRole('switch', { name: /Auto-pilot/ })).toBeTruthy();
     // the counts a page gives before it knows its channel are nobody's
     rerender(tabView(claimsStateWith({ channel: 'unknown', counts: { ...counts, claims: 7 } })));
-    expect(screen.getByRole('button', { name: 'Claim list (1)' })).toBeTruthy();
+    expect(tab('Claims (1)')).toBeTruthy();
   });
 
   // The link says 'noScript' for a moment in a slow page load, and for good after the extension was
@@ -420,7 +427,7 @@ describe('Copyright tab, an open view through a page load of the bound tab', () 
     const busy = claimsStateWith({ counts, busyScan: true, status: { icon: '🔍', kind: 'busy', title: 'Scanning 27%', detail: '' } });
     const { rerender } = render(tabView(busy));
     expect(screen.getByText('Scanning 27%')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Scan claims/ })).toBe(null);
+    expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
     rerender(tabView(null, 1, 'noScript'));
     expect(screen.queryByText('Scanning 27%')).toBe(null);
     expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
@@ -434,8 +441,8 @@ describe('Copyright tab, an open view through a page load of the bound tab', () 
   });
 });
 
-describe('the Copyright tab in the tab bar', () => {
-  const tab = () => screen.getByRole('tab', { name: /Copyright/ });
+describe('the Tools tab in the tab bar', () => {
+  const tab = () => screen.getByRole('tab', { name: /Tools/ });
   const dot = () => !!tab().querySelector('[data-run]');
   it('shows ● while a copyright run is active, here or in the tab holding the lock (tabCount.claims, 6255)', () => {
     const r = renderPanel(<App />, fakePanel(), undefined, fakeClaims());

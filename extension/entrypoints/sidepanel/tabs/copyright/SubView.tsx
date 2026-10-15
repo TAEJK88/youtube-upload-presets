@@ -2,21 +2,21 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
 
-// One of the pane's modals (openModal 4851) as a view of the Copyright tab (D23): its title, its
-// content, its footer row, and Close back to the tab.
-export function SubView({ title, sub, children, footer, onClose }: { title: string; sub?: ReactNode; children: ReactNode; footer?: ReactNode; onClose(): void }) {
+// One of the pane's modals (openModal 4851) as a tool of the Tools tab (D23): its title, its
+// content, its footer row, and Back when it sits on top of another view (the tracklist editor).
+export function SubView({ title, sub, children, footer, onClose }: { title: string; sub?: ReactNode; children: ReactNode; footer?: ReactNode; onClose?(): void }) {
   const box = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLHeadingElement>(null);
-  // The button that opened the view is gone: focus goes to the title, as a dialog's would (a
-  // screen reader says where it is), unless the view put it somewhere itself (the songs' search).
+  // A view opened over another one: the button that opened it is gone, so focus goes to the title,
+  // as a dialog's would. A view opened by its sub-tab leaves focus on the tab (arrow keys keep working).
   useEffect(() => {
-    if (!box.current?.contains(document.activeElement)) head.current?.focus({ preventScroll: true });
+    if (onClose && !box.current?.contains(document.activeElement)) head.current?.focus({ preventScroll: true });
   }, []);
   return (
     <div ref={box} className="flex flex-col gap-3">
       <div className="flex items-start gap-2">
         <h3 ref={head} tabIndex={-1} className="min-w-0 flex-1 text-[15px] font-semibold break-words outline-none">{title}</h3>
-        <Button size="sm" onClick={onClose}>{L('ปิด', 'Close')}</Button>
+        {onClose && <Button size="sm" onClick={onClose}>{L('← กลับ', '← Back')}</Button>}
       </div>
       {sub && <div className="text-xs break-words text-fg3">{sub}</div>}
       {children}

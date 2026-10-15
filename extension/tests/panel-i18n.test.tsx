@@ -170,8 +170,8 @@ describe('the panel in Thai', () => {
     // the Copyright tab: the Studio-language warning, the card, the counts, the open log
     expect(root.textContent).toContain('Studio ตั้งเป็นภาษาไทยอยู่');
     expect(screen.getByText('พร้อม')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'รายการ claim (2)', hidden: true })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'เพลงที่เคยโดน (3)', hidden: true })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'ลิขสิทธิ์ (2)', hidden: true })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'เพลง (3)', hidden: true })).toBeTruthy();
     expect(await screen.findByText(/สแกนเสร็จ ✓ ช่องฉัน/)).toBeTruthy();
     expect(root.textContent).toContain('2 เพลงเคยโดน claim'); // the queue card's chip, its tooltip one line per song
     expect(root.querySelector('[title^="เพลงใน tracklist ที่เคยโดน claim:"]')!.getAttribute('title')!.split('\n')).toHaveLength(3);
@@ -252,7 +252,7 @@ describe('the panel in Thai', () => {
       thClaims({ icon: '✂', kind: 'busy', title: 'กำลังตัด 1 / 2', detail: 'ชื่อ 1', progress: 0.5, steps: ['เปิดคลิป', 'ตัด', 'บันทึก'], stepIdx: 1, stepDetail: 'รอหน้าตัดต่อ' } as never, { busyRun: true }),
     );
     expect(root.textContent).toContain('● ตัด');
-    expect(screen.queryByRole('button', { name: /สแกน claim/, hidden: true })).toBe(null);
+    expect((screen.getByRole('button', { name: /สแกน claim/, hidden: true }) as HTMLButtonElement).disabled).toBe(true);
     expect(root.textContent).toContain('แท็บ Studio อื่นกำลังอัปโหลดคิวอยู่'); // the runner-elsewhere banner
     clean(document.body);
   });
@@ -281,9 +281,9 @@ describe('the panel in Thai', () => {
     const root = await renderThai(fakePanel({ data: thData(), view: thView() }));
     const tap = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name, hidden: true }).at(-1)!));
     const pane = () => root.querySelector('[role=tabpanel][id$=claims]')!;
-    await vi.waitFor(() => expect((screen.getByRole('button', { name: 'รายการ claim (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
-
-    await tap('รายการ claim (2)');
+    const tool = (name: string | RegExp) => act(async () => fireEvent.mouseDown(screen.getByRole('tab', { name, hidden: true })));
+    await vi.waitFor(() => expect((screen.getByRole('tab', { name: 'ลิขสิทธิ์ (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => {}); // the list's own storage reads
     expect(pane().textContent).toContain('8 claim ใน 7 คลิป (จากทั้งหมด 9)');
     expect(pane().textContent).toContain('1 รายการดูเหมือนเป็นเพลงของคุณเอง');
     for (const t of ['⏳ รอ', '✅ ตัดแล้ว', '✅ claim หายไปแล้ว', '❌ ไม่สำเร็จ', '⏭ ข้าม', '⏳ รอคิว', 'ไม่มีผลกระทบ', 'ไม่มีตัวเลือก Trim', '★ เพลงของคุณเอง', '⏰ ตั้งเวลาปล่อย', '(67% ของคลิป)']) {
@@ -294,9 +294,8 @@ describe('the panel in Thai', () => {
     await tap('📝 tracklist หลังตัด'); // the last video's: no upload history
     expect(pane().textContent).toContain('ติ๊กช่วงที่ถูกตัด');
     clean(document.body);
-    await tap('ปิด');
+    await tap('← กลับ');
 
-    await tap('แก้ tracklist');
     expect(pane().textContent).toContain('ต้องวาง tracklist เอง');
     await vi.waitFor(() => expect(pane().textContent).toContain('มี tracklist จากประวัติการอัป'));
     clean(document.body);
@@ -306,9 +305,9 @@ describe('the panel in Thai', () => {
     expect(pane().textContent).toContain('ดึง tracklist จากประวัติการอัปโหลด');
     expect(pane().textContent).toContain('ตัด 1 ช่วง · ลบ 1 เพลง: ค - ง · เหลือ 2 เพลง');
     clean(document.body);
-    await tap('ปิด');
+    await tap('← กลับ');
 
-    await tap('เพลงที่เคยโดน (3)');
+    await tool('เพลง (3)');
     expect(pane().textContent).toContain('2 เพลง');
     expect(pane().textContent).toContain('✂ ตัดแล้ว 1');
     await tap('ลบออกจากประวัติ'); // armed: "Sure?"
@@ -344,9 +343,9 @@ describe('the panel in Thai', () => {
     const root = await renderThai(fakePanel({ data: thData(), view: thView() }), undefined, thClaims(undefined, { uploadBusy: true }));
     const tap = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name, hidden: true }).at(-1)!));
     const pane = () => root.querySelector('[role=tabpanel][id$=claims]')!;
-    await vi.waitFor(() => expect((screen.getByRole('button', { name: 'รายการ claim (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
-
-    await tap('รายการ claim (2)');
+    const tool = (name: string | RegExp) => act(async () => fireEvent.mouseDown(screen.getByRole('tab', { name, hidden: true })));
+    await vi.waitFor(() => expect((screen.getByRole('tab', { name: 'ลิขสิทธิ์ (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => {}); // the list's own storage reads
     await tap('✂ ตัดที่เลือก (2)');
     expect(dialog().textContent).toContain('ตัด 2 claim ใน 2 คลิป?');
     expect(dialog().textContent).toContain('⚡ อัตโนมัติทั้งหมด');
@@ -360,7 +359,6 @@ describe('the panel in Thai', () => {
     await vi.waitFor(() => expect(dialog().textContent).not.toContain('⚡ อัตโนมัติทั้งหมด'));
     clean(document.body);
     await cancel();
-    await tap('ปิด');
 
     await act(async () => fireEvent.click(screen.getByRole('switch', { name: 'Auto-pilot', hidden: true })));
     expect(dialog().textContent).toContain('เปิด Auto-pilot ให้ช่อง ช่องฉัน?');
@@ -368,29 +366,25 @@ describe('the panel in Thai', () => {
     clean(document.body);
     await cancel();
 
-    await tap(/โฆษณาปิดอยู่/);
+    await tool(/โฆษณา/);
     expect(pane().textContent).toContain('💰 คลิปที่ปิดโฆษณา — ช่องฉัน');
     for (const t of ['4 จาก 9 คลิป', '⚠ YouTube แจ้งว่าไม่มีสิทธิ์', 'ปิดโฆษณาไว้ (ตั้งค่า)', '✅ เปิดแล้ว', '❌ บันทึกไม่ได้', '💰 เปิดโฆษณา (']) expect(pane().textContent).toContain(t);
     clean(document.body);
-    await tap('ปิด');
     await act(async () => { await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date, total: 9, rows: [] } }); });
-    await tap(/โฆษณาปิดอยู่/);
+    await tool(/โฆษณา/);
     await vi.waitFor(() => expect(pane().textContent).toContain('🎉 ทุกคลิปเปิดโฆษณาแล้ว'));
     clean(document.body);
-    await tap('ปิด');
 
-    await tap('Collab');
+    await tool('Collab');
     expect(pane().textContent).toContain('🤝 Collab — ช่องฉัน');
     for (const t of ['ช่องที่จะเชิญ', 'ลิงก์คำเชิญ (ส่งให้อีกฝ่าย)', '@เพื่อน: https://', '✅ เชิญแล้ว', '❌ หาช่องไม่เจอ', '🤝 เชิญ (0 คลิป)']) expect(pane().textContent).toContain(t);
     clean(document.body);
-    await tap('ปิด');
     await act(async () => { await fakeBrowser.storage.local.set({ 'collabScan:UC1': { date, total: 0, rows: [] } }); });
-    await tap('Collab');
+    await tool('Collab');
     await vi.waitFor(() => expect(pane().textContent).toContain('ช่องนี้ยังไม่มีคลิป'));
     clean(document.body);
-    await tap('ปิด');
 
-    await tap('ตั้งค่าลิขสิทธิ์');
+    await tool('ตัวเลือก');
     expect(pane().querySelectorAll('input').length).toBe(10);
     expect(pane().textContent).toContain('ตั้งค่าลิขสิทธิ์');
     clean(document.body);

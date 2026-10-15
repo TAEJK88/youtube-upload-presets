@@ -31,15 +31,15 @@ function useUploads(): Upload[] | null {
 }
 
 export function TracklistFix({ data, videoId, onPick, onClose }: { data: ClaimsData; videoId: string; onPick(videoId: string): void; onClose(): void }) {
-  if (!videoId) return <Picker data={data} onPick={onPick} onClose={onClose} />;
+  if (!videoId) return <Picker data={data} onPick={onPick} />;
   return <Editor key={videoId} data={data} videoId={videoId} onClose={onClose} />;
 }
 
-function Picker({ data, onPick, onClose }: { data: ClaimsData; onPick(id: string): void; onClose(): void }) {
+function Picker({ data, onPick }: { data: ClaimsData; onPick(id: string): void }) {
   const vids = claimedVideos(data.scan);
   const have = new Set((useUploads() ?? []).map((u) => u.videoId));
   return (
-    <SubView title={L('📝 เลือกคลิปที่จะแก้ tracklist', '📝 Choose a video to fix its tracklist')} onClose={onClose}>
+    <SubView title={L('📝 เลือกคลิปที่จะแก้ tracklist', '📝 Choose a video to fix its tracklist')}>
       {vids.length ? (
         <div className="flex flex-col gap-1.5">
           {vids.map((r) => (
