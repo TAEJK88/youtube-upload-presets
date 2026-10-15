@@ -6,9 +6,12 @@
 // With a single request YouTube skips the list and opens the modal directly.
 import { makeDocument } from './fake-dom.mjs';
 
-export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false } = {}) {
+export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false, loadTicks = 0, dropQuery = false } = {}) {
   const doc = makeDocument();
-  const truth = { opened: [], accepted: [], declined: [] };
+  const truth = { opened: [], accepted: [], declined: [], tooEarly: 0 };
+  // loadTicks: the card and the list show up before what is in them has loaded (seen
+  // live, 2026-10-15): a click in that time does nothing but make YouTube show an error
+  let loading = 0;
   const el = (tag, attrs = {}, text) => {
     const e = doc.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
@@ -39,7 +42,8 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   const viewBtn = ytBtn('view-channel-button', 'View channel');
   const denyBtn = ytBtn('deny-button', 'Decline');
   const acceptBtn = ytBtn('confirm-button', 'Accept');
-  modal.append(viewBtn, denyBtn, acceptBtn);
+  const details = el('div', { id: 'details' }, ''); // the video and channel, filled in once loaded
+  modal.append(details, viewBtn, denyBtn, acceptBtn);
   modalHost.append(modal);
   modalHost.hidden = true;
   doc.body.append(modalHost);
@@ -54,7 +58,7 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   let current = null;
   const remaining = [...titles];
 
-  const openModal = (title) => { current = title; truth.opened.push(title); modalHost.hidden = false; };
+  const openModal = (title) => { current = title; truth.opened.push(title); modalHost.hidden = false; loading = loadTicks; details.textContent = loading ? '' : title; };
   const closeModal = () => { current = null; modalHost.hidden = true; };
 
   const renderList = () => {
@@ -73,14 +77,22 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   let held = 0;
   acceptBtn.onclick = () => {
     if (!current) return;
+    if (loading > 0) { truth.tooEarly++; return; }
     truth.accepted.push(current);
     const i = remaining.indexOf(current);
     if (i >= 0) remaining.splice(i, 1);
     closeModal();
+    // seen live 2026-10-15: once the card closes, YouTube's URL loses d=acd and inviterChannelId
+    if (dropQuery) win.location.search = '';
     if (gapTicks) { held = gapTicks; listHost.hidden = true; } else renderList();
   };
   // called by the test clock each poll, so the stall is measured in polls
-  truth.pump = () => { if (held > 0 && --held === 0) renderList(); };
+  let listLoading = 0;
+  truth.pump = () => {
+    if (loading > 0 && --loading === 0) details.textContent = current || '';
+    if (held > 0 && --held === 0) renderList();
+    if (listLoading > 0 && --listLoading === 0) renderList();
+  };
   denyBtn.onclick = () => {
     if (!current) return;
     truth.declined.push(current);
@@ -90,7 +102,16 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
     renderList();
   };
 
-  if (skipList) openModal(remaining[0]); else renderList();
+  if (skipList) openModal(remaining[0]);
+  else if (loadTicks) {
+    // the list's frame first, its rows later; it has a close button like the errored one
+    listPaper.append(el('h1', {}, 'Collaboration requests'));
+    const x = el('ytcp-icon-button', { id: 'close-button' });
+    x.onclick = () => { listHost.hidden = true; truth.closedDeadList = true; };
+    listPaper.append(x);
+    listHost.hidden = false;
+    listLoading = loadTicks;
+  } else renderList();
   // the live failure: an errored, row-less request list left floating over the card
   if (deadList) {
     listPaper.children = [];

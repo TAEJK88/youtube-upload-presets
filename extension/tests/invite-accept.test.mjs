@@ -156,11 +156,27 @@ test('a visit that accepts nothing does not reopen the link', () => {
   assert.deepEqual(r.nav, []);
 });
 
-test('a URL without inviterChannelId cannot be rebuilt, so it stops', () => {
+// Changed from the userscript (P5-invite-settle): the inviter seen when the watcher starts is
+// kept, from the query or from the /collaboration/<inviter> link itself.
+test('the un-redirected /collaboration/ link is reopened from its own path', () => {
   const r = run({ titles: ['Video A'], skipList: true,
     url: 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA' });
   assert.deepEqual(r.truth.accepted, ['Video A']);
-  assert.deepEqual(r.nav, [], 'no inviterChannelId to rebuild from');
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA']);
+});
+
+test('THE BUG: the link is reopened although YouTube dropped inviterChannelId when the card closed', () => {
+  // seen live 2026-10-15: after each accept the URL was plain /videos/upload?filter=…, so the
+  // next request waited until the link was opened by hand
+  const r = run({ titles: ['Video A'], skipList: true, dropQuery: true });
+  assert.deepEqual(r.truth.accepted, ['Video A']);
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA']);
+});
+
+test('a page whose inviter is unknown is not reopened', () => {
+  const r = run({ titles: ['Video A'], skipList: true, url: 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/videos/upload?d=acd' });
+  assert.deepEqual(r.truth.accepted, ['Video A']);
+  assert.deepEqual(r.nav, [], 'no inviter to rebuild the link from');
 });
 
 /* ---------- the errored request list that covers the invite ----------
@@ -176,5 +192,28 @@ test('an empty errored request list is dismissed, then the invite is accepted', 
 test('a request list with rows is never dismissed', () => {
   const r = run({ titles: ['Video A', 'Video B'] });
   assert.notEqual(r.truth.closedDeadList, true);
+  assert.deepEqual(r.truth.accepted, ['Video A', 'Video B']);
+});
+
+/* ---------- giving the page time to load (P5-invite-settle) ----------
+   Reported 2026-10-15: on accepting, "there is no time for the data to show up, so it
+   errors". The card and the request list appear before what is in them has loaded; the
+   userscript clicked on the first poll that saw them. */
+
+test('Accept waits until the card has loaded instead of clicking the moment it shows', () => {
+  const r = run({ titles: ['Only Video'], skipList: true, loadTicks: 4 });
+  assert.equal(r.truth.tooEarly, 0, 'no click on a card that is still loading');
+  assert.deepEqual(r.truth.accepted, ['Only Video']);
+});
+
+test('every request in the list is accepted when each card loads slowly', () => {
+  const r = run({ titles: ['Video A', 'Video B', 'Video C'], loadTicks: 4 }, 80);
+  assert.equal(r.truth.tooEarly, 0);
+  assert.deepEqual(r.truth.accepted, ['Video A', 'Video B', 'Video C']);
+});
+
+test('a request list still loading its rows is not closed as empty', () => {
+  const r = run({ titles: ['Video A', 'Video B'], loadTicks: 5 }, 60);
+  assert.notEqual(r.truth.closedDeadList, true, 'a list without rows yet may only be loading');
   assert.deepEqual(r.truth.accepted, ['Video A', 'Video B']);
 });
