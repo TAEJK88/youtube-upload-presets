@@ -37,6 +37,7 @@ export const SEL = {
   // a row's tick box (ticked: a `checked` attribute, and aria-checked "true" on its inner
   // [role=checkbox]; the box itself has no aria-checked) and its title.
   bulkActions: 'ytcp-bulk-actions',
+  bulkToolbar: '.toolbar', // inside bulkActions: the row with "Add to playlist" and "More actions"
   rowCheckbox: 'ytcp-checkbox-lit',
   rowTitle: '#video-title',
   // The X of the upload dialog itself, for a second try at closing it: closeDialogBtn above takes
