@@ -3,6 +3,21 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## Unreleased
+
+- **Collab to your own channel finishes by itself.** After 🤝 Collab, the extension switched to
+  the invited channel with the invite link as the destination; YouTube then showed no request
+  and nothing happened. It now goes to that channel's Studio page first and opens the invite
+  link from there, which brings up the requests.
+- **Accepting keeps going in a background tab.** Chrome slows a hidden tab's timers to about
+  once a minute, so each step took minutes until the tab was brought to the front. The
+  extension now keeps the one-second pace while the tab is hidden.
+- **The Collab list shows what still waits.** Each invited video shows "⏳ Waiting for @… to
+  accept" or "🤝 @… accepted", and each invite link shows how many videos still wait, with an
+  "Accept now" button for your own channels. YouTube gives one link per channel, not per
+  video; a video counts as accepted once the extension saw it accepted, or when opening the
+  link found no request left.
+
 ## 5.0.3 — 2026-10-15
 
 A fix for accepting collaboration invites. To update, follow README, "Update"; the extension ID

@@ -219,4 +219,10 @@ export default [
   { th: '${} คลิปมีรหัสฉบับร่างซ้ำกับการ์ดอื่น', en: '${} whose draft id is on more than one card', why: 'P5-draft-retry: in that toast, the cards an earlier build gave another video\'s draft id; said once with their number' },
   { th: ' · ไฟล์นี้ยังไม่ได้อัปโหลด กด "ลองใหม่" เพื่ออัปโหลด', en: ' · This file was not uploaded. Retry uploads it', why: 'P5-draft-retry: the end of a stored "An upload dialog is still open" error that an earlier build had given another video\'s draft id; when the queue is loaded the id is dropped and this replaces "The file is already uploaded as a draft (…). Delete it in Content…"' },
   { th: 'ไม่พบ @handle ของช่อง "${}" จึงไม่สลับให้ (เลือกจากชื่ออาจสลับผิดช่อง) ใช้ปุ่ม Switch account ของ YouTube แทน', en: 'Couldn\'t find the @handle of "${}", so not switching (picking by name could open the wrong channel). Use YouTube\'s own Switch account instead', why: 'P5-switch-by-handle: Switch on a channel whose @handle is neither stored nor on its public page; the userscript picked the row by name instead' },
+  // P5-invite-two-step: the Collab list shows which invited channels still have to accept
+  { th: '⏳ รอ ${} กดยอมรับ ${} คลิป', en: '⏳ ${} video(s) waiting for ${} to accept', why: 'Collab list: videos an invited channel has not accepted yet (P5-invite-two-step)' },
+  { th: 'ไปกดยอมรับ', en: 'Accept now', why: 'Collab list: switch to the invited channel and accept (P5-invite-two-step)' },
+  { th: '🤝 ${} ยอมรับแล้ว', en: '🤝 ${} accepted', why: 'Collab list: the invite watcher saw this video accepted (P5-invite-two-step)' },
+  { th: '⏳ รอ ${} กดยอมรับ', en: '⏳ Waiting for ${} to accept', why: 'Collab list: not seen accepted yet (P5-invite-two-step)' },
+  { th: '${} ไม่อยู่ในรายการช่องของคุณ — คัดลอกลิงก์คำเชิญส่งให้เจ้าของช่องแทน', en: '${} is not one of your channels — copy the invite link and send it to its owner', why: 'Accept now for a channel the extension cannot switch to (P5-invite-two-step)' },
 ];

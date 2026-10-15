@@ -81,6 +81,7 @@ export type ProtocolMap = {
   'claims:trim'(keys: string[]): void; // openTrimConfirm(): the panel asked, the page starts; keys are videoId:claimId
   'claims:ads'(videoIds: string[]): void;
   'claims:collab'(d: { videoIds: string[]; handles: string[] }): void;
+  'claims:acceptInvites'(handle: string): void; // the Collab list's "Accept now" for one invited channel
   'claims:stop'(): void;
   // content → side panel (broadcast; nobody listens while the panel is closed)
   'queue:state'(s: QueueState): void;

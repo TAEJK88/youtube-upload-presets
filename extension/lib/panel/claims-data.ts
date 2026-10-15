@@ -3,6 +3,7 @@ import { DEFAULTS } from '../claims/core';
 import { channelKeys, chKey } from '../claims/keys';
 import type { ClaimsOp } from '../claims/ops';
 import type { AdsScan, Autopilot, ClaimScan, ClaimsCfg, CollabScan, FollowUp, ResultEntry, Run, Songs } from '../claims/types';
+import { INVITE_ACCEPTED_KEY, type InviteAccepted } from '../invite-keys';
 import { sendMessage } from '../messages';
 
 // What the Copyright tab shows from chrome.storage.local for the bound tab's channel (the
@@ -17,6 +18,7 @@ export interface ClaimsData {
   collabScan: CollabScan | null;
   collabResults: Record<string, ResultEntry>;
   collabLinks: Record<string, string>;
+  inviteAccepted: InviteAccepted; // what invited channels accepted, written by the invite watcher (P5-invite-two-step)
   trimQueue: string[];
   trimResults: Record<string, ResultEntry>;
   trimRun: Run | null;
@@ -43,6 +45,7 @@ export function toClaimsData(ch: string, raw: Record<string, unknown>): ClaimsDa
     collabScan: obj<CollabScan | null>(k('collabScan'), null),
     collabResults: obj(k('collabResults'), {}),
     collabLinks: obj(k('collabLinks'), {}),
+    inviteAccepted: obj(raw[INVITE_ACCEPTED_KEY], {}),
     trimQueue: Array.isArray(k('trimQueue')) ? (k('trimQueue') as unknown[]).filter((x): x is string => typeof x === 'string') : [],
     trimResults: obj(k('trimResults'), {}),
     trimRun: obj<Run | null>(k('trimRun'), null),
@@ -59,7 +62,8 @@ export function toClaimsData(ch: string, raw: Record<string, unknown>): ClaimsDa
 // Follows one channel's keys: one full read, then each change is applied from its event
 // (re-reading 17 keys, the song history among them, per run-item write would cost seconds at size).
 export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void {
-  const keys = new Set(channelKeys(ch));
+  const names = [...channelKeys(ch), INVITE_ACCEPTED_KEY];
+  const keys = new Set(names);
   let raw: Record<string, unknown> | null = null;
   let early: Record<string, { newValue?: unknown }>[] = [];
   let failed = false; // the read was refused: the next change tries again
@@ -82,7 +86,7 @@ export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void
   };
   const read = () => {
     failed = false;
-    void browser.storage.local.get(channelKeys(ch)).then((got) => {
+    void browser.storage.local.get(names).then((got) => {
       raw = got;
       early.forEach(apply);
       early = [];

@@ -1289,6 +1289,18 @@ export function collabFromPanel(d: unknown): void {
   if (!rows.length) return notInScan();
   startCollabRun(rows, v.handles);
 }
+// claims:acceptInvites — the Collab list's "Accept now" for one invited channel (P5-invite-two-step):
+// chainAcceptInvites() for that @handle, also when the run that invited it ended long ago.
+export function acceptInvitesFromPanel(handle: unknown): void {
+  if (typeof handle !== 'string' || !isHandle(handle)) return;
+  const low = handle.toLowerCase();
+  const link = Object.entries(collabLinks()).find(([h]) => h.toLowerCase() === low)?.[1];
+  const chan = loadState<{ id: string; name: string; handle?: string }[]>('channels', []).find((c) => c.handle?.toLowerCase() === low);
+  if (!link || !chan) return log(L(`${handle} ไม่อยู่ในรายการช่องของคุณ — คัดลอกลิงก์คำเชิญส่งให้เจ้าของช่องแทน`, `${handle} is not one of your channels — copy the invite link and send it to its owner`), 'warn');
+  if (uploadBusy()) return log(L('คิวอัปโหลดยังวิ่งอยู่ — ยังไม่สลับช่องไปกดยอมรับคำเชิญ', 'Upload queue is running — not switching channels to accept the invite yet'), 'warn');
+  log(L(`สลับไปช่อง ${handle} เพื่อกดยอมรับคำเชิญ…`, `Switching to ${handle} to accept the invite…`), 'ok');
+  switchToChannel({ handle, name: chan.name }, link);
+}
 // claims:stop — UI.stopBtn (6193).
 export function stopAll(): void {
   stopTrimRun(L('คุณกดหยุด', 'You stopped it'), true);

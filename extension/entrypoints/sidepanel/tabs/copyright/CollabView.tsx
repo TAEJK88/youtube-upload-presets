@@ -8,6 +8,7 @@ import { parseHandles } from '@/lib/collab';
 import { L, locale } from '@/lib/i18n';
 import { claimsWrite, type ClaimsData } from '@/lib/panel/claims-data';
 import { collabShown, collabWhere, type CollabPick } from '@/lib/panel/claims-runs';
+import { inviteWaits, waitingByHandle } from '@/lib/panel/collab-pending';
 import { TextField } from '../../fields';
 import { usePanel } from '../../panel';
 import { notConnected, saveFailed } from '../../save-failed';
@@ -80,6 +81,11 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
     }
   };
   const links = Object.entries(data.collabLinks);
+  const waiting = waitingByHandle(data.ch, data.collabResults, data.collabLinks, data.inviteAccepted);
+  const accept = (hd: string) => {
+    onClose();
+    void send('claims:acceptInvites', hd).catch(notConnected);
+  };
   const invite = L('ช่องที่จะเชิญ', 'Channels to invite');
   const search = L('ค้นหาชื่อคลิป…', 'Search video titles…');
   return (
@@ -101,9 +107,15 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
         <div className="rounded-[12px] bg-tint/5 p-2.5 text-[13px]">
           <b className="font-medium">{L('ลิงก์คำเชิญ (ส่งให้อีกฝ่าย)', 'Invite links (send to the other channel)')}</b>
           {links.map(([hd, link]) => (
-            <div key={hd} className="mt-1 flex items-center gap-1.5">
+            <div key={hd} className="mt-1 flex flex-wrap items-center gap-1.5">
               <span className="min-w-0 flex-1 truncate">{`${hd}: ${link}`}</span>
               <Button size="sm" onClick={() => void copy(hd, link)}>{L('คัดลอก', 'Copy')}</Button>
+              {waiting[hd] ? (
+                <div className="flex w-full items-center gap-1.5 text-xs">
+                  <span className="flex-1 text-fg3">{L(`⏳ รอ ${hd} กดยอมรับ ${waiting[hd]} คลิป`, `⏳ ${waiting[hd]} video(s) waiting for ${hd} to accept`)}</span>
+                  <Button size="sm" onClick={() => accept(hd)}>{L('ไปกดยอมรับ', 'Accept now')}</Button>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -129,6 +141,11 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
                   <a id={`${id}${r.videoId}`} className="font-medium underline-offset-2 hover:underline" href={url} onClick={(e) => { e.preventDefault(); openTab(url); }}>{r.video}</a>
                   <div className="text-xs text-fg3">{`${r.privacy} · ${fmt(r.length)}`}</div>
                   {res && <div className={res.state === 'done' ? 'text-xs text-ok' : 'text-xs text-err'}>{(res.state === 'done' ? '✅ ' : '❌ ') + res.msg}</div>}
+                  {inviteWaits(data.ch, r.videoId, res, data.collabLinks, data.inviteAccepted).map((w) => (
+                    <div key={w.handle} className={w.accepted ? 'text-xs text-ok' : 'text-xs text-fg3'}>
+                      {w.accepted ? L(`🤝 ${w.handle} ยอมรับแล้ว`, `🤝 ${w.handle} accepted`) : L(`⏳ รอ ${w.handle} กดยอมรับ`, `⏳ Waiting for ${w.handle} to accept`)}
+                    </div>
+                  ))}
                 </div>
               </div>
             );

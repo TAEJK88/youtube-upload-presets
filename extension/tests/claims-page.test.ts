@@ -206,12 +206,14 @@ describe('the Studio content script', () => {
       "onMessage('claims:trim', ({ data }) => unlessUserscript(() => trimFromPanel(data)));",
       "onMessage('claims:ads', ({ data }) => unlessUserscript(() => adsFromPanel(data)));",
       "onMessage('claims:collab', ({ data }) => unlessUserscript(() => collabFromPanel(data)));",
+      "onMessage('claims:acceptInvites', ({ data }) => unlessUserscript(() => acceptInvitesFromPanel(data)));",
       "onMessage('claims:stop', () => stopAll());",
       "onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));",
     ]) expect(at(h)).toBeGreaterThan(init);
     expect(studio).toContain('setCfgRefresh(() => refreshCfg(readCfg));');
     expect(studio).toContain('stop.add(() => setCfgRefresh(async () => {}));');
-    expect(studio).toContain('setChannelSwitcher((t, next) => sw.switchToChannel(t, next));');
+    // an invite link as the destination goes through the channel's page first (P5-invite-two-step)
+    expect(studio).toContain('setChannelSwitcher((t, next) => invite.switchThenOpen(sw, t, next));');
     expect(studio).toContain('stop.add(installConfirmWatch());');
     // the wait for the background is over: the extension may have gone meanwhile
     expect(studio).toMatch(/await initClaimsLock\(\);\s*if \(ctx\.isInvalid\) return;/);

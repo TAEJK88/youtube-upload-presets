@@ -10,6 +10,7 @@ import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
 import { acquireRunner, claimWorker, isJob, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld, runnerHolds, studioTab } from '@/lib/runner-lock';
 import { deleteFiles, sweepHandles } from '@/lib/file-gc';
+import { registerTicks } from '@/lib/steady-tick';
 import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 import { checkForUpdate, registerUpdateCheck } from '@/lib/update-check';
 
@@ -17,6 +18,8 @@ export default defineBackground(() => {
   // Language first: default preset labels written by migrations depend on it. Idempotent per schemaVersion.
   const ready = initI18n().then(runMigrations).then(ensureLang).catch((e) => console.error('[ytup] startup', e));
   watchLang();
+  // A hidden Studio tab's invite watcher keeps its one-second pace on these ticks (lib/steady-tick.ts).
+  registerTicks();
 
   // Toolbar icon opens the panel; the panel is off everywhere except Studio tabs.
   browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
