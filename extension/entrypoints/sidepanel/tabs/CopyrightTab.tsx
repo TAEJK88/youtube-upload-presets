@@ -164,9 +164,10 @@ export function CopyrightTab() {
         {s && <StatusCard s={s.status} />}
         {stoppable && <Button variant="danger" className="mt-2.5 w-full" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
       </Section>
-      <Tabs className="mt-[22px]" value={current} onValueChange={(v) => setTool(v as ToolTab)}>
-        {/* Six tools in a 320px panel: two rows of three. */}
-        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-3">
+      <Tabs className="@container mt-[22px]" value={current} onValueChange={(v) => setTool(v as ToolTab)}>
+        {/* Six tools: three rows of two in a narrow panel, two rows of three from 448px of bar.
+            The longest label, "รายการ claim (999)", needs ~143px a tab; at 320px a third of the bar is ~89. */}
+        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-2 @min-[448px]:grid-cols-3">
           {tools.map(([k, label, icon]) => (
             <TabsTrigger key={k} value={k} disabled={k !== 'claims' && !ready} className="min-w-0 px-1 text-[12.5px] disabled:cursor-default disabled:opacity-50">
               <Icon name={icon} size={14} /><span className="truncate">{label}</span>
