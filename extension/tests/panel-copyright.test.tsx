@@ -1123,6 +1123,21 @@ describe('Tools tab review fixes', () => {
     expect(screen.getByRole('tabpanel').contains(screen.getByRole('button', { name: /Scan claims/ }))).toBe(true);
     expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
   });
+  // At Chrome's narrowest panel (320px) three tabs a row cut "Claim list (3)" to "Claim lis…" and
+  // the Thai labels lost their counts (measured in Chrome). The bar's box is a size container: two
+  // tabs a row, three from 448px of it. happy-dom has no layout or container queries, so this pins
+  // the classes; the widths are in the comment by the bar.
+  it('the sub-tab bar is two tabs a row when narrow, three from 448px of bar', async () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    const bar = screen.getByRole('tablist', { name: 'Tools' });
+    expect(bar.parentElement!.classList.contains('@container')).toBe(true);
+    expect(bar.classList.contains('grid-cols-2')).toBe(true);
+    expect(bar.classList.contains('@min-[448px]:grid-cols-3')).toBe(true);
+    expect([...bar.classList].filter((c) => /^grid-cols-/.test(c))).toEqual(['grid-cols-2']); // no unconditional 3 or 4
+    expect(within(bar).getAllByRole('tab')).toHaveLength(6);
+  });
+
   // THAIB-1 review 3: a new channel remounts every tool, so only what shows there is built again.
   it('on another channel the tools opened on the last one are not built until they show', async () => {
     const claims = fakeClaims();
