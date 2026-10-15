@@ -6,7 +6,7 @@
 // With a single request YouTube skips the list and opens the modal directly.
 import { makeDocument } from './fake-dom.mjs';
 
-export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false, loadTicks = 0 } = {}) {
+export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false, loadTicks = 0, dropQuery = false } = {}) {
   const doc = makeDocument();
   const truth = { opened: [], accepted: [], declined: [], tooEarly: 0 };
   // loadTicks: the card and the list show up before what is in them has loaded (seen
@@ -82,6 +82,8 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
     const i = remaining.indexOf(current);
     if (i >= 0) remaining.splice(i, 1);
     closeModal();
+    // seen live 2026-10-15: once the card closes, YouTube's URL loses d=acd and inviterChannelId
+    if (dropQuery) win.location.search = '';
     if (gapTicks) { held = gapTicks; listHost.hidden = true; } else renderList();
   };
   // called by the test clock each poll, so the stall is measured in polls

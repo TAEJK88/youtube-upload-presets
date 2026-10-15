@@ -76,6 +76,10 @@ function watchInvite() {
   let opened = 0;    // จำนวนแถวที่กดเปิด
   let idle = 0;      // รอบที่ไม่เจออะไรเลยติดต่อกัน
   let lastAction = 0;
+  // P5-invite-settle: พอบัตรปิด YouTube ลบ inviterChannelId ออกจาก URL — จำไว้ตั้งแต่ตอนเริ่มเฝ้า
+  // (หรือจากลิงก์ /collaboration/<ผู้เชิญ> เดิม) ไม่งั้นเปิดลิงก์ซ้ำเพื่อรับคลิปถัดไปไม่ได้
+  const meAtStart = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1];
+  const inviterAtStart = new URLSearchParams(location.search).get('inviterChannelId') || (location.pathname.match(/\/collaboration\/(UC[\w-]{10,})/) || [])[1];
   // P5-invite-settle: บัตรคำเชิญและรายการขึ้นมาก่อนข้อมูลในนั้นจะโหลดเสร็จ กดทันทีที่เห็นแล้ว
   // YouTube ขึ้นข้อผิดพลาด — สิ่งเดียวกัน (บัตรที่ข้อความไม่เปลี่ยนแล้ว) ต้องเห็นติดกันหลายรอบก่อนค่อยกด/ปิด
   const SETTLE = 3;      // รอบ (วินาที) ที่แถวเดิมต้องนิ่งก่อนกดเปิด
@@ -100,8 +104,8 @@ function watchInvite() {
   };
   // คืน true ถ้าสั่งไปรอบถัดไปแล้ว
   function nextInviteRound() {
-    const me = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1];
-    const inviter = new URLSearchParams(location.search).get('inviterChannelId');
+    const me = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1] || meAtStart;
+    const inviter = new URLSearchParams(location.search).get('inviterChannelId') || inviterAtStart;
     if (!me || !inviter) return false;
     const prev = getValue<AcceptRound | null>(ACCEPT_ROUND_KEY, null);
     const n = (prev && Date.now() - prev.at < 300000 ? prev.n : 0) + 1;

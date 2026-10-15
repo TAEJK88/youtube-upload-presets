@@ -156,11 +156,27 @@ test('a visit that accepts nothing does not reopen the link', () => {
   assert.deepEqual(r.nav, []);
 });
 
-test('a URL without inviterChannelId cannot be rebuilt, so it stops', () => {
+// Changed from the userscript (P5-invite-settle): the inviter seen when the watcher starts is
+// kept, from the query or from the /collaboration/<inviter> link itself.
+test('the un-redirected /collaboration/ link is reopened from its own path', () => {
   const r = run({ titles: ['Video A'], skipList: true,
     url: 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA' });
   assert.deepEqual(r.truth.accepted, ['Video A']);
-  assert.deepEqual(r.nav, [], 'no inviterChannelId to rebuild from');
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA']);
+});
+
+test('THE BUG: the link is reopened although YouTube dropped inviterChannelId when the card closed', () => {
+  // seen live 2026-10-15: after each accept the URL was plain /videos/upload?filter=…, so the
+  // next request waited until the link was opened by hand
+  const r = run({ titles: ['Video A'], skipList: true, dropQuery: true });
+  assert.deepEqual(r.truth.accepted, ['Video A']);
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCSd21ggmlMhbvaMT5IGxajA']);
+});
+
+test('a page whose inviter is unknown is not reopened', () => {
+  const r = run({ titles: ['Video A'], skipList: true, url: 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/videos/upload?d=acd' });
+  assert.deepEqual(r.truth.accepted, ['Video A']);
+  assert.deepEqual(r.nav, [], 'no inviter to rebuild the link from');
 });
 
 /* ---------- the errored request list that covers the invite ----------

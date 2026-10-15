@@ -11,6 +11,8 @@ export default {
     // P5-invite-settle: the same card, row or empty list must be seen for a few polls before
     // it is clicked or closed, so YouTube has loaded what is in it
     ['let lastAction = 0;', `let lastAction = 0;
+    const meAtStart = (location.pathname.match(/\\/channel\\/(UC[\\w-]{10,})/) || [])[1];
+    const inviterAtStart = new URLSearchParams(location.search).get('inviterChannelId') || (location.pathname.match(/\\/collaboration\\/(UC[\\w-]{10,})/) || [])[1];
     const SETTLE = 3;
     const SETTLE_CARD = 5;
     const SETTLE_DEAD = 8;
@@ -32,5 +34,8 @@ export default {
     [`      const row = requestRow();
       if (row) {`, `      if (row) {
         if (seenFor < SETTLE) return;`, 1],
+    // P5-invite-settle: YouTube drops inviterChannelId once the card closes; use the one seen at the start
+    ["const me = (location.pathname.match(/\\/channel\\/(UC[\\w-]{10,})/) || [])[1];", "const me = (location.pathname.match(/\\/channel\\/(UC[\\w-]{10,})/) || [])[1] || meAtStart;", 1],
+    ["const inviter = new URLSearchParams(location.search).get('inviterChannelId');", "const inviter = new URLSearchParams(location.search).get('inviterChannelId') || inviterAtStart;", 1],
   ],
 };
