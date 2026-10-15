@@ -312,6 +312,50 @@ describe('the retry on the draft, by itself', () => {
   });
 });
 
+// The lines a capture of a card left on "Retrying (1 of 2)" is read by (README item 94).
+describe('the retry says how it ended', () => {
+  const retryLine = (level: 'info' | 'warn', text: string) =>
+    expect(console[level]).toHaveBeenCalledWith(expect.stringContaining(`[ytup] draft retry: ${text}`));
+
+  it('done after a retry', async () => {
+    await add('A.mp4');
+    studio.nextId = [DRAFT];
+    studio.schedule = [CALENDAR];
+    await Q.runQueue();
+    retryLine('info', `"A.mp4" ended done after 1 retry on draft ${DRAFT} · tab visible`);
+  });
+
+  it('an error after every retry', async () => {
+    await add('A.mp4');
+    studio.nextId = [DRAFT];
+    studio.schedule = [CALENDAR, CALENDAR, CALENDAR];
+    await Q.runQueue();
+    retryLine('info', `"A.mp4" ended as error after 2 retries: Scheduling failed: ${CALENDAR} (after 2 retries on the draft)`);
+  });
+
+  it('a run aborted during a retry names the text the card was left on, and ends as before', async () => {
+    await add('A.mp4', 'B.mp4');
+    studio.nextId = [DRAFT];
+    studio.schedule = [CALENDAR, CALENDAR];
+    studio.onSchedule = () => { if (studio.set.length === 2) Q.abortRun(new Error('Another tab took the lock')); };
+    try {
+      await Q.runQueue();
+    } finally {
+      Q.abortRun(null);
+      Q.setOtherTabRuns(false);
+    }
+    retryLine('warn', '"A.mp4": run ended (aborted: Another tab took the lock) during retry 1; the card says "Scheduling for Wed 14 Oct, 19:00…"');
+    expect(statuses()).toEqual(['error', 'pending']);
+    expect(studio.opened).toEqual([DRAFT]);
+  });
+
+  it('a video that was never a draft says nothing', async () => {
+    await add('A.mp4');
+    await Q.runQueue();
+    expect(console.info).not.toHaveBeenCalledWith(expect.stringContaining('ended done'));
+  });
+});
+
 describe('Retry → Resume draft', () => {
   const failed = async () => {
     await add('A.mp4');

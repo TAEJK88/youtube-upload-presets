@@ -28,9 +28,9 @@ import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
 import { clearDone, removeItem, resumeDrafts, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { createPauseWatch } from '@/lib/studio/queue-pause';
-import { abortRun, installIntercept, isStartBinding, queue, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
+import { abortRun, currentItemId, installIntercept, isStartBinding, queue, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
-import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '@/lib/studio/queue-sync';
+import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle, watchRunLifecycle } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
 import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
@@ -174,8 +174,10 @@ export default defineContentScript({
       stop: requestStop,
       toast: (m) => ui.toast(m),
     });
+    const offRunLife = watchRunLifecycle(document, window, () => running, () => queue.find((i) => i.id === currentItemId())?.file.name ?? '');
     stop.add(() => {
       offLock();
+      offRunLife();
       requestStop();
       void sendMessage('runner:release', 'all').catch(() => {});
     });

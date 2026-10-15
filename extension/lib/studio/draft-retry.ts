@@ -15,9 +15,9 @@ export const DRAFT_RETRY_PAUSE_MS = 5000;
 
 // Studio draws its pop-ups a frame later, and a tab in the background gets no frames: a guess at
 // why a calendar would not open and a dialog would not close in a long run, so every line says it.
-const hidden = () => document.visibilityState === 'hidden';
+const hidden = () => globalThis.document?.visibilityState === 'hidden'; // a log line never throws, also where no page is (tests)
 export const hiddenTabNote = () => (hidden() ? L(' (แท็บ Studio อยู่เบื้องหลัง)', ' (the Studio tab was in the background)') : '');
-const say = (m: string) => console.info(`[ytup] draft retry: ${m} · tab ${hidden() ? 'hidden' : 'visible'}`);
+export const sayRetry = (m: string, level: 'info' | 'warn' = 'info') => console[level](`[ytup] draft retry: ${m} · tab ${hidden() ? 'hidden' : 'visible'}`);
 
 const press = (b: HTMLElement) => (b.querySelector('button') || b).click();
 
@@ -26,9 +26,9 @@ function keepDraft(): void {
   const asks = [...document.querySelectorAll<HTMLElement>(SEL.anyDialog)].filter((d) => isVisible(d) && !d.closest(SEL.dialog));
   for (const d of asks) {
     const keep = [...d.querySelectorAll<HTMLElement>(SEL.button)].find((b) => isVisible(b) && TXT.keepDraft.test((b.textContent || '').trim()));
-    if (keep) { say('closing asked: pressed the keep-draft answer'); return press(keep); }
+    if (keep) { sayRetry('closing asked: pressed the keep-draft answer'); return press(keep); }
   }
-  if (asks.length) say(`closing: ${asks.length} other dialog(s) open, none with a keep-draft answer: "${(asks[0]!.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 80)}"`);
+  if (asks.length) sayRetry(`closing: ${asks.length} other dialog(s) open, none with a keep-draft answer: "${(asks[0]!.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 80)}"`);
 }
 
 // Closes Studio's upload dialog, the way its X does (an uploaded file stays a draft). The
@@ -45,7 +45,7 @@ export async function closeUploadDialog(): Promise<boolean> {
     await waitFor(() => !uploadDialogOpen(), 3000);
   }
   const closed = !uploadDialogOpen();
-  if (!closed) say('the upload dialog is still open after 3 tries at its X');
+  if (!closed) sayRetry('the upload dialog is still open after 3 tries at its X');
   return closed;
 }
 
@@ -85,11 +85,11 @@ export async function openDraft({ id, channel, shownId }: DraftTarget): Promise<
     try {
       went = await go();
     } catch (e) {
-      say(`${id} by ${way}: ${(e as Error)?.message ?? e}`);
+      sayRetry(`${id} by ${way}: ${(e as Error)?.message ?? e}`);
     }
-    if (!went) { say(`${id} by ${way}: not possible here`); continue; }
+    if (!went) { sayRetry(`${id} by ${way}: not possible here`); continue; }
     const got = await waitFor(shows, 15000);
-    say(`${id} by ${way}: ${got === id ? 'its dialog is open' : got ? `Studio shows another video (${got})` : 'no dialog with its link after 15 s'}`);
+    sayRetry(`${id} by ${way}: ${got === id ? 'its dialog is open' : got ? `Studio shows another video (${got})` : 'no dialog with its link after 15 s'}`);
     if (got === id) return '';
     if (uploadDialogOpen() && !(await closeUploadDialog())) break; // not this draft's: nothing is typed into it
     if (got) return L(`Studio เปิดวิดีโออื่น (${got}) แทนฉบับร่างนี้`, `Studio opened another video (${got}) instead of this draft`);
@@ -97,7 +97,7 @@ export async function openDraft({ id, channel, shownId }: DraftTarget): Promise<
   try {
     if (location.href !== back) { history.replaceState(null, '', back); window.dispatchEvent(new PopStateEvent('popstate', { state: null })); }
   } catch (e) {
-    say(`${id}: could not put the address back: ${(e as Error)?.message ?? e}`);
+    sayRetry(`${id}: could not put the address back: ${(e as Error)?.message ?? e}`);
   }
   return L('เปิดฉบับร่างใน Studio ไม่ได้', 'Could not open the draft in Studio');
 }

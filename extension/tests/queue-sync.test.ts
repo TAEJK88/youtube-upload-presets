@@ -6,7 +6,7 @@ import * as messages from '../lib/messages';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { otherTabRunning, queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
-import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle } from '../lib/studio/queue-sync';
+import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle, watchRunLifecycle } from '../lib/studio/queue-sync';
 import { disposeState, initState } from '../lib/studio/state';
 
 // The Studio content script's startup and edit gate, without WXT's defineContentScript.
@@ -157,6 +157,54 @@ describe('back from the back/forward cache', () => {
     await vi.waitFor(() => expect(abort).toHaveBeenCalled());
     expect(toasts).toEqual(['Another Studio tab is already running the queue or copyright work']);
     stop();
+  });
+});
+
+// What Chrome does to the page during a run (README item 94, capture of a card left mid-retry).
+describe('the page lifecycle during a run', () => {
+  const setup = () => {
+    const doc = new EventTarget();
+    const win = new EventTarget();
+    let running = true;
+    const off = watchRunLifecycle(doc, win, () => running, () => 'A.mp4');
+    return { doc, win, off, stopRun: () => { running = false; } };
+  };
+  const hide = (persisted: boolean) => Object.assign(new Event('pagehide'), { persisted });
+
+  it('says when the page is frozen, unloaded, or hidden while a run goes', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const { doc, win, off } = setup();
+    doc.dispatchEvent(new Event('freeze'));
+    win.dispatchEvent(hide(false));
+    win.dispatchEvent(hide(true));
+    doc.dispatchEvent(new Event('visibilitychange'));
+    doc.dispatchEvent(new Event('resume'));
+    expect(warn.mock.calls.map((c) => c[0])).toEqual([
+      '[ytup] draft retry: page freeze during "A.mp4" · tab visible',
+      '[ytup] draft retry: page pagehide (unloading) during "A.mp4" · tab visible',
+      '[ytup] draft retry: page pagehide (to the back/forward cache) during "A.mp4" · tab visible',
+    ]);
+    expect(info.mock.calls.map((c) => c[0])).toEqual([
+      '[ytup] draft retry: page visibilitychange during "A.mp4" · tab visible',
+      '[ytup] draft retry: page resume during "A.mp4" · tab visible',
+    ]);
+    off();
+    vi.restoreAllMocks();
+  });
+
+  it('says nothing with no run going, nor once it is disposed', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { doc, off, stopRun } = setup();
+    stopRun();
+    doc.dispatchEvent(new Event('freeze'));
+    const second = setup();
+    second.off();
+    second.doc.dispatchEvent(new Event('freeze'));
+    second.win.dispatchEvent(hide(false));
+    expect(warn).not.toHaveBeenCalled();
+    off();
+    vi.restoreAllMocks();
   });
 });
 

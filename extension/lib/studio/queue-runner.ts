@@ -8,7 +8,7 @@ import { BATCH_MAX, wholeIn } from '../settings';
 import { makeTitle, pad, renderDesc, renderDescFull, renderTags } from '../template';
 import { detailsOpen, fillDetails, getDialog, getTitleBox, isVisible, sleep, uploadDialogOpen, waitFor } from './automation';
 import { buildVars, chanLabel, channelProblem, getChannel, refreshCfg } from './channel';
-import { closeUploadDialog, DRAFT_RETRIES, DRAFT_RETRY_PAUSE_MS, hiddenTabNote, openDraft } from './draft-retry';
+import { closeUploadDialog, DRAFT_RETRIES, DRAFT_RETRY_PAUSE_MS, hiddenTabNote, openDraft, sayRetry } from './draft-retry';
 import { ui } from './page-ui';
 import { BATCH_SETTLE_MS, batchCensus, pageUploadText, saysUploading, waitForUploads, type BatchEnd } from './queue-batch';
 import { dropFiles, probeBridge, getQueueFile, getThumbFile, pageFiles } from './queue-files';
@@ -661,12 +661,19 @@ async function uploadOrResume(it: QueueItem): Promise<void> {
   for (retryNo = 0; ; retryNo++) {
     given = false;
     try {
-      return await uploadOne(it);
+      await uploadOne(it);
+      if (retryNo || it.draftId) sayRetry(`"${it.file.name}" ended done after ${retryNo} retr${retryNo === 1 ? 'y' : 'ies'} on draft ${it.draftId}`);
+      return;
     } catch (e: any) {
+      // What a capture of a card left on "Retrying (1 of 2)" reads (README item 94): the card's text is what storage kept.
+      if (retryNo && (torn || aborted)) sayRetry(`"${it.file.name}": run ended (${torn ? 'extension reloaded' : 'aborted: ' + aborted?.message}) during retry ${retryNo}; the card says "${it.msg}"`, 'warn');
       if (torn || aborted) throw e;
       if (given) it.draftId = it.draftId || dialogVideoId();
       if (retryNo) e.message += L(` (ลองใหม่บนฉบับร่างแล้ว ${retryNo} ครั้ง)`, ` (after ${retryNo} retries on the draft)`);
-      if (retryNo >= DRAFT_RETRIES || !it.draftId || sharedDraft(it) || it.status === 'review' || stopReq || TXT.uploadLimit.test(e.message)) throw e;
+      if (retryNo >= DRAFT_RETRIES || !it.draftId || sharedDraft(it) || it.status === 'review' || stopReq || TXT.uploadLimit.test(e.message)) {
+        if (retryNo) sayRetry(`"${it.file.name}" ended as error after ${retryNo} retr${retryNo === 1 ? 'y' : 'ies'}: ${e.message}`);
+        throw e;
+      }
       console.warn(`[ytup] draft retry: "${it.file.name}" failed as draft ${it.draftId} ("${e.message}"), try ${retryNo + 1} of ${DRAFT_RETRIES} follows`);
       if (!(await closeUploadDialog())) throw e; // runQueue() stops the run there
       setItem(it, 'uploading', retryText(retryNo + 1));

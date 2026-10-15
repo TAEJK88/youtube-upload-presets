@@ -124,6 +124,56 @@ describe('queue store', () => {
     expect((await browser.storage.local.get('queue')).queue).toEqual([item('A.mp4', 'uploading')]);
   });
 
+  // What a capture of a card left on "Retrying (1 of 2)" is read by (README item 94).
+  describe('says what a card mid-retry was left as', () => {
+    const RETRY_EN = 'Retrying on the draft (1 of 2)…';
+    const RETRY_TH = 'ลองใหม่บนฉบับร่าง (ครั้งที่ 1 จาก 2)…';
+
+    it('a skipped save, once per spell of skipped saves', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await browser.storage.local.set({ queue: [item('A.mp4', 'uploading', { msg: RETRY_EN })] });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(false);
+      warn.mockClear(); // the line of the load itself
+      setOtherTabRuns(true);
+      persistQueue();
+      persistQueue();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(`[ytup] draft retry: queue not saved here (another tab runs the queue); storage keeps "A.mp4" as "${RETRY_EN}" · tab visible`);
+      warn.mockRestore();
+    });
+
+    it('no line when nothing is uploading', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await browser.storage.local.set({ queue: [item('A.mp4', 'pending')] });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(false);
+      setOtherTabRuns(true);
+      persistQueue();
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it.each([['English', RETRY_EN], ['Thai', RETRY_TH]])('a page loaded on a card stored mid-retry (%s); it is still marked interrupted', async (_, msg) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await browser.storage.local.set({ queue: [item('A.mp4', 'uploading', { msg, draftId: 'abcdefghijk' })] });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(true);
+      expect(warn).toHaveBeenCalledWith(`[ytup] draft retry: page loaded while "A.mp4" was mid-retry ("${msg}"); marked interrupted · tab visible`);
+      expect(queue[0]!.status).toBe('error');
+      warn.mockRestore();
+    });
+
+    it('not for an upload that was not retrying', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await browser.storage.local.set({ queue: [item('A.mp4', 'uploading', { msg: 'Uploading…' })] });
+      await initState(async () => SCHEMA_VERSION);
+      restoreQueue(true);
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+  });
+
   // The cached flag can be stale-true when this tab wins the runner lock; this tab's own
   // saves must not be skipped because of it.
   it('still writes while this tab runs the queue, even with the flag stale', async () => {

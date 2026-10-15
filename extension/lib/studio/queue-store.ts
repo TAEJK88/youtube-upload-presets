@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import { repairCascade } from '../drafts';
 import { L } from '../i18n';
+import { sayRetry } from './draft-retry';
 import { mergeQueue } from './queue-merge';
 import { abortedRun, abortRun, bumpEditRev, otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
@@ -20,11 +21,19 @@ const remember = (list: QueueItem[]) => { base = structuredClone(list); };
 // then on, and nothing of it is written until this tab has read the queue back
 // (followOtherTab).
 const blocked = () => abortedRun() !== null || (otherTabRunning() && !running);
+// Said once per spell of skipped saves (a card change calls this each time; the debug log keeps 300 lines).
+let skipSaid = false;
 export function persistQueue(): void {
   clearTimeout(timer);
   timer = undefined; // no save of ours waits (onStored merges only while one does)
-  if (blocked()) return;
+  if (blocked()) return saySkipped();
   timer = setTimeout(flushQueue, 300);
+}
+function saySkipped(): void {
+  const it = queue.find((i) => i.status === 'uploading');
+  if (skipSaid || !it) return;
+  skipSaid = true;
+  sayRetry(`queue not saved here (${abortedRun() ? 'this run was aborted' : 'another tab runs the queue'}); storage keeps "${it.file.name}" as "${it.msg}"`, 'warn');
 }
 
 // The waiting save, now: the page is going away (or the script is), and the last status
@@ -36,6 +45,7 @@ export function flushQueue(): void {
   if (!blocked()) {
     save(KEY, queue);
     remember(queue);
+    skipSaid = false;
   }
 }
 
@@ -49,6 +59,8 @@ const interrupted = (it: QueueItem): QueueItem => ({
 });
 
 const unfinished = (it: QueueItem) => it.status === 'uploading' || it.status === 'review';
+// queue-runner's retryText(), either language: a card stored in the middle of a retry on its draft.
+const MID_RETRY = /Retrying on the draft|ลองใหม่บนฉบับร่าง/;
 
 // What the start summary shows of the pending items. Another window changing it after the
 // summary refuses the start like an edit made here (bumpEditRev; review I2).
@@ -60,8 +72,12 @@ const shown = (list: QueueItem[]) => JSON.stringify(list.filter((i) => i.status 
 export function restoreQueue(markInterrupted: boolean): void {
   const items = load<QueueItem[]>(KEY, []);
   const cut = (it: QueueItem) => markInterrupted && unfinished(it);
+  for (const it of items) {
+    if (it.status === 'uploading' && MID_RETRY.test(it.msg)) sayRetry(`page loaded while "${it.file.name}" was mid-retry ("${it.msg}"); marked ${markInterrupted ? 'interrupted' : 'still running in another tab'}`, 'warn');
+  }
   queue.splice(0, queue.length, ...items.map((it) => (cut(it) ? interrupted(it) : it)));
   remember(items);
+  skipSaid = false; // this copy is storage's again
   // Draft ids an earlier build wrote on cards that own no draft (lib/drafts.ts). Not in a tab
   // that only mirrors a running one: that tab's copy is the queue, and it repaired its own.
   const repaired = markInterrupted ? repairCascade(queue) : { freed: 0, reworded: 0 };

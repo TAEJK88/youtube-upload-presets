@@ -1,5 +1,6 @@
 import { L } from '../i18n';
 import { sendMessage } from '../messages';
+import { sayRetry } from './draft-retry';
 import { ui } from './page-ui';
 import { otherTabRunning } from './queue-runner';
 import { followOtherTab, restoreQueue } from './queue-store';
@@ -67,5 +68,24 @@ export function watchLockLifecycle(
   return () => {
     win.removeEventListener('pagehide', hide);
     win.removeEventListener('pageshow', show);
+  };
+}
+
+// What Chrome does to the page during a run, for a capture of a card left mid-retry (README
+// item 94): a frozen tab runs nothing, and a line written as it freezes or unloads may never reach
+// the debug log's storage (queue-store restoreQueue says it again on the next page load).
+type Listens = Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
+export function watchRunLifecycle(doc: Listens, win: Listens, running: () => boolean, current: () => string): () => void {
+  const said = (e: Event) => {
+    if (!running()) return;
+    const how = e.type === 'pagehide' ? ((e as PageTransitionEvent).persisted ? ' (to the back/forward cache)' : ' (unloading)') : '';
+    sayRetry(`page ${e.type}${how} during "${current()}"`, e.type === 'freeze' || e.type === 'pagehide' ? 'warn' : 'info');
+  };
+  const onDoc = ['visibilitychange', 'freeze', 'resume'];
+  for (const t of onDoc) doc.addEventListener(t, said);
+  win.addEventListener('pagehide', said);
+  return () => {
+    for (const t of onDoc) doc.removeEventListener(t, said);
+    win.removeEventListener('pagehide', said);
   };
 }

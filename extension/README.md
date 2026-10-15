@@ -1838,6 +1838,25 @@ observation.
        (draft id dropped), M message(s) reworded`; a second reload logs nothing. If another
        Studio tab is running the queue when this one loads, nothing is repaired until a
        load without one.
+    17. **Capture the freeze** (not seen in Chrome yet). In long runs with the Studio tab in
+       the background a card has stayed on "Retrying on the draft (1 of 2)…" while the queue
+       went on. Queue several clips, put another browser tab in front, and leave the run for
+       well over 5 minutes; close Studio's dialog on one clip as in step 1 to force a retry.
+       When a card stays on "Retrying on the draft (1 of 2)…" while a later clip uploads:
+       (1) take a screenshot of the side panel; (2) open the debug page and **Download report
+       (.json)** right away (the log keeps 300 lines and drops info lines first); (3) note how
+       many Studio tabs were open and on which channels. **Record** the report's `[ytup] draft
+       retry:` lines for that clip. What they tell:
+       - "run ended (aborted: …) during retry 1" or "queue not saved here (…)": another Studio
+         tab took the queue over and this tab's copy was not saved (the strongest guess).
+       - "page pagehide (unloading)", "run ended (extension reloaded)", or, on the next load,
+         "page loaded while … was mid-retry": the page went away during the retry.
+       - "page freeze" with nothing after it: Chrome froze the hidden tab.
+       - "ended done …" or "ended as error …" while the panel still showed "Retrying": the tab
+         finished the clip and the side panel was not told.
+       If none of these lines is there, **record** what the lines say instead. If no card
+       stays on "Retrying", **record** that too, then repeat with more clips and a longer time
+       in the background.
 
 ### Known behaviour, Phase 4a (note, don't test)
 
