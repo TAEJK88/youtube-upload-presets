@@ -221,8 +221,6 @@ export default [
   { th: 'ไม่พบ @handle ของช่อง "${}" จึงไม่สลับให้ (เลือกจากชื่ออาจสลับผิดช่อง) ใช้ปุ่ม Switch account ของ YouTube แทน', en: 'Couldn\'t find the @handle of "${}", so not switching (picking by name could open the wrong channel). Use YouTube\'s own Switch account instead', why: 'P5-switch-by-handle: Switch on a channel whose @handle is neither stored nor on its public page; the userscript picked the row by name instead' },
   // THAIB-1: the Copyright tab became the Tools tab; each of its tools has a sub-tab
   { th: 'เครื่องมือ', en: 'Tools', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the panel tab and its sub-tab bar' },
-  { th: 'ลิขสิทธิ์', en: 'Claims', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the claim list and its scan' },
-  { th: 'ลิขสิทธิ์ (${})', en: 'Claims (${})', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: with the scan\'s claim count' },
   { th: 'เพลง (${})', en: 'Songs (${})', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the claimed songs, with their count' },
   { th: 'โฆษณา', en: 'Ads', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: videos with ads off' },
   { th: 'โฆษณา (${})', en: 'Ads (${})', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: with the count of videos with ads off' },

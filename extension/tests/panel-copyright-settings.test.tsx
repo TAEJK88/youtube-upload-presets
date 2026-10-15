@@ -83,7 +83,7 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(box('Also turn on ads for videos that have them off').checked).toBe(true);
   });
 
-  it('Save writes every field as one merge of cfg, says so, and the form keeps what was saved', async () => {
+  it('Save writes what was edited as one merge of cfg, says so, and the form keeps what was saved', async () => {
     const send = await mockSend();
     const { onCancel } = show();
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
@@ -96,8 +96,9 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(onCancel).not.toHaveBeenCalled();
     expect(text('Run every N hours').value).toBe('12');
     expect(send).toHaveBeenCalledTimes(1);
+    // only the edits: a value another panel window saved meanwhile is not written back (THAIB-1 review)
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'merge', key: 'cfg', entries: {
-      ...DEFAULTS, apEveryHours: '12', ownNames: 'Me', autoSaveTrim: false, apAdsOn: true, // numbers stay text, as typed
+      apEveryHours: '12', ownNames: 'Me', autoSaveTrim: false, apAdsOn: true, // numbers stay text, as typed
     } });
     expect(toast).toHaveBeenCalledWith('Settings saved');
   });
@@ -115,6 +116,23 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'set', key: 'cfg', value: {} });
     expect(addLog).toHaveBeenCalledWith('Copyright settings reset', 'ok');
+  });
+
+  // THAIB-1 review 2: the form stays mounted in its sub-tab. A cfg saved elsewhere shows, an edit
+  // made here stays on top, and Save writes the edit alone (not the old value of the rest).
+  it('follows a cfg saved elsewhere, keeps its own edit on top, and saves only that edit', async () => {
+    const send = await mockSend();
+    const claims: ClaimsApi = { state: null, live: null, log: [], shown: null, addLog: vi.fn() };
+    const tree = (cfg: Partial<ClaimsCfg>) => (
+      <ClaimsContext.Provider value={claims}><CopyrightSettings data={toClaimsData('UC1', { cfg })} onCancel={() => {}} /></ClaimsContext.Provider>
+    );
+    const r = render(tree({}));
+    fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
+    r.rerender(tree({ autoSaveTrim: false })); // another panel window saved
+    expect(box('Fully automatic trim').checked).toBe(false);
+    expect(text('Run every N hours').value).toBe('12');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'merge', key: 'cfg', entries: { apEveryHours: '12' } }));
   });
 
   it('Cancel leaves without writing', async () => {

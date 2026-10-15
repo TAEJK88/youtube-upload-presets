@@ -41,13 +41,13 @@ describe('Tools tab', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }) }));
     expect(screen.getByText('Ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Claims (4)', 'Songs (9)', 'Fix tracklist', 'Ads', 'Collab', 'Options']);
-    expect(active('Claims (4)')).toBe(true);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Claim list (4)', 'Songs (9)', 'Fix tracklist', 'Ads', 'Collab', 'Options']);
+    expect(active('Claim list (4)')).toBe(true);
   });
 
   it('before a scan, Claims has no count', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
-    expect(tab('Claims')).toBeTruthy();
+    expect(tab('Claim list')).toBeTruthy();
     expect(tab('Songs (0)')).toBeTruthy();
   });
 
@@ -83,12 +83,12 @@ describe('Tools tab', () => {
     expect(screen.getByText('Trimming claim 1 of 2')).toBeTruthy();
     expect(screen.queryByText('Ready')).toBe(null);
     expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(false);
-    expect(tab('Claims (4)')).toBeTruthy();
+    expect(tab('Claim list (4)')).toBeTruthy();
   });
 
   it('another tab holding the lock, idle: this tab\'s counts, not that tab\'s', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }), live: claimsStateWith({ counts: { ...counts, claims: 7, songs: 1 } }) }));
-    expect(tab('Claims (4)')).toBeTruthy();
+    expect(tab('Claim list (4)')).toBeTruthy();
     expect(tab('Songs (9)')).toBeTruthy();
   });
 
@@ -160,14 +160,14 @@ describe('Tools tab', () => {
     pick(/Songs/);
     r.rerender(wrap({ ...claims, shown: { view: 'claims', n: 1 } }));
     expect(await screen.findByRole('heading', { name: 'Copyright claims — Mine' })).toBeTruthy();
-    expect(active(/Claims/)).toBe(true);
+    expect(active(/Claim list/)).toBe(true);
   });
 
   it('each sub-tab shows its tool', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
     for (const [name, title] of [
-      [/Songs/, '🎵 Previously claimed songs'], [/tracklist/, '📝 Choose a video to fix its tracklist'], [/Options/, 'Copyright settings'], [/Claims/, 'Copyright claims — Mine'],
+      [/Songs/, '🎵 Previously claimed songs'], [/tracklist/, '📝 Choose a video to fix its tracklist'], [/Options/, 'Copyright settings'], [/Claim list/, 'Copyright claims — Mine'],
     ] as const) {
       pick(name);
       expect(active(name)).toBe(true);
@@ -324,7 +324,7 @@ describe('views', () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan });
     const send = await mockSend();
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts: { hasScan: true, scanDate: '', claims: 1, claimVideos: 1, songs: 0, hasAdsScan: false, adsTodo: 0 } }) }));
-    expect(tab('Claims (1)')).toBeTruthy();
+    expect(tab('Claim list (1)')).toBeTruthy();
     fireEvent.click(await screen.findByTitle('Add to trim list'));
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v1:c1'] });
   });
@@ -383,7 +383,7 @@ describe('moving between the tools', () => {
     pick(/Songs/);
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     await ready(); // the new channel's data is read
-    expect(active(/Claims/)).toBe(true);
+    expect(active(/Claim list/)).toBe(true);
     expect(await pane().findByText('Mix w1')).toBeTruthy();
     expect(screen.queryByText('Mix v1')).toBe(null); // nor in the hidden tools
   });
@@ -415,7 +415,7 @@ describe('moving between the tools', () => {
     const at = (from: number, go: () => void) => { scroller.scrollTop = from; go(); return scroller.scrollTop; };
     const click = (name: RegExp | string) => () => fireEvent.click(pane().getAllByRole('button', { name })[0]!);
     expect(at(50, () => pick(/Songs/))).toBe(50); // the bar was in sight: nothing jumps
-    expect(at(300, () => pick(/Claims/))).toBe(BAR); // scrolled past it: back to the bar
+    expect(at(300, () => pick(/Claim list/))).toBe(BAR); // scrolled past it: back to the bar
     expect(at(300, click('📝 Tracklist after trim'))).toBe(BAR); // from far down the list
     expect(at(300, click('← Back'))).toBe(BAR);
     expect(at(300, click(/Mix v1/))).toBe(BAR); // picker to editor
@@ -465,21 +465,21 @@ describe('claim list', () => {
   const boxes = () => screen.getAllByRole('checkbox') as HTMLInputElement[];
 
   it('before a scan it says so, with the channel\'s name', async () => {
-    await open(/Claims/);
+    await open(/Claim list/);
     expect(screen.getByText('Channel Mine not scanned yet — press "Scan claims" first')).toBeTruthy();
     expect(screen.queryByRole('checkbox')).toBe(null);
   });
 
   it('a scan without claims says so', async () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([]) });
-    await open(/Claims/);
+    await open(/Claim list/);
     expect(screen.getByText('No claims found 🎉')).toBeTruthy();
     expect(screen.getByText(/0 claims in 0 videos \(of 5 total\) · scanned /)).toBeTruthy();
   });
 
   it('one card per claim: the video, the song, the range, the impact', async () => {
     await stored();
-    await open(/Claims/);
+    await open(/Claim list/);
     expect(screen.getByText(/4 claims in 2 videos \(of 5 total\) · scanned /)).toBeTruthy();
     expect(screen.getByText(/1 look like your own songs \(★\)/)).toBeTruthy();
     expect(boxes()).toHaveLength(4);
@@ -507,7 +507,7 @@ describe('claim list', () => {
   it('a claim that can\'t be trimmed, or is done, can\'t be ticked, and says why', async () => {
     await stored({ 'trimQueue:UC1': ['v2:c3', 'v2:c4'], 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' }, 'v2:c4': { state: 'failed', msg: 'no button', date: '' } } });
     await mockSend();
-    await open(/Claims/);
+    await open(/Claim list/);
     const [a, b, c, d] = boxes();
     expect([a!.disabled, b!.disabled, c!.disabled, d!.disabled]).toEqual([false, true, true, false]);
     expect(b!.title).toBe('YouTube offers no Trim option for this claim');
@@ -522,7 +522,7 @@ describe('claim list', () => {
   it('unticking takes the claim off the list', async () => {
     await stored({ 'trimQueue:UC1': ['v2:c3'] });
     const send = await mockSend();
-    await open(/Claims/);
+    await open(/Claim list/);
     fireEvent.click(boxes()[2]!);
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] });
   });
@@ -530,7 +530,7 @@ describe('claim list', () => {
   it('a pick chip ticks what matches and unticks the rest, among the claims that can be ticked', async () => {
     await stored();
     const send = await mockSend();
-    await open(/Claims/);
+    await open(/Claim list/);
     fireEvent.click(screen.getByRole('button', { name: 'Not my own songs' }));
     expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v2:c3', 'v2:c4'], del: ['v1:c1'] });
     fireEvent.click(screen.getByRole('button', { name: '⏰ Scheduled + affected' }));
@@ -543,7 +543,7 @@ describe('claim list', () => {
   it('a pick chip leaves a done claim alone', async () => {
     await stored({ 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' } } });
     const send = await mockSend();
-    await open(/Claims/);
+    await open(/Claim list/);
     fireEvent.click(screen.getByRole('button', { name: 'All trimmable' }));
     expect(send).toHaveBeenLastCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', add: ['v1:c1', 'v2:c4'], del: [] });
   });
@@ -551,7 +551,7 @@ describe('claim list', () => {
   it('a pick that gets done while the list is open leaves the stored list too', async () => {
     await stored({ 'trimQueue:UC1': ['v2:c3'] });
     const send = await mockSend();
-    await open(/Claims/);
+    await open(/Claim list/);
     expect(send).not.toHaveBeenCalled();
     await act(async () => { await fakeBrowser.storage.local.set({ 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' } } }); });
     await waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] }));
@@ -560,7 +560,7 @@ describe('claim list', () => {
   it('picks that are done already leave the stored list when it opens', async () => {
     await stored({ 'trimQueue:UC1': ['v1:c1', 'v2:c3'], 'trimResults:UC1': { 'v2:c3': { state: 'gone', msg: '', date: '' } } });
     const send = await mockSend();
-    await open(/Claims/);
+    await open(/Claim list/);
     await waitFor(() => expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC1', del: ['v2:c3'] }));
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -569,7 +569,7 @@ describe('claim list', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await stored();
     vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
-    await open(/Claims/);
+    await open(/Claim list/);
     fireEvent.click(boxes()[0]!);
     await waitFor(() => expect(toast).toHaveBeenCalledWith(...SAVE_FAILED));
   });
@@ -578,7 +578,7 @@ describe('claim list', () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': scanOf([row('w1', 'k1')]) });
     const send = await mockSend();
     const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
-    await open(/Claims/, fakeClaims({ state: moved }));
+    await open(/Claim list/, fakeClaims({ state: moved }));
     expect(screen.queryByText('Mix v1')).toBe(null);
     fireEvent.click(screen.getByRole('checkbox'));
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'list', key: 'trimQueue:UC2', add: ['w1:k1'] });
@@ -587,7 +587,7 @@ describe('claim list', () => {
   it('⬇ CSV saves the scan, named by its date', async () => {
     await stored();
     const saved = captureDownload();
-    await open(/Claims/);
+    await open(/Claim list/);
     fireEvent.click(screen.getByRole('button', { name: '⬇ CSV' }));
     expect(saved.name).toBe('youtube-claims-2026-10-01.csv');
     const lines = (await saved.blob!.text()).split('\n');
@@ -597,7 +597,7 @@ describe('claim list', () => {
 
   it('Rescan asks the bound tab', async () => {
     await stored();
-    const api = await open(/Claims/);
+    const api = await open(/Claim list/);
     fireEvent.click(screen.getByRole('button', { name: '↻ Rescan' }));
     expect(api.send).toHaveBeenCalledWith('claims:scan', 'claims');
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
@@ -606,7 +606,7 @@ describe('claim list', () => {
   it('a rescan the tab never got says so', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await stored();
-    await open(/Claims/, fakeClaims(), fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never }));
+    await open(/Claim list/, fakeClaims(), fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never }));
     fireEvent.click(screen.getByRole('button', { name: '↻ Rescan' }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD, { id: 'not-connected' }));
   });
@@ -614,7 +614,7 @@ describe('claim list', () => {
   it('the video\'s title opens its claims page in Studio', async () => {
     await stored();
     const create = vi.spyOn(fakeBrowser.tabs, 'create').mockResolvedValue({} as never);
-    await open(/Claims/);
+    await open(/Claim list/);
     const link = screen.getAllByRole('link', { name: 'Mix v1' })[0]!;
     expect(link.getAttribute('href')).toBe('https://studio.youtube.com/video/v1/claims');
     fireEvent.click(link);
@@ -623,7 +623,7 @@ describe('claim list', () => {
 
   it('"Tracklist after trim" is offered once per video and opens that video\'s tracklist', async () => {
     await stored();
-    await open(/Claims/);
+    await open(/Claim list/);
     const buttons = screen.getAllByRole('button', { name: '📝 Tracklist after trim' });
     expect(buttons).toHaveLength(2);
     fireEvent.click(buttons[1]!);
@@ -1040,7 +1040,7 @@ describe('Tools tab review fixes', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
     await act(async () => {});
     fireEvent.change(src(), { target: { value: '00:00 Typed - Here' } });
-    pick(/Claims/);
+    pick(/Claim list/);
     r.rerender(wrap({ ...claims, shown: { view: 'claims', n: 1 } })); // a scan ended: its list opens
     pick(/Options/);
     expect(hours().value).toBe('12');
@@ -1069,6 +1069,26 @@ describe('Tools tab review fixes', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /Mix v2/ }));
   });
 
+  it('a Studio tab running a copyright job elsewhere keeps this list from starting one', async () => {
+    await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date: '2026-01-01', total: 1, rows: [{ videoId: 'a', video: 'A', privacy: 'public', length: 1, ineligible: false, status: '' }] } });
+    const elsewhere = claimsStateWith({ channel: 'UC2', busyRun: true, status: { icon: '✂️', kind: 'busy', title: 'Trimming claim 1 of 2', detail: '' } });
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith(), live: elsewhere }));
+    await ready();
+    pick(/Ads/);
+    expect((screen.getByRole('button', { name: '💰 Turn on ads (1)' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a tool is built the first time it shows, then kept', async () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    const songs = () => screen.queryByRole('heading', { name: /Previously claimed songs/, hidden: true });
+    expect(songs()).toBe(null); // never opened: not there, hidden or not
+    pick(/Songs/);
+    expect(songs()).toBeTruthy();
+    pick(/Claim list/);
+    expect(songs()).toBeTruthy(); // hidden, still mounted
+  });
+
   // The ch effect also sends an open tool back to Claims; without the channel's data the tab shows
   // Claims in the same render, not a selected tool with nothing under it.
   it('with the channel\'s data gone, the selected tool falls back to Claims', async () => {
@@ -1079,7 +1099,7 @@ describe('Tools tab review fixes', () => {
     vi.spyOn(fakeBrowser.storage.local, 'get').mockReturnValue(new Promise(() => {}) as never); // the next read never lands
     const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
-    expect(active(/Claims/)).toBe(true);
+    expect(active(/Claim list/)).toBe(true);
     expect(screen.getByRole('tabpanel').contains(screen.getByRole('button', { name: /Scan claims/ }))).toBe(true);
     expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
   });

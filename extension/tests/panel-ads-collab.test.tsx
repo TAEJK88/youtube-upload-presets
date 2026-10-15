@@ -171,6 +171,18 @@ describe('Ads view', () => {
     fireEvent.click(button('💰 Turn on ads (2)'));
     expect(api.send).not.toHaveBeenCalled();
   });
+  // THAIB-1 review 2: the list stays mounted after its run; a second press must not redo the batch.
+  it('a video the run turned on leaves the picks; a failed one stays, and a tick by hand still holds', () => {
+    const v = mount((d) => <AdsView data={d} state={state} busy={false} />, adsData());
+    expect(button('💰 Turn on ads (2)')).toBeTruthy(); // A and B: eligible, not on
+    const results = { 'adsResults:UC1': { a: { state: 'on', msg: '', date: '' }, b: { state: 'failed', msg: 'No switch', date: '' } } };
+    v.to(adsData(results));
+    expect([box('A').checked, box('B').checked]).toEqual([false, true]);
+    expect(button('💰 Turn on ads (1)')).toBeTruthy();
+    fireEvent.click(box('A')); // ticked again on purpose
+    v.to(adsData(results)); // the same results read again
+    expect(box('A').checked).toBe(true);
+  });
 });
 
 describe('Collab view', () => {
@@ -334,5 +346,15 @@ describe('Collab view', () => {
     expect(button('↻ Reload list').disabled).toBe(true);
     fireEvent.click(button('🤝 Invite (1 videos)'));
     expect(api.send).not.toHaveBeenCalled();
+  });
+
+  it('a video the run invited leaves the picks; a failed one stays ticked to retry', () => {
+    const v = mount((d) => <CollabView data={d} state={state} busy={false} />, collabData());
+    fireEvent.click(box('Lofi Mix'));
+    fireEvent.click(box('Jazz'));
+    expect(button('🤝 Invite (2 videos)')).toBeTruthy();
+    v.to(collabData({ 'collabResults:UC1': { x: { state: 'done', msg: '', date: '' }, y: { state: 'failed', msg: 'No dialog', date: '' } } }));
+    expect([box('Lofi Mix').checked, box('Jazz').checked]).toEqual([false, true]);
+    expect(button('🤝 Invite (1 videos)')).toBeTruthy();
   });
 });

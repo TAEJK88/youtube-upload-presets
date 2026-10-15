@@ -14,11 +14,23 @@ import { SubView } from './SubView';
 // openSettings() (6275–6307): checkboxes for the on/off settings, text for the rest (as the
 // userscript, numbers stay strings); Save writes them in one merge, Reset asks twice. A write
 // that fails leaves the view open with what was typed; a click while one is on its way is ignored.
-// The form stays as saved after Save and shows the defaults after Reset; Cancel (onCancel) is the
-// Tools tab starting it again from what is stored.
+// The form stays mounted (a Tools sub-tab): it follows the stored cfg (another panel window, a
+// Reset) and keeps only what was edited here on top; Save writes those edits alone, so it never
+// puts back a value changed elsewhere. Cancel (onCancel) is the Tools tab starting it again.
 export function CopyrightSettings({ data, onCancel }: { data: ClaimsData; onCancel(): void }) {
   const { addLog } = useClaims();
   const [c, setC] = useState<ClaimsCfg>(data.cfg);
+  const [base, setBase] = useState<ClaimsCfg>(data.cfg); // what the form's values are edits against
+  const edits = (): Partial<ClaimsCfg> => Object.fromEntries(Object.entries(c).filter(([k, v]) => v !== base[k as keyof ClaimsCfg]));
+  // A change of the stored cfg itself (not the props catching up late with this form's own write):
+  // the form takes it, with its edits on top.
+  const stored = JSON.stringify(data.cfg);
+  const [seen, setSeen] = useState(stored);
+  if (stored !== seen) {
+    setSeen(stored);
+    setC({ ...data.cfg, ...edits() });
+    setBase(data.cfg);
+  }
   const [armed, setArmed] = useState(false);
   const id = useId(); // each help text's id, for its input's aria-describedby
   const busy = useRef(false);
@@ -29,12 +41,14 @@ export function CopyrightSettings({ data, onCancel }: { data: ClaimsData; onCanc
   };
   const set = (k: keyof ClaimsCfg, v: string | boolean) => setC((x) => ({ ...x, [k]: v }));
   const save = async () => {
-    await claimsWrite({ op: 'merge', key: 'cfg', entries: { ...c } });
+    await claimsWrite({ op: 'merge', key: 'cfg', entries: edits() });
+    setBase(c); // saved: nothing left to keep on top of the stored cfg
     toast(L('บันทึกการตั้งค่าแล้ว', 'Settings saved'));
   };
   const reset = async () => {
     await claimsWrite({ op: 'set', key: 'cfg', value: {} });
     setC({ ...DEFAULTS });
+    setBase({ ...DEFAULTS });
     setArmed(false);
     addLog(L('คืนค่าตั้งค่าลิขสิทธิ์แล้ว', 'Copyright settings reset'), 'ok');
   };

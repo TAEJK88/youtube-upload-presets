@@ -27,6 +27,14 @@ export function AdsView({ data, state, busy }: { data: ClaimsData; state: Claims
     setOf(scan.date);
     setPicked(new Set(adsInitial(scan, data.adsResults)));
   }
+  // The list stays mounted after its run (a Tools sub-tab): a video the run just turned on leaves
+  // the picks, so a second press does not run the batch again (THAIB-1 review).
+  const [seen, setSeen] = useState(data.adsResults);
+  if (seen !== data.adsResults) {
+    const on = [...picked].filter((v) => data.adsResults[v]?.state === 'on' && seen[v]?.state !== 'on');
+    setSeen(data.adsResults);
+    if (on.length) setPicked((p) => new Set([...p].filter((v) => !on.includes(v))));
+  }
   const chip = (kind: AdsPick, label: string) => <Button size="sm" className="h-auto min-h-8 py-1 whitespace-normal" onClick={() => setPicked(new Set(adsWhere(kind, scan.rows)))}>{label}</Button>;
   const ok = scan.rows.filter((r) => !r.ineligible).length;
   const go = () => {

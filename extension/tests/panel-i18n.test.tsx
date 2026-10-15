@@ -172,7 +172,7 @@ describe('the panel in Thai', () => {
     // the Copyright tab: the Studio-language warning, the card, the counts, the open log
     expect(root.textContent).toContain('Studio ตั้งเป็นภาษาไทยอยู่');
     expect(screen.getByText('พร้อม')).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'ลิขสิทธิ์ (2)', hidden: true })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'รายการ claim (2)', hidden: true })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'เพลง (3)', hidden: true })).toBeTruthy();
     expect(await screen.findByText(/สแกนเสร็จ ✓ ช่องฉัน/)).toBeTruthy();
     expect(root.textContent).toContain('2 เพลงเคยโดน claim'); // the queue card's chip, its tooltip one line per song
@@ -284,7 +284,7 @@ describe('the panel in Thai', () => {
     const tap = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name, hidden: true }).at(-1)!));
     const pane = () => root.querySelector('[role=tabpanel][id$=claims]')!;
     const tool = (name: string | RegExp) => act(async () => fireEvent.mouseDown(screen.getByRole('tab', { name, hidden: true })));
-    await vi.waitFor(() => expect((screen.getByRole('tab', { name: 'ลิขสิทธิ์ (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
+    await vi.waitFor(() => expect((screen.getByRole('tab', { name: 'รายการ claim (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
     await act(async () => {}); // the list's own storage reads
     expect(pane().textContent).toContain('8 claim ใน 7 คลิป (จากทั้งหมด 9)');
     expect(pane().textContent).toContain('1 รายการดูเหมือนเป็นเพลงของคุณเอง');
@@ -346,7 +346,7 @@ describe('the panel in Thai', () => {
     const tap = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name, hidden: true }).at(-1)!));
     const pane = () => root.querySelector('[role=tabpanel][id$=claims]')!;
     const tool = (name: string | RegExp) => act(async () => fireEvent.mouseDown(screen.getByRole('tab', { name, hidden: true })));
-    await vi.waitFor(() => expect((screen.getByRole('tab', { name: 'ลิขสิทธิ์ (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
+    await vi.waitFor(() => expect((screen.getByRole('tab', { name: 'รายการ claim (2)', hidden: true }) as HTMLButtonElement).disabled).toBe(false));
     await act(async () => {}); // the list's own storage reads
     await tap('✂ ตัดที่เลือก (2)');
     expect(dialog().textContent).toContain('ตัด 2 claim ใน 2 คลิป?');

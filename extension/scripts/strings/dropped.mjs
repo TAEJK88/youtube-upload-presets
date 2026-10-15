@@ -47,8 +47,6 @@ export default [
   { th: 'เปลี่ยนได้ที่ ⚙ ตั้งค่าลิขสิทธิ์ → "ตัดอัตโนมัติทั้งหมด"', en: 'Change this in ⚙ Copyright settings → "Fully automatic trim"', why: 'THAIB-1: the settings are the Tools tab\'s Options sub-tab; replaced in extension-only' },
   { th: 'โฆษณาปิดอยู่', en: 'Ads off', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Ads" / "Check for ads off")' },
   { th: 'โฆษณาปิดอยู่ (${})', en: 'Ads off (${})', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Ads (n)")' },
-  { th: 'รายการ claim', en: 'Claim list', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Claims")' },
-  { th: 'รายการ claim (${})', en: 'Claim list (${})', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Claims (n)")' },
   { th: 'เพลงที่เคยโดน (${})', en: 'Claimed songs (${})', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Songs (n)")' },
   { th: 'เพลงและศิลปินที่เคยโดน claim ทุกช่อง', en: 'Songs and artists that have been claimed across all channels', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab: that button\'s tooltip; the sub-tab opens the view, whose title says it' },
 ];

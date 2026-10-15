@@ -89,7 +89,7 @@ describe('panel views → page handlers → the background writer: payloads and 
   it('claims:trim starts a run of the ticked claims, and Stop ends it', async () => {
     await start({ [`claimScan:${CH}`]: { date, total: 2, channel: CH, channelName: 'Mine', rows: [row(1), row(2)] }, [`trimQueue:${CH}`]: ['v2:c2'] });
     const first = await panel();
-    await screen.findByRole('tab', { name: 'Claims (2)' });
+    await screen.findByRole('tab', { name: 'Claim list (2)' });
     fireEvent.click(await screen.findByRole('button', { name: '✂ Trim selected (1)' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Start trim' }));
     await vi.waitFor(() => expect(toTab).toHaveBeenCalledWith('claims:trim', ['v2:c2']));

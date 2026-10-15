@@ -39,7 +39,7 @@ describe('Tools tab, runs', () => {
   const openTrim = async (stored: Record<string, unknown> = {}, state: Partial<ClaimsState> = {}, api = fakePanel()) => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'trimQueue:UC1': ['v1:c1'], ...stored });
     renderPanel(<CopyrightTab />, api, undefined, fakeClaims({ state: claimsStateWith({ counts, ...state }) }));
-    await screen.findByRole('tab', { name: 'Claims (1)' });
+    await screen.findByRole('tab', { name: 'Claim list (1)' });
     return api;
   };
 
@@ -358,7 +358,7 @@ describe('Tools tab, an open view through a page load of the bound tab', () => {
   const openList = async () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scan, 'claimScan:UC2': { ...scan, channel: 'UC2', channelName: 'Other' } });
     const r = render(tabView(on('UC1')));
-    await screen.findByRole('tab', { name: 'Claims (1)' });
+    await screen.findByRole('tab', { name: 'Claim list (1)' });
     expect(await screen.findByText(/Copyright claims — Mine/)).toBeTruthy();
     return r;
   };
@@ -401,12 +401,23 @@ describe('Tools tab, an open view through a page load of the bound tab', () => {
     expect(tab(/Songs/).disabled).toBe(true);
     again.rerender(tabView(on('UC1'), 2)); // …and when it does, on the same channel, the tool is not reopened
     await ready();
-    expect(tab(/Claims/).getAttribute('data-state')).toBe('active');
+    expect(tab(/Claim list/).getAttribute('data-state')).toBe('active');
     cleanup();
     const third = await openSongs();
     third.rerender(tabView(null, null));
     expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
     expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true); // nothing kept from the old tab
+  });
+
+  // THAIB-1 review 2: as Scan claims, the Ads and Collab scans need the tab's script.
+  it('a tab without its script: the Ads and Collab scans are off too', async () => {
+    const { rerender } = render(tabView(on('UC1')));
+    await ready();
+    rerender(tabView(null, 1, 'noScript'));
+    fireEvent.mouseDown(tab(/Ads/));
+    expect((screen.getByRole('button', { name: /Check for ads off/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.mouseDown(tab(/Collab/));
+    expect((screen.getByRole('button', { name: /Read video list/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('on the tab itself, the card and the counts stay through the load', async () => {
@@ -415,11 +426,11 @@ describe('Tools tab, an open view through a page load of the bound tab', () => {
     await ready();
     rerender(tabView(null));
     expect(screen.getByText('Ready')).toBeTruthy();
-    expect(tab('Claims (1)')).toBeTruthy();
+    expect(tab('Claim list (1)')).toBeTruthy();
     expect(screen.getByRole('switch', { name: /Auto-pilot/ })).toBeTruthy();
     // the counts a page gives before it knows its channel are nobody's
     rerender(tabView(claimsStateWith({ channel: 'unknown', counts: { ...counts, claims: 7 } })));
-    expect(tab('Claims (1)')).toBeTruthy();
+    expect(tab('Claim list (1)')).toBeTruthy();
   });
 
   // The link says 'noScript' for a moment in a slow page load, and for good after the extension was

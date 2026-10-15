@@ -33,6 +33,14 @@ export function CollabView({ data, state, busy }: { data: ClaimsData; state: Cla
     setOf(scan.date);
     setPicked(new Set());
   }
+  // The list stays mounted after its run (a Tools sub-tab): a video the run just invited leaves the
+  // picks, so a second Invite does not go through it again; a failed one stays ticked to retry.
+  const [seen, setSeen] = useState(data.collabResults);
+  if (seen !== data.collabResults) {
+    const done = [...picked].filter((v) => data.collabResults[v]?.state === 'done' && seen[v]?.state !== 'done');
+    setSeen(data.collabResults);
+    if (done.length) setPicked((p) => new Set([...p].filter((v) => !done.includes(v))));
+  }
   // collabHandles was saved on every keystroke (5492); here a moment after the typing stops (a
   // write is a message to the background), and at once when the view closes before that, or the
   // side panel itself does (pagehide: no cleanup runs in a closing window).

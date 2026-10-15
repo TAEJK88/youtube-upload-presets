@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
@@ -129,17 +129,23 @@ export function CopyrightTab() {
   const ready = !!data && !!shown;
   // Only Claims shows without the channel's data: a tool picked before it went shows Claims meanwhile.
   const current = ready ? tool : 'claims';
-  const busy = !idle;
+  // …and while another Studio tab runs a copyright job (`live`): this tab would only refuse it.
+  const busy = !idle || !!live?.busyRun;
   // forceMount keeps Radix from unmounting an inactive panel; `hidden` takes it out of sight and of the accessibility tree.
   const pane = (k: ToolTab) => ({ value: k, forceMount: true as const, hidden: current !== k });
+  // A tool mounts the first time it shows, then stays: the hidden ones are not built (or re-rendered
+  // on every status push) before they are ever opened.
+  const [visited, setVisited] = useState<ReadonlySet<ToolTab>>(() => new Set(['claims']));
+  if (!visited.has(current)) setVisited(new Set([...visited, current]));
+  const once = (k: ToolTab, node: () => ReactNode) => (visited.has(k) || k === current ? node() : null);
   const scanButton = (what: 'ads' | 'collab', label: string, hint: string) => (
     <div className="flex flex-col gap-2">
       <div className="text-xs text-fg3">{hint}</div>
-      <Button variant="go" onClick={() => scan(what)} disabled={!idle}><Icon name="scan" size={16} />{label}</Button>
+      <Button variant="go" onClick={() => scan(what)} disabled={!idle || !here}><Icon name="scan" size={16} />{label}</Button>
     </div>
   );
   const tools: [ToolTab, string, string][] = [
-    ['claims', n?.hasScan ? L(`ลิขสิทธิ์ (${n.claims})`, `Claims (${n.claims})`) : L('ลิขสิทธิ์', 'Claims'), 'shield'],
+    ['claims', n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list'), 'shield'],
     ['songs', L(`เพลง (${n?.songs ?? stored.songs})`, `Songs (${n?.songs ?? stored.songs})`), 'music'],
     ['tracklist', L('แก้ tracklist', 'Fix tracklist'), 'note'],
     ['ads', n?.hasAdsScan ? L(`โฆษณา (${n.adsTodo})`, `Ads (${n.adsTodo})`) : L('โฆษณา', 'Ads'), 'paid'],
@@ -174,20 +180,20 @@ export function CopyrightTab() {
           {data && shown && <ClaimList key={ch} data={data} state={shown} busy={busy} onTracklist={tracklist} />}
         </TabsContent>
         {data && shown && <Fragment key={ch}>
-          <TabsContent {...pane('songs')}><Songs data={data} /></TabsContent>
+          <TabsContent {...pane('songs')}>{once('songs', () => <Songs data={data} />)}</TabsContent>
           <TabsContent {...pane('tracklist')}>
-            <TracklistFix data={data} videoId={videoId} from={from} onPick={tracklist} onClose={() => { setFrom(videoId); setVideoId(''); }} />
+            {once('tracklist', () => <TracklistFix data={data} videoId={videoId} from={from} onPick={tracklist} onClose={() => { setFrom(videoId); setVideoId(''); }} />)}
           </TabsContent>
           <TabsContent {...pane('ads')}>
-            {data.adsScan ? <AdsView data={data} state={shown} busy={busy} />
-              : scanButton('ads', L('เช็กคลิปที่ปิดโฆษณา', 'Check for ads off'), L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on'))}
+            {once('ads', () => (data.adsScan ? <AdsView data={data} state={shown} busy={busy} />
+              : scanButton('ads', L('เช็กคลิปที่ปิดโฆษณา', 'Check for ads off'), L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on'))))}
           </TabsContent>
           <TabsContent {...pane('collab')}>
-            {data.collabScan ? <CollabView data={data} state={shown} busy={busy} />
-              : scanButton('collab', L('อ่านรายการคลิป', 'Read video list'), L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators'))}
+            {once('collab', () => (data.collabScan ? <CollabView data={data} state={shown} busy={busy} />
+              : scanButton('collab', L('อ่านรายการคลิป', 'Read video list'), L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators'))))}
           </TabsContent>
           <TabsContent {...pane('settings')}>
-            <CopyrightSettings key={cancels} data={data} onCancel={() => setCancels((k) => k + 1)} />
+            {once('settings', () => <CopyrightSettings key={cancels} data={data} onCancel={() => setCancels((k) => k + 1)} />)}
           </TabsContent>
         </Fragment>}
       </Tabs>
