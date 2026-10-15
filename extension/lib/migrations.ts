@@ -48,6 +48,14 @@ export const MIGRATIONS: Migration[] = [
       if (c.ownNames === undefined) await save('cfg', { ...c, ownNames: 'THAIBEATS, EXMGE' });
     },
   },
+  { // 5: the side panel is docked, not see-through: the opacity setting goes (Phase 3)
+    async run() {
+      const s = await load<Record<string, unknown>>('settings', {});
+      if (!('glass' in s) && !('glassV2' in s)) return;
+      const { glass: _glass, glassV2: _glassV2, ...rest } = s;
+      await save('settings', rest);
+    },
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

@@ -19,7 +19,7 @@ const OLD_TRAPSOUL_TITLE = 'TrapSoul Mix | {artists} - Dark & Smokey R&B Playlis
 
 test('a fresh install skips every migration and just records the schema version', async () => {
   const { store, DEFAULT_PRESETS } = await migrate({});
-  assert.equal(store.schemaVersion, 4);
+  assert.equal(store.schemaVersion, 5);
   assert.equal(store.presets, undefined, 'nothing written: the defaults are already right');
   assert.equal(store.settings, undefined, 'a new user does not inherit the old producer name');
   assert.equal(store.cfg, undefined, 'a new user does not inherit the old label names');
@@ -28,7 +28,7 @@ test('a fresh install skips every migration and just records the schema version'
 
 test('an install from before the schema version runs every outstanding step', async () => {
   const { store, presets } = await migrate({ presets: [{ id: 'mine', label: 'Mine', title: '{name}' }] });
-  assert.equal(store.schemaVersion, 4);
+  assert.equal(store.schemaVersion, 5);
   assert.ok(presets.some((p) => p.id === 'playlist'), 'playlist preset added');
   assert.ok(presets.some((p) => p.id === 'trapsoul'), 'trapsoul preset added');
   assert.ok(presets.some((p) => p.id === 'mine'), 'the user preset survives');
@@ -53,7 +53,7 @@ test('an already-migrated install is left completely alone', async () => {
   const before = {
     presets: [{ id: 'mine', label: 'Mine', title: '{name}' }],
     activeId: 'mine',
-    schemaVersion: 4,
+    schemaVersion: 5,
     settings: { producer: 'Someone Else' },
   };
   const { store } = await migrate(before);

@@ -1,0 +1,117 @@
+import { PROTOCOL, sendMessage } from '../messages';
+import type { QueueView } from '../studio/queue-view';
+
+// Keeps the panel's copy of the bound tab's QueueView fresh: fetched at once when the panel
+// binds to a tab, then again (coalesced) whenever something pokes it — a queue:state
+// broadcast, a storage change, the minute timer. 'noScript': the tab has no live content
+// script (opened before the extension was installed or reloaded), or one of another build
+// (fetchView). A tab that is still
+// loading has none yet either: for a grace period after a bind or a load-complete a failed
+// fetch stays 'loading' and is retried. Any other failure is the handler's, not a missing
+// script: it goes to onError and never shows "reload this tab".
+export type LinkStatus = 'noTab' | 'loading' | 'ok' | 'noScript';
+
+// queue:view of a tab running this build. A tab loaded before the build was updated still
+// answers, in the shape of its own build: that is taken as no answer, so the panel asks for a
+// reload ('noScript') instead of rendering fields that are not there.
+export const fetchView = (tabId: number): Promise<QueueView> =>
+  sendMessage('queue:view', undefined, tabId).then((v) => {
+    if (v?.proto !== PROTOCOL) throw new Error('No response (another build)');
+    return v;
+  });
+
+export interface ViewSync {
+  bind(tabId: number | null): void;
+  loading(): void; // the tab started (re)loading: answers from before are dropped
+  loaded(): void; // the tab finished loading: fetch again, with a fresh grace period
+  poke(): void;
+  dispose(): void;
+}
+
+export function createViewSync(o: {
+  fetch(tabId: number): Promise<QueueView>;
+  onView(v: QueueView | null): void;
+  onStatus(s: LinkStatus): void;
+  onError?(e: unknown): void;
+  delayMs?: number;
+  graceMs?: number;
+  retryMs?: number;
+}): ViewSync {
+  let tabId: number | null = null;
+  let gen = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let status: LinkStatus = 'noTab';
+  let graceUntil = 0;
+  let lastError: string | null = null; // the handler error already reported, until a fetch succeeds
+  const grace = () => { graceUntil = Date.now() + (o.graceMs ?? 2000); };
+  const set = (s: LinkStatus) => {
+    if (s === status) return;
+    status = s;
+    o.onStatus(s);
+  };
+  const run = async () => {
+    timer = undefined;
+    if (tabId === null) return;
+    const g = gen;
+    try {
+      const v = await o.fetch(tabId);
+      if (g !== gen) return;
+      lastError = null;
+      set('ok');
+      o.onView(v);
+    } catch (e) {
+      if (g !== gen) return;
+      const msg = String((e as Error)?.message ?? e);
+      // No receiver, or a navigation tearing the tab down under the request: all "no script (yet)".
+      // "No response" is what @webext-core/messaging makes of every failed send to a tab (it never
+      // reads chrome.runtime.lastError there), so Chrome's own texts only come from elsewhere.
+      if (!/No response|Receiving end does not exist|Could not establish connection|message port closed before a response|No tab with id/i.test(msg)) {
+        if (msg !== lastError) {
+          lastError = msg;
+          console.error('[ytup] queue:view failed', e);
+          o.onError?.(e);
+        }
+      } else if (Date.now() < graceUntil) {
+        set('loading');
+        timer = setTimeout(() => void run(), o.retryMs ?? 300);
+      } else set('noScript');
+    }
+  };
+  return {
+    bind(id) {
+      gen++;
+      clearTimeout(timer);
+      timer = undefined;
+      tabId = id;
+      grace();
+      o.onView(null);
+      if (id === null) return set('noTab');
+      set('loading');
+      void run();
+    },
+    loading() {
+      if (tabId === null) return;
+      gen++;
+      clearTimeout(timer);
+      timer = undefined;
+      grace();
+      set('loading');
+    },
+    loaded() {
+      if (tabId === null) return;
+      grace();
+      clearTimeout(timer);
+      timer = setTimeout(() => void run(), o.delayMs ?? 120);
+    },
+    poke() {
+      if (tabId === null) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => void run(), o.delayMs ?? 120);
+    },
+    dispose() {
+      gen++;
+      clearTimeout(timer);
+      tabId = null;
+    },
+  };
+}

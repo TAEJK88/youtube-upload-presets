@@ -1,0 +1,125 @@
+/* source(none): classes come only from the @source paths below. Automatic detection
+   scanned the whole extension, tests/ and scripts/ too (ui-check's sub-12px fixtures). */
+@import 'tailwindcss' source(none);
+@import '@fontsource/ibm-plex-sans-thai/400.css';
+@import '@fontsource/ibm-plex-sans-thai/500.css';
+@import '@fontsource/ibm-plex-sans-thai/600.css';
+@import '@fontsource/ibm-plex-sans-thai/700.css';
+
+@source '../../components';
+@source '.';
+@source '../debug'; /* debug.html shares this stylesheet */
+@source '../allow'; /* so does allow.html */
+
+/* Two themes on <html data-theme> (theme.ts; dark when unset).
+   Dark, the default: the userscript drawer's look, the black theme + Design B glass (UI CSS
+   2950–3196). The docked panel is not see-through, so the glass background is its solid
+   colour (rgba(12,12,14,.82) over black).
+   The tokens after --popover replace colours the components used to hard-code for dark:
+   --tint is the overlay colour (white on dark, black on light) for tint/[alpha] washes,
+   --on-fg / --on-fg2 are text on an --fg filled surface (the go button, the selected tab),
+   --raised / --raised-line / --raised-shadow the dialog and toast box. */
+:root {
+  color-scheme: dark;
+  --bg: #0c0c0e;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface2: rgba(255, 255, 255, 0.09);
+  --line: rgba(255, 255, 255, 0.09);
+  --line2: rgba(255, 255, 255, 0.16);
+  --fg: #f4f4f5;
+  --fg2: #bcbcc4;
+  --fg3: #8a8a94;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --info: #93c5fd;
+  --muted: #66666e;
+  --popover: #151517;
+  --tint: #ffffff;
+  --on-fg: #0b0b0c;
+  --on-fg2: #55555c;
+  --fg-hover: #ffffff;
+  --fg-active: #d8d8dc;
+  --on-err: #0b0b0c;
+  --err-hover: #fca5a5;
+  --raised: #0f0f12;
+  --raised-line: rgba(255, 255, 255, 0.12);
+  --raised-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* Light: the userscript's base #ytp-root palette (2531–2536), with one deliberate deviation.
+   --fg3, --ok and --warn are one step darker than the userscript's (#8d8d9a, #16a34a,
+   #d97706), same hues, because they carry essential 12px text (warnings, the done status,
+   hints, why the go button is disabled). The userscript's values give 2.8–3.3:1 on the light
+   surfaces; these give 5.0:1 on white, 4.7:1 on --surface and 4.4:1 on --surface2 and on
+   the bg-warn/10 and bg-ok/[0.09] boxes. Dark keeps the userscript's values.
+   --err too (the userscript's #dc2626, hover #b91c1c): 12px error text (the copyright log, the
+   Studio-language warning, a card's message) had 4.2–4.3:1 on the log's tint and on its own
+   bg-err/[0.08] box. #b91c1c gives 6.5:1 on white, 6.0:1 on --surface and 5.6:1 or more on
+   --surface2, those boxes and the log; --err-hover moves one step darker with it.
+   It had no popover colour: white, with the --line2 border. --raised-shadow is its --shadow. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f7f7f9;
+  --surface2: #efeff3;
+  --line: #e4e4ea;
+  --line2: #d6d6de;
+  --fg: #111114;
+  --fg2: #5d5d6b;
+  --fg3: #6e6e7a;
+  --ok: #15803d;
+  --warn: #b45309;
+  --err: #b91c1c;
+  --info: #2563eb;
+  --muted: #9a9aa6;
+  --popover: #ffffff;
+  --tint: #000000;
+  --on-fg: #ffffff;
+  --on-fg2: #b4b4be;
+  --fg-hover: #000000;
+  --fg-active: #3a3a42;
+  --on-err: #ffffff;
+  --err-hover: #991b1b;
+  --raised: #ffffff;
+  --raised-line: var(--line2);
+  --raised-shadow: 0 24px 60px -12px rgba(15, 15, 25, 0.28), 0 2px 6px rgba(15, 15, 25, 0.06);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-fg: var(--fg);
+  --color-fg2: var(--fg2);
+  --color-fg3: var(--fg3);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+  --color-info: var(--info);
+  --color-muted: var(--muted);
+  --color-popover: var(--popover);
+  --color-tint: var(--tint);
+  --color-on-fg: var(--on-fg);
+  --color-on-fg2: var(--on-fg2);
+  --color-fg-hover: var(--fg-hover);
+  --color-fg-active: var(--fg-active);
+  --color-on-err: var(--on-err);
+  --color-err-hover: var(--err-hover);
+  --color-raised: var(--raised);
+  --color-raised-line: var(--raised-line);
+  --font-sans: 'IBM Plex Sans Thai', 'Leelawadee UI', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
+
+@layer base {
+  html, body { background: var(--bg); color: var(--fg); }
+  /* 12px is the smallest text anywhere (the drawer's rule); numbers keep their width */
+  body { margin: 0; font: 13.5px/1.5 var(--font-sans); -webkit-font-smoothing: antialiased; font-feature-settings: 'tnum' 1; }
+  input, select, textarea, button { font-family: inherit; }
+  ::placeholder { color: var(--fg3); opacity: 1; }
+  select option { background: var(--popover); color: var(--fg); }
+  :focus-visible { outline: 2px solid var(--fg2); outline-offset: 2px; }
+}

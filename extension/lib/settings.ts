@@ -1,8 +1,15 @@
 import { resolveLang, type Lang } from './i18n';
-import { load, save } from './storage';
+import { keepWindow } from './schedule-week';
+import { load } from './storage';
 
 // First clip goes out at `start`, each next one `every` hours/days later.
-export interface Schedule { on: boolean; start: string; every: number; unit: 'hour' | 'day' }
+// mode 'week' (lib/schedule-week.ts; absent = 'every'): perWeek videos a week instead, on varied
+// days, between `from` and `to` ("HH:MM"). `seed` picks the days and times, and the weeks are
+// counted from `anchor`, the start as the user last set it.
+export interface Schedule {
+  on: boolean; start: string; every: number; unit: 'hour' | 'day';
+  mode?: 'every' | 'week'; perWeek?: number; from?: string; to?: string; seed?: number; anchor?: string;
+}
 
 export interface Settings {
   autoApply: boolean; // manual single-file upload → fill in details
@@ -12,6 +19,8 @@ export interface Settings {
   thumbWaitMin: number; // max minutes to wait for the upload before setting the thumbnail
   intercept: boolean; // route multi-file picks in Studio's dialog into the queue
   delay: number; // seconds to pause between files
+  batch: number; // queue mode: after this many videos, wait until Studio has uploaded them; 0 = off
+  dailyLimit: number; // the user's own daily number for the warning before Start (an estimate); 0 = off
   pace: 'normal' | 'slow' | 'slower'; // stretches every wait (x1 / x1.6 / x2.5)
   year: string; // {year}; empty = this year
   confirmStart: boolean; // confirm the channel before starting the queue
@@ -24,10 +33,8 @@ export interface Settings {
   lockChannel: { id: string; name: string } | null; // only allow uploads to this channel
   autoAcceptInvite: boolean;
   quickActions: boolean; // buttons under Studio's title/description
-  glass: number; // panel opacity % (removed with the side panel in Phase 3)
   notify: boolean; // desktop notification + sound when the queue ends
   schedule: Schedule;
-  glassV2?: boolean;
   lang?: Lang;
 }
 
@@ -39,6 +46,8 @@ export const defaultSettings = (legacy: { autoApply?: boolean; autoNext?: boolea
   thumbWaitMin: 120,
   intercept: true,
   delay: 3,
+  batch: 15,
+  dailyLimit: 15,
   pace: 'slow',
   year: '',
   confirmStart: true,
@@ -51,34 +60,72 @@ export const defaultSettings = (legacy: { autoApply?: boolean; autoNext?: boolea
   lockChannel: null,
   autoAcceptInvite: true,
   quickActions: true,
-  glass: 82,
   notify: true,
   schedule: { on: false, start: '', every: 1, unit: 'day' },
 });
 
-export const saveSettings = (s: Settings) => save('settings', s);
+// What the userscript's settings object held: defaults (with the pre-settings
+// autoApply / autoNext keys) ← stored.
+export function mergeSettings(stored: Partial<Settings> | undefined, legacy: { autoApply?: boolean; autoNext?: boolean } = {}): Settings {
+  return Object.assign(defaultSettings(legacy), stored ?? {});
+}
 
+// batch and dailyLimit are whole numbers in a range, wherever they come from (a store patch, a
+// backup file). Only the ones the object has are touched.
+export const BATCH_MAX = 50;
+export const DAILY_LIMIT_MAX = 1000;
+export const wholeIn = (v: unknown, max: number) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
+export function cleanLimits<T extends object>(s: T): T {
+  const out = { ...s } as Record<string, unknown>;
+  if (Object.hasOwn(s, 'batch')) out.batch = wholeIn(out.batch, BATCH_MAX);
+  if (Object.hasOwn(s, 'dailyLimit')) out.dailyLimit = wholeIn(out.dailyLimit, DAILY_LIMIT_MAX);
+  return out as T;
+}
+
+// Read-only: the background stores the language once (store-writer ensureLang) and is the
+// only writer of settings (store:patch).
 export async function loadSettings(): Promise<Settings> {
   const [autoApply, autoNext, stored] = await Promise.all([
     load('autoApply', true),
     load('autoNext', false),
     load<Partial<Settings>>('settings', {}),
   ]);
-  const s = Object.assign(defaultSettings({ autoApply, autoNext }), stored);
-  let dirty = false;
-  // Design B: 72% looked washed out → new default 82%, moved once if still on the old default
-  if (!s.glassV2) {
-    if (s.glass === 72) s.glass = 82;
-    s.glassV2 = true;
-    dirty = true;
-  }
-  if (s.lang === undefined) {
-    // Same rule the userscript used: LANG was computed from storage at load, not from
-    // whatever language is currently active in this script instance.
-    const presetsExist = (await load('presets', undefined)) !== undefined;
-    s.lang = resolveLang(stored, presetsExist);
-    dirty = true;
-  }
-  if (dirty) await saveSettings(s);
+  const s = mergeSettings(stored, { autoApply, autoNext });
+  // Same rule the userscript used: LANG was computed from storage at load.
+  if (s.lang === undefined) s.lang = resolveLang(stored, (await load('presets', undefined)) !== undefined);
   return s;
+}
+
+// A change to settings as top-level keys; schedule is merged one level deeper, so the page
+// moving schedule.start and the panel switching schedule.on don't overwrite each other.
+export type SettingsPatch = Partial<Omit<Settings, 'schedule'>> & { schedule?: Partial<Schedule> };
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+export function settingsDiff(before: Settings, after: Settings): SettingsPatch {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(after) as (keyof Settings)[]) {
+    if (k === 'schedule') {
+      const s: Record<string, unknown> = {};
+      for (const [sk, v] of Object.entries(after.schedule)) if (!same((before.schedule as unknown as Record<string, unknown>)[sk], v)) s[sk] = v;
+      if (Object.keys(s).length) out.schedule = s;
+    } else if (!same(before[k], after[k])) out[k] = after[k];
+  }
+  return out as SettingsPatch;
+}
+
+export function applySettingsPatch(stored: Record<string, unknown>, patch: SettingsPatch): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...stored, ...patch };
+  if (patch.schedule) {
+    const was: Record<string, unknown> = { ...defaultSettings().schedule, ...(isObj(stored.schedule) ? stored.schedule : {}) };
+    const sch = { ...was, ...patch.schedule };
+    keepWindow(sch, was); // week mode's from–to, changed one end at a time
+    next.schedule = sch;
+  }
+  return next;
+}
+
+export function countersDiff(before: Record<string, number>, after: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(after).filter(([k, v]) => before[k] !== v));
 }

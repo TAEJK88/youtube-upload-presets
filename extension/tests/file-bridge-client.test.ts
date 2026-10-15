@@ -1,48 +1,278 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FILE_CH, type FileOps } from '../lib/file-bridge';
-import { mountFileBridge } from '../lib/file-bridge-client';
+import { createFileBridge } from '../lib/file-bridge-client';
 import { portEndpoint, rpcServe } from '../lib/rpc';
 
-// Minimal fake iframe + Document: records the load listener and the
-// MessagePort transferred via contentWindow.postMessage.
-function fakeDoc() {
-  let loadFn: (() => void) | undefined;
-  let posted: { msg: unknown; transfer?: Transferable[] } | undefined;
-  const frame = {
-    style: {} as Record<string, string>,
-    src: '',
-    addEventListener: (ev: string, fn: () => void) => { if (ev === 'load') loadFn = fn; },
-    contentWindow: {
-      postMessage: (msg: unknown, _origin: string, transfer?: Transferable[]) => { posted = { msg, transfer }; },
-    },
-  };
-  const doc = {
-    createElement: () => frame,
-    documentElement: { append: () => {} },
-  } as unknown as Document;
-  return { doc, fireLoad: () => loadFn?.(), port: () => posted?.transfer?.[0] as MessagePort | undefined };
+// A fake Document whose iframes record their load listener, the port handed over on
+// connect, and whether they are still attached.
+interface FakeFrame {
+  src: string;
+  style: Record<string, string>;
+  attached: boolean;
+  readonly isConnected: boolean;
+  load(): void;
+  port(): MessagePort | undefined;
+  remove(): void;
+  addEventListener(ev: string, fn: () => void): void;
+  contentWindow: { postMessage(msg: unknown, origin: string, transfer?: Transferable[]): void };
 }
 
-describe('mountFileBridge', () => {
-  it('rejects getFile with "bridge not ready" when the iframe never loads', async () => {
-    const { doc } = fakeDoc();
-    const bridge = mountFileBridge(doc, 30);
-    await expect(bridge.getFile('x')).rejects.toThrow('bridge not ready');
-  }, 1000);
+function fakeDoc() {
+  const frames: FakeFrame[] = [];
+  const doc = {
+    readyState: 'complete',
+    createElement: () => {
+      let onLoad: (() => void) | undefined;
+      let posted: Transferable[] | undefined;
+      const f: FakeFrame = {
+        src: '',
+        style: {},
+        attached: false,
+        get isConnected() { return this.attached; },
+        load: () => onLoad?.(),
+        port: () => posted?.[0] as MessagePort | undefined,
+        remove() { this.attached = false; },
+        addEventListener: (ev, fn) => { if (ev === 'load') onLoad = fn; },
+        contentWindow: { postMessage: (_m, _o, transfer) => { posted = transfer; } },
+      };
+      frames.push(f);
+      return f;
+    },
+    documentElement: { append: (f: FakeFrame) => { f.attached = true; } },
+  } as unknown as Document;
+  return { doc, frames };
+}
 
-  it('resolves getFile once the iframe loads and serves the request', async () => {
-    const { doc, fireLoad, port } = fakeDoc();
-    const bridge = mountFileBridge(doc, 30_000);
-    fireLoad();
-    const port2 = port();
-    if (!port2) throw new Error('no port transferred');
-    const stop = rpcServe<FileOps>(portEndpoint(port2), FILE_CH, {
-      getFile: async (id) => new File(['abc'], id + '.mp4'),
-    });
-    const file = await bridge.getFile('clip');
+const ports: MessagePort[] = [];
+// Serve getFile on a frame's port the way entrypoints/file-bridge/main.ts does.
+function serve(f: FakeFrame, getFile: FileOps['getFile'] = async (id) => new File(['abc'], id + '.mp4'), ack = true) {
+  const p = f.port();
+  if (!p) throw new Error('no port transferred');
+  ports.push(p);
+  if (ack) p.postMessage({ ch: FILE_CH, ack: true });
+  rpcServe<FileOps>(portEndpoint(p), FILE_CH, { getFile, hold: async (ids) => (held.push(...ids), ids.map(() => 'granted' as const)), release: async (ids) => void released.push(...ids) });
+}
+const held: string[] = [];
+const released: string[] = [];
+
+beforeEach(() => { vi.spyOn(console, 'info').mockImplementation(() => {}); });
+afterEach(() => { ports.splice(0).forEach((p) => p.close()); held.length = 0; released.length = 0; vi.restoreAllMocks(); });
+
+describe('createFileBridge', () => {
+  it('mounts nothing until the first file is needed', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    expect(frames).toHaveLength(0);
+    const got = bridge.getFile('clip');
+    expect(frames).toHaveLength(1);
+    frames[0]!.load();
+    serve(frames[0]!);
     // Node 22 clones File as Blob over MessagePort, so check content instead of .name
-    expect(await file.text()).toBe('abc');
-    stop();
-    port2.close();
+    expect(await (await got).text()).toBe('abc');
+    bridge.dispose();
+  });
+
+  it('hold: mounts the frame like a read, and tries one fresh frame when it is down', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 100);
+    const got = bridge.hold(['a', 'b']);
+    await new Promise((r) => setTimeout(r, 130)); // the first frame never loads
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await got).toEqual(['granted', 'granted']);
+    expect(held).toEqual(['a', 'b']);
+    bridge.dispose();
+  });
+
+  it('hold: a frame that connected but does not answer is replaced once, like for a read', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 100);
+    const got = bridge.hold(['a']);
+    frames[0]!.load();
+    const dead = frames[0]!.port()!;
+    ports.push(dead);
+    dead.postMessage({ ch: FILE_CH, ack: true }); // connected, then silent
+    await new Promise((r) => setTimeout(r, 130));
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await got).toEqual(['granted']);
+    bridge.dispose();
+  });
+
+  it('release: tells the frame that is there, and mounts none for it', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    bridge.release(['a']);
+    expect(frames).toHaveLength(0);
+    const got = bridge.getFile('b');
+    frames[0]!.load();
+    serve(frames[0]!);
+    await got;
+    bridge.release(['b']);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(released).toEqual(['b']);
+    bridge.dispose();
+    bridge.release(['c']);
+    expect(frames).toHaveLength(1);
+  });
+
+  it('tries one fresh frame, then rejects with "bridge not ready"', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    await expect(bridge.getFile('x')).rejects.toThrow('bridge not ready');
+    expect(frames).toHaveLength(2);
+    expect(frames[0]!.attached).toBe(false); // the dead one is removed
+    expect(frames[1]!.attached).toBe(true); // the last one stays, in case it loads late
+    bridge.dispose();
+  });
+
+  it('a frame that loads after the timeout still serves the next request', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    await expect(bridge.getFile('x')).rejects.toThrow('bridge not ready');
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await bridge.getFile('late')).text()).toBe('abc');
+    expect(frames).toHaveLength(2); // no third frame
+    bridge.dispose();
+  });
+
+  it('replaces a frame the page removed', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const first = bridge.getFile('a');
+    frames[0]!.load();
+    serve(frames[0]!);
+    await first;
+    frames[0]!.remove();
+    const second = bridge.getFile('b');
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await second).text()).toBe('abc');
+    bridge.dispose();
+  });
+
+  it('does not retry an answer from the bridge', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const got = bridge.getFile('gone');
+    frames[0]!.load();
+    serve(frames[0]!, async () => { throw new Error('missing'); });
+    await expect(got).rejects.toThrow('missing');
+    expect(frames).toHaveLength(1);
+    bridge.dispose();
+  });
+
+  it('logs what happened to each frame', async () => {
+    const { doc } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    await expect(bridge.getFile('x')).rejects.toThrow();
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^\[ytup\] file bridge: #1 mounted \(readyState complete, \+\d+ ms\)$/),
+      '[ytup] file bridge: #1 load timeout after 30 ms (in DOM: true)',
+      '[ytup] file bridge: #1 dropped (bridge not ready)',
+      expect.stringMatching(/^\[ytup\] file bridge: #2 mounted/),
+    ]));
+    bridge.dispose();
+  });
+
+  it('dispose is terminal: an in-flight call rejects and no new frame is mounted', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const got = bridge.getFile('x');
+    const assertion = expect(got).rejects.toThrow('bridge disposed');
+    bridge.dispose();
+    await assertion;
+    expect(frames).toHaveLength(1);
+  });
+
+  it('getFile after dispose rejects without mounting a frame', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    bridge.dispose();
+    await expect(bridge.getFile('x')).rejects.toThrow('bridge disposed');
+    expect(frames).toHaveLength(0);
+  });
+
+  it('logs the connect ack', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 1000);
+    const got = bridge.getFile('a');
+    frames[0]!.load();
+    serve(frames[0]!);
+    await got;
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^\[ytup\] file bridge: #1 connected \(ack after \d+ ms\)$/),
+    ]));
+    bridge.dispose();
+  });
+
+  it('a frame that loads but never acks is treated as not ready', async () => {
+    const { doc, frames } = fakeDoc();
+    const bridge = createFileBridge(doc, 30);
+    const got = bridge.getFile('a');
+    frames[0]!.load();
+    serve(frames[0]!, undefined, false);
+    await expect(got).rejects.toThrow('bridge not ready');
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toContain('[ytup] file bridge: #1 loaded but no ack — frame blocked?');
+    bridge.dispose();
+  });
+
+  it('logs and replaces a frame the MutationObserver sees removed, without waiting for the timeout', async () => {
+    const { doc, frames } = fakeDoc();
+    let fire: () => void = () => {};
+    class FakeMO {
+      constructor(cb: () => void) { fire = cb; }
+      observe() {}
+      disconnect() {}
+    }
+    const bridge = createFileBridge(doc, 60_000, { MutationObserver: FakeMO as unknown as typeof MutationObserver });
+    const got = bridge.getFile('a');
+    frames[0]!.load();
+    frames[0]!.remove(); // the page took it out before the bridge answered
+    fire();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(frames).toHaveLength(2);
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await got).text()).toBe('abc');
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^\[ytup\] file bridge: #1 removed from the DOM by the page \(\+\d+ ms after mount, readyState complete\)$/),
+    ]));
+    bridge.dispose();
+  });
+
+  it('drops a mount once: the observer closing it and the failing in-flight call do not log or clean up twice', async () => {
+    const { doc, frames } = fakeDoc();
+    let fire: () => void = () => {};
+    class FakeMO {
+      constructor(cb: () => void) { fire = cb; }
+      observe() {}
+      disconnect() {}
+    }
+    const bridge = createFileBridge(doc, 60_000, { MutationObserver: FakeMO as unknown as typeof MutationObserver });
+    const got = bridge.getFile('a');
+    const first = frames[0]!;
+    let removes = 0; // the bridge's own cleanup calls
+    const realRemove = first.remove.bind(first);
+    first.remove = () => { removes++; realRemove(); };
+    first.load();
+    first.attached = false; // the page took it out
+    fire(); // observer: close(#1)
+    await new Promise((r) => setTimeout(r, 0)); // the in-flight call fails with "bridge removed" and tries to close again
+    frames[1]!.load();
+    serve(frames[1]!);
+    expect(await (await got).text()).toBe('abc');
+    const lines = vi.mocked(console.info).mock.calls.map((c) => String(c[0]));
+    expect(lines.filter((l) => l.includes('#1 dropped'))).toHaveLength(1);
+    expect(removes).toBe(1);
+    bridge.dispose();
   });
 });

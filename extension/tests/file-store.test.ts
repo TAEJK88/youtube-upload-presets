@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { deleteHandle, getHandle, listIds, putHandle } from '../lib/file-store';
+import { deleteHandle, getHandle, getHandles, listIds, putHandle } from '../lib/file-store';
 
 // Real FileSystemFileHandles only exist in Chrome; a plain cloneable object
 // stands in for one here — the store only needs structured clone.
@@ -27,6 +27,19 @@ describe('file-store', () => {
     expect((await listIds()).sort()).toEqual(['a', 'b']);
     await deleteHandle('a');
     expect(await listIds()).toEqual(['b']);
+  });
+
+  it('reads many at once, in the order asked, with undefined for an unknown id', async () => {
+    await putHandle('a', fake('a.mp4'));
+    await putHandle('b', fake('b.mp4'));
+    expect((await getHandles(['b', 'nope', 'a'])).map((h) => h?.name)).toEqual(['b.mp4', undefined, 'a.mp4']);
+    expect(await getHandles([])).toEqual([]);
+    // One connection and one transaction, however many ids.
+    const opened = indexedDB.open.bind(indexedDB);
+    let opens = 0;
+    indexedDB.open = ((...a: Parameters<typeof opened>) => (opens++, opened(...a))) as typeof indexedDB.open;
+    await getHandles(['a', 'b', 'a', 'b']);
+    expect(opens).toBe(1);
   });
 
   it('overwrites an existing id', async () => {

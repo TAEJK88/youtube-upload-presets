@@ -1,4 +1,5 @@
 import { MAIN_CH, type MainOps } from '@/lib/main-ops';
+import { youtubei } from '@/lib/main-youtubei';
 import { rpcServe, windowEndpoint } from '@/lib/rpc';
 
 export default defineContentScript({
@@ -9,6 +10,7 @@ export default defineContentScript({
     const w = window as unknown as { ytcfg?: { get(k: string): unknown } };
     const handlers: MainOps = {
       getCfg: (keys) => Object.fromEntries(keys.map((k) => [k, w.ytcfg?.get(k)])),
+      youtubei: (path, body) => youtubei(path, body),
     };
     rpcServe(windowEndpoint(window, window.location.origin), MAIN_CH, handlers);
   },
