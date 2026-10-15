@@ -56,7 +56,7 @@ export default defineContentScript({
     if (ctx.isInvalid) return;
     const env = browserEnv(store, {
       setInterval: (fn, ms) => ctx.setInterval(fn, ms),
-      clearInterval,
+      clearInterval: (id) => clearInterval(id),
       setTimeout: (fn, ms) => ctx.setTimeout(fn, ms),
     });
     const sw = createChannelSwitch(env);
