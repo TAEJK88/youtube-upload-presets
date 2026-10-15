@@ -35,7 +35,8 @@ function watchInvite() {
   if (location.hostname === 'studio.youtube.com' && !inviteUrlNow()) return;
   inviteWatching = true;
   // "ไม่ได้เฝ้า" กับ "เฝ้าแล้วแต่ไม่เจอปุ่ม" หน้าตาเหมือนกันหมดจากข้างนอก — log ไว้ให้แยกออก
-  const say = (msg: string, ...rest: unknown[]) => console.info('[YT Upload Presets] invite: ' + msg, ...rest);
+  // "[ytup]" ส่งบรรทัดเหล่านี้เข้า debug log ด้วย (P5-invite-settle)
+  const say = (msg: string, ...rest: unknown[]) => console.info('[ytup] invite: ' + msg, ...rest);
   say('watching ' + location.pathname + location.search);
   const visible = (el: Element | null | undefined): el is Element => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
   const live = (b: HTMLElement & { disabled?: boolean }) => visible(b) && !b.disabled && b.getAttribute('aria-disabled') !== 'true';
@@ -75,6 +76,13 @@ function watchInvite() {
   let opened = 0;    // จำนวนแถวที่กดเปิด
   let idle = 0;      // รอบที่ไม่เจออะไรเลยติดต่อกัน
   let lastAction = 0;
+  // P5-invite-settle: บัตรคำเชิญและรายการขึ้นมาก่อนข้อมูลในนั้นจะโหลดเสร็จ กดทันทีที่เห็นแล้ว
+  // YouTube ขึ้นข้อผิดพลาด — สิ่งเดียวกัน (บัตรที่ข้อความไม่เปลี่ยนแล้ว) ต้องเห็นติดกันหลายรอบก่อนค่อยกด/ปิด
+  const SETTLE = 3;      // รอบ (วินาที) ที่แถวเดิมต้องนิ่งก่อนกดเปิด
+  const SETTLE_CARD = 5; // รอบที่บัตร Accept ต้องนิ่ง (ข้อความไม่เปลี่ยน) ก่อนกด
+  const SETTLE_DEAD = 8; // กล่องรายการที่ยังไม่มีแถวอาจแค่ยังโหลดอยู่ รอนานกว่าก่อนปิด
+  let seenKey = '';
+  let seenFor = 0;
   // 180 วิ: ลิงก์คำเชิญมักเด้งผ่านหน้าเลือกบัญชี/ล็อกอินก่อน หน้าจริงจึงมาช้ากว่า 60 วิเดิม
   const stop = () => { clearInterval(timer); inviteWatching = false; };
   const finish = () => {
@@ -112,11 +120,18 @@ function watchInvite() {
       else say('gave up — no collaboration request appeared in 180s (already accepted, or signed in as the wrong channel?)');
       return;
     }
+    const dead = deadList();
+    const b = acceptBtn();
+    const row = b ? null : requestRow();
+    // ข้อความในบัตรรวมอยู่ในคีย์ด้วย: ข้อมูลที่ยังทยอยโหลดเข้ามาจะเริ่มนับใหม่ทุกครั้ง
+    const key = dead ? 'dead' : b ? 'accept:' + normText((b.closest(SEL.inviteContainer) || document.body).textContent) : row ? 'row:' + rowTitle(row) : '';
+    if (key !== seenKey) { seenKey = key; seenFor = 0; }
+    seenFor++;
     if (Date.now() - lastAction < 2500) return; // ให้หน้าต่างเปิด/ปิดให้เสร็จก่อนค่อยทำต่อ
 
     // 0) ปิดกล่องรายการที่ค้าง/ว่างเปล่าก่อน ไม่งั้นมันจะบังบัตรคำเชิญที่อยู่ข้างหลัง
-    const dead = deadList();
     if (dead) {
+      if (seenFor < SETTLE_DEAD) return;
       const x = dead.querySelector<HTMLElement>(SEL.dialogClose);
       if (x) {
         lastAction = Date.now();
@@ -127,8 +142,8 @@ function watchInvite() {
     }
 
     // 1) หน้าต่างยอมรับเปิดอยู่ → กด Accept
-    const b = acceptBtn();
     if (b) {
+      if (seenFor < SETTLE_CARD) return;
       if (done >= MAX) return finish();
       done++;
       idle = 0;
@@ -139,8 +154,8 @@ function watchInvite() {
       return;
     }
     // 2) ยังอยู่ที่รายการ → กดรูปย่อของแถวแรกที่เหลือเพื่อเปิดหน้าต่างยอมรับ
-    const row = requestRow();
     if (row) {
+      if (seenFor < SETTLE) return;
       if (opened >= MAX) return finish();
       opened++;
       idle = 0;

@@ -806,8 +806,10 @@ The panel's own console: right-click inside the panel → Inspect.
 37. **Bridge after idle.** After item 9, wait 2 minutes and Start another clip: if the page had
     removed the frame, the console shows `[ytup] file bridge: #1 dropped (no longer in the
     DOM)`, `#2 mounted …`, `#2 connected …`, and the upload works.
-38. **Invite accept.** Open an "ACCEPT INVITATION" link from a collaboration email: `invite:
-    watching …`, `invite: opening request 1: …`, `invite: accepting request 1`, the link reopens
+38. **Invite accept.** Open an "ACCEPT INVITATION" link from a collaboration email: `[ytup] invite:
+    watching …`, `invite: opening request 1: …`, `invite: accepting request 1` (these lines are
+    also in the debug report's log), each only after the card or row has sat still for a few
+    seconds, with no YouTube error on the card; the link reopens
     for the next request until none remain, then "Invitation accepted" / "Accepted N
     collaboration requests". The side panel closes on www.youtube.com (**record** it). With
     Settings → **Auto-accept channel permission invites** off, reopening a link logs nothing

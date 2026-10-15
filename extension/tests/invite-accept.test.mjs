@@ -178,3 +178,26 @@ test('a request list with rows is never dismissed', () => {
   assert.notEqual(r.truth.closedDeadList, true);
   assert.deepEqual(r.truth.accepted, ['Video A', 'Video B']);
 });
+
+/* ---------- giving the page time to load (P5-invite-settle) ----------
+   Reported 2026-10-15: on accepting, "there is no time for the data to show up, so it
+   errors". The card and the request list appear before what is in them has loaded; the
+   userscript clicked on the first poll that saw them. */
+
+test('Accept waits until the card has loaded instead of clicking the moment it shows', () => {
+  const r = run({ titles: ['Only Video'], skipList: true, loadTicks: 4 });
+  assert.equal(r.truth.tooEarly, 0, 'no click on a card that is still loading');
+  assert.deepEqual(r.truth.accepted, ['Only Video']);
+});
+
+test('every request in the list is accepted when each card loads slowly', () => {
+  const r = run({ titles: ['Video A', 'Video B', 'Video C'], loadTicks: 4 }, 80);
+  assert.equal(r.truth.tooEarly, 0);
+  assert.deepEqual(r.truth.accepted, ['Video A', 'Video B', 'Video C']);
+});
+
+test('a request list still loading its rows is not closed as empty', () => {
+  const r = run({ titles: ['Video A', 'Video B'], loadTicks: 5 }, 60);
+  assert.notEqual(r.truth.closedDeadList, true, 'a list without rows yet may only be loading');
+  assert.deepEqual(r.truth.accepted, ['Video A', 'Video B']);
+});
