@@ -77,6 +77,14 @@ describe('queue card', () => {
     expect(vi.mocked(api.send).mock.calls).toEqual([['queue:retry', 'i0']]);
   });
 
+  // A card queued from a draft ticked in Studio has no file: "Upload again" could only fail.
+  it('Retry on a card queued from a draft goes on in the draft without asking', async () => {
+    const api = one({ status: 'error', draftId: 'abcdefghijk', fromDraft: true, msg: 'boom' });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })));
+    expect(screen.queryByText('This video is already in Studio')).toBe(null);
+    expect(vi.mocked(api.send).mock.calls).toEqual([['queue:resume', 'i0']]);
+  });
+
   it('Enter in that question resumes the draft: no second upload by default', async () => {
     const api = one({ status: 'error', draftId: 'abcdefghijk', msg: 'boom' });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry' })));

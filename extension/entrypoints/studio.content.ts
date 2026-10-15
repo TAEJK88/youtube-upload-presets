@@ -23,6 +23,7 @@ import { applyToOpenDialog, installManualFill } from '@/lib/studio/manual-fill';
 import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
 import { installQuickActions } from '@/lib/studio/quick-actions';
+import { installDraftApply } from '@/lib/studio/draft-select';
 import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
@@ -238,6 +239,7 @@ export default defineContentScript({
     stop.add(installIntercept());
     stop.add(installManualFill());
     stop.add(installQuickActions());
+    stop.add(installDraftApply());
     installTitleMark();
     stop.add(() => setTitleMark(''));
     stop.add(installUnloadGuard());

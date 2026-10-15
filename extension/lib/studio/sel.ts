@@ -32,6 +32,13 @@ export const SEL = {
   // (TXT.editDraft) that opens the same ytcp-uploads-dialog. The row is matched by the video id in
   // a link or a thumbnail address inside it (lib/studio/draft-retry.ts).
   contentRow: 'ytcp-video-row',
+  // Seen in the owner's Chrome on 2026-10-15 (Content → Videos, 6 drafts ticked): the bar Studio
+  // shows over the list while rows are ticked ("6 selected · Edit · Add to playlist · More actions"),
+  // a row's tick box (ticked: a `checked` attribute, and aria-checked "true" on its inner
+  // [role=checkbox]; the box itself has no aria-checked) and its title.
+  bulkActions: 'ytcp-bulk-actions',
+  rowCheckbox: 'ytcp-checkbox-lit',
+  rowTitle: '#video-title',
   // The X of the upload dialog itself, for a second try at closing it: closeDialogBtn above takes
   // the first visible match, which is the ytcp-button host and not the button inside it.
   closeDialogInner: '#ytcp-uploads-dialog-close-button button',

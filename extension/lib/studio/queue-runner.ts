@@ -61,8 +61,13 @@ export interface QueueItem {
   publishEdited?: boolean;
   publishFinal?: number;
   draftId?: string;
+  fromDraft?: boolean; // queued from a draft ticked in Studio's Content list: it has no file, only its draft
   videoId?: string;
 }
+
+// A draft ticked in Studio's Content list (lib/studio/draft-select.ts): its video id, its title
+// (Studio's, the uploaded file's name until it is changed) and its length in seconds (0 = unknown).
+export interface DraftRow { videoId: string; title: string; duration: number }
 
 // Scheduled videos already on the channel come from the copyright module's youtubei
 // calls (Phase 4). Until it sets these hooks the queue only avoids its own items — what
@@ -247,6 +252,30 @@ async function addFiles(fileList: Iterable<QFile>): Promise<void> {
   if (skipped) parts.push(L(`ข้าม ${skipped} ไฟล์`, `Skipped ${skipped} file(s)`));
   if (parts.length) ui.toast(parts.join(' · '));
   ui.queue();
+}
+
+// Drafts ticked in Studio's Content list, queued with the active preset: each goes the way a
+// resumed draft does (uploadOne() opens it and fills in the rest, never a file). Sorted by title
+// as files are by name (the order is the EP numbers and release times); one already in the queue
+// is not added twice. The title stands in for the file name ({name}, {filename}).
+function addDrafts(rows: DraftRow[]): number {
+  const inQueue = new Set(queue.filter((i) => i.status !== 'done' && i.draftId).map((i) => i.draftId));
+  const fresh = rows.filter((r) => !inQueue.has(r.videoId))
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }));
+  for (const r of fresh) {
+    queue.push({
+      id: crypto.randomUUID(), src: 'page', file: { name: r.title, size: 0, type: '' }, presetId: activeId, n: 0, title: '', titleEdited: false,
+      status: 'pending', msg: '', txt: '', txtName: '', thumb: null, duration: r.duration, durState: r.duration ? 'ok' : 'fail', draftId: r.videoId, fromDraft: true,
+    });
+  }
+  const dup = rows.length - fresh.length;
+  const parts = [
+    ...(fresh.length ? [L(`เพิ่มฉบับร่าง ${fresh.length} คลิปเข้าคิว`, `Added ${fresh.length} draft(s) to the queue`)] : []),
+    ...(dup ? [L(`มีในคิวแล้ว ${dup} คลิป`, `${dup} already in the queue`)] : []),
+  ];
+  if (parts.length) ui.toast(parts.join(' · '));
+  ui.queue();
+  return fresh.length;
 }
 
 // แจกเลข {n} ตามลำดับในคิว แยกตามพรีเซ็ต แล้วสร้างชื่อใหม่ให้คลิปที่ยังไม่ได้แก้ชื่อเอง
@@ -1025,7 +1054,7 @@ export async function startSummary(): Promise<StartSummary | { error: string }> 
 
 export {
   uploadProg, pollUploadProgress, queue, running, stopReq, uploadBusy, isVideo, isTxt, isImg, baseKey, readText,
-  saveMemo, restoreMemo, addFiles, assignNumbers, scheduleOn, stepMs, itemPublishAt, queueSlots, takenSlots,
+  saveMemo, restoreMemo, addFiles, addDrafts, assignNumbers, scheduleOn, stepMs, itemPublishAt, queueSlots, takenSlots,
   refreshChanSched, effectiveStart, startIsPast, scheduleProblem, fmtWhen, toLocalInput, itemVars, itemTracklist,
   setItem, uploadOne, dialogVideoId, getUploads, logUpload, uploadOf, uploadsCSV, downloadCSV, runQueue,
 };
