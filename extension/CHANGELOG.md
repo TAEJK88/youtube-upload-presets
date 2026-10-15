@@ -3,6 +3,22 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.0.3 — 2026-10-15
+
+A fix for accepting collaboration invites. To update, follow README, "Update"; the extension ID
+stays `cllefnlbgkbdnmifojjflfcpholhniio`, so presets, settings and history stay.
+
+- **Accepting an invite waits for YouTube to load it.** Before, Accept was pressed as soon as
+  the invite card showed, before its details had loaded, and YouTube showed an error. Now the
+  card must stay unchanged for about 5 seconds first, a request in the "Collaboration requests"
+  list is opened after about 3 seconds, and that list is closed as empty only after it has had
+  no rows for about 8 seconds (it may still be loading them).
+- **Several invites are accepted from one click on the link.** After each accept, YouTube
+  removes the inviting channel from the address, so the extension could not open the invite
+  link again for the next request, and the link had to be opened again by hand. It now
+  remembers the inviting channel from the start.
+- The invite steps (`[ytup] invite: …`) are now in the debug report's log.
+
 ## 5.0.2 — 2026-10-15
 
 Two more fixes for switching channels. To update, follow README, "Update"; the extension ID
