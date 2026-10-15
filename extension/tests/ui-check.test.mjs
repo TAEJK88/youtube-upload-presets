@@ -2,14 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { canary, check, extractPairs, pairKey, smallText, sourceFiles, userscriptPairs } from '../scripts/ui-check.mjs';
-
-const us = extractPairs([
-  "L('ตกลง', 'OK')",
-  'L(`ลบ ${n} รายการ`, `Delete ${n} items`)',
-  "L('ไฟล์\\'s', \"File's\")",
-  "L('ลาก', 'Drag')",
-].join('\n')).map((p) => ({ ...p, line: 3000 }));
+import { check, extractPairs, smallText, sourceFiles } from '../scripts/ui-check.mjs';
 
 describe('extractPairs', () => {
   it('reads both literals, any quote style, and blanks template expressions', () => {
@@ -31,42 +24,13 @@ describe('extractPairs', () => {
 describe('check', () => {
   const file = (text) => ({ path: 'entrypoints/sidepanel/X.tsx', text });
 
-  it('accepts userscript pairs whatever the expression inside ${}', () => {
-    expect(check({ files: [file('L(`ลบ ${count} รายการ`, `Delete ${count} items`)')], us, extOnly: [], dropped: [] })).toEqual([]);
-  });
-
-  it('flags a pair the userscript never had, unless it is listed with a reason', () => {
-    const f = [file("L('ใหม่', 'New thing')")];
-    expect(check({ files: f, us, extOnly: [], dropped: [] })).toEqual([
-      'entrypoints/sidepanel/X.tsx:1 not in the userscript: L("ใหม่", "New thing") — add it to scripts/strings/extension-only.mjs with a reason, or use the userscript\'s pair',
-    ]);
-    expect(check({ files: f, us, extOnly: [{ th: 'ใหม่', en: 'New thing', why: 'test' }], dropped: [] })).toEqual([]);
-  });
-
-  it('flags a listed pair nothing uses any more', () => {
-    expect(check({ files: [], us, extOnly: [{ th: 'ใหม่', en: 'New thing', why: 'test' }], dropped: [] })).toEqual([
-      'scripts/strings/extension-only.mjs lists a pair no source uses: L("ใหม่", "New thing")',
-    ]);
-  });
-
-  it('with coverage, every drawer pair is used or dropped with a reason', () => {
-    const files = [file("L('ตกลง', 'OK'); L('ไฟล์\\'s', \"File's\"); L(`ลบ ${x} รายการ`, `Delete ${x} items`)")];
-    expect(check({ coverage: true, files, us, extOnly: [], dropped: [] })).toEqual([
-      'userscript:3000 drawer pair not used in the extension: L("ลาก", "Drag") — use it, or add it to scripts/strings/dropped.mjs with a reason',
-    ]);
-    expect(check({ coverage: true, files, us, extOnly: [], dropped: [{ th: 'ลาก', en: 'Drag', why: 'test' }] })).toEqual([]);
-  });
-
   it('flags text below 12px', () => {
     expect(smallText('a { font: 600 11px system-ui } <b class="text-[10px] text-[12px]">').map((s) => s.px)).toEqual([11, 10]);
-    expect(check({ files: [file('<i className="text-[11px]" />')], us, extOnly: [], dropped: [] })).toEqual([
+    expect(check({ files: [file('<i className="text-[11px]" />')] })).toEqual([
       'entrypoints/sidepanel/X.tsx:1 text is 11px: the minimum is 12px',
     ]);
   });
 
-  it('pairKey is th and en joined', () => {
-    expect(pairKey({ th: 'a', en: 'b' })).toBe('a\u0000b');
-  });
 });
 
 // Holes a review found: each of these printed `ui-check: ok`.
@@ -81,7 +45,7 @@ describe('extractPairs is a parser, not a regex', () => {
     expect(extractPairs("x(/* L('ข', 'B') */ 1)")).toEqual([]);
   });
 
-  it('reads plain JS with regex literals and multi-line templates (the userscript)', () => {
+  it('reads plain JS with regex literals and multi-line templates (plain JS)', () => {
     expect(extractPairs("var r = /'/;\nvar t = L(`ก\n${a}`, `A\n${b}`); L('ง', 'D') // L('x', 'y')", 'u.js')).toEqual([
       { th: 'ก\n${}', en: 'A\n${}', line: 2 },
       { th: 'ง', en: 'D', line: 4 },
@@ -91,14 +55,14 @@ describe('extractPairs is a parser, not a regex', () => {
 
 describe('check: every L( call is two literals', () => {
   const file = (text, path = 'entrypoints/sidepanel/X.tsx') => ({ path, text });
-  const run = (text, more = {}) => check({ files: [file(text)], us, extOnly: [], dropped: [], ...more });
+  const run = (text, more = {}) => check({ files: [file(text)], ...more });
 
   it('flags concatenation, variables, ternaries and spaced calls', () => {
     expect(run("L('ก' + 'ข', 'A' + 'B')")).toEqual(["entrypoints/sidepanel/X.tsx:1 L() needs two string literals: L('ก' + 'ข', 'A' + 'B')"]);
     expect(run("\nL(msg, 'A')")).toEqual(["entrypoints/sidepanel/X.tsx:2 L() needs two string literals: L(msg, 'A')"]);
     expect(run("L(a ? 'ก' : 'ข', 'A')")).toEqual(["entrypoints/sidepanel/X.tsx:1 L() needs two string literals: L(a ? 'ก' : 'ข', 'A')"]);
     expect(run("L('ตกลง')")).toEqual(["entrypoints/sidepanel/X.tsx:1 L() needs two string literals: L('ตกลง')"]);
-    expect(run("L ('ใหม่', 'A')")[0]).toMatch(/^entrypoints\/sidepanel\/X\.tsx:1 not in the userscript: L\("ใหม่", "A"\)/);
+    expect(run("L ('ใหม่', 'A')")).toEqual([]); // spaced, still a direct call of two literals
   });
 
   it('accepts a dynamic call on the reviewed allowlist, and flags a stale entry', () => {
@@ -118,41 +82,14 @@ describe('check: every L( call is two literals', () => {
 
   it('does not count the definition of L in lib/i18n.ts or other identifiers', () => {
     const def = "export const L = (th: string, en: string): string => (current === 'en' ? en : th);\nURL(a, b); xL(c); x.Lx(); const o = { a: 1 };";
-    expect(check({ files: [file(def, 'lib/i18n.ts')], us, extOnly: [], dropped: [] })).toEqual([]);
+    expect(check({ files: [file(def, 'lib/i18n.ts')] })).toEqual([]);
     expect(run(def)).toEqual(["entrypoints/sidepanel/X.tsx:1 L is used other than as a direct call L('…', '…'): export const L = (th: string, en: string): string => (current === 'en' ? en : th);"]);
-  });
-
-  it('a pair only inside a block comment is not "used"', () => {
-    expect(run("x(/* L('ใหม่', 'New') */ 1)", { extOnly: [{ th: 'ใหม่', en: 'New', why: 't' }] })).toEqual([
-      'scripts/strings/extension-only.mjs lists a pair no source uses: L("ใหม่", "New")',
-    ]);
   });
 
   it('checks .js, .mjs and .jsx files too', () => {
     for (const path of ['lib/a.js', 'lib/a.mjs', 'lib/a.jsx']) {
-      expect(check({ files: [file('L(msg, "A")', path)], us, extOnly: [], dropped: [] })).toEqual([`${path}:1 L() needs two string literals: L(msg, "A")`]);
+      expect(check({ files: [file('L(msg, "A")', path)] })).toEqual([`${path}:1 L() needs two string literals: L(msg, "A")`]);
     }
-  });
-});
-
-describe('check: the allowlists are validated', () => {
-  const files = [{ path: 'lib/a.ts', text: "L('ใหม่', 'New'); L('ตกลง', 'OK')" }];
-  const run = (extOnly, dropped = []) => check({ files, us, extOnly, dropped });
-
-  it('extension-only entries need a reason, appear once, and are not userscript pairs', () => {
-    expect(run([{ th: 'ใหม่', en: 'New' }])).toEqual(['scripts/strings/extension-only.mjs: L("ใหม่", "New") needs a reason (why)']);
-    expect(run([{ th: 'ใหม่', en: 'New', why: '' }])).toEqual(['scripts/strings/extension-only.mjs: L("ใหม่", "New") needs a reason (why)']);
-    expect(run([{ th: 'ใหม่', en: 'New', why: 'a' }, { th: 'ใหม่', en: 'New', why: 'b' }])).toEqual(['scripts/strings/extension-only.mjs lists L("ใหม่", "New") twice']);
-    expect(run([{ th: 'ใหม่', en: 'New', why: 'a' }, { th: 'ตกลง', en: 'OK', why: 'b' }])).toEqual([
-      'scripts/strings/extension-only.mjs: L("ตกลง", "OK") is a userscript pair — remove it',
-    ]);
-  });
-
-  it('dropped entries need a reason, appear once, and are userscript pairs', () => {
-    const ok = [{ th: 'ใหม่', en: 'New', why: 'a' }];
-    expect(run(ok, [{ th: 'ลาก', en: 'Drag', why: ' ' }])).toEqual(['scripts/strings/dropped.mjs: L("ลาก", "Drag") needs a reason (why)']);
-    expect(run(ok, [{ th: 'ลาก', en: 'Drag', why: 'a' }, { th: 'ลาก', en: 'Drag', why: 'a' }])).toEqual(['scripts/strings/dropped.mjs lists L("ลาก", "Drag") twice']);
-    expect(run(ok, [{ th: 'ไม่มี', en: 'Nope', why: 'a' }])).toEqual(['scripts/strings/dropped.mjs: L("ไม่มี", "Nope") is not a userscript pair']);
   });
 });
 
@@ -200,7 +137,7 @@ describe('smallText: every way to set a font size', () => {
 });
 
 describe('check: sizes', () => {
-  const run = (files, sizes = []) => check({ files, us, extOnly: [], dropped: [], allow: { dynamicCalls: [], sizes } });
+  const run = (files, sizes = []) => check({ files, allow: { dynamicCalls: [], sizes } });
 
   it('reports file:line for rem and unverifiable sizes', () => {
     expect(run([{ path: 'entrypoints/sidepanel/a.css', text: '\n.a{font-size:0.7rem}\n.b{font-size:calc(1rem + 1px)}' }])).toEqual([
@@ -253,7 +190,7 @@ describe('sourceFiles', () => {
 
 // Round 2: holes a second review found; each of these printed `ui-check: ok`.
 describe('check: L is only ever called directly', () => {
-  const run = (text, path = 'entrypoints/sidepanel/X.tsx') => check({ files: [{ path, text }], us, extOnly: [], dropped: [] });
+  const run = (text, path = 'entrypoints/sidepanel/X.tsx') => check({ files: [{ path, text }] });
   const flagged = (text) => run(text).filter((e) => / L is used other than as a direct call /.test(e)).map((e) => e.split(' ')[0]);
 
   it('flags aliases, member access, tagged templates and indirect calls', () => {
@@ -290,16 +227,6 @@ describe('check: L is only ever called directly', () => {
   });
 });
 
-describe('the userscript canary', () => {
-  it('the pinned userscript yields 790 pairs, 725 unique', () => {
-    expect(canary(userscriptPairs())).toEqual([]);
-  });
-
-  it('fails loudly on any other count', () => {
-    expect(canary(us)).toEqual(['userscript canary: expected 790 L() pairs (725 unique) at the pinned commit, got 4 (4 unique) — the parser or the pin changed']);
-  });
-});
-
 describe('smallText: round 2', () => {
   const sizes = (t, name) => smallText(t, name).map((s) => [s.line, s.value, s.px]);
 
@@ -321,7 +248,7 @@ describe('smallText: round 2', () => {
     expect(sizes('/* font-size: 10px */ a{font-size:12px}\n/*\n.x { font: 9px x }\n*/', 'a.css')).toEqual([]);
     expect(sizes('<!-- <p style="font-size:9px"> --> <p style="font-size:9px">', 'a.html')).toEqual([[1, '9px', 9]]);
     expect(sizes("// fontSize: 10\nconst s = '// x'; /* font: 9px x */ const o = { fontSize: 11 }; // text-[8px]", 'a.ts')).toEqual([[2, '11', 11]]);
-    expect(check({ files: [{ path: 'lib/a.ts', text: '// fontSize: 10\n/** text-[9px] */\nconst a = 1;' }], us, extOnly: [], dropped: [] })).toEqual([]);
+    expect(check({ files: [{ path: 'lib/a.ts', text: '// fontSize: 10\n/** text-[9px] */\nconst a = 1;' }] })).toEqual([]);
   });
 
   it('only length-valued --text-* tokens are sizes', () => {
@@ -332,8 +259,8 @@ describe('smallText: round 2', () => {
 
 // Round 3: holes a third review found.
 describe('round 3: L through a namespace, a computed key or a dynamic import', () => {
-  const run = (text, path = 'entrypoints/sidepanel/X.tsx') => check({ files: [{ path, text }], us, extOnly: [], dropped: [] });
-  const flagged = (text, path) => run(text, path).filter((e) => !/ not in the userscript: /.test(e)).map((e) => e.split(' ')[0]);
+  const run = (text, path = 'entrypoints/sidepanel/X.tsx') => check({ files: [{ path, text }] });
+  const flagged = (text, path) => run(text, path).map((e) => e.split(' ')[0]);
   const at = 'entrypoints/sidepanel/X.tsx:2';
 
   it('flags a template-literal or computed key that names L', () => {
@@ -376,13 +303,13 @@ describe('round 3: L through a namespace, a computed key or a dynamic import', (
 
   it('parses .mts/.cts/.cjs files', () => {
     for (const path of ['lib/a.mts', 'lib/a.cts', 'lib/a.cjs']) {
-      expect(check({ files: [{ path, text: 'L(msg, "A")' }], us, extOnly: [], dropped: [] })).toEqual([`${path}:1 L() needs two string literals: L(msg, "A")`]);
+      expect(check({ files: [{ path, text: 'L(msg, "A")' }] })).toEqual([`${path}:1 L() needs two string literals: L(msg, "A")`]);
     }
   });
 
   it('normalises Windows path separators before comparing with lib/i18n.ts', () => {
     const def = 'export const L = (th: string, en: string): string => en;';
-    expect(check({ files: [{ path: 'lib\\i18n.ts', text: def }], us, extOnly: [], dropped: [] })).toEqual([]);
+    expect(check({ files: [{ path: 'lib\\i18n.ts', text: def }] })).toEqual([]);
     expect(flagged("const a = 1;\nimport * as I from './i18n'", 'lib\\x.ts')).toEqual(['lib\\x.ts:2']);
   });
 });
@@ -414,17 +341,5 @@ describe('round 3: comments in CSS and HTML are found by a tokenizer', () => {
     expect(px('<p title="<!--">x</p><p style="font-size:9px">y</p><p title="-->">z</p>', 'a.html')).toEqual([9]);
     expect(px("<p title='<!--'>x</p><p style=\"font-size:9px\">y</p><!-- <p style=\"font-size:8px\"> -->", 'a.svg')).toEqual([9]);
     expect(px('<style>a::before{content:"/*"} b{font-size:9px} /* c{font-size:8px} */</style>', 'a.html')).toEqual([9]);
-  });
-});
-
-describe('round 3: the canary hashes the pairs', () => {
-  it('fails when one pair changes but the counts do not', () => {
-    const pairs = userscriptPairs();
-    const counts = new Map();
-    for (const p of pairs) counts.set(pairKey(p), (counts.get(pairKey(p)) ?? 0) + 1);
-    const i = pairs.findIndex((p) => counts.get(pairKey(p)) === 1);
-    const changed = pairs.map((p, k) => (k === i ? { ...p, en: p.en + ' (changed)' } : p));
-    expect(canary(changed)).toHaveLength(1);
-    expect(canary(changed)[0]).toMatch(/^userscript canary: the 725 unique L\(\) pairs at the pinned commit hash to [0-9a-f]{64}, expected [0-9a-f]{64} — the parser or the pin changed$/);
   });
 });

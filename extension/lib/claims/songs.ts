@@ -3,7 +3,6 @@ import type { ClaimRow, SongEntry, Songs } from './types';
 
 export type SongRow = Pick<ClaimRow, 'song' | 'artists' | 'label' | 'claimant' | 'type' | 'videoId' | 'video' | 'impact'>;
 
-// @port-begin
   function recordSongs(db: Songs, rows: SongRow[], chName: string, now: string): number {
     let added = 0;
     for (const r of rows) {
@@ -75,6 +74,5 @@ export type SongRow = Pick<ClaimRow, 'song' | 'artists' | 'label' | 'claimant' |
     }
     return n;
   }
-// @port-end
 
 export { recordSongs, markSongTrimmed, importSongs };

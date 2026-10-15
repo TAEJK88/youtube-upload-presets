@@ -3,7 +3,6 @@ import type { ClaimScan, ClaimsCfg, Songs } from './types';
 // The userscript's copyright module (user.js 4592–6357), its pure parts: the side panel and
 // the Studio tab both use them.
 
-// @port-begin
   const DEFAULTS: ClaimsCfg = {
     autoSaveTrim: true, // ตอนสคริปต์ตัดเอง: กด Save → ติ๊ก "I acknowledge" → Confirm changes
     autoSaveManualTrim: false, // ตอนเปิดหน้าตัดเองด้วยมือ: ให้สคริปต์กด Save ให้ (ปิดไว้ จะได้ปรับเวลาก่อนได้)
@@ -79,7 +78,6 @@ import type { ClaimScan, ClaimsCfg, Songs } from './types';
     }
     return hits;
   }
-// @port-end
 
 // downloadCSV()'s text (user.js 2084–2085): a BOM, every cell quoted.
 export const csvText = (rows: unknown[][]): string =>

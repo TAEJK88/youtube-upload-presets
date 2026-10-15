@@ -1,11 +1,6 @@
-// Two promises the side panel rebuild makes, checked:
-// 1. Strings: every L('ไทย', 'English') pair the extension ships is one the userscript had at
-//    the pinned commit, or is listed in scripts/strings/extension-only.mjs with the reason it
-//    is new. With --coverage, every pair of the userscript's drawer UI (lines DRAWER) is used
-//    somewhere in the extension, or is listed in scripts/strings/dropped.mjs with the reason
-//    the panel no longer shows it. "Used" means some L() call in any shipping file has the
-//    pair, not that the panel shows it: page-side code (the FAB, page toasts) and code that
-//    never runs count too, and one use covers every drawer line with the same pair.
+// Two promises the side panel makes, checked:
+// 1. Strings: every L('ไทย', 'English') call in shipping code is two string literals, so every
+//    pair can be read (tests/panel-i18n.test.tsx renders them in Thai).
 // 2. No style in the extension sets text below 12px: CSS font-size / font shorthand in any unit,
 //    Tailwind text-[…] / font-[…] / text-(length:…) and --text-* theme tokens, inline JS and JSX
 //    fontSize (quoted keys and brackets too). Comments are ignored. Sizes it can't resolve (calc,
@@ -17,26 +12,19 @@
 // namespace (import * as / export * as), importing it dynamically (import(), require()) or
 // indexing one of its bindings with a computed key, so no string can reach the UI around the
 // check. A script with a syntax error fails. Scripts are parsed in process with @babel/parser
-// (TypeScript and JSX by extension; the userscript as plain JS), so comments and strings are
+// (TypeScript and JSX by extension, plain JS otherwise), so comments and strings are
 // never mistaken for calls. CSS and HTML comments are found by a small tokenizer that skips
 // strings, url() and attribute values.
 // Scanned: every top-level directory except node_modules, scripts, tests and dot-directories
 // (.output, .wxt…); below the top, node_modules and *.test.* files are skipped anywhere.
 //
-//   node scripts/ui-check.mjs [--coverage]
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+//   node scripts/ui-check.mjs
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, posix, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as babelParse } from '@babel/parser';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const PIN = 'd15ef87caaddb7a6d3187d2851b83a484c4bb9e7'; // userscript v4.27.1, as scripts/port-check.mjs
-export const DRAWER = [2428, 6356]; // "===== UI =====" through the copyright module (its pane and modals are the Copyright tab)
-// What the userscript at PIN yields, and the sha256 of its sorted unique pair keys (pairsHash);
-// anything else means the parser drifted.
-const US_PAIRS = { total: 790, unique: 725, sha256: 'c5530d297425bac68c55da196d8430ae84e2205183a0dc0db0c32a66a82094ff' };
 const SKIP_TOP = new Set(['node_modules', 'scripts', 'tests']); // and every dot-directory
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|css|html|svg)$/;
 const SCRIPT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
@@ -162,31 +150,6 @@ function lineFinder(text) {
 
 // The L('…', '…') pairs of one source; `name` picks the language (.tsx, .ts, .js…).
 export const extractPairs = (text, name = 'source.tsx') => parseCalls([{ path: name, text }]).get(name).pairs;
-
-export const pairKey = (p) => p.th + '\u0000' + p.en;
-const show = (p) => `L(${JSON.stringify(p.th)}, ${JSON.stringify(p.en)})`;
-
-export function userscriptPairs() {
-  const text = execFileSync('git', ['show', `${PIN}:youtube-upload-presets.user.js`], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 26 });
-  const res = parseCalls([{ path: 'userscript.js', text }]).get('userscript.js');
-  if (res.syntax.length) throw new Error(`ui-check: the userscript does not parse (line ${res.syntax[0].line}: ${res.syntax[0].message})`);
-  return res.pairs;
-}
-
-// sha256 of the sorted unique pair keys, one per line.
-export const pairsHash = (pairs) => createHash('sha256').update([...new Set(pairs.map(pairKey))].sort().join('\n')).digest('hex');
-
-// The userscript must yield exactly the pairs it always has; a parser change that loses, invents
-// or alters pairs would otherwise pass every check silently.
-export function canary(pairs) {
-  const unique = new Set(pairs.map(pairKey)).size;
-  if (pairs.length !== US_PAIRS.total || unique !== US_PAIRS.unique) {
-    return [`userscript canary: expected ${US_PAIRS.total} L() pairs (${US_PAIRS.unique} unique) at the pinned commit, got ${pairs.length} (${unique} unique) — the parser or the pin changed`];
-  }
-  const hash = pairsHash(pairs);
-  if (hash === US_PAIRS.sha256) return [];
-  return [`userscript canary: the ${unique} unique L() pairs at the pinned commit hash to ${hash}, expected ${US_PAIRS.sha256} — the parser or the pin changed`];
-}
 
 const walkDir = (d) => readdirSync(d).flatMap((f) => {
   const p = join(d, f);
@@ -369,25 +332,8 @@ export function smallText(text, name) {
 
 const noReason = (e) => typeof e.why !== 'string' || !e.why.trim();
 
-export function check({ coverage = false, files, us, extOnly, dropped, allow = { dynamicCalls: [], sizes: [] } }) {
+export function check({ files, allow = { dynamicCalls: [], sizes: [] } }) {
   const errors = [];
-  const known = new Set(us.map(pairKey));
-  const listed = new Set(extOnly.map(pairKey));
-  const used = new Set();
-
-  // The lists themselves: a reason each, no repeats; extension-only pairs are new, dropped ones are old.
-  const validate = (list, name, isUs) => {
-    const seen = new Set();
-    for (const p of list) {
-      if (noReason(p)) errors.push(`scripts/strings/${name}: ${show(p)} needs a reason (why)`);
-      if (seen.has(pairKey(p))) errors.push(`scripts/strings/${name} lists ${show(p)} twice`);
-      seen.add(pairKey(p));
-      if (isUs && known.has(pairKey(p))) errors.push(`scripts/strings/${name}: ${show(p)} is a userscript pair — remove it`);
-      if (!isUs && !known.has(pairKey(p))) errors.push(`scripts/strings/${name}: ${show(p)} is not a userscript pair`);
-    }
-  };
-  validate(extOnly, 'extension-only.mjs', true);
-  validate(dropped, 'dropped.mjs', false);
   const norm = (s) => s.replace(/\s+/g, ' ').trim();
   for (const e of allow.dynamicCalls) if (noReason(e)) errors.push(`scripts/ui-allow.mjs dynamicCalls entry needs a reason (why): ${e.file}:${e.line} ${e.call}`);
   for (const e of allow.sizes) if (noReason(e)) errors.push(`scripts/ui-allow.mjs sizes entry needs a reason (why): ${e.file}:${e.line} ${e.value}`);
@@ -404,12 +350,6 @@ export function check({ coverage = false, files, us, extOnly, dropped, allow = {
     if (c) {
       for (const e of c.syntax) errors.push(`${f.path}:${e.line} syntax error: ${e.message}`);
       for (const r of c.refs) errors.push(`${f.path}:${r.line} ${r.why}: ${r.text}`);
-      for (const p of c.pairs) {
-        used.add(pairKey(p));
-        if (!known.has(pairKey(p)) && !listed.has(pairKey(p))) {
-          errors.push(`${f.path}:${p.line} not in the userscript: ${show(p)} — add it to scripts/strings/extension-only.mjs with a reason, or use the userscript's pair`);
-        }
-      }
       for (const d of c.dynamic) {
         const ok = allow.dynamicCalls.find((e) => e.file === f.path && e.line === d.line && norm(e.call) === d.text);
         if (ok) usedAllow.add(ok);
@@ -439,33 +379,14 @@ export function check({ coverage = false, files, us, extOnly, dropped, allow = {
       ? `scripts/ui-allow.mjs dynamicCalls lists a call no source has: ${e.file}:${e.line} ${e.call}`
       : `scripts/ui-allow.mjs sizes lists a size no source has: ${e.file}:${e.line} ${e.value}`);
   }
-  for (const p of extOnly) if (!used.has(pairKey(p))) errors.push(`scripts/strings/extension-only.mjs lists a pair no source uses: ${show(p)}`);
-  if (coverage) {
-    const gone = new Set(dropped.map(pairKey));
-    const seen = new Set();
-    for (const p of us) {
-      if (p.line < DRAWER[0] || p.line > DRAWER[1] || seen.has(pairKey(p))) continue;
-      seen.add(pairKey(p));
-      if (!used.has(pairKey(p)) && !gone.has(pairKey(p))) {
-        errors.push(`userscript:${p.line} drawer pair not used in the extension: ${show(p)} — use it, or add it to scripts/strings/dropped.mjs with a reason`);
-      }
-    }
-    for (const p of dropped) if (used.has(pairKey(p))) errors.push(`scripts/strings/dropped.mjs lists a pair the extension uses: ${show(p)}`);
-  }
   return errors;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  const load = async (name) => (await import(pathToFileURL(join(ROOT, 'scripts/strings', name)).href)).default;
-  const us = userscriptPairs();
-  const errors = [...canary(us), ...check({
-    coverage: process.argv.includes('--coverage'),
+  const errors = check({
     files: sourceFiles(),
-    us,
-    extOnly: await load('extension-only.mjs'),
-    dropped: await load('dropped.mjs'),
     allow: (await import(pathToFileURL(join(ROOT, 'scripts/ui-allow.mjs')).href)).default,
-  })];
+  });
   for (const e of errors) console.error(e);
   console.log(errors.length ? `ui-check: ${errors.length} problem(s)` : 'ui-check: ok');
   process.exit(errors.length ? 1 : 0);

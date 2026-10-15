@@ -11,7 +11,7 @@ Install once per machine; the per-repo steps run once per clone.
 | **Matt Pocock's engineering skills** | `docs/agents/` is their per-repo config: `triage`, `grill-with-docs`, `improve-codebase-architecture`, `tdd` | `npx skills add mattpocock/skills` |
 | **superpowers** plugin | The specs and plans in `docs/superpowers/` are written and executed with it (`brainstorming`, `writing-plans`, `subagent-driven-development`) | in Claude Code: `/plugin install superpowers@claude-plugins-official` |
 | **GitHub CLI** (`gh`) | Issues are the tracker (`docs/agents/issue-tracker.md`); releases are published with it | `brew install gh` then `gh auth login` |
-| **Node 22** + npm | The extension builds with WXT; the userscript tests run on `node --test` | `brew install node@22` |
+| **Node 22** + npm | The extension builds with WXT | `brew install node@22` |
 
 ## Recommended
 
@@ -34,8 +34,7 @@ graphify hook install         # keeps the graph current after commits
 cd extension && npm ci        # the extension's dependencies
 ```
 
-Check the setup: `node --test test/*.test.mjs` (userscript) and `cd extension && npm run check`
-(extension) both pass on `main`.
+Check the setup: `cd extension && npm run check` passes on `main`.
 
 ## Releasing the extension
 

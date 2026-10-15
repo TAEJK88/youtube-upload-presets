@@ -19,7 +19,6 @@ export interface SwitchEnv {
   setValue: (key: string, value: unknown) => void;
 }
 
-// @port-begin
 // ===== สลับช่องให้อัตโนมัติ =====
 // เข้า studio.youtube.com/channel/<id> ตรง ๆ ไม่ได้ถ้าช่องนั้นไม่ใช่ช่องที่ session
 // กำลังใช้อยู่ — YouTube จะขึ้น "Oops, you don't have permission to view this page"
@@ -30,11 +29,9 @@ export const SWITCH_KEY = 'pendingChannelSwitch';
 export const SWITCHED_KEY = 'channelSwitchedAt';
 export const ACCEPT_ROUND_KEY = 'inviteAcceptRound'; // นับรอบการเปิดลิงก์คำเชิญซ้ำเพื่อรับคลิปถัดไป
 export const SWITCH_TTL = 180000;
-// @port-end
 
 export function createChannelSwitch(env: SwitchEnv) {
   const { document, location, setInterval, clearInterval, console, getValue, setValue } = env;
-  // @port-begin
 const pendingSwitch = () => {
   const p = getValue<PendingSwitch | null>(SWITCH_KEY, null);
   return p && Date.now() - (p.at || 0) < SWITCH_TTL ? p : null;
@@ -123,6 +120,5 @@ function recoverAfterSwitch() {
     location.href = clean;
   }, 500);
 }
-  // @port-end
   return { pendingSwitch, clearSwitch, switchToChannel, watchChannelSwitcher, recoverAfterSwitch };
 }

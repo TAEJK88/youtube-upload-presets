@@ -1,5 +1,4 @@
 // The userscript's DOM helpers, used by the in-page UI (quick actions, toast).
-// @port-begin
 // Studio ใช้ Trusted Types จึงสร้าง DOM ด้วย createElement แทน innerHTML
 function h(tag: string, props: Record<string, any> = {}, ...kids: any[]): HTMLElement {
   const el = document.createElement(tag) as HTMLElement & Record<string, unknown>;
@@ -86,6 +85,5 @@ function icon(name: string, size = 16) {
   svg.append(path);
   return svg;
 }
-// @port-end
 
 export { h, icon, ICONS };

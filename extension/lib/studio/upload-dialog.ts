@@ -6,7 +6,6 @@ import { SEL } from './sel';
 import { settings } from './state';
 import { TXT } from './txt';
 
-// @port-begin
 let injectingFile = false; // ระหว่างที่สคริปต์ส่งไฟล์ให้ Studio เอง
 // อัปภาพปก (Studio ต.ค. 2026: ส่วน "Thumbnail" มีกล่อง "Upload file" / "Select from video" / "A/B Testing")
 // วิธีที่ 1: ใส่ภาพลงช่องเลือกไฟล์ที่ไม่ใช่ช่องวิดีโอ  วิธีที่ 2: จำลองการลากภาพมาวางบนกล่อง "Upload file"
@@ -330,7 +329,6 @@ function uploadProgressText() {
   const el = dlg?.querySelector(SEL.uploadProgress) || dlg?.querySelector(SEL.uploadProgressFallback);
   return el ? (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '';
 }
-// @port-end
 
 export {
   injectingFile, thumbUnusable, setThumbnail, handleMonetisation, handleAdSuitability, goToVisibility, ackNoticeDialogs,

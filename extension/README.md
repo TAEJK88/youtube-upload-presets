@@ -1,8 +1,8 @@
 # YouTube Upload Presets — Chrome extension
 
-Replaces the Tampermonkey userscript in the repo root. Design:
-`docs/superpowers/specs/2026-10-05-chrome-extension-design.md`. Every difference from the
-userscript, row by row: `PARITY.md`. What each version brought: `CHANGELOG.md`.
+Replaces the Tampermonkey userscript (no longer developed; its last version, 4.28.0, is in the
+git history). Design: `docs/superpowers/specs/2026-10-05-chrome-extension-design.md`. What each
+version brought: `CHANGELOG.md`.
 
 For the team: "Install", "Update" and "Moving from the userscript" below.
 ภาษาไทย: ดูหัวข้อ "สำหรับทีม (ภาษาไทย)" ถัดลงไป
@@ -335,26 +335,16 @@ Turning the script off is the fix for all of these.
 cd extension
 npm install
 npm run dev      # builds, opens Chrome with the extension, reloads on change
-npm run check    # tsc + vitest + port-check + ui-check --coverage + parity-check — run before every commit
+npm run check    # tsc + vitest + ui-check — run before every commit
 npm run build    # .output/chrome-mv3 → chrome://extensions → Load unpacked
-npm run parity -- --write     # writes PARITY.md from scripts/parity/rows/ (never edit it by hand)
-npm run parity -- --release   # no `missing` row, PARITY.md fresh; prints every changed and dropped row
 npm run release:check         # on a clean tree: builds, zips, inspects (see "Release check")
 ```
-
-Ported code is checked against the userscript at the pinned commit (v4.27.1, `d15ef87`):
-`npm run port-check` (configs in `scripts/port/`; `node scripts/port-check.mjs --print <name>`
-prints the code a port starts from).
 
 The side panel (`entrypoints/sidepanel/`, React + Tailwind v4 + `components/ui/`) talks to the
 Studio tab active in its window: it asks for a `QueueView` and sends `queue:*` messages; it
 never touches Studio's DOM. Logic the panel needs lives in `lib/panel/` (unit-tested).
-`npm run ui-check` proves every shipped UI string is one of the userscript's `L()` pairs (or
-is listed with a reason in `scripts/strings/extension-only.mjs`) and that no text is below 12px;
-with `--coverage` (as in `npm run check`), also that every pair of the userscript's drawer and
-copyright module is used by some `L()` call in the extension's shipping code or listed with a reason in
-`scripts/strings/dropped.mjs`. "Used" is not "shown in the panel": a pair kept alive only by
-page-side code (the FAB, page toasts) or by dead code passes too.
+`npm run ui-check` proves every `L()` call in shipping code is two string literals and that no
+text is below 12px.
 `tests/panel-i18n.test.tsx` renders the whole panel (every tab, card state, question and banner),
 the FAB and the reload banner in Thai, and fails on any English pair and on any Latin word
 outside its short, commented allowlist and the presets' own text (whole pieces of a label,
@@ -367,11 +357,11 @@ Console lines from the extension start with `[ytup]`.
 
 - `entrypoints/` — background, content scripts (`studio.content.ts` isolated, `studio-main.content.ts` MAIN world), side panel, file-bridge iframe
 - `lib/` — logic ported from the userscript; pure modules are unit-tested
-- `lib/studio/` — page automation ported from the userscript (`port-check` keeps it honest);
+- `lib/studio/` — page automation ported from the userscript;
   `page-ui.ts` is the seam between the runner and any UI
 - `entrypoints/invite.content.ts` — www.youtube.com: channel switcher and invite accept
 - `lib/studio/txt.ts`, `lib/studio/sel.ts` — the `TXT` / `SEL` tables (see the root README)
-- `lib/claims/` — the copyright module ported from the userscript (`claims.ts`, port-checked); its
+- `lib/claims/` — the copyright module ported from the userscript (`claims.ts`); its
   data: per-channel keys, one writer (`claims:op` in the background)
 - `lib/claims/alarms.ts` — Auto-pilot's alarms in the background (one per channel at its next
   cycle) and the "Auto-pilot is due" notification
@@ -380,10 +370,7 @@ Console lines from the extension start with `[ytup]`.
 - `entrypoints/allow/`, `lib/file-allow.ts` — the "Allow file access" page (`allow.html`, opened
   in a tab): asks Chrome for read access to the stored files where Chrome can offer "Allow on
   every visit"
-- `scripts/ui-check.mjs`, `scripts/strings/` — strings parity with the userscript, 12px floor
-- `scripts/parity-check.mjs`, `scripts/parity/rows/` — one row per thing the userscript had: where
-  it lives here and what proves it, or why it changed or went; `PARITY.md` is generated from
-  the rows, and `scripts/parity/DECISIONS.md` holds the owner's decisions the rows cite
+- `scripts/ui-check.mjs` — `L()` calls are literals, 12px floor
 - `scripts/release-check.mjs` — what must be true of the zip the team installs
 - `lib/update-check.ts` — the daily look at GitHub's latest release (background) and the
   panel's "Update available" banner
@@ -392,7 +379,7 @@ Console lines from the extension start with `[ytup]`.
   click, a pick in Studio's dialog)
 - `lib/backup.ts` — export and import, the userscript's move file included
 - `CHANGELOG.md` — one section per released version
-- `tests/*.test.mjs` — tests ported from `../test/` (bodies unchanged); `tests/*.test.ts` — new tests
+- `tests/*.test.mjs` — tests ported from the userscript's tests; `tests/*.test.ts` — new tests
 
 ## Release check
 
@@ -400,8 +387,7 @@ Console lines from the extension start with `[ytup]`.
 uncommitted, untracked or git-ignored files under `extension/` (`node_modules`, `.output`,
 `.wxt` and two tools' folders aside), a manifest that differs from the one written out in
 the script, a file in the build that is not expected there, a dependency missing from
-`public/THIRD-PARTY-NOTICES.txt`, a `CHANGELOG.md` without a `## <version> ` heading, a
-`missing` parity row and a stale `PARITY.md`. It expects a manifest `key` only when
+`public/THIRD-PARTY-NOTICES.txt` and a `CHANGELOG.md` without a `## <version> ` heading. It expects a manifest `key` only when
 `wxt.config.ts` has a `key:` line, and `icons` only when `public/icon/{16,32,48,128}.png`
 all exist.
 
@@ -1321,10 +1307,7 @@ observation.
     toast "This script has moved to a Chrome extension — …" appears a few seconds after Studio
     loads with an empty queue, once a day, and not while the queue holds videos; everything
     else in the script works as before (upload one clip).
-81. **Read the differences (gate).** Run `npm run parity -- --release` (or ask for its output):
-    it lists every row that is *changed* or *dropped* on purpose, each with its reason. Read the
-    whole list. The release waits until you have said, in your own words, that you read it and
-    accept it; anything you do not accept goes back to the controller as a `missing` row.
+81. *(Removed with the userscript: there is no parity list to read any more.)*
 82. **Which tab the panel shows.** The round Studio button, the "queue finished" notification
     and a pick in Studio's own dialog each ask the panel for a tab.
     - **The button, panel closed.** During an upload run, close the panel and click the round

@@ -1,4 +1,3 @@
-// @port-begin
 function beep(ok = true) {
   try {
     const ctx = new AudioContext();
@@ -26,16 +25,13 @@ function setTitleMark(mark: string) {
   const next = mark ? `${mark} ${base}` : base;
   if (document.title !== next) document.title = next;
 }
-// @port-end
 
 export function installTitleMark(): void {
-  // @port-begin
 // Studio เปลี่ยนชื่อแท็บเองตอนเปลี่ยนหน้า -> ใส่เครื่องหมายกลับเข้าไป
 setInterval(() => { if (titleMark && !document.title.startsWith(titleMark)) setTitleMark(titleMark); }, 1500);
 // ✅/⚠️ หลังคิวจบ แสดงไว้จนกว่าจะกลับมาดูแท็บนี้
 const clearDoneMark = () => { if (titleMark && !titleMark.startsWith('(') && document.visibilityState === 'visible' && document.hasFocus()) setTitleMark(''); };
 window.addEventListener('focus', () => setTimeout(clearDoneMark, 1500));
-  // @port-end
 }
 
 export { beep, setTitleMark };

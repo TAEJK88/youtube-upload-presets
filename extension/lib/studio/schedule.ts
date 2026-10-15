@@ -16,7 +16,6 @@ function calendarNote(trigger: HTMLElement): string {
   return hiddenTabNote();
 }
 
-// @port-begin
 // ----- ตั้งเวลาปล่อย -----
 const studioLang = () => document.documentElement.lang || navigator.language || 'en';
 
@@ -141,6 +140,5 @@ async function setSchedule(date: Date) {
   }
   return '';
 }
-// @port-end
 
 export { studioLang, typeInto, formatStudioDate, formatStudioTime, parseClock, setSchedule };

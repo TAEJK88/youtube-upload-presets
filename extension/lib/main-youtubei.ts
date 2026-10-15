@@ -8,7 +8,6 @@ const W = globalThis as any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ycfg = (k: string): any => W.ytcfg && W.ytcfg.get(k);
 
-// @port-begin
   async function authHeader(): Promise<string> {
     const m = document.cookie.match(/(?:^|; )(?:SAPISID|__Secure-3PAPISID)=([^;]+)/);
     if (!m) throw new Error(NO_SAPISID);
@@ -37,7 +36,6 @@ const ycfg = (k: string): any => W.ytcfg && W.ytcfg.get(k);
     if (!res.ok) throw new Error(`${path}: ${res.status} ${(j.error && j.error.message) || ''}`);
     return j;
   }
-// @port-end
 
 // What the MAIN world serves: the allowlisted endpoints only (D22), with a plain-object body
 // (what postMessage clones from the content script's object literals). The page could call the

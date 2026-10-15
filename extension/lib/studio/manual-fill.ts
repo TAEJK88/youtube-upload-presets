@@ -8,7 +8,6 @@ import { running } from './queue-runner';
 import { active, counters, save, settings } from './state';
 import { goToVisibility } from './upload-dialog';
 
-// @port-begin
 // ===== โหมดอัปโหลดเองทีละไฟล์: เติมข้อมูลอัตโนมัติ =====
 let session: { originalName: string; n: number } | null = null;
 
@@ -30,11 +29,9 @@ async function applyToOpenDialog() {
     : L(`ใส่ข้อมูลแล้ว: ${title}${note}`, `Details filled in: ${title}${note}`));
   ui.presetPreview();
 }
-// @port-end
 
 // Returns a disposer, so the poller stops when the extension is reloaded under the page.
 export function installManualFill(): () => void {
-  // @port-begin
 const poll = setInterval(async () => {
   if (running) return;
   if (!uploadDialogOpen()) {
@@ -52,7 +49,6 @@ const poll = setInterval(async () => {
     if (session === s) applyToOpenDialog();
   }
 }, 1000);
-  // @port-end
   return () => clearInterval(poll);
 }
 

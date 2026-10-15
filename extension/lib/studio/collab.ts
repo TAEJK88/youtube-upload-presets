@@ -4,7 +4,6 @@ import { clickByText, clickIn, getDialog, isOff, isVisible, shownDialog, sleep, 
 import { SEL } from './sel';
 import { TXT } from './txt';
 
-// @port-begin
 // ===== Collaboration: เชิญช่องอื่นเป็นผู้ร่วมสร้าง =====
 // Details → Show more → #collaboration-button → ytcp-video-collaborators-dialog
 // ค้นหา @handle → เลือกแถวที่ #channel-info ขึ้นต้นด้วย @handle ตรงตัว → ytcp-video-collaborator-manage-dialog กด Create link
@@ -91,6 +90,5 @@ async function inviteCollaborators(handles: string[], dlg: Element | null = getD
   else if (!closed) res.errors.push(L('กด Save ในหน้าต่างเชิญแล้วแต่หน้าต่างไม่ปิด — คำเชิญอาจยังไม่ถูกบันทึก', 'Clicked Save in the invite dialog but it did not close — the invitations may not be saved'));
   return res;
 }
-// @port-end
 
 export { typeSearch, inviteCollaborators };
