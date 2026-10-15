@@ -1,4 +1,5 @@
 import { L } from '../i18n';
+import { noHandle } from '../panel/channels';
 import type { Channel } from './channel';
 import { ui } from './page-ui';
 import { otherTabRunning, running } from './queue-runner';
@@ -34,6 +35,8 @@ export function switchChannel(
 ): void {
   const next = studioUrl(req);
   if (isRunning()) return ui.toast(L('คิวอัปโหลดยังทำงานอยู่ — สลับช่องตอนนี้คิวจะหยุด', 'Upload queue is still running — switching channels now would stop it'));
+  // The switcher picks rows by @handle only; the panel looks a missing one up first.
+  if (!req.handle) return ui.toast(noHandle(req.name));
   sw.switchToChannel({ name: req.name, handle: req.handle }, next);
 }
 
