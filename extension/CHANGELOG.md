@@ -3,6 +3,24 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.1.1 — 2026-10-15
+
+Apply a preset to drafts already in Studio, and Tools sub-tabs that fit a narrow panel. To
+update, follow README, "Update"; the extension ID stays `cllefnlbgkbdnmifojjflfcpholhniio`, so
+presets, settings and history stay.
+
+- **Apply preset to ticked drafts.** In Studio's Content → Videos list, tick drafts and press
+  **Apply preset (N)** in Studio's selection bar, after "More actions". The drafts go into the
+  Upload queue with the preset picked in the panel, sorted by title, and the panel opens. Press
+  **Start upload**: each draft gets its title, description and tags from the preset, its
+  visibility or release time, and is saved, as an uploaded file is. No file is uploaded again.
+  Ticked videos that are not drafts are skipped, and a message says how many. A draft has no
+  `.txt`, so `{txt}` is empty; `{name}` and `{filename}` are the draft's title in Studio.
+  Retry on such a card goes on in its draft.
+- **Tools sub-tabs in a narrow panel.** Below about 480px of panel the sub-tabs are two to a
+  row instead of three, so "Claim list (3)", "Fix tracklist" and the Thai labels with their
+  counts are no longer cut off.
+
 ## 5.1.0 — 2026-10-15
 
 The Copyright tab is now the **Tools** tab, with its own sub-tab for each tool. To update,
