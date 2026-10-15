@@ -139,7 +139,6 @@ function main() {
   if (!same(content.lines, contentHash(hashes(out)).lines)) problems.push('a file in the zip is not, byte for byte, the build folder\'s');
   const log = join(EXT, 'CHANGELOG.md');
   if (!existsSync(log) || !hasSection(readFileSync(log, 'utf8'), pkg.version)) problems.push(`CHANGELOG.md has no "## ${pkg.version} " section`);
-  try { run('node', ['scripts/parity-check.mjs', '--release']); } catch { problems.push('parity-check --release failed (see above)'); }
   if (problems.length) {
     console.error(`release-check: ${problems.length} problem(s)\n` + problems.map((p) => '  ' + p).join('\n'));
     process.exit(1);

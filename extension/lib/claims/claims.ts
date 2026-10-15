@@ -254,7 +254,6 @@ const switchToChannel: typeof switcher = (t, next) => {
   switcher(t, next);
 };
 
-// @port-begin
   const cfg = (): ClaimsCfg => Object.assign({}, DEFAULTS, load('cfg', {}));
   const saveCfg = (c: ClaimsCfg) => save('cfg', c);
   const visible = (el: any): boolean => !!el && (el.offsetParent !== null ||
@@ -1200,7 +1199,6 @@ const switchToChannel: typeof switcher = (t, next) => {
     }
     renderStatus();
   }
-// @port-end
 
 // recordSongs() (5069–5091) is a background op now (songs.ts); the tab logs what it added.
 function recordSongs(rows: ClaimRow[], chName: string): void {

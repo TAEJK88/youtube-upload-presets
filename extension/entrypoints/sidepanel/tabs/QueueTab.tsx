@@ -113,7 +113,7 @@ export function QueueTab() {
             </button>
           </span>
           {/* The drawer's ".mp4 video / .txt description / .jpg thumbnail" hints are hidden in
-              Design B (userscript 3125, .drop .kbd{display:none}); see scripts/strings/dropped.mjs. */}
+              Design B (userscript 3125, .drop .kbd{display:none}). */}
         </div>
       </div>
 

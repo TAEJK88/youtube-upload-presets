@@ -1,6 +1,5 @@
 import { mp4Duration } from '../chapters';
 
-// @port-begin
 // ความยาวคลิปจาก metadata ของไฟล์ (อ่านแค่ส่วนหัว ไม่โหลดทั้งไฟล์) · อ่านไม่ได้ = 0 (ข้ามการเช็กความยาว)
 // เคยเจอบน Studio จริง: video ที่ไม่ได้อยู่ในหน้าบางครั้งไม่โหลด metadata เลย (ได้ 0) -> แปะลงหน้าแบบซ่อน และลองซ้ำอีกรอบ
 function videoDurationOnce(file: Blob, wait: number): Promise<number> {
@@ -24,6 +23,5 @@ async function videoDuration(file: Blob): Promise<number> {
   try { const d = await mp4Duration(file); if (d > 0) return d; } catch (e) { /* ไม่ใช่ MP4/MOV หรืออ่านไม่ได้ */ }
   return videoDurationOnce(file, 12000);
 }
-// @port-end
 
 export { videoDuration };

@@ -113,7 +113,6 @@ async function refreshForStart(): Promise<void> {
 const week = () => weekOf(settings.schedule);
 const nextSlot = (t: number) => week()?.after(t) ?? t + stepMs();
 
-// @port-begin
 // ความคืบหน้าของคลิปที่กำลังอัป · อัปเดตจาก tick ทุก 0.8 วินาที (uploadOne ไม่ต้องรู้เรื่องนี้)
 let uploadProg: { pct: number | null; text: string } | null = null; // { pct: 0..1 | null, text: string }
 function pollUploadProgress() {
@@ -571,7 +570,6 @@ async function runQueue() {
     ui.setTitleMark(document.hasFocus() ? '' : clean ? '✅' : '⚠️');
   }
 }
-// @port-end
 
 // The item the run is working on, from before its file is fetched until it is done or
 // has failed. Remove leaves it alone: while its file comes, its status is still 'pending'.
@@ -806,7 +804,6 @@ function leftToStudio(): void {
 export function installIntercept(): () => void {
   const ac = new AbortController();
   const { signal } = ac;
-  // @port-begin
   // ดักการเลือก/ลากหลายไฟล์ในหน้าต่างของ Studio -> ส่งเข้าคิวของสคริปต์แทน
   document.addEventListener(
     'change',
@@ -838,7 +835,6 @@ export function installIntercept(): () => void {
     },
     { capture: true, signal }
   );
-  // @port-end
   return () => ac.abort();
 }
 

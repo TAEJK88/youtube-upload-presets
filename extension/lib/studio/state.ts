@@ -83,10 +83,8 @@ export function setActiveId(id: string): void {
   save('activeId', id);
 }
 
-// @port-begin
 export const presetById = (id: string): Preset => presets.find((p) => p.id === id) || presets[0]!;
 export const active = () => presetById(activeId);
-// @port-end
 
 // Swap an object's contents but keep its identity (other modules hold references).
 function replace(target: object, next: object) {

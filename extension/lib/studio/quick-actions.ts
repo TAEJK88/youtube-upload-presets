@@ -10,7 +10,6 @@ import { session } from './manual-fill';
 import { readText, running, uploadOf } from './queue-runner';
 import { activeId, counters, presetById, presets, settings } from './state';
 
-// @port-begin
 // ===== ปุ่มลัดใต้ช่องชื่อ/คำอธิบายของ Studio (หน้าต่างอัปโหลด และหน้าแก้ไขคลิป /video/<id>/edit) =====
 // วางแถบเล็ก ๆ ต่อจาก ytcp-video-title / ytcp-video-description · Studio วาดหน้าใหม่เมื่อไรก็ใส่กลับเอง
 // ไม่กด Save ของ YouTube ให้ — แก้แล้วผู้ใช้ตรวจแล้วกดเอง (Ctrl+Z ย้อนได้เหมือนพิมพ์เอง)
@@ -156,7 +155,6 @@ const QA_CSS = (`
     :host-context(html[dark]) .ytp-qa .st{color:#aaa}
     :host-context(html[dark]) .ytp-qa .st.ok{color:#4ade80} :host-context(html[dark]) .ytp-qa .st.warn{color:#fbbf24} :host-context(html[dark]) .ytp-qa .st.err{color:#f87171}
   `);
-// @port-end
 
 // Each bar sits right after Studio's field, inside a shadow root so Studio's CSS and
 // ours stay apart. The host keeps the `ytp-qa` class the code above looks for.
@@ -169,7 +167,6 @@ function qaHost(bar: HTMLElement): HTMLElement {
 // Returns a disposer: stops placing bars and removes the ones already on the page (their
 // buttons belong to this script instance).
 export function installQuickActions(): () => void {
-  // @port-begin
 const poll = setInterval(() => {
   const on = settings.quickActions && !running;
   const host = on && getDetailsHost();
@@ -185,7 +182,6 @@ const poll = setInterval(() => {
   if (!tEl.nextElementSibling?.classList.contains('ytp-qa')) tEl.after(qaHost(qaTitleBar(host as HTMLElement)));
   if (dEl && !dEl.nextElementSibling?.classList.contains('ytp-qa')) dEl.after(qaHost(qaDescBar(host as HTMLElement)));
 }, 1000);
-  // @port-end
   return () => {
     clearInterval(poll);
     document.querySelectorAll('.ytp-qa').forEach((b) => b.remove());

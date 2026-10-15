@@ -10,9 +10,7 @@ import { runnerTab } from '../lib/panel/target';
 import { mountFab, type FabModel } from '../lib/studio/fab';
 import { showReloadBanner } from '../lib/studio/reload-banner';
 // @ts-expect-error -- untyped build script, shared with npm run ui-check
-import { userscriptPairs } from '../scripts/ui-check.mjs';
-// @ts-expect-error -- untyped list, shared with npm run ui-check
-import extensionOnly from '../scripts/strings/extension-only.mjs';
+import { parseCalls, sourceFiles } from '../scripts/ui-check.mjs';
 import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
 
 // The Re-grant banner asks IndexedDB for each queued handle's permission; the fake has none.
@@ -32,10 +30,11 @@ afterEach(async () => {
   setLang('en');
 });
 
-// The userscript's pairs and the extension's own (extension-only.mjs). A pair with ${} becomes
+// Every L() pair in the extension's shipping code (what ui-check reads). A pair with ${} becomes
 // a pattern (its literal text must hold a word, so '${}%' alone matches nothing).
 type Pair = { th: string; en: string };
-const all = [...(userscriptPairs() as Pair[]), ...(extensionOnly as Pair[])];
+const scripts = (sourceFiles() as { path: string; text: string }[]).filter((f) => /\.[mc]?[jt]sx?$/.test(f.path));
+const all = [...(parseCalls(scripts) as Map<string, { pairs: Pair[] }>).values()].flatMap((c) => c.pairs);
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function matcher(pairs: Pair[], side: 'th' | 'en') {
   const exact = new Set(pairs.filter((p) => !p[side].includes('${}')).map((p) => p[side].trim()).filter(Boolean));

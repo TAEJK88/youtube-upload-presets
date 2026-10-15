@@ -28,7 +28,6 @@ export function resetCfg(): void {
 
 export interface Channel { id: string; name: string; avatar: string; handle: string }
 
-// @port-begin
 // ===== ช่องที่กำลังใช้งาน (กันอัปผิดช่อง) =====
 function getChannel(): Channel {
   const W = mainWorld;
@@ -51,7 +50,6 @@ function channelProblem() {
   if (!cur.id) return L(`ตรวจไม่พบช่องปัจจุบัน (ล็อกไว้ที่ "${lock.name}")`, `Could not detect the current channel (locked to "${lock.name}")`);
   return cur.id === lock.id ? '' : L(`ตอนนี้อยู่ช่อง "${chanLabel(cur)}" แต่ล็อกไว้ที่ "${lock.name}"`, `Currently on channel "${chanLabel(cur)}" but locked to "${lock.name}"`);
 }
-// @port-end
 
 // The userscript's buildVars() read the settings and the current channel itself; the
 // template module takes them as env.

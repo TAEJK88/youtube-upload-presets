@@ -3,7 +3,6 @@ import { SEL } from './sel';
 import { settings } from './state';
 import { TXT } from './txt';
 
-// @port-begin
 // ===== Studio DOM automation =====
 // จังหวะการทำงาน: คูณเวลาพักและเวลารอทั้งหมด (หน้า Studio โหลดช้า -> เลือก "ช้า" หรือ "ช้ามาก")
 const PACE: Record<string, number> = { normal: 1, slow: 1.6, slower: 2.5 };
@@ -163,7 +162,6 @@ const buttonByText = (rootEl: Element, re: RegExp) => [...rootEl.querySelectorAl
 // element ของ Studio บางตัวเป็น display:contents (ไม่มีกล่องของตัวเอง) -> ดูว่ามีลูกตัวไหนแสดงอยู่หรือเปล่า
 const shown = (el: Element | null | undefined) => !!el && (isVisible(el) || [...(el as Element).querySelectorAll('*')].some((c) => c.getClientRects().length > 0));
 const byText = (sel: string, re: RegExp) => [...document.querySelectorAll(sel)].find((e) => shown(e) && re.test((e.textContent || '').trim()));
-// @port-end
 
 export {
   PACE, pace, T, sleep, isVisible, waitFor, getDialog, getTitleBox, getDescBox, getDetailsHost, onEditPage,

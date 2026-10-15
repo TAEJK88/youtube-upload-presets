@@ -12,7 +12,6 @@ interface AcceptRound { n: number; at: number }
 
 export function createInviteWatcher(env: InviteEnv) {
   const { document, location, getComputedStyle, setInterval, clearInterval, setTimeout, console, getValue, setValue } = env;
-  // @port-begin
 const inviteUrlNow = () => INVITE_URL.test(location.pathname + location.search + location.hash);
 const inviteNote = (text: string, ok = true) => {
   const note = document.createElement('div');
@@ -174,10 +173,8 @@ function watchInvite() {
     if (done && ++idle >= IDLE_BEFORE_DONE) finish();
   }, 1000);
 }
-  // @port-end
   // Studio is a SPA: the invite link often passes through other pages first.
   function armSpaPoll() {
-    // @port-begin
 // Studio เปลี่ยนหน้าแบบ SPA — ลิงก์คำเชิญมักเด้งผ่านหน้าอื่นก่อน ถ้าเฝ้าแค่ตอนโหลดครั้งแรกจะพลาด
 let inviteUrl = location.href;
 setInterval(() => {
@@ -185,7 +182,6 @@ setInterval(() => {
   inviteUrl = location.href;
   if (inviteUrlNow()) watchInvite();
 }, 1000);
-    // @port-end
   }
   return { inviteUrlNow, watchInvite, armSpaPoll };
 }
