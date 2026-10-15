@@ -1,0 +1,7 @@
+{
+  "setup": [
+    "cd extension && npm ci",
+    "if command -v graphify >/dev/null; then graphify update .; else echo 'graphify not installed, skipping graph build'; fi"
+  ],
+  "run": ["cd extension && npm run dev"]
+}
