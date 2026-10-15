@@ -39,7 +39,7 @@ export function removeItem(id: string): void {
 export function retryItem(id: string, resume = false): void {
   const it = queue.find((x) => x.id === id);
   if (!it || it.status !== 'error') return;
-  if (!resume) it.draftId = '';
+  if (!resume && !it.fromDraft) it.draftId = ''; // a card queued from a draft has no file to upload again
   setItem(it, 'pending');
   assignNumbers();
   ui.queue();

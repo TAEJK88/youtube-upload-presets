@@ -141,7 +141,7 @@ export async function followOtherTab(runs: boolean): Promise<void> {
 // writes a waiting save too.
 export function installUnloadGuard(): () => void {
   const guard = (e: BeforeUnloadEvent) => {
-    if (running || queue.some((i) => (i.status === 'pending' || i.status === 'error') && i.src === 'page')) {
+    if (running || queue.some((i) => (i.status === 'pending' || i.status === 'error') && i.src === 'page' && !i.fromDraft)) { // a card from a draft keeps nothing in the page
       e.preventDefault();
       e.returnValue = '';
     }

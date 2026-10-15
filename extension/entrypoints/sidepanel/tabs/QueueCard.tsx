@@ -133,7 +133,8 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
   // A video that is a draft in Studio goes on in that draft (P5-draft-retry; the userscript's
   // question offered only "Deleted it, upload again"). Uploading the file again stays possible.
   const retry = async () => {
-    const resume = !it.draftId ? false : await ask({
+    // A card queued from a draft ticked in Studio has no file: it can only go on in its draft.
+    const resume = !it.draftId ? false : it.fromDraft ? true : await ask({
       title: L('คลิปนี้อยู่ใน Studio แล้ว', 'This video is already in Studio'),
       body: L(`ไฟล์ขึ้นไปเป็นฉบับร่างแล้ว (${it.draftId})\n"ทำต่อบนฉบับร่าง" จะเปิดฉบับร่างนั้นแล้วกรอกส่วนที่เหลือ ไม่อัปโหลดไฟล์ซ้ำ\n"อัปโหลดใหม่" จะส่งไฟล์ขึ้นไปอีกครั้ง: ลบฉบับร่างในหน้า Content ก่อน ไม่อย่างนั้นจะได้คลิปซ้ำ`, `The file is already a draft in Studio (${it.draftId}).\n"Resume draft" opens that draft and fills in what is left, without uploading the file again.\n"Upload again" sends the file once more: delete the draft in Content first, or there will be two videos.`),
       ok: L('ทำต่อบนฉบับร่าง', 'Resume draft'), no: L('อัปโหลดใหม่', 'Upload again'), icon: 'refresh',

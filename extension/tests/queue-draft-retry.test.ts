@@ -505,3 +505,44 @@ describe('a video retried by itself is one of its batch', () => {
     expect(waits).toEqual(['dialog after 2 upload(s)', 'page after 2 upload(s)']);
   });
 });
+
+// Drafts ticked in Studio's Content list (lib/studio/draft-select.ts): queued with the active
+// preset, each goes the way a resumed draft does, and no file is ever uploaded or read.
+describe('drafts queued from the Content list', () => {
+  const row = (videoId: string, title: string, duration = 0) => ({ videoId, title, duration });
+
+  it('are queued in title order with the active preset, once, and say so', () => {
+    expect(Q.addDrafts([row('vid00000012', 'Mix 12', 3000), row('vid00000002', 'Mix 2'), row('vid00000003', 'Mix 3')])).toBe(3);
+    expect(Q.queue.map((i) => [i.file.name, i.draftId, i.fromDraft, i.status, i.presetId === Q.queue[0]!.presetId])).toEqual([
+      ['Mix 2', 'vid00000002', true, 'pending', true],
+      ['Mix 3', 'vid00000003', true, 'pending', true],
+      ['Mix 12', 'vid00000012', true, 'pending', true],
+    ]);
+    expect(Q.queue[2]!.duration).toBe(3000);
+    expect(toasts).toEqual(['Added 3 draft(s) to the queue']);
+    toasts.length = 0;
+    expect(Q.addDrafts([row('vid00000002', 'Mix 2'), row('vid00000004', 'Mix 4')])).toBe(1);
+    expect(toasts).toEqual(['Added 1 draft(s) to the queue · 1 already in the queue']);
+    expect(drafts()).toEqual(['vid00000002', 'vid00000003', 'vid00000012', 'vid00000004']);
+  });
+
+  it('a run opens each draft, fills it in and saves it, and uploads no file', async () => {
+    Q.addDrafts([row('vid00000001', 'Mix 1'), row('vid00000002', 'Mix 2')]);
+    await Q.runQueue();
+    expect(statuses()).toEqual(['done', 'done']);
+    expect(studio.opened).toEqual(['vid00000001', 'vid00000002']);
+    expect(studio.uploads).toEqual([]);
+    expect(getFile).not.toHaveBeenCalled();
+  });
+
+  it('Retry keeps the draft: such a card has no file to upload again', async () => {
+    Q.addDrafts([row('vid00000001', 'Mix 1')]);
+    studio.openErr = 'Could not open the draft in Studio';
+    await Q.runQueue();
+    expect(statuses()).toEqual(['error']);
+    retryItem(Q.queue[0]!.id); // the plain Retry, which forgets a file's draft
+    expect(Q.queue[0]!.status).toBe('pending');
+    expect(drafts()).toEqual(['vid00000001']);
+  });
+});
+
