@@ -22,14 +22,14 @@ afterEach(() => {
 const mockSend = async () => vi.spyOn(await import('../lib/messages'), 'sendMessage').mockResolvedValue(undefined as never);
 // The view by itself (the home's button is another unit's): its data and the panel's log.
 function show(cfg: Partial<ClaimsCfg> = {}) {
-  const onClose = vi.fn();
+  const onCancel = vi.fn();
   const claims: ClaimsApi = { state: null, live: null, log: [], shown: null, addLog: vi.fn() };
   render(
     <ClaimsContext.Provider value={claims}>
-      <CopyrightSettings data={toClaimsData('UC1', { cfg })} onClose={onClose} />
+      <CopyrightSettings data={toClaimsData('UC1', { cfg })} onCancel={onCancel} />
     </ClaimsContext.Provider>,
   );
-  return { onClose, addLog: claims.addLog };
+  return { onCancel, addLog: claims.addLog };
 }
 const box = (name: string | RegExp) => screen.getByRole('checkbox', { name }) as HTMLInputElement;
 const text = (name: string | RegExp) => screen.getByRole('textbox', { name }) as HTMLInputElement;
@@ -83,16 +83,18 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     expect(box('Also turn on ads for videos that have them off').checked).toBe(true);
   });
 
-  it('Save writes every field as one merge of cfg, closes and says so', async () => {
+  it('Save writes every field as one merge of cfg, says so, and the form keeps what was saved', async () => {
     const send = await mockSend();
-    const { onClose } = show();
+    const { onCancel } = show();
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
     fireEvent.change(text('Your own artist / label names'), { target: { value: 'Me' } });
     fireEvent.click(box('Fully automatic trim'));
     fireEvent.click(box('Also turn on ads for videos that have them off'));
     expect(send).not.toHaveBeenCalled(); // nothing is written before Save
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('Settings saved'));
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(text('Run every N hours').value).toBe('12');
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'merge', key: 'cfg', entries: {
       ...DEFAULTS, apEveryHours: '12', ownNames: 'Me', autoSaveTrim: false, apAdsOn: true, // numbers stay text, as typed
@@ -102,11 +104,14 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
 
   it('Reset to defaults asks twice, then empties cfg and logs it', async () => {
     const send = await mockSend();
-    const { onClose, addLog } = show({ apEveryHours: '12' });
+    const { onCancel, addLog } = show({ apEveryHours: '12' });
     fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' }));
     expect(send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Click again to reset' }));
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    // the form shows the defaults at once, not the stored cfg its write has not changed yet
+    await waitFor(() => expect(text('Run every N hours').value).toBe(DEFAULTS.apEveryHours));
+    expect(screen.getByRole('button', { name: 'Reset to defaults' })).toBeTruthy(); // disarmed
+    expect(onCancel).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith('claims:op', { op: 'set', key: 'cfg', value: {} });
     expect(addLog).toHaveBeenCalledWith('Copyright settings reset', 'ok');
@@ -114,17 +119,17 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
 
   it('Cancel leaves without writing', async () => {
     const send = await mockSend();
-    const { onClose } = show();
+    const { onCancel } = show();
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
     expect(send).not.toHaveBeenCalled();
   });
 
   it('a write that fails says so and keeps the view open with what was typed', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(await import('../lib/messages'), 'sendMessage').mockRejectedValue(new Error('gone'));
-    const { onClose, addLog } = show();
+    const { onCancel, addLog } = show();
     fireEvent.change(text('Run every N hours'), { target: { value: '12' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't save (gone)", { id: 'save-failed' }));
@@ -133,7 +138,7 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     await waitFor(() => expect(toast).toHaveBeenCalledTimes(2));
     expect(toast).not.toHaveBeenCalledWith('Settings saved');
     expect(addLog).not.toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
     expect(text('Run every N hours').value).toBe('12');
   });
 
@@ -159,7 +164,7 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset to defaults' })); // not armed either
     expect(send).toHaveBeenCalledTimes(1);
     done();
-    await waitFor(() => expect(saving.onClose).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('Settings saved'));
     expect(toast).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: 'Click again to reset' })).toBeNull();
     cleanup();
@@ -173,8 +178,7 @@ describe('Copyright settings (openSettings 6275–6307)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(send).toHaveBeenCalledTimes(1);
     done();
-    await waitFor(() => expect(resetting.onClose).toHaveBeenCalledTimes(1));
-    expect(resetting.addLog).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(resetting.addLog).toHaveBeenCalledTimes(1));
     expect(toast).toHaveBeenCalledTimes(1); // the first part's "saved", nothing new
   });
 

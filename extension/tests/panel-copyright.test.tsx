@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
@@ -31,6 +31,8 @@ const scanning = claimsStateWith({ busyScan: true,
 const tab = (name: RegExp | string) => screen.getByRole('tab', { name }) as HTMLButtonElement;
 const pick = (name: RegExp | string) => fireEvent.mouseDown(tab(name));
 const active = (name: RegExp | string) => tab(name).getAttribute('data-state') === 'active';
+// The sub-tab in sight: the others stay mounted, hidden, and text queries see them.
+const pane = () => within(screen.getByRole('tabpanel'));
 // The tools other than Claims open once the channel's data is read.
 const ready = () => waitFor(() => expect(tab(/Songs/).disabled).toBe(false));
 
@@ -39,7 +41,7 @@ describe('Tools tab', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }) }));
     expect(screen.getByText('Ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Claims (4)', 'Songs (9)', 'Tracklist', 'Ads', 'Collab', 'Options']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Claims (4)', 'Songs (9)', 'Fix tracklist', 'Ads', 'Collab', 'Options']);
     expect(active('Claims (4)')).toBe(true);
   });
 
@@ -69,7 +71,7 @@ describe('Tools tab', () => {
     expect(screen.getByText('Reading claim details 1 / 3: Mix')).toBeTruthy();
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('33');
     expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(tab(/Tracklist/)).toBeTruthy();
+    expect(tab(/tracklist/)).toBeTruthy();
   });
 
   // Scans take no lock (D26): the buttons follow the bound tab, the card follows the tab that works.
@@ -140,7 +142,7 @@ describe('Tools tab', () => {
     renderPanel(<CopyrightTab />, fakePanel({ target: null, link: 'noTab' }), undefined, fakeClaims({ state: null, live: null }));
     expect(screen.queryByText('Ready')).toBe(null);
     expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true);
-    for (const name of [/Songs/, /Tracklist/, /Ads/, /Collab/, /Options/]) expect(tab(name).disabled).toBe(true);
+    for (const name of [/Songs/, /tracklist/, /Ads/, /Collab/, /Options/]) expect(tab(name).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /Upload history/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -165,7 +167,7 @@ describe('Tools tab', () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
     for (const [name, title] of [
-      [/Songs/, '🎵 Previously claimed songs'], [/Tracklist/, '📝 Choose a video to fix its tracklist'], [/Options/, 'Copyright settings'], [/Claims/, 'Copyright claims — Mine'],
+      [/Songs/, '🎵 Previously claimed songs'], [/tracklist/, '📝 Choose a video to fix its tracklist'], [/Options/, 'Copyright settings'], [/Claims/, 'Copyright claims — Mine'],
     ] as const) {
       pick(name);
       expect(active(name)).toBe(true);
@@ -204,7 +206,7 @@ describe('Tools tab', () => {
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     // the read of UC2 is pending: no view over UC1's data, and nothing to open
     expect(screen.queryByRole('heading', { name: /Copyright claims/ })).toBe(null);
-    for (const name of [/Songs/, /Tracklist/]) expect(tab(name).disabled).toBe(true);
+    for (const name of [/Songs/, /tracklist/]) expect(tab(name).disabled).toBe(true);
     await act(async () => { fail(new Error('storage gone')); });
     expect(screen.queryByRole('heading', { name: /Copyright claims/ })).toBe(null);
     expect(tab(/Songs/).disabled).toBe(true);
@@ -382,8 +384,8 @@ describe('moving between the tools', () => {
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     await ready(); // the new channel's data is read
     expect(active(/Claims/)).toBe(true);
-    expect(await screen.findByText('Mix w1')).toBeTruthy();
-    expect(screen.queryByText('Mix v1')).toBe(null);
+    expect(await pane().findByText('Mix w1')).toBeTruthy();
+    expect(screen.queryByText('Mix v1')).toBe(null); // nor in the hidden tools
   });
 
   it('…and an open tracklist editor does not carry its video to the new channel', async () => {
@@ -391,35 +393,39 @@ describe('moving between the tools', () => {
     const claims = fakeClaims();
     const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
     await ready();
-    pick(/Tracklist/);
+    pick(/tracklist/);
     fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
     expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     await ready();
-    pick(/Tracklist/);
+    pick(/tracklist/);
     expect(screen.queryByRole('heading', { name: /Tracklist after copyright trim/ })).toBe(null);
     expect(screen.queryByDisplayValue('00:00 A - One')).toBe(null);
   });
 
-  it('each tool opens at its top, and so do the tracklist\'s picker and editor', async () => {
+  // THAIB-1 review: the bar sits under the status card. A pane scrolled past it comes back to the
+  // bar; one that shows the bar does not move, so the bar just clicked stays under the pointer.
+  it('a tool opens with the sub-tab bar in sight, and does not move a pane that shows it', async () => {
     await both();
     const { container } = renderPanel(<div data-pane-scroll=""><CopyrightTab /></div>, fakePanel(), undefined, fakeClaims());
     const scroller = container.querySelector<HTMLElement>('[data-pane-scroll]')!;
     await ready();
-    const at = (go: () => void) => { scroller.scrollTop = 300; go(); return scroller.scrollTop; };
-    const click = (name: RegExp | string) => () => fireEvent.click(screen.getAllByRole('button', { name })[0]!);
-    expect(at(() => pick(/Songs/))).toBe(0);
-    expect(at(() => pick(/Claims/))).toBe(0);
-    expect(at(click('📝 Tracklist after trim'))).toBe(0); // from far down the list
-    expect(at(click('← Back'))).toBe(0);
-    expect(at(click(/Mix v1/))).toBe(0); // picker to editor
+    const BAR = 120; // the bar's offset in the pane
+    vi.spyOn(screen.getByRole('tablist'), 'getBoundingClientRect').mockImplementation(() => ({ top: BAR - scroller.scrollTop }) as DOMRect);
+    const at = (from: number, go: () => void) => { scroller.scrollTop = from; go(); return scroller.scrollTop; };
+    const click = (name: RegExp | string) => () => fireEvent.click(pane().getAllByRole('button', { name })[0]!);
+    expect(at(50, () => pick(/Songs/))).toBe(50); // the bar was in sight: nothing jumps
+    expect(at(300, () => pick(/Claims/))).toBe(BAR); // scrolled past it: back to the bar
+    expect(at(300, click('📝 Tracklist after trim'))).toBe(BAR); // from far down the list
+    expect(at(300, click('← Back'))).toBe(BAR);
+    expect(at(300, click(/Mix v1/))).toBe(BAR); // picker to editor
   });
 
   it('a tool opened by its sub-tab leaves focus on the tab; the tracklist editor takes it to its title', async () => {
     await both();
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
-    for (const name of [/Songs/, /Tracklist/]) {
+    for (const name of [/Songs/, /tracklist/]) {
       tab(name).focus();
       pick(name);
       expect(document.activeElement).toBe(tab(name));
@@ -828,19 +834,19 @@ describe('tracklist fix', () => {
   const out = () => (screen.getByRole('textbox', { name: 'New tracklist' }) as HTMLTextAreaElement).value;
   const src = () => screen.getByRole('textbox', { name: 'Original tracklist' }) as HTMLTextAreaElement;
   const toEditor = async (name = /Mix v1/) => {
-    await open(/Tracklist/);
+    await open(/tracklist/);
     fireEvent.click(await screen.findByRole('button', { name }));
     await act(async () => {});
   };
 
   it('with no claimed video it says to scan first', async () => {
-    await open(/Tracklist/);
+    await open(/tracklist/);
     expect(screen.getByText('No claimed videos yet — press "Scan claims" first')).toBeTruthy();
   });
 
   it('lists each claimed video once, and says where its tracklist will come from', async () => {
     await stored();
-    await open(/Tracklist/);
+    await open(/tracklist/);
     const picks = await screen.findAllByRole('button', { name: /^Mix v/ });
     expect(picks).toHaveLength(2);
     await waitFor(() => expect(picks[0]!.textContent).toContain('10:00 · Tracklist from upload history'));
@@ -918,7 +924,7 @@ describe('tracklist fix', () => {
     const drop = vi.fn();
     renderPanel(<div onDragOver={over} onDrop={drop}><CopyrightTab /></div>, fakePanel(), undefined, fakeClaims());
     await ready();
-    pick(/Tracklist/);
+    pick(/tracklist/);
     fireEvent.click(await screen.findByRole('button', { name: /Mix v2/ }));
     await act(async () => {});
     const files = { files: [new File([TXT], 'list.txt', { type: 'text/plain' })], types: ['Files'] };
@@ -984,7 +990,7 @@ describe('tracklist fix', () => {
   it('upload history that could not be read leaves the editor usable', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     await stored();
-    await open(/Tracklist/);
+    await open(/tracklist/);
     const get = fakeBrowser.storage.local.get.bind(fakeBrowser.storage.local);
     vi.spyOn(fakeBrowser.storage.local, 'get').mockImplementation(((k: unknown) => (k === 'uploads' ? Promise.reject(new Error('quota')) : get(k as never))) as never);
     fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
@@ -1000,6 +1006,82 @@ describe('tracklist fix', () => {
     await toEditor();
     fireEvent.click(screen.getByRole('button', { name: '← Back' }));
     expect(screen.getByRole('heading', { name: '📝 Choose a video to fix its tracklist' })).toBeTruthy();
+  });
+});
+
+// THAIB-1 review: what the sub-tabs must keep, give back and refuse.
+describe('Tools tab review fixes', () => {
+  const rows2 = [row('v1', 'c1', { segments: [[180, 360]] }), row('v2', 'c2')];
+  const stored = () => fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf(rows2), 'trimQueue:UC1': ['v1:c1'], uploads: [{ videoId: 'v1', txt: '00:00 A - One' }] });
+  const hours = () => screen.getByRole('textbox', { name: 'Run every N hours' }) as HTMLInputElement;
+  const src = () => screen.getByRole('textbox', { name: 'Original tracklist' }) as HTMLTextAreaElement;
+
+  it('while a scan or run is on, the claim list offers no Rescan and no Trim', async () => {
+    await stored();
+    const api = fakePanel();
+    renderPanel(<CopyrightTab />, api, undefined, fakeClaims({ state: scanning }));
+    await ready();
+    const trim = await screen.findByRole('button', { name: '✂ Trim selected (1)' }) as HTMLButtonElement;
+    expect(trim.disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '↻ Rescan' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(trim);
+    expect(screen.queryByRole('dialog')).toBe(null);
+    expect(api.send).not.toHaveBeenCalled();
+  });
+
+  it('what was typed in a tool survives a switch to another tool, and a scan that opens its list', async () => {
+    await stored();
+    const claims = fakeClaims();
+    const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
+    await ready();
+    pick(/Options/);
+    fireEvent.change(hours(), { target: { value: '12' } });
+    pick(/tracklist/);
+    fireEvent.click(await screen.findByRole('button', { name: /Mix v1/ }));
+    await act(async () => {});
+    fireEvent.change(src(), { target: { value: '00:00 Typed - Here' } });
+    pick(/Claims/);
+    r.rerender(wrap({ ...claims, shown: { view: 'claims', n: 1 } })); // a scan ended: its list opens
+    pick(/Options/);
+    expect(hours().value).toBe('12');
+    pick(/tracklist/);
+    expect(src().value).toBe('00:00 Typed - Here');
+  });
+
+  it('an edit in Options survives a cfg change made elsewhere; Cancel starts again from what is stored', async () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    pick(/Options/);
+    fireEvent.change(hours(), { target: { value: '12' } });
+    await act(async () => { await fakeBrowser.storage.local.set({ cfg: { apEveryHours: '3' } }); }); // another panel window saved
+    expect(hours().value).toBe('12');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(hours().value).toBe('3');
+  });
+
+  it('Back in the tracklist editor gives the focus to the video it came from', async () => {
+    await stored();
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    pick(/tracklist/);
+    fireEvent.click(await screen.findByRole('button', { name: /Mix v2/ }));
+    fireEvent.click(screen.getByRole('button', { name: '← Back' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Mix v2/ }));
+  });
+
+  // The ch effect also sends an open tool back to Claims; without the channel's data the tab shows
+  // Claims in the same render, not a selected tool with nothing under it.
+  it('with the channel\'s data gone, the selected tool falls back to Claims', async () => {
+    const claims = fakeClaims();
+    const r = renderPanel(<CopyrightTab />, fakePanel(), undefined, claims);
+    await ready();
+    pick(/Songs/);
+    vi.spyOn(fakeBrowser.storage.local, 'get').mockReturnValue(new Promise(() => {}) as never); // the next read never lands
+    const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
+    r.rerender(wrap({ ...claims, state: moved, live: moved }));
+    expect(active(/Claims/)).toBe(true);
+    expect(screen.getByRole('tabpanel').contains(screen.getByRole('button', { name: /Scan claims/ }))).toBe(true);
+    expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
   });
 });
 

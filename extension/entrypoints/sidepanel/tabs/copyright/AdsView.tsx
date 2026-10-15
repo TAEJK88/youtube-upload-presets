@@ -14,7 +14,8 @@ import { SubView } from './SubView';
 // "Turn on ads (N)". The ticks are the view's own; the bound tab starts the run from its stored scan.
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-export function AdsView({ data, state }: { data: ClaimsData; state: ClaimsState }) {
+// `busy`: a scan or run is on in the bound tab: nothing new starts from this list until it ends.
+export function AdsView({ data, state, busy }: { data: ClaimsData; state: ClaimsState; busy: boolean }) {
   const { send } = usePanel();
   const id = useId();
   const scan = data.adsScan!; // the route opens this view only with a scan
@@ -30,7 +31,7 @@ export function AdsView({ data, state }: { data: ClaimsData; state: ClaimsState 
   const ok = scan.rows.filter((r) => !r.ineligible).length;
   const go = () => {
     const ids = scan.rows.filter((r) => picked.has(r.videoId)).map((r) => r.videoId);
-    if (!ids.length) return;
+    if (!ids.length || busy) return;
     void send('claims:ads', ids).catch(notConnected);
   };
   return (
@@ -41,9 +42,9 @@ export function AdsView({ data, state }: { data: ClaimsData; state: ClaimsState 
         <div className="mt-1">{L('"ไม่มีสิทธิ์" หมายถึง YouTube บล็อกโฆษณาเอง (เช่นโดน claim หรือติดนโยบาย) เปิดการตั้งค่าได้ แต่คลิปนั้นอาจยังไม่มีรายได้จนกว่าจะแก้สาเหตุ', '"Ineligible" means YouTube blocks ads itself (e.g. a claim or policy issue). You can turn the setting on, but the video may not earn until the cause is fixed.')}</div>
       </>}
       footer={<>
-        <Button size="sm" onClick={() => void send('claims:scan', 'ads').catch(notConnected)}>{L('↻ เช็กใหม่', '↻ Recheck')}</Button>
+        <Button size="sm" disabled={busy} onClick={() => void send('claims:scan', 'ads').catch(notConnected)}>{L('↻ เช็กใหม่', '↻ Recheck')}</Button>
         <span className="flex-1" />
-        <Button variant="go" size="sm" disabled={!picked.size} onClick={go}>{L(`💰 เปิดโฆษณา (${picked.size})`, `💰 Turn on ads (${picked.size})`)}</Button>
+        <Button variant="go" size="sm" disabled={!picked.size || busy} onClick={go}>{L(`💰 เปิดโฆษณา (${picked.size})`, `💰 Turn on ads (${picked.size})`)}</Button>
       </>}
     >
       <div className="flex flex-wrap items-center gap-1.5">

@@ -121,6 +121,22 @@ describe('ads run', () => {
     C.adsFromPanel(['a']); // one that is: no such line
     expect(ui.log).not.toHaveBeenCalledWith(NOT_IN_SCAN, 'warn');
   });
+  // THAIB-1 review: the panel's Ads list stays open while its run goes on, and startAdsRun only
+  // checks the other jobs. A second "Turn on ads" must not start the run over.
+  it('a second pick while the run goes on is refused: the run keeps its items and its start', () => {
+    C.setClaimsLock(noLock); // the run's own step waits
+    C.adsFromPanel(['a']);
+    const first = load(`adsRun:${CH}`, null);
+    ui.toast.mockClear();
+    C.adsFromPanel(['a', 'b']);
+    const MSG = 'Previous ads batch is still running — wait for it to finish or press Stop first';
+    expect(load(`adsRun:${CH}`, null)).toEqual(first);
+    expect(ui.toast).toHaveBeenCalledWith(MSG);
+    expect(ui.log).toHaveBeenCalledWith(MSG, 'warn');
+    C.stopAll();
+    C.adsFromPanel(['b']); // once it ended, a new one starts
+    expect(load<{ items: { videoId: string }[] }>(`adsRun:${CH}`, null as never).items.map((i) => i.videoId)).toEqual(['b']);
+  });
 });
 
 describe('Collab run', () => {
@@ -206,6 +222,18 @@ describe('Collab run', () => {
     C.stopAll();
     expect(ops).toContainEqual({ op: 'merge', key: `collabRun:${CH}`, entries: { active: false } });
     expect(load<{ active: boolean }>(`collabRun:${CH}`, null as never).active).toBe(false);
+  });
+  // THAIB-1 review: the same for Collab; startCollabRun checks trim and ads, never its own run.
+  it('a second Invite while the invites go on is refused: the run keeps its handles and items', () => {
+    C.setClaimsLock(noLock);
+    C.collabFromPanel({ videoIds: ['v'], handles: ['@me2'] });
+    const first = load(`collabRun:${CH}`, null);
+    ui.toast.mockClear();
+    C.collabFromPanel({ videoIds: ['v'], handles: ['@other'] });
+    const MSG = 'Previous invites are still running — wait for them to finish or press Stop first';
+    expect(load(`collabRun:${CH}`, null)).toEqual(first);
+    expect(ui.toast).toHaveBeenCalledWith(MSG);
+    expect(ui.log).toHaveBeenCalledWith(MSG, 'warn');
   });
 });
 

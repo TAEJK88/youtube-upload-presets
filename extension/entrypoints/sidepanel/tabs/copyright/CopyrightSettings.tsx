@@ -14,7 +14,9 @@ import { SubView } from './SubView';
 // openSettings() (6275–6307): checkboxes for the on/off settings, text for the rest (as the
 // userscript, numbers stay strings); Save writes them in one merge, Reset asks twice. A write
 // that fails leaves the view open with what was typed; a click while one is on its way is ignored.
-export function CopyrightSettings({ data, onClose }: { data: ClaimsData; onClose(): void }) {
+// The form stays as saved after Save and shows the defaults after Reset; Cancel (onCancel) is the
+// Tools tab starting it again from what is stored.
+export function CopyrightSettings({ data, onCancel }: { data: ClaimsData; onCancel(): void }) {
   const { addLog } = useClaims();
   const [c, setC] = useState<ClaimsCfg>(data.cfg);
   const [armed, setArmed] = useState(false);
@@ -28,12 +30,12 @@ export function CopyrightSettings({ data, onClose }: { data: ClaimsData; onClose
   const set = (k: keyof ClaimsCfg, v: string | boolean) => setC((x) => ({ ...x, [k]: v }));
   const save = async () => {
     await claimsWrite({ op: 'merge', key: 'cfg', entries: { ...c } });
-    onClose();
     toast(L('บันทึกการตั้งค่าแล้ว', 'Settings saved'));
   };
   const reset = async () => {
     await claimsWrite({ op: 'set', key: 'cfg', value: {} });
-    onClose();
+    setC({ ...DEFAULTS });
+    setArmed(false);
     addLog(L('คืนค่าตั้งค่าลิขสิทธิ์แล้ว', 'Copyright settings reset'), 'ok');
   };
   return (
@@ -41,7 +43,7 @@ export function CopyrightSettings({ data, onClose }: { data: ClaimsData; onClose
       footer={<>
         <Button size="sm" variant="danger" onClick={() => (armed ? once(reset) : busy.current || setArmed(true))}>{armed ? L('กดอีกครั้งเพื่อคืนค่า', 'Click again to reset') : L('คืนค่าเริ่มต้น', 'Reset to defaults')}</Button>
         <span className="flex-1" />
-        <Button size="sm" onClick={onClose}>{L('ยกเลิก', 'Cancel')}</Button>
+        <Button size="sm" onClick={onCancel}>{L('ยกเลิก', 'Cancel')}</Button>
         <Button size="sm" variant="go" onClick={() => once(save)}>{L('บันทึก', 'Save')}</Button>
       </>}
     >

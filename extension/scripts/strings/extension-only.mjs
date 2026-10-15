@@ -224,7 +224,6 @@ export default [
   { th: 'ลิขสิทธิ์', en: 'Claims', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the claim list and its scan' },
   { th: 'ลิขสิทธิ์ (${})', en: 'Claims (${})', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: with the scan\'s claim count' },
   { th: 'เพลง (${})', en: 'Songs (${})', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the claimed songs, with their count' },
-  { th: 'แก้ tracklist', en: 'Tracklist', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the tracklist fix (the userscript\'s button said "Fix tracklist")' },
   { th: 'โฆษณา', en: 'Ads', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: videos with ads off' },
   { th: 'โฆษณา (${})', en: 'Ads (${})', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: with the count of videos with ads off' },
   { th: 'ตัวเลือก', en: 'Options', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the copyright settings; not "Settings", the panel\'s own tab beside it' },
@@ -232,4 +231,6 @@ export default [
   { th: 'อ่านรายการคลิป', en: 'Read video list', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the Collab sub-tab before its first scan (the userscript\'s Collab button scanned)' },
   { th: 'เปลี่ยนได้ที่ เครื่องมือ → ⚙ ตัวเลือก → "ตัดอัตโนมัติทั้งหมด"', en: 'Change this in Tools → ⚙ Options → "Fully automatic trim"', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: where the setting is now' },
   { th: '← กลับ', en: '← Back', why: 'THAIB-1: the Copyright tab is the Tools tab, one sub-tab per tool: the tracklist editor back to its picker; the other tools are sub-tabs with nothing to close' },
+  { th: 'ยังเปิดโฆษณาชุดก่อนไม่เสร็จ — รอให้เสร็จหรือกดหยุดก่อน', en: 'Previous ads batch is still running — wait for it to finish or press Stop first', why: 'THAIB-1: the Ads list stays open during its run; startAdsRun only checks the other jobs (startTrimRun has its own pair for this)' },
+  { th: 'ยังเชิญชุดก่อนไม่เสร็จ — รอให้เสร็จหรือกดหยุดก่อน', en: 'Previous invites are still running — wait for them to finish or press Stop first', why: 'THAIB-1: the Collab list stays open during its run; startCollabRun only checks the other jobs' },
 ];

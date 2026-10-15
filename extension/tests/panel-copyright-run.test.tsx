@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +23,8 @@ const trimming = claimsStateWith({ busyRun: true, status: { icon: '✂️', kind
 const RELOAD = ['This tab is not connected to the extension yet — reload this tab', { id: 'not-connected' }] as const;
 const deaf = () => fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never });
 const tab = (name: RegExp | string) => screen.getByRole('tab', { name }) as HTMLButtonElement;
+// The sub-tab in sight: the others stay mounted, hidden (THAIB-1 review), and text queries see them.
+const pane = () => within(screen.getByRole('tabpanel'));
 const ready = () => vi.waitFor(() => expect(tab(/Songs/).disabled).toBe(false));
 beforeEach(() => {
   fakeBrowser.reset();
@@ -47,9 +49,10 @@ describe('Tools tab, runs', () => {
     expect(await screen.findByText('Trim 1 claims in 1 videos?')).toBeTruthy();
     expect(screen.getByText(/totalling 0:30 using YouTube's "Trim out segment" tool/)).toBeTruthy();
     expect(screen.getByText(/Fully automatic: Save → "I acknowledge" → Confirm changes for every claim/)).toBeTruthy();
-    expect(screen.queryByText(/your own music/)).toBe(null);
-    expect(screen.queryByText(/Upload queue still has files/)).toBe(null);
-    expect(screen.queryByText(/Studio is not set to English/)).toBe(null);
+    const ask = within(screen.getByRole('dialog'));
+    expect(ask.queryByText(/your own music/)).toBe(null);
+    expect(ask.queryByText(/Upload queue still has files/)).toBe(null);
+    expect(ask.queryByText(/Studio is not set to English/)).toBe(null);
     fireEvent.click(screen.getByRole('button', { name: 'Start trim' }));
     await vi.waitFor(() => expect(api.send).toHaveBeenCalledWith('claims:trim', ['v1:c1']));
     expect(screen.getByRole('heading', { name: /Copyright claims/ })).toBeTruthy(); // the list stays: the card above shows the run
@@ -369,32 +372,32 @@ describe('Tools tab, an open view through a page load of the bound tab', () => {
 
   it("state null then back on the same channel (a trim step's page load): the view is still open, and stayed rendered", async () => {
     const { rerender } = await openList();
-    const list = screen.getByText('Mix 1');
+    const list = pane().getByText('Mix 1');
     rerender(tabView(null)); // the new page hasn't answered yet
     expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
     rerender(tabView(on('UC1')));
     expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
-    expect(screen.getByText('Mix 1')).toBe(list); // never unmounted: a pasted tracklist would have survived
+    expect(pane().getByText('Mix 1')).toBe(list); // never unmounted: a pasted tracklist would have survived
   });
 
   it("a passing 'unknown' changes nothing either", async () => {
     const { rerender } = await openList();
-    const list = screen.getByText('Mix 1');
+    const list = pane().getByText('Mix 1');
     rerender(tabView(on('unknown')));
     expect(screen.getByText(/Copyright claims — Mine/)).toBeTruthy();
     rerender(tabView(on('UC1')));
-    expect(screen.getByText('Mix 1')).toBe(list);
+    expect(pane().getByText('Mix 1')).toBe(list);
   });
 
   it('a different real channel takes an open tool back to Claims; so does another bound tab, and no bound tab', async () => {
     const { rerender } = await openSongs();
     rerender(tabView(on('UC2')));
     expect(await screen.findByText(/Copyright claims — Other/)).toBeTruthy(); // another channel's list
-    expect(screen.queryByText(/Previously claimed songs/)).toBe(null);
+    expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
     cleanup();
     const again = await openSongs();
     again.rerender(tabView(null, 2)); // the panel is bound to another tab, which hasn't answered
-    expect(screen.queryByText(/Previously claimed songs/)).toBe(null);
+    expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
     expect(tab(/Songs/).disabled).toBe(true);
     again.rerender(tabView(on('UC1'), 2)); // …and when it does, on the same channel, the tool is not reopened
     await ready();
@@ -402,7 +405,7 @@ describe('Tools tab, an open view through a page load of the bound tab', () => {
     cleanup();
     const third = await openSongs();
     third.rerender(tabView(null, null));
-    expect(screen.queryByText(/Previously claimed songs/)).toBe(null);
+    expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
     expect((screen.getByRole('button', { name: /Scan claims/ }) as HTMLButtonElement).disabled).toBe(true); // nothing kept from the old tab
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
@@ -75,21 +75,27 @@ export function CopyrightTab() {
   const stored = useClaimsGlobals();
   const [tool, setTool] = useState<ToolTab>('claims');
   const [videoId, setVideoId] = useState(''); // the tracklist being fixed; '' shows the picker
+  const [from, setFrom] = useState(''); // the video the editor was left by Back: the picker focuses it
   const [cancels, setCancels] = useState(0); // Cancel: the settings form starts again from storage
   const [openLog, setOpenLog] = useState<boolean | null>(null);
   const root = useRef<HTMLDivElement>(null);
   // A different real channel (or another tab): an open tool was the old one's (its video, its text).
-  useEffect(() => { setTool('claims'); setVideoId(''); }, [ch]);
+  useEffect(() => { setTool('claims'); setVideoId(''); setFrom(''); }, [ch]);
   // A scan started here ended in the bound tab: open its list (showClaims() after scanClaims()).
   useEffect(() => { if (opened) setTool(opened.view); }, [opened]);
   const tracklist = (id: string) => { setVideoId(id); setTool('tracklist'); };
 
-  // Each tool opens at its top (the pane scrolls: App's [data-pane-scroll]).
+  // Each tool opens with the sub-tab bar in sight (the pane scrolls: App's [data-pane-scroll]): a pane
+  // scrolled past the bar comes back to it; one that shows the bar stays where it is, so the bar
+  // just clicked does not move from under the pointer.
+  const bar = useRef<HTMLDivElement>(null);
   const at = tool + ':' + (tool === 'tracklist' ? videoId : '');
   useEffect(() => {
     // Not while another panel tab shows (a scan can end and open its list then): the panes share the scroller.
     const scroller = root.current?.closest('[data-state="inactive"]') ? null : root.current?.closest('[data-pane-scroll]');
-    if (scroller) scroller.scrollTop = 0;
+    if (!scroller || !bar.current) return;
+    const barTop = bar.current.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scroller.scrollTop = Math.min(scroller.scrollTop, Math.max(0, barTop));
   }, [at]);
 
   // The card and Stop follow the tab that works (`live`): another tab's trim holds the lock, but
@@ -121,6 +127,11 @@ export function CopyrightTab() {
     void claimsWrite({ op: 'set', key: 'logOpen', value: !logOpen }).catch(saveFailed);
   };
   const ready = !!data && !!shown;
+  // Only Claims shows without the channel's data: a tool picked before it went shows Claims meanwhile.
+  const current = ready ? tool : 'claims';
+  const busy = !idle;
+  // forceMount keeps Radix from unmounting an inactive panel; `hidden` takes it out of sight and of the accessibility tree.
+  const pane = (k: ToolTab) => ({ value: k, forceMount: true as const, hidden: current !== k });
   const scanButton = (what: 'ads' | 'collab', label: string, hint: string) => (
     <div className="flex flex-col gap-2">
       <div className="text-xs text-fg3">{hint}</div>
@@ -130,7 +141,7 @@ export function CopyrightTab() {
   const tools: [ToolTab, string, string][] = [
     ['claims', n?.hasScan ? L(`ลิขสิทธิ์ (${n.claims})`, `Claims (${n.claims})`) : L('ลิขสิทธิ์', 'Claims'), 'shield'],
     ['songs', L(`เพลง (${n?.songs ?? stored.songs})`, `Songs (${n?.songs ?? stored.songs})`), 'music'],
-    ['tracklist', L('แก้ tracklist', 'Tracklist'), 'note'],
+    ['tracklist', L('แก้ tracklist', 'Fix tracklist'), 'note'],
     ['ads', n?.hasAdsScan ? L(`โฆษณา (${n.adsTodo})`, `Ads (${n.adsTodo})`) : L('โฆษณา', 'Ads'), 'paid'],
     ['collab', 'Collab', 'collab'],
     ['settings', L('ตัวเลือก', 'Options'), 'sliders'],
@@ -146,38 +157,39 @@ export function CopyrightTab() {
         {s && <StatusCard s={s.status} />}
         {stoppable && <Button variant="danger" className="mt-2.5 w-full" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
       </Section>
-      <Tabs className="mt-[22px]" value={tool} onValueChange={(v) => setTool(v as ToolTab)}>
+      <Tabs className="mt-[22px]" value={current} onValueChange={(v) => setTool(v as ToolTab)}>
         {/* Six tools in a 320px panel: two rows of three. */}
-        <TabsList aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-3">
+        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-3">
           {tools.map(([k, label, icon]) => (
             <TabsTrigger key={k} value={k} disabled={k !== 'claims' && !ready} className="min-w-0 px-1 text-[12.5px] disabled:cursor-default disabled:opacity-50">
               <Icon name={icon} size={14} /><span className="truncate">{label}</span>
             </TabsTrigger>
           ))}
         </TabsList>
-        <TabsContent value="claims" className="flex flex-col gap-3">
+        {/* Kept mounted like the panel's tabs: what was typed or ticked in a tool survives a switch,
+            and is the channel's only (the key starts every tool again on another channel). */}
+        <TabsContent {...pane('claims')} className="flex flex-col gap-3">
           <Button variant="go" onClick={() => scan('claims')} disabled={!idle || !here}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>
           {data && shown && <AutopilotSwitch data={data} state={shown} />}
-          {data && shown && <ClaimList data={data} state={shown} onTracklist={tracklist} />}
+          {data && shown && <ClaimList key={ch} data={data} state={shown} busy={busy} onTracklist={tracklist} />}
         </TabsContent>
-        {data && shown && <>
-          <TabsContent value="songs"><Songs data={data} /></TabsContent>
-          <TabsContent value="tracklist">
-            <TracklistFix data={data} videoId={videoId} onPick={tracklist} onClose={() => setVideoId('')} />
+        {data && shown && <Fragment key={ch}>
+          <TabsContent {...pane('songs')}><Songs data={data} /></TabsContent>
+          <TabsContent {...pane('tracklist')}>
+            <TracklistFix data={data} videoId={videoId} from={from} onPick={tracklist} onClose={() => { setFrom(videoId); setVideoId(''); }} />
           </TabsContent>
-          <TabsContent value="ads">
-            {data.adsScan ? <AdsView data={data} state={shown} />
+          <TabsContent {...pane('ads')}>
+            {data.adsScan ? <AdsView data={data} state={shown} busy={busy} />
               : scanButton('ads', L('เช็กคลิปที่ปิดโฆษณา', 'Check for ads off'), L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on'))}
           </TabsContent>
-          <TabsContent value="collab">
-            {data.collabScan ? <CollabView data={data} state={shown} />
+          <TabsContent {...pane('collab')}>
+            {data.collabScan ? <CollabView data={data} state={shown} busy={busy} />
               : scanButton('collab', L('อ่านรายการคลิป', 'Read video list'), L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators'))}
           </TabsContent>
-          <TabsContent value="settings">
-            {/* Save and Reset change the stored cfg: the form starts again from what was stored. */}
-            <CopyrightSettings key={`${cancels}:${JSON.stringify(data.cfg)}`} data={data} onClose={() => setCancels((k) => k + 1)} />
+          <TabsContent {...pane('settings')}>
+            <CopyrightSettings key={cancels} data={data} onCancel={() => setCancels((k) => k + 1)} />
           </TabsContent>
-        </>}
+        </Fragment>}
       </Tabs>
       <Section>
         <ActivityLog open={logOpen} lines={log} onToggle={toggleLog} />

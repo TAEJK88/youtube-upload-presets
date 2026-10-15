@@ -85,7 +85,7 @@ const button = (name: string | RegExp) => screen.getByRole('button', { name }) a
 
 describe('Ads view', () => {
   it('lists the videos with ads off, the eligible ones ticked, and says what was turned on or failed', () => {
-    renderPanel(<AdsView data={adsData({ 'adsResults:UC1': { b: { state: 'on', msg: '', date: '' }, c: { state: 'failed', msg: 'No switch', date: '' } } })} state={state} />);
+    renderPanel(<AdsView data={adsData({ 'adsResults:UC1': { b: { state: 'on', msg: '', date: '' }, c: { state: 'failed', msg: 'No switch', date: '' } } })} state={state} busy={false} />);
     expect(screen.getByRole('heading', { name: '💰 Videos with ads off — Mine' })).toBeTruthy();
     expect(screen.getByText(/^3 of 9 videos · 2 only turned off in settings · checked /)).toBeTruthy();
     expect([box('A').checked, box('B').checked, box('C').checked]).toEqual([true, false, false]);
@@ -98,7 +98,7 @@ describe('Ads view', () => {
 
   it('Turn on ads (N) sends the ticked ids in the list\'s order', () => {
     const api = fakePanel();
-    renderPanel(<AdsView data={adsData()} state={state} />, api);
+    renderPanel(<AdsView data={adsData()} state={state} busy={false} />, api);
     expect(button('💰 Turn on ads (2)')).toBeTruthy();
     fireEvent.click(box('C'));
     fireEvent.click(box('A'));
@@ -110,7 +110,7 @@ describe('Ads view', () => {
 
   it('a newer scan under the open view (Recheck) starts the ticks again from its own rows', () => {
     const next = [{ videoId: 'n1', video: 'New 1', privacy: 'public', length: 1, ineligible: false, status: '' }, { videoId: 'n2', video: 'New 2', privacy: 'public', length: 1, ineligible: true, status: '' }];
-    const v = mount((d) => <AdsView data={d} state={state} />, adsData());
+    const v = mount((d) => <AdsView data={d} state={state} busy={false} />, adsData());
     fireEvent.click(box('C'));
     v.to(adsData()); // the same scan again (another key changed): the ticks stay
     expect(button('💰 Turn on ads (3)')).toBeTruthy();
@@ -122,7 +122,7 @@ describe('Ads view', () => {
 
   it('the chips tick exactly their rows; with nothing ticked the button is off', () => {
     const api = fakePanel();
-    renderPanel(<AdsView data={adsData()} state={state} />, api);
+    renderPanel(<AdsView data={adsData()} state={state} busy={false} />, api);
     fireEvent.click(button('Public only'));
     expect([box('A').checked, box('B').checked, box('C').checked]).toEqual([true, false, false]);
     fireEvent.click(button('All'));
@@ -136,7 +136,7 @@ describe('Ads view', () => {
 
   it('Recheck asks the tab for a new ads scan', () => {
     const api = fakePanel();
-    renderPanel(<AdsView data={adsData()} state={state} />, api);
+    renderPanel(<AdsView data={adsData()} state={state} busy={false} />, api);
     fireEvent.click(button('↻ Recheck'));
     expect(api.send).toHaveBeenCalledWith('claims:scan', 'ads');
   });
@@ -144,23 +144,32 @@ describe('Ads view', () => {
   it('a tab that does not take the message is said once', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const api = fakePanel({ send: vi.fn(async () => { throw new Error('No response'); }) as never });
-    renderPanel(<AdsView data={adsData()} state={state} />, api);
+    renderPanel(<AdsView data={adsData()} state={state} busy={false} />, api);
     fireEvent.click(button('💰 Turn on ads (2)'));
     await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD, { id: 'not-connected' }));
   });
 
   it('an empty list says every video has ads on', () => {
-    renderPanel(<AdsView data={adsData({ 'adsScan:UC1': { date: '2026-01-01', total: 0, rows: [] } })} state={state} />);
+    renderPanel(<AdsView data={adsData({ 'adsScan:UC1': { date: '2026-01-01', total: 0, rows: [] } })} state={state} busy={false} />);
     expect(screen.getByText('🎉 All videos have ads on')).toBeTruthy();
     expect(button('💰 Turn on ads (0)').disabled).toBe(true);
   });
 
   it('in Thai', () => {
     setLang('th');
-    renderPanel(<AdsView data={adsData()} state={state} />);
+    renderPanel(<AdsView data={adsData()} state={state} busy={false} />);
     expect(screen.getByRole('heading', { name: '💰 คลิปที่ปิดโฆษณา — Mine' })).toBeTruthy();
     expect(button('💰 เปิดโฆษณา (2)')).toBeTruthy();
     expect(button('↻ เช็กใหม่')).toBeTruthy();
+  });
+  // THAIB-1 review: the list stays open while its run goes on; nothing new starts from it meanwhile.
+  it('while the tab is busy, Turn on ads and Recheck are off and send nothing', () => {
+    const api = fakePanel();
+    renderPanel(<AdsView data={adsData()} state={state} busy />, api);
+    expect(button('💰 Turn on ads (2)').disabled).toBe(true);
+    expect(button('↻ Recheck').disabled).toBe(true);
+    fireEvent.click(button('💰 Turn on ads (2)'));
+    expect(api.send).not.toHaveBeenCalled();
   });
 });
 
@@ -171,7 +180,7 @@ describe('Collab view', () => {
     renderPanel(<CollabView data={collabData({
       collabHandles: '@a, @b', 'collabLinks:UC1': { '@a': 'https://studio.youtube.com/invite/1' },
       'collabResults:UC1': { x: { state: 'done', msg: 'Invited @a', date: '' }, y: { state: 'failed', msg: 'No dialog', date: '' } },
-    })} state={state} />);
+    })} state={state} busy={false} />);
     expect(screen.getByRole('heading', { name: '🤝 Collab — Mine' })).toBeTruthy();
     expect(screen.getByText(/^2 videos · read .* covers every video\)$/)).toBeTruthy();
     expect(handles().value).toBe('@a, @b');
@@ -185,7 +194,7 @@ describe('Collab view', () => {
 
   it('Invite without a handle says so and stays; with one it sends the ticked ids and the handles', () => {
     const api = fakePanel();
-    renderPanel(<CollabView data={collabData()} state={state} />, api);
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} />, api);
     fireEvent.click(box('Jazz'));
     fireEvent.click(button('🤝 Invite (1 videos)'));
     expect(toast).toHaveBeenCalledWith('Enter the @handle of the channel to invite first');
@@ -198,7 +207,7 @@ describe('Collab view', () => {
 
   it('the handles are saved a moment after the typing stops, once', () => {
     vi.useFakeTimers();
-    renderPanel(<CollabView data={collabData()} state={state} />);
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} />);
     fireEvent.change(handles(), { target: { value: '@a' } });
     vi.advanceTimersByTime(300);
     fireEvent.change(handles(), { target: { value: '@ab' } });
@@ -211,7 +220,7 @@ describe('Collab view', () => {
 
   it('handles the timer saved are not written again when the view closes', () => {
     vi.useFakeTimers();
-    const r = renderPanel(<CollabView data={collabData()} state={state} />);
+    const r = renderPanel(<CollabView data={collabData()} state={state} busy={false} />);
     fireEvent.change(handles(), { target: { value: '@a' } });
     vi.advanceTimersByTime(400);
     r.unmount();
@@ -220,7 +229,7 @@ describe('Collab view', () => {
 
   it('handles typed right before the side panel itself closes are saved (no React cleanup runs then)', () => {
     vi.useFakeTimers();
-    renderPanel(<CollabView data={collabData()} state={state} />);
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} />);
     fireEvent.change(handles(), { target: { value: '@gone' } });
     window.dispatchEvent(new Event('pagehide'));
     expect(claimsWrite).toHaveBeenCalledWith({ op: 'set', key: 'collabHandles', value: '@gone' });
@@ -229,7 +238,7 @@ describe('Collab view', () => {
   });
 
   it('a newer scan under the open view (Reload list) starts with nothing ticked', () => {
-    const v = mount((d) => <CollabView data={d} state={state} />, collabData());
+    const v = mount((d) => <CollabView data={d} state={state} busy={false} />, collabData());
     fireEvent.click(box('Jazz'));
     v.to(collabData({ collabHandles: '@a' })); // the same scan again: the tick stays
     expect(button('🤝 Invite (1 videos)')).toBeTruthy();
@@ -240,7 +249,7 @@ describe('Collab view', () => {
 
   it('handles typed right before the view closes are still saved', () => {
     vi.useFakeTimers();
-    const r = renderPanel(<CollabView data={collabData()} state={state} />);
+    const r = renderPanel(<CollabView data={collabData()} state={state} busy={false} />);
     fireEvent.change(handles(), { target: { value: '@late' } });
     r.unmount();
     expect(claimsWrite).toHaveBeenCalledWith({ op: 'set', key: 'collabHandles', value: '@late' });
@@ -251,7 +260,7 @@ describe('Collab view', () => {
   it('a handles write that fails is a failed save, not a tab that is not connected', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(claimsWrite).mockRejectedValue(new Error('boom'));
-    const r = renderPanel(<CollabView data={collabData()} state={state} />);
+    const r = renderPanel(<CollabView data={collabData()} state={state} busy={false} />);
     fireEvent.change(handles(), { target: { value: '@a' } });
     r.unmount();
     await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' }));
@@ -259,7 +268,7 @@ describe('Collab view', () => {
   });
 
   it('the search hides rows, and the chips act on the rows shown only', () => {
-    renderPanel(<CollabView data={collabData({ 'collabResults:UC1': { y: { state: 'failed', msg: 'No dialog', date: '' } } })} state={state} />);
+    renderPanel(<CollabView data={collabData({ 'collabResults:UC1': { y: { state: 'failed', msg: 'No dialog', date: '' } } })} state={state} busy={false} />);
     fireEvent.click(button('Failed only'));
     expect([box('Lofi Mix').checked, box('Jazz').checked]).toEqual([false, true]);
     fireEvent.change(screen.getByRole('textbox', { name: 'Search video titles…' }), { target: { value: 'lofi' } });
@@ -278,7 +287,7 @@ describe('Collab view', () => {
   it('Copy puts the invite link on the clipboard and says whose it is', async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
-    renderPanel(<CollabView data={collabData({ 'collabLinks:UC1': { '@a': 'https://l/1' } })} state={state} />);
+    renderPanel(<CollabView data={collabData({ 'collabLinks:UC1': { '@a': 'https://l/1' } })} state={state} busy={false} />);
     fireEvent.click(button('Copy'));
     expect(writeText).toHaveBeenCalledWith('https://l/1');
     await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("Copied @a's link"));
@@ -288,7 +297,7 @@ describe('Collab view', () => {
   it('a clipboard that refuses is said as a failed copy', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => { throw new Error('denied'); }) } });
-    renderPanel(<CollabView data={collabData({ 'collabLinks:UC1': { '@a': 'https://l/1' } })} state={state} />);
+    renderPanel(<CollabView data={collabData({ 'collabLinks:UC1': { '@a': 'https://l/1' } })} state={state} busy={false} />);
     fireEvent.click(button('Copy'));
     await vi.waitFor(() => expect(toast).toHaveBeenCalledWith("Couldn't copy"));
     vi.unstubAllGlobals();
@@ -297,22 +306,33 @@ describe('Collab view', () => {
   it('Reload list asks the tab for a new Collab scan; a tab that does not answer is said', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const api = fakePanel({ send: vi.fn(async () => { throw new Error('No response'); }) as never });
-    renderPanel(<CollabView data={collabData()} state={state} />, api);
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} />, api);
     fireEvent.click(button('↻ Reload list'));
     expect(api.send).toHaveBeenCalledWith('claims:scan', 'collab');
     await vi.waitFor(() => expect(toast).toHaveBeenCalledWith(RELOAD, { id: 'not-connected' }));
   });
 
   it('a channel with no videos says so', () => {
-    renderPanel(<CollabView data={collabData({ 'collabScan:UC1': { date: '2026-01-01', total: 0, rows: [] } })} state={state} />);
+    renderPanel(<CollabView data={collabData({ 'collabScan:UC1': { date: '2026-01-01', total: 0, rows: [] } })} state={state} busy={false} />);
     expect(screen.getByText('This channel has no videos yet')).toBeTruthy();
   });
 
   it('in Thai', () => {
     setLang('th');
-    renderPanel(<CollabView data={collabData()} state={state} />);
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} />);
     expect(screen.getByRole('textbox', { name: 'ช่องที่จะเชิญ' })).toBeTruthy();
     expect(button('🤝 เชิญ (0 คลิป)')).toBeTruthy();
     expect(button('↻ อ่านรายการใหม่')).toBeTruthy();
+  });
+
+  it('while the tab is busy, Invite and Reload list are off and send nothing', () => {
+    const api = fakePanel();
+    renderPanel(<CollabView data={collabData()} state={state} busy />, api);
+    fireEvent.change(handles(), { target: { value: '@a' } });
+    fireEvent.click(box('Jazz'));
+    expect(button('🤝 Invite (1 videos)').disabled).toBe(true);
+    expect(button('↻ Reload list').disabled).toBe(true);
+    fireEvent.click(button('🤝 Invite (1 videos)'));
+    expect(api.send).not.toHaveBeenCalled();
   });
 });

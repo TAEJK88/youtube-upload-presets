@@ -24,8 +24,9 @@ const TRIM_LABEL = (): Record<string, string> => ({
 const STATE_TONE: Record<string, string> = { saved: 'text-ok', gone: 'text-ok', failed: 'text-err', skipped: 'text-warn', later: 'text-warn' };
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-export function ClaimList({ data, state, onTracklist }: {
-  data: ClaimsData; state: ClaimsState; onTracklist(videoId: string): void;
+// `busy`: a scan or run is on in the bound tab: no rescan or trim from this (maybe outgoing) list until it ends.
+export function ClaimList({ data, state, busy, onTracklist }: {
+  data: ClaimsData; state: ClaimsState; busy: boolean; onTracklist(videoId: string): void;
 }) {
   const { send } = usePanel();
   const ask = useAsk();
@@ -54,7 +55,7 @@ export function ClaimList({ data, state, onTracklist }: {
   // openTrimConfirm() (5672–5696): the tab starts the run from its stored scan (claims:trim, D27).
   const pickedRows = rows.filter((r) => picked.has(rowKey(r)) && !isDone(data.trimResults[rowKey(r)]));
   const trim = async () => {
-    if (!pickedRows.length) return;
+    if (!pickedRows.length || busy) return;
     const t = trimSummary(pickedRows);
     const go = await ask({
       title: L(`ตัด ${t.claims} claim ใน ${t.videos} คลิป?`, `Trim ${t.claims} claims in ${t.videos} videos?`),
@@ -90,8 +91,8 @@ export function ClaimList({ data, state, onTracklist }: {
       footer={<>
         <span className="basis-full text-xs text-fg3">{L('ติ๊กเลือกแค่สร้างรายการ ยังไม่มีอะไรเปลี่ยนบน YouTube จนกว่าจะกดเริ่มตัด', 'Ticking only builds a list — nothing changes on YouTube until you start trimming')}</span>
         <Button size="sm" onClick={() => downloadCsv(claimsCsvRows(scan), `youtube-claims-${scan.date.slice(0, 10)}.csv`)}>⬇ CSV</Button>
-        <Button size="sm" onClick={rescan}>{L('↻ สแกนใหม่', '↻ Rescan')}</Button>
-        <Button variant="go" size="sm" disabled={!pickedRows.length} onClick={() => void trim()}>
+        <Button size="sm" disabled={busy} onClick={rescan}>{L('↻ สแกนใหม่', '↻ Rescan')}</Button>
+        <Button variant="go" size="sm" disabled={!pickedRows.length || busy} onClick={() => void trim()}>
           {L(`✂ ตัดที่เลือก (${pickedRows.length})`, `✂ Trim selected (${pickedRows.length})`)}
         </Button>
       </>}

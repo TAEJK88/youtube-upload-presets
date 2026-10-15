@@ -160,6 +160,8 @@ async function renderThai(api: ReturnType<typeof fakePanel>, live = fakeLive({ s
 }
 const click = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name }).at(-1)!));
 const dialog = () => screen.getByRole('dialog');
+// The Tools tab's sub-tab in sight: the others stay mounted, hidden (THAIB-1 review).
+const shownTool = () => document.querySelector('[role=tabpanel][id$=claims] [role=tabpanel]:not([hidden])')!;
 const cancel = () => act(async () => fireEvent.keyDown(dialog(), { key: 'Escape' }));
 
 describe('the panel in Thai', () => {
@@ -301,7 +303,7 @@ describe('the panel in Thai', () => {
     clean(document.body);
     await tap(/มิกซ์ 2/); // video v1: from upload history, a range ticked
     await act(async () => {});
-    await act(async () => fireEvent.click(pane().querySelector('input[type=checkbox]')!));
+    await act(async () => fireEvent.click(shownTool().querySelector('input[type=checkbox]')!));
     expect(pane().textContent).toContain('ดึง tracklist จากประวัติการอัปโหลด');
     expect(pane().textContent).toContain('ตัด 1 ช่วง · ลบ 1 เพลง: ค - ง · เหลือ 2 เพลง');
     clean(document.body);
@@ -385,7 +387,7 @@ describe('the panel in Thai', () => {
     clean(document.body);
 
     await tool('ตัวเลือก');
-    expect(pane().querySelectorAll('input').length).toBe(10);
+    expect(shownTool().querySelectorAll('input').length).toBe(10);
     expect(pane().textContent).toContain('ตั้งค่าลิขสิทธิ์');
     clean(document.body);
     await tap('คืนค่าเริ่มต้น'); // armed: it asks once more

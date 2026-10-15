@@ -51,5 +51,4 @@ export default [
   { th: 'รายการ claim (${})', en: 'Claim list (${})', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Claims (n)")' },
   { th: 'เพลงที่เคยโดน (${})', en: 'Claimed songs (${})', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Songs (n)")' },
   { th: 'เพลงและศิลปินที่เคยโดน claim ทุกช่อง', en: 'Songs and artists that have been claimed across all channels', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab: that button\'s tooltip; the sub-tab opens the view, whose title says it' },
-  { th: 'แก้ tracklist', en: 'Fix tracklist', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Tracklist")' },
 ];

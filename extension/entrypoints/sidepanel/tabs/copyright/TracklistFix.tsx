@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
@@ -30,20 +30,25 @@ function useUploads(): Upload[] | null {
   return list;
 }
 
-export function TracklistFix({ data, videoId, onPick, onClose }: { data: ClaimsData; videoId: string; onPick(videoId: string): void; onClose(): void }) {
-  if (!videoId) return <Picker data={data} onPick={onPick} />;
+// `from`: the video the editor was left by Back; the picker gives its button the focus.
+export function TracklistFix({ data, videoId, from, onPick, onClose }: { data: ClaimsData; videoId: string; from: string; onPick(videoId: string): void; onClose(): void }) {
+  if (!videoId) return <Picker data={data} from={from} onPick={onPick} />;
   return <Editor key={videoId} data={data} videoId={videoId} onClose={onClose} />;
 }
 
-function Picker({ data, onPick }: { data: ClaimsData; onPick(id: string): void }) {
+function Picker({ data, from, onPick }: { data: ClaimsData; from: string; onPick(id: string): void }) {
   const vids = claimedVideos(data.scan);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (from) box.current?.querySelector<HTMLElement>(`[data-video="${CSS.escape(from)}"]`)?.focus({ preventScroll: true });
+  }, []);
   const have = new Set((useUploads() ?? []).map((u) => u.videoId));
   return (
     <SubView title={L('📝 เลือกคลิปที่จะแก้ tracklist', '📝 Choose a video to fix its tracklist')}>
       {vids.length ? (
-        <div className="flex flex-col gap-1.5">
+        <div ref={box} className="flex flex-col gap-1.5">
           {vids.map((r) => (
-            <button key={r.videoId} type="button" onClick={() => onPick(r.videoId)} className="cursor-pointer rounded-[12px] border border-tint/[0.09] bg-tint/5 px-3 py-2 text-left text-[13px] break-words hover:bg-surface2">
+            <button key={r.videoId} data-video={r.videoId} type="button" onClick={() => onPick(r.videoId)} className="cursor-pointer rounded-[12px] border border-tint/[0.09] bg-tint/5 px-3 py-2 text-left text-[13px] break-words hover:bg-surface2">
               <b className="block font-medium">{r.video}</b>
               <span className="text-xs text-fg3">
                 {fmt(r.length) + ' · '}{have.has(r.videoId) ? L('มี tracklist จากประวัติการอัป', 'Tracklist from upload history') : L('ต้องวาง tracklist เอง', 'Paste tracklist manually')}
