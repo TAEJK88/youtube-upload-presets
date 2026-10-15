@@ -38,7 +38,7 @@ don't press its button.
 
 The panel starts in English. For Thai: Settings → General → Language / ภาษา → ไทย.
 
-TODO(key): once the owner's public key line is in `wxt.config.ts`, add here: "The card on `chrome://extensions` shows the ID `<the id computed from the key>`. It is the same on every computer."
+The card on `chrome://extensions` shows the ID `cllefnlbgkbdnmifojjflfcpholhniio`. It is the same on every computer.
 
 ## Update
 
@@ -73,8 +73,6 @@ pick **"Allow on every visit"**. After that the banner is expected not to come b
 order matters: once Start or Re-grant has made the files readable, Chrome has nothing left
 to ask and the page says so; the next chance is the next time the banner shows.
 
-TODO(key): "they belong to the extension, not to the folder" is true only once the public key line is in `wxt.config.ts`. Today the build has no key and the extension's id follows the folder's path: a build loaded from another folder is a new, empty extension beside the old one. Delete this line when the key is in; until then the rule is "always the same folder, in the same place".
-
 If you used a test build from before 5.0.0: that copy has a different id, and its data does
 not follow by itself. Move like this. Until the last step you can go back: switch the new
 copy off and the old one on again.
@@ -99,8 +97,6 @@ copy off and the old one on again.
 6. Look through presets, settings and the Copyright tab. Only when nothing you need is
    missing: press **Remove** on the old copy and delete its folder. Remove deletes the old
    copy's upload history, channel list, queue and scans for good.
-
-TODO(key): keep the paragraph and the six steps above only when the key is in the manifest (the key is what changes the id of a copy installed before it). Today, with no key, a test build updated in the same folder keeps its id and its data, and none of this applies. Without a key, delete it.
 
 ## Moving from the userscript
 
@@ -213,7 +209,7 @@ Turning the script off is the fix for all of these.
 
 แผงเริ่มต้นเป็นภาษาอังกฤษ เปลี่ยนเป็นไทยได้ที่ Settings → General → Language / ภาษา → ไทย
 
-TODO(key): once the key is in `wxt.config.ts`, add the Thai of the sentence added under "Install": "การ์ดใน `chrome://extensions` จะแสดง ID `<the id>` ซึ่งเหมือนกันทุกเครื่อง"
+การ์ดใน `chrome://extensions` จะแสดง ID `cllefnlbgkbdnmifojjflfcpholhniio` ซึ่งเหมือนกันทุกเครื่อง
 
 ### อัปเดต
 
@@ -241,8 +237,6 @@ TODO(key): once the key is in `wxt.config.ts`, add the Thai of the sentence adde
 หลังจากนั้นแถบนี้ไม่น่าจะขึ้นมาอีก (เป็นไปตามเอกสารของ Chrome แต่ยังไม่ได้ยืนยันใน Chrome จริง ดูข้อตรวจ 89)
 ลำดับสำคัญ: ถ้ากดเริ่มอัปโหลดหรืออนุญาตอีกครั้งไปก่อน ไฟล์จะอ่านได้แล้ว Chrome จึงไม่มีอะไรต้องถาม และหน้านั้นจะบอกให้กลับมาใหม่เมื่อแถบนี้ขึ้นอีกครั้ง
 
-TODO(key): the Thai sentence "ข้อมูลเป็นของส่วนขยาย ไม่ได้อยู่ในโฟลเดอร์" is true only once the key is in `wxt.config.ts` (see the marker under "Update"). Delete this line when the key is in.
-
 ถ้าเคยใช้ตัวทดสอบก่อนเวอร์ชัน 5.0.0: ตัวนั้นมี ID คนละตัวกัน ข้อมูลจะไม่ตามมาเอง ให้ย้ายตามนี้
 ก่อนถึงข้อสุดท้ายยังถอยกลับได้เสมอ: ปิดตัวใหม่ แล้วเปิดตัวเก่ากลับมา
 
@@ -264,8 +258,6 @@ TODO(key): the Thai sentence "ข้อมูลเป็นของส่ว�
 6. ตรวจพรีเซ็ต การตั้งค่า และแท็บลิขสิทธิ์ให้ครบ เมื่อแน่ใจแล้วว่าไม่มีอะไรที่ต้องใช้หายไป
    จึงกด **Remove** ที่ตัวเก่าแล้วลบโฟลเดอร์ของมัน การกด Remove จะลบประวัติการอัปโหลด
    รายชื่อช่อง คิว และผลสแกนของตัวเก่าทิ้งถาวร
-
-TODO(key): keep the Thai paragraph and its six steps above only when the key is in the manifest (see the marker under "Update"). Today, with no key, they do not apply.
 
 ### ย้ายจากสคริปต์ Tampermonkey
 
@@ -1205,9 +1197,8 @@ observation.
     with **the zip you were given** (before the first release there is nothing to download yet).
     The card on `chrome://extensions` reads "YouTube Upload Presets", version 5.0.0, with no
     **Errors** button (but see the record line below). The toolbar button opens the panel on a Studio tab. **Record** the ID on
-    the card, and the content hash that came with the zip.
-
-    TODO(key): once the key is in `wxt.config.ts`, add to item 75: "The ID is `<the id computed from the key>`, the same on every computer." Until then the ID differs per folder and per machine, and the record above is all there is to check.
+    the card, and the content hash that came with the zip. The ID is
+    `cllefnlbgkbdnmifojjflfcpholhniio`, the same on every computer.
 
     - The unzipped folder holds `manifest.json`, `background.js`, `sidepanel.html`,
       `debug.html`, `file-bridge.html`, `THIRD-PARTY-NOTICES.txt` and the folders `assets`,
@@ -1236,9 +1227,8 @@ observation.
       **record** the toast and the `[ytup] regrant` lines (item 16).
     - **A different folder (record).** Unzip the same build into a *second* folder and Load
       unpacked from it. **Record** what Chrome does: replaces the first copy and keeps the data,
-      refuses, or shows two copies. Remove the second copy if there are two.
-
-    TODO(key): once the key is in `wxt.config.ts`, add to "A different folder": "With the key both folders have the same ID, so two separate copies with separate data are not expected." Today, with no key, the expected result is two copies, the second one empty.
+      refuses, or shows two copies. Remove the second copy if there are two. With the key both
+      folders have the same ID, so two separate copies with separate data are not expected.
 77. **Update available.** In the service worker console (item 42 says how to open it):
     `await chrome.storage.local.set({ updateCheck: { at: Date.now(), latest: '99.0.0', url: 'https://github.com/TAEJK88/youtube-upload-presets/releases/latest' } })`.
     The panel shows "Update available: version 99.0.0 (you have 5.0.0)" as its last banner,
@@ -2086,8 +2076,7 @@ documentation; none of it is measured in Chrome yet, items 88 and 89 are where i
     dismissed or refused question ends the click's round: the page does not go on to ask
     about the remaining files; the next click does.
   - The permission belongs to Chrome, per extension id: Chrome's site settings can take it
-    back, and a build loaded from another folder (another id, see the TODO(key) note under
-    "Update") starts without it.
+    back, and a test build from before 5.0.0 (another id, see "Update") starts without it.
   - A file a Studio tab reported while the panel could read it stays on the banner through
     a visit to the page: nothing could be asked about it there. Its report goes when
     Re-grant access is clicked, or when the panel itself saw the file unreadable and then
@@ -2236,12 +2225,9 @@ The package:
 
 - **No artwork yet.** The toolbar button and the card show Chrome's own tile with a letter, and
   the two desktop notifications ("Upload finished ✅", "Auto-pilot is due") show a small red dot.
-- **The extension's ID follows the folder it is loaded from.** A manifest key that gives one
-  ID on every computer is approved (`scripts/parity/DECISIONS.md`, P5-5) but not in the build
-  yet. The debug page's address (`chrome-extension://<id>/debug.html`) therefore differs per
-  machine.
-
-  TODO(key): once the key is in `wxt.config.ts`, replace the bullet above with: "**One ID on every computer:** `<the id computed from the key>`, from the manifest key (its private half is the owner's and is not in the repo). The debug page is `chrome-extension://<the id>/debug.html` everywhere."
+- **One ID on every computer:** `cllefnlbgkbdnmifojjflfcpholhniio`, from the manifest key (its
+  private half is the owner's and is not in the repo). The debug page is
+  `chrome-extension://cllefnlbgkbdnmifojjflfcpholhniio/debug.html` everywhere.
 
 ### Known, dev only (note, don't test)
 
