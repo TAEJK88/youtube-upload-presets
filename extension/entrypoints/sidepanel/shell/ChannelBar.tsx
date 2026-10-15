@@ -4,7 +4,7 @@ import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { L } from '@/lib/i18n';
-import { channelUrl, parseChannelId, withChannel } from '@/lib/panel/channels';
+import { channelUrl, lookupHandle, noHandle, parseChannelId, withChannel } from '@/lib/panel/channels';
 import type { StoredChannel } from '@/lib/studio/channels';
 import { cn } from '@/lib/utils';
 import { IconButton } from '../fields';
@@ -86,10 +86,18 @@ function ChannelList() {
   };
   // The tab refuses too (its own toast shows in the page); asking here first says so in the
   // panel. Files waiting in the queue survive a switch, so only a run (in any tab) blocks it.
-  const switchTo = (c: StoredChannel) => {
+  // The switcher picks by @handle only: a channel without one is looked up and remembered,
+  // and is not switched to when the lookup finds none.
+  const switchTo = async (c: StoredChannel) => {
     if (!target) return;
     if (liveState?.running || elsewhere) return void toast(L('คิวอัปโหลดยังทำงานอยู่ — สลับช่องตอนนี้คิวจะหยุด', 'Upload queue is still running — switching channels now would stop it'));
-    send('channel:switch', { name: c.name, handle: c.handle ?? '', next: channelUrl(target.url, c.id) }).catch((e: unknown) => {
+    let handle = c.handle ?? '';
+    if (!handle) {
+      handle = await lookupHandle(c.id);
+      if (!handle) return void toast(noHandle(c.name || c.id));
+      void write.channels((list) => list.map((x) => (x.id === c.id ? { ...x, handle } : x))).catch(saveFailed);
+    }
+    send('channel:switch', { name: c.name, handle, next: channelUrl(target.url, c.id) }).catch((e: unknown) => {
       console.error('[ytup] channel:switch failed', e);
       toast(L(`สลับช่องไม่สำเร็จ (${(e as Error)?.message ?? e})`, `Couldn't switch channels (${(e as Error)?.message ?? e})`));
     });
@@ -110,7 +118,7 @@ function ChannelList() {
             </Button>
           ) : (
             <Button size="sm" title={L('สลับไปช่องนี้ (มีผลกับทุกแท็บ Studio)', 'Switch to this channel (affects every Studio tab)')} disabled={!target}
-              onClick={() => switchTo(c)}>
+              onClick={() => void switchTo(c)}>
               <Icon name="swap" size={13} />{L('สลับไปช่องนี้', 'Switch')}
             </Button>
           )}

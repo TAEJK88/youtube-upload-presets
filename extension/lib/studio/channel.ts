@@ -37,7 +37,7 @@ function getChannel(): Channel {
   const imgEl = document.querySelector<HTMLImageElement>(
     SEL.channelAvatar
   );
-  // @handle: หน้าสลับช่องไม่มี UC id ในแถว ต้องใช้ handle เทียบ (ไม่เจอก็ถอยไปเทียบด้วยชื่อ)
+  // @handle: หน้าสลับช่องไม่มี UC id ในแถว ต้องใช้ handle เทียบ (ไม่เจอ แผงจะไปหา handle จากหน้าช่องเอง ไม่เทียบด้วยชื่อ)
   const hBox = document.querySelector(SEL.channelHandleBox);
   const handle = ((hBox && hBox.textContent) || '').match(/@[a-z0-9._-]+/i);
   return { id, name: nameEl ? nameEl.textContent.trim() : '', avatar: imgEl && imgEl.src ? imgEl.src : '', handle: handle ? handle[0] : '' };

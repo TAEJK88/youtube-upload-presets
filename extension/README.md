@@ -544,6 +544,12 @@ The panel's own console: right-click inside the panel → Inspect.
      stop it". With files queued but nothing running, Switch is allowed and the queue survives.
    - Add a channel by `UC…` id or link; `@handle` toasts "No channel ID found (starts with UC,
      24 characters)"; ✕ removes one.
+   - The switcher picks a row by `@handle` only, never by name. Switch on a channel stored
+     without a handle (a channel added by id, or one whose Studio page showed none) looks the
+     handle up on its public page and remembers it, then switches. **Record** the handle it
+     found. With none found it toasts "Couldn't find the @handle of "…", so not switching
+     (picking by name could open the wrong channel). Use YouTube's own Switch account instead"
+     and stays on this channel.
 6. **Reload this tab.** With a Studio tab open, reload the extension in `chrome://extensions`.
    Within about a second the page shows "The extension was updated or reloaded — reload this
    tab to keep using it" and the FAB goes away; the panel on that tab shows "This tab is not

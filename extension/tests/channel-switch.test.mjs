@@ -182,15 +182,29 @@ test('the stored next URL is preferred when there is one', () => {
   assert.deepEqual(r.nav, ['https://studio.youtube.com/channel/UCabc/videos/upload']);
 });
 
-test('it gives up rather than looping once the tries run out', () => {
-  const r = runRecovery('https://studio.youtube.com/channel/UCabc?sttick=0', { at: 1000, tries: 2, next: '' });
+// Changed from the userscript (P5-switch-home): seen 2026-10-15 on a switch to PLAYNOW®, the
+// clean channel URL kept saying no permission while Studio's own "Return to Studio" (the home
+// page) opened that channel. So once the clean URLs are used up, the home page is tried once.
+test('once the tries run out it goes to the Studio home page, as "Return to Studio" does', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc', { at: 1000, tries: 2, next: 'https://studio.youtube.com/channel/UCabc' });
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/']);
+  assert.deepEqual(r.store.channelSwitchedAt, { at: 1000, tries: 3, next: 'https://studio.youtube.com/channel/UCabc' });
+});
+
+test('with no different URL left to try it goes to the home page too', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc', { at: 1000, tries: 0, next: '' });
+  assert.deepEqual(r.nav, ['https://studio.youtube.com/'], 'navigating to the same URL would hang the recovery');
+});
+
+test('it gives up rather than looping once the home page has been tried', () => {
+  const r = runRecovery('https://studio.youtube.com/channel/UCabc', { at: 1000, tries: 3, next: '' });
   assert.deepEqual(r.nav, []);
   assert.equal(r.store.channelSwitchedAt, null);
 });
 
-test('it gives up when there is no different URL left to try', () => {
-  const r = runRecovery('https://studio.youtube.com/channel/UCabc', { at: 1000, tries: 0, next: '' });
-  assert.deepEqual(r.nav, [], 'navigating to the same URL would hang the recovery');
+test('on the home page itself it gives up instead of reloading it', () => {
+  const r = runRecovery('https://studio.youtube.com/', { at: 1000, tries: 2, next: 'https://studio.youtube.com/' });
+  assert.deepEqual(r.nav, []);
   assert.equal(r.store.channelSwitchedAt, null);
 });
 

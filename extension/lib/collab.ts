@@ -23,14 +23,14 @@ export const acceptLabelMatches = (...labels: unknown[]) =>
   labels.some((l) => normText(l) && TXT.acceptInvite.test(normText(l)));
 
 // Channel-switcher rows only have the name and @handle (no UC id), so match by handle
-// on a word boundary — @thaibeats must not match @thaibeatsofficial.
-export const switcherRowMatches = (rowText: unknown, handle: unknown, name: unknown) => {
+// on a word boundary — @thaibeats must not match @thaibeatsofficial. Never by name: the
+// userscript fell back to "the row starts with the name", which picks "TrapSoul Mix 2"
+// for "TrapSoul Mix" and switches every Studio tab to the wrong channel (P5-switch-by-handle).
+export const switcherRowMatches = (rowText: unknown, handle: unknown, _name?: unknown) => {
   const t = normText(rowText);
-  if (!t) return false;
   const h = String(handle || '').replace(/^@/, '').toLowerCase();
-  if (h) return new RegExp('@' + h.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + '(?![a-z0-9._-])', 'i').test(t);
-  const n = normText(name).toLowerCase();
-  return !!n && t.toLowerCase().startsWith(n);
+  if (!t || !h) return false;
+  return new RegExp('@' + h.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&') + '(?![a-z0-9._-])', 'i').test(t);
 };
 
 export interface InviteResult {

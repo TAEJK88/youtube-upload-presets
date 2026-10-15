@@ -179,9 +179,11 @@ test('a different channel does not match', () => {
   assert.equal(C.switcherRowMatches(ROW('BLXD', '@BLXDofficial'), '@thaibeats'), false);
 });
 
-test('with no handle it falls back to the channel name', () => {
-  assert.ok(C.switcherRowMatches(ROW('Coffeetables Mix', '@coffeetablesmix'), '', 'Coffeetables Mix'));
-  assert.equal(C.switcherRowMatches(ROW('Coffeetables Mix', '@coffeetablesmix'), '', 'soulvybe'), false);
+// Changed from the userscript (P5-switch-by-handle): with no handle it matched a row that
+// started with the name, so "TrapSoul Mix" also picked "TrapSoul Mix 2".
+test('with no handle nothing matches, not even the exact name', () => {
+  assert.equal(C.switcherRowMatches(ROW('Coffeetables Mix', '@coffeetablesmix'), '', 'Coffeetables Mix'), false);
+  assert.equal(C.switcherRowMatches(ROW('TrapSoul Mix 2', '@trapsoulmix2'), '', 'TrapSoul Mix'), false);
 });
 
 test('with neither handle nor name nothing matches', () => {

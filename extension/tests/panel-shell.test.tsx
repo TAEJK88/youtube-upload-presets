@@ -148,6 +148,32 @@ describe('channel bar', () => {
     expect(toast).toHaveBeenCalledWith("Couldn't switch channels (channel:switch: next must be a Studio URL)");
   });
 
+  it('looks up the @handle of a channel without one, remembers it and switches by it', async () => {
+    const page = '"externalId":"UC2","vanityChannelUrl":"http://www.youtube.com/@two"';
+    const get = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(page));
+    const api = fakePanel({ data: toPanelData({ channels: [{ id: 'UC1', name: 'Mine', avatar: '', handle: '@mine' }, { id: 'UC2', name: 'Two', avatar: '', handle: '' }] }) });
+    renderPanel(<ChannelBar />, api);
+    fireEvent.click(screen.getByRole('button', { name: 'Other channels · open in a new tab' }));
+    fireEvent.click(screen.getByRole('button', { name: /Switch$/ }));
+    await flush();
+    expect(get).toHaveBeenCalledWith('https://www.youtube.com/channel/UC2', { credentials: 'omit' });
+    const fn = vi.mocked(api.write.channels).mock.calls[0]![0];
+    expect(fn([{ id: 'UC2', name: 'Two', avatar: '', handle: '' }])).toEqual([{ id: 'UC2', name: 'Two', avatar: '', handle: '@two' }]);
+    expect(api.send).toHaveBeenCalledWith('channel:switch', { name: 'Two', handle: '@two', next: 'https://studio.youtube.com/channel/UC2/videos' });
+  });
+
+  it('does not switch by name when no @handle is found', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('no channel here'));
+    const api = fakePanel({ data: toPanelData({ channels: [{ id: 'UC1', name: 'Mine', avatar: '', handle: '@mine' }, { id: 'UC2', name: 'Two', avatar: '', handle: '' }] }) });
+    renderPanel(<ChannelBar />, api);
+    fireEvent.click(screen.getByRole('button', { name: 'Other channels · open in a new tab' }));
+    fireEvent.click(screen.getByRole('button', { name: /Switch$/ }));
+    await flush();
+    expect(api.send).not.toHaveBeenCalled();
+    expect(api.write.channels).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(`Couldn't find the @handle of "Two", so not switching (picking by name could open the wrong channel). Use YouTube's own Switch account instead`);
+  });
+
   it('refuses to switch while a run is in progress, here or in another Studio tab — files waiting do not block it', () => {
     const running = "Upload queue is still running — switching channels now would stop it";
     const here = fakePanel({ data: twoChannels() });

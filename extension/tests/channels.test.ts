@@ -60,7 +60,7 @@ describe('switchChannel', () => {
   });
 
   it('not while the queue runs in this tab', () => {
-    switchChannel(sw, { name: 'Two', handle: '', next: 'https://studio.youtube.com/' }, () => true);
+    switchChannel(sw, { name: 'Two', handle: '@two', next: 'https://studio.youtube.com/' }, () => true);
     expect(sw.switchToChannel).not.toHaveBeenCalled();
     expect(toasts).toEqual(['Upload queue is still running — switching channels now would stop it']);
   });
@@ -68,13 +68,19 @@ describe('switchChannel', () => {
   it('not while another Studio tab runs the queue either (the switch changes every tab)', () => {
     setOtherTabRuns(true);
     try {
-      switchChannel(sw, { name: 'Two', handle: '', next: 'https://studio.youtube.com/' });
+      switchChannel(sw, { name: 'Two', handle: '@two', next: 'https://studio.youtube.com/' });
     } finally {
       setOtherTabRuns(false);
     }
     expect(sw.switchToChannel).not.toHaveBeenCalled();
     expect(toasts).toEqual(['Upload queue is still running — switching channels now would stop it']);
-    switchChannel(sw, { name: 'Two', handle: '', next: 'https://studio.youtube.com/' });
+    switchChannel(sw, { name: 'Two', handle: '@two', next: 'https://studio.youtube.com/' });
     expect(sw.switchToChannel).toHaveBeenCalledOnce();
+  });
+
+  it('not without an @handle: the switcher would have to guess the row by name', () => {
+    switchChannel(sw, { name: 'TrapSoul Mix', handle: '', next: 'https://studio.youtube.com/channel/UC2' }, () => false);
+    expect(sw.switchToChannel).not.toHaveBeenCalled();
+    expect(toasts).toEqual([`Couldn't find the @handle of "TrapSoul Mix", so not switching (picking by name could open the wrong channel). Use YouTube's own Switch account instead`]);
   });
 });
