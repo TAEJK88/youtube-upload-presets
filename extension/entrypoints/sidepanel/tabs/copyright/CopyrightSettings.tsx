@@ -14,9 +14,22 @@ import { SubView } from './SubView';
 // openSettings() (6275–6307): checkboxes for the on/off settings, text for the rest (as the
 // userscript, numbers stay strings); Save writes them in one merge, Reset asks twice. A write
 // that fails leaves the view open with what was typed; a click while one is on its way is ignored.
-export function CopyrightSettings({ data, onClose }: { data: ClaimsData; onClose(): void }) {
+// The form stays mounted (a Tools sub-tab): it follows the stored cfg (another panel window, a
+// Reset) and keeps only what was edited here on top; Save writes those edits alone, so it never
+// puts back a value changed elsewhere. Cancel drops the edits in place (focus stays on it).
+export function CopyrightSettings({ data }: { data: ClaimsData }) {
   const { addLog } = useClaims();
   const [c, setC] = useState<ClaimsCfg>(data.cfg);
+  const [base, setBase] = useState<ClaimsCfg>(data.cfg); // what the form's values are edits against
+  const edits = (): Partial<ClaimsCfg> => Object.fromEntries(Object.entries(c).filter(([k, v]) => v !== base[k as keyof ClaimsCfg]));
+  // A change of the stored cfg (watchClaims keeps the object while the cfg key is untouched): the
+  // form takes it, with its edits on top.
+  const [seen, setSeen] = useState(data.cfg);
+  if (data.cfg !== seen) {
+    setSeen(data.cfg);
+    setC({ ...data.cfg, ...edits() });
+    setBase(data.cfg);
+  }
   const [armed, setArmed] = useState(false);
   const id = useId(); // each help text's id, for its input's aria-describedby
   const busy = useRef(false);
@@ -27,21 +40,25 @@ export function CopyrightSettings({ data, onClose }: { data: ClaimsData; onClose
   };
   const set = (k: keyof ClaimsCfg, v: string | boolean) => setC((x) => ({ ...x, [k]: v }));
   const save = async () => {
-    await claimsWrite({ op: 'merge', key: 'cfg', entries: { ...c } });
-    onClose();
+    const saved = edits();
+    await claimsWrite({ op: 'merge', key: 'cfg', entries: saved });
+    // Only what was written stops being an edit: a change from elsewhere during the write stays the base.
+    setBase((b) => ({ ...b, ...saved }));
     toast(L('บันทึกการตั้งค่าแล้ว', 'Settings saved'));
   };
   const reset = async () => {
     await claimsWrite({ op: 'set', key: 'cfg', value: {} });
-    onClose();
+    setC({ ...DEFAULTS });
+    setBase({ ...DEFAULTS });
+    setArmed(false);
     addLog(L('คืนค่าตั้งค่าลิขสิทธิ์แล้ว', 'Copyright settings reset'), 'ok');
   };
   return (
-    <SubView title={L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')} onClose={onClose}
+    <SubView title={L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')}
       footer={<>
         <Button size="sm" variant="danger" onClick={() => (armed ? once(reset) : busy.current || setArmed(true))}>{armed ? L('กดอีกครั้งเพื่อคืนค่า', 'Click again to reset') : L('คืนค่าเริ่มต้น', 'Reset to defaults')}</Button>
         <span className="flex-1" />
-        <Button size="sm" onClick={onClose}>{L('ยกเลิก', 'Cancel')}</Button>
+        <Button size="sm" onClick={() => { setC(data.cfg); setBase(data.cfg); setArmed(false); }}>{L('ยกเลิก', 'Cancel')}</Button>
         <Button size="sm" variant="go" onClick={() => once(save)}>{L('บันทึก', 'Save')}</Button>
       </>}
     >

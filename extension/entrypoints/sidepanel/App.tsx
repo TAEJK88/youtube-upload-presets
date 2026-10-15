@@ -20,7 +20,7 @@ export type TabKey = PanelTab;
 export const tabDefs = (): [TabKey, string, string][] => [
   ['queue', L('อัปโหลด', 'Upload'), 'queue'],
   ['presets', L('พรีเซ็ต', 'Presets'), 'layers'],
-  ['claims', L('ลิขสิทธิ์', 'Copyright'), 'shield'],
+  ['claims', L('เครื่องมือ', 'Tools'), 'gear'],
   ['settings', L('ตั้งค่า', 'Settings'), 'sliders'],
 ];
 

@@ -45,7 +45,7 @@ describe('upgrading from the Phase 1 build', () => {
       renderPanel(<RootBoundary><App /></RootBoundary>, fakePanel({ data, lang: data.settings.lang }));
       await act(async () => {});
       expect(screen.queryByRole('alert')).toBeNull();
-      expect(screen.getAllByRole('tab').length).toBe(4);
+      expect(screen.getAllByRole('tablist')[0]!.querySelectorAll('[role=tab]').length).toBe(4);
       expect(err).not.toHaveBeenCalled();
     });
   }

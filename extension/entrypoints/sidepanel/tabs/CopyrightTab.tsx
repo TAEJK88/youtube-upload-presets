@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import type { ClaimsState } from '@/lib/claims/types';
 import { L } from '@/lib/i18n';
 import { claimsWrite, watchClaims, type ClaimsData } from '@/lib/panel/claims-data';
 import { downloadCsv } from '@/lib/panel/download';
-import { cn } from '@/lib/utils';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Section } from '../fields';
 import { Icon } from '../Icon';
 import { useClaims, usePanel } from '../panel';
@@ -22,12 +22,10 @@ import { Songs } from './copyright/Songs';
 import { StatusCard } from './copyright/StatusCard';
 import { TracklistFix } from './copyright/TracklistFix';
 
-// The drawer's "ลิขสิทธิ์" pane (buildPane 6183–6216, renderStatus 6219–6256) and its modals as
-// views (D23). Status and counts come from the Studio tab (useClaims, D24); lists and results
-// from storage, for the channel that tab is on.
-export type CopyrightView =
-  | { name: 'home' } | { name: 'claims' } | { name: 'songs' } | { name: 'tracklist'; videoId: string }
-  | { name: 'ads' } | { name: 'collab' } | { name: 'settings' };
+// The drawer's "ลิขสิทธิ์" pane (buildPane 6183–6216, renderStatus 6219–6256), now the Tools tab:
+// each tool (the drawer's modals, D23) has its own sub-tab. Status and counts come from the Studio
+// tab (useClaims, D24); lists and results from storage, for the channel that tab is on.
+export type ToolTab = 'claims' | 'songs' | 'tracklist' | 'ads' | 'collab' | 'settings';
 
 export function useClaimsData(ch: string | null): ClaimsData | null {
   const [data, setData] = useState<ClaimsData | null>(null);
@@ -75,45 +73,35 @@ export function CopyrightTab() {
   const ch = kept.current.ch ?? state?.channel ?? null;
   const data = useClaimsData(ch);
   const stored = useClaimsGlobals();
-  const [view, setView] = useState<CopyrightView>({ name: 'home' });
+  const [tool, setTool] = useState<ToolTab>('claims');
+  const [videoId, setVideoId] = useState(''); // the tracklist being fixed; '' shows the picker
+  const [from, setFrom] = useState(''); // the video the editor was left by Back: the picker focuses it
   const [openLog, setOpenLog] = useState<boolean | null>(null);
   const root = useRef<HTMLDivElement>(null);
-  const closed = useRef<CopyrightView['name'] | null>(null); // the view Close just left: its button takes focus back
-  const home = () => {
-    closed.current = view.name;
-    setView({ name: 'home' });
-  };
-  // A different real channel (or another tab): an open view was the old one's (its video, its text).
-  useEffect(() => setView({ name: 'home' }), [ch]);
+  // A different real channel (or another tab): an open tool was the old one's (its video, its text).
+  useEffect(() => { setTool('claims'); setVideoId(''); setFrom(''); }, [ch]);
   // A scan started here ended in the bound tab: open its list (showClaims() after scanClaims()).
-  useEffect(() => {
-    if (!opened) return;
-    const next: CopyrightView = { name: opened.view };
-    setView(next);
-  }, [opened]);
+  useEffect(() => { if (opened) setTool(opened.view); }, [opened]);
+  const tracklist = (id: string) => { setVideoId(id); setTool('tracklist'); };
+  const ready = !!data && !!shown;
+  // Only Claims shows without the channel's data: a tool picked before it went shows Claims meanwhile.
+  const current = ready ? tool : 'claims';
 
-  // Each view, and the tab on the way back, opens at its top (the pane scrolls: App's [data-pane-scroll]).
-  const at = view.name + ':' + (view.name === 'tracklist' ? view.videoId : '');
+  // Each tool opens with the sub-tab bar in sight (the pane scrolls: App's [data-pane-scroll]): a pane
+  // scrolled past the bar comes back to it; one that shows the bar stays where it is, so the bar
+  // just clicked does not move from under the pointer.
+  const bar = useRef<HTMLDivElement>(null);
+  const at = current + ':' + (current === 'tracklist' ? videoId : ''); // what shows: the data landing counts too
   useEffect(() => {
     // Not while another panel tab shows (a scan can end and open its list then): the panes share the scroller.
     const scroller = root.current?.closest('[data-state="inactive"]') ? null : root.current?.closest('[data-pane-scroll]');
-    if (scroller) scroller.scrollTop = 0;
-    if (view.name === 'home' && closed.current) root.current?.querySelector<HTMLElement>(`[data-view="${closed.current}"]`)?.focus({ preventScroll: true });
-    closed.current = null;
+    if (!scroller || !bar.current) return;
+    const barTop = bar.current.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scroller.scrollTop = Math.min(scroller.scrollTop, Math.max(0, barTop));
   }, [at]);
 
-  const sub = !data || !shown ? null
-    : view.name === 'claims' ? <ClaimList data={data} state={shown} onClose={home} onTracklist={(videoId) => setView({ name: 'tracklist', videoId })} />
-    : view.name === 'songs' ? <Songs data={data} onClose={home} />
-    : view.name === 'tracklist' ? <TracklistFix data={data} videoId={view.videoId} onPick={(videoId) => setView({ name: 'tracklist', videoId })} onClose={home} />
-    : view.name === 'ads' && data.adsScan ? <AdsView data={data} state={shown} onClose={home} />
-    : view.name === 'collab' && data.collabScan ? <CollabView data={data} state={shown} onClose={home} />
-    : view.name === 'settings' ? <CopyrightSettings data={data} onClose={home} />
-    : null;
-  if (sub) return <div ref={root}>{sub}</div>;
-
-  // The buttons follow the bound tab; the card and Stop follow the tab that works (`live`): another
-  // tab's trim holds the lock, but scans take none (D26).
+  // The card and Stop follow the tab that works (`live`): another tab's trim holds the lock, but
+  // scans take none (D26).
   // A tab without its script (for a moment in a slow load, or for good): what its old page last
   // said is not shown as its card or counts (4a m1); the views above keep `shown`.
   const here = link === 'noScript' ? state : shown;
@@ -140,6 +128,31 @@ export function CopyrightTab() {
     setOpenLog(!logOpen);
     void claimsWrite({ op: 'set', key: 'logOpen', value: !logOpen }).catch(saveFailed);
   };
+  // While another Studio tab runs a copyright job (`live`): this tab would only refuse it.
+  const busy = !idle || !!live?.busyRun;
+  // forceMount keeps Radix from unmounting an inactive panel; `hidden` takes it out of sight and of the accessibility tree.
+  const pane = (k: ToolTab) => ({ value: k, forceMount: true as const, hidden: current !== k });
+  // A tool mounts the first time it shows, then stays: the hidden ones are not built (or re-rendered
+  // on every status push) before they are ever opened.
+  // Another channel starts again (the Fragment key below remounts every tool): only what shows builds.
+  const [visited, setVisited] = useState<{ ch: string | null; tools: ReadonlySet<ToolTab> }>(() => ({ ch, tools: new Set(['claims']) }));
+  const built = visited.ch === ch ? visited.tools : new Set<ToolTab>(['claims']);
+  if (visited.ch !== ch || !built.has(current)) setVisited({ ch, tools: new Set([...built, current]) });
+  const once = (k: ToolTab, node: () => ReactNode) => (built.has(k) || k === current ? node() : null);
+  const scanButton = (what: 'ads' | 'collab', label: string, hint: string) => (
+    <div className="flex flex-col gap-2">
+      <div className="text-xs text-fg3">{hint}</div>
+      <Button variant="go" onClick={() => scan(what)} disabled={!idle || !here}><Icon name="scan" size={16} />{label}</Button>
+    </div>
+  );
+  const tools: [ToolTab, string, string][] = [
+    ['claims', n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list'), 'shield'],
+    ['songs', L(`เพลง (${n?.songs ?? stored.songs})`, `Songs (${n?.songs ?? stored.songs})`), 'music'],
+    ['tracklist', L('แก้ tracklist', 'Fix tracklist'), 'note'],
+    ['ads', n?.hasAdsScan ? L(`โฆษณา (${n.adsTodo})`, `Ads (${n.adsTodo})`) : L('โฆษณา', 'Ads'), 'paid'],
+    ['collab', 'Collab', 'collab'],
+    ['settings', L('ตัวเลือก', 'Options'), 'sliders'],
+  ];
   return (
     <div ref={root}>
       {shown && !shown.english && (
@@ -149,50 +162,47 @@ export function CopyrightTab() {
       )}
       <Section title={L('สถานะ', 'Status')} icon="shield">
         {s && <StatusCard s={s.status} />}
-        {/* The side panel can be 320px wide: a button that doesn't fit beside its neighbour takes the next line. */}
-        {/* row1 (6204): Scan · Ads off · Stop */}
-        {(idle || stoppable) && (
-          <div className="mt-2.5 flex flex-wrap gap-2 [&>button]:grow">
-            {idle && <Button variant="go" onClick={() => scan('claims')} disabled={!here}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>}
-            {idle && (
-              <Button data-view="ads" onClick={() => (data?.adsScan ? setView({ name: 'ads' }) : scan('ads'))} disabled={!data}
-                title={L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on')}>
-                <Icon name="paid" size={16} />{n?.hasAdsScan ? L(`โฆษณาปิดอยู่ (${n.adsTodo})`, `Ads off (${n.adsTodo})`) : L('โฆษณาปิดอยู่', 'Ads off')}
-              </Button>
-            )}
-            {stoppable && <Button variant="danger" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
-          </div>
-        )}
-        {/* row2 (6205): Claim list · Claimed songs · Collab */}
-        {idle && (
-          <div className="mt-2 flex flex-wrap gap-2 [&>button]:grow">
-            <Button data-view="claims" onClick={() => setView({ name: 'claims' })} disabled={!data}>
-              <Icon name="queue" size={16} />
-              {n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list')}
-            </Button>
-            <Button data-view="songs" onClick={() => setView({ name: 'songs' })} disabled={!data}
-              title={L('เพลงและศิลปินที่เคยโดน claim ทุกช่อง', 'Songs and artists that have been claimed across all channels')}>
-              <Icon name="music" size={16} />{L(`เพลงที่เคยโดน (${n?.songs ?? stored.songs})`, `Claimed songs (${n?.songs ?? stored.songs})`)}
-            </Button>
-            <Button data-view="collab" onClick={() => (data?.collabScan ? setView({ name: 'collab' }) : scan('collab'))} disabled={!data}
-              title={L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators')}>
-              <Icon name="collab" size={16} />Collab
-            </Button>
-          </div>
-        )}
+        {stoppable && <Button variant="danger" className="mt-2.5 w-full" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
       </Section>
-      <Section>
-        {data && shown && <AutopilotSwitch data={data} state={shown} />}
-        <div className={cn('flex flex-wrap gap-2', data && shown && 'mt-2.5')}>
-          <Button data-view="settings" size="sm" onClick={() => setView({ name: 'settings' })} disabled={!data}><Icon name="sliders" size={14} />{L('ตั้งค่าลิขสิทธิ์', 'Copyright settings')}</Button>
-          <Button data-view="tracklist" size="sm" onClick={() => setView({ name: 'tracklist', videoId: '' })} disabled={!data}><Icon name="note" size={14} />{L('แก้ tracklist', 'Fix tracklist')}</Button>
-          <Button size="sm" onClick={() => void uploads()} title={L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script')}>
-            <Icon name="history" size={14} />{L('ประวัติการอัป', 'Upload history')}
-          </Button>
-        </div>
-      </Section>
+      <Tabs className="mt-[22px]" value={current} onValueChange={(v) => setTool(v as ToolTab)}>
+        {/* Six tools in a 320px panel: two rows of three. */}
+        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-3">
+          {tools.map(([k, label, icon]) => (
+            <TabsTrigger key={k} value={k} disabled={k !== 'claims' && !ready} className="min-w-0 px-1 text-[12.5px] disabled:cursor-default disabled:opacity-50">
+              <Icon name={icon} size={14} /><span className="truncate">{label}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {/* Kept mounted like the panel's tabs: what was typed or ticked in a tool survives a switch,
+            and is the channel's only (the key starts every tool again on another channel). */}
+        <TabsContent {...pane('claims')} className="flex flex-col gap-3">
+          <Button variant="go" onClick={() => scan('claims')} disabled={!idle || !here}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>
+          {data && shown && <AutopilotSwitch data={data} state={shown} />}
+          {data && shown && <ClaimList key={ch} data={data} state={shown} busy={busy} idle={idle} onTracklist={tracklist} />}
+        </TabsContent>
+        {data && shown && <Fragment key={ch}>
+          <TabsContent {...pane('songs')}>{once('songs', () => <Songs data={data} />)}</TabsContent>
+          <TabsContent {...pane('tracklist')}>
+            {once('tracklist', () => <TracklistFix data={data} videoId={videoId} from={from} onPick={tracklist} onClose={() => { setFrom(videoId); setVideoId(''); }} />)}
+          </TabsContent>
+          <TabsContent {...pane('ads')}>
+            {once('ads', () => (data.adsScan ? <AdsView data={data} state={shown} busy={busy} idle={idle} />
+              : scanButton('ads', L('เช็กคลิปที่ปิดโฆษณา', 'Check for ads off'), L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on'))))}
+          </TabsContent>
+          <TabsContent {...pane('collab')}>
+            {once('collab', () => (data.collabScan ? <CollabView data={data} state={shown} busy={busy} idle={idle} />
+              : scanButton('collab', L('อ่านรายการคลิป', 'Read video list'), L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators'))))}
+          </TabsContent>
+          <TabsContent {...pane('settings')}>
+            {once('settings', () => <CopyrightSettings data={data} />)}
+          </TabsContent>
+        </Fragment>}
+      </Tabs>
       <Section>
         <ActivityLog open={logOpen} lines={log} onToggle={toggleLog} />
+        <Button size="sm" className="mt-2.5" onClick={() => void uploads()} title={L('ประวัติคลิปที่อัปผ่านสคริปต์นี้', 'History of videos uploaded with this script')}>
+          <Icon name="history" size={14} />{L('ประวัติการอัป', 'Upload history')}
+        </Button>
       </Section>
     </div>
   );

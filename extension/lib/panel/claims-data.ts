@@ -63,6 +63,13 @@ export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void
   let raw: Record<string, unknown> | null = null;
   let early: Record<string, { newValue?: unknown }>[] = [];
   let failed = false; // the read was refused: the next change tries again
+  let last: ClaimsData | null = null;
+  // The same cfg object while its key is untouched: the settings form tells a real change by it.
+  const emit = (cfgChanged: boolean) => {
+    const d = toClaimsData(ch, raw!);
+    last = last && !cfgChanged ? { ...d, cfg: last.cfg } : d;
+    fn(last);
+  };
   const apply = (changes: Record<string, { newValue?: unknown }>) => {
     for (const [k, c] of Object.entries(changes)) {
       if (!keys.has(k)) continue;
@@ -78,7 +85,7 @@ export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void
       return;
     }
     apply(changes);
-    fn(toClaimsData(ch, raw));
+    emit('cfg' in changes);
   };
   const read = () => {
     failed = false;
@@ -86,7 +93,7 @@ export function watchClaims(ch: string, fn: (d: ClaimsData) => void): () => void
       raw = got;
       early.forEach(apply);
       early = [];
-      fn(toClaimsData(ch, raw));
+      emit(true);
     }).catch((e) => {
       failed = true;
       console.error('[ytup] read copyright data', e);

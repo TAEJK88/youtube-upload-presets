@@ -181,7 +181,7 @@ describe("the lock holder's jobs", () => {
     await act(async () => { await browser.storage.session.set({ runnerJobs: ['claims'] }); });
     await flush();
     expect(screen.queryByText('Another Studio tab is running the queue — change the queue there')).toBe(null);
-    expect(screen.getByText('Another Studio tab is busy with copyright work — wait for it, or press Stop in the Copyright tab')).toBeTruthy();
+    expect(screen.getByText('Another Studio tab is busy with copyright work — wait for it, or press Stop in the Tools tab')).toBeTruthy();
   });
 });
 

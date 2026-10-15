@@ -15,7 +15,7 @@ import { SubView } from './SubView';
 
 // showSongs() (5190–5251): search, sort, delete one (asks once), delete all (asks once), CSV in
 // and out. One card per song (D23). The history is every channel's; its writes are `songs` ops.
-export function Songs({ data, onClose }: { data: ClaimsData; onClose(): void }) {
+export function Songs({ data }: { data: ClaimsData }) {
   const [q, setQ] = useState('');
   const [sortBy, setSortBy] = useState<SongSort>('count');
   const [armed, setArmed] = useState<string | null>(null);
@@ -48,7 +48,6 @@ export function Songs({ data, onClose }: { data: ClaimsData; onClose(): void }) 
   return (
     <SubView title={L('🎵 เพลงที่เคยโดน claim', '🎵 Previously claimed songs')}
       sub={L('ทุกเพลงที่เคยโดน claim ในทุกช่องของคุณ เช็กก่อนใส่เพลงในมิกซ์ใหม่ (ตอนลาก .txt เข้าคิว สคริปต์จะเตือนให้อัตโนมัติ)', 'Every song ever claimed across all your channels. Check before adding songs to a new mix (the script warns automatically when you drop a .txt into the queue).')}
-      onClose={onClose}
       footer={<>
         <Button size="sm" variant="danger" onClick={() => {
           if (!clearArmed) return setClearArmed(true);
@@ -63,7 +62,7 @@ export function Songs({ data, onClose }: { data: ClaimsData; onClose(): void }) 
       </>}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <TextField autoFocus className="min-w-40 flex-1" value={q} onValue={setQ} placeholder={search} aria-label={search} />
+        <TextField className="min-w-40 flex-1" value={q} onValue={setQ} placeholder={search} aria-label={search} />
         <NativeSelect aria-label={L('เรียงตาม', 'Sort by')} value={sortBy} onChange={(e) => setSortBy(e.target.value as SongSort)}>
           <option value="count">{L('โดนบ่อยสุด', 'Most claimed')}</option>
           <option value="recent">{L('ล่าสุด', 'Latest')}</option>

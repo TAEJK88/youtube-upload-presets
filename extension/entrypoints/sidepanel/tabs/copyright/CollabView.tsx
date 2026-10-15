@@ -12,13 +12,16 @@ import { TextField } from '../../fields';
 import { usePanel } from '../../panel';
 import { notConnected, saveFailed } from '../../save-failed';
 import { SubView } from './SubView';
+import { useDropFinished } from './use-drop-finished';
 
 // showCollab() (5486–5546): the channels to invite, the invite links to send, one card per video
 // (D23) with search and pick chips, Reload list, Close and "Invite (N videos)". The ticks are the
 // view's own; the bound tab starts the run from its stored scan.
 const openTab = (url: string) => void browser.tabs.create({ url });
 
-export function CollabView({ data, state, onClose }: { data: ClaimsData; state: ClaimsState; onClose(): void }) {
+// `busy`: a scan or run is on (here, or another tab's run): no run starts from this list until it ends.
+// `idle`: the bound tab itself is free: a rescan takes no lock (D26), so only that gates it.
+export function CollabView({ data, state, busy, idle }: { data: ClaimsData; state: ClaimsState; busy: boolean; idle: boolean }) {
   const { send } = usePanel();
   const id = useId();
   const scan = data.collabScan!; // the route opens this view only with a scan
@@ -32,6 +35,7 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
     setOf(scan.date);
     setPicked(new Set());
   }
+  useDropFinished(data.collabResults, 'done', picked, setPicked);
   // collabHandles was saved on every keystroke (5492); here a moment after the typing stops (a
   // write is a message to the background), and at once when the view closes before that, or the
   // side panel itself does (pagehide: no cleanup runs in a closing window).
@@ -66,8 +70,7 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
     const list = parseHandles(handles);
     if (!list.length) return void toast(L('ใส่ @handle ของช่องที่จะเชิญก่อน', 'Enter the @handle of the channel to invite first'));
     const ids = scan.rows.filter((r) => picked.has(r.videoId)).map((r) => r.videoId);
-    if (!ids.length) return;
-    onClose();
+    if (!ids.length || busy) return;
     void send('claims:collab', { videoIds: ids, handles: list }).catch(notConnected);
   };
   const copy = async (hd: string, link: string) => {
@@ -86,11 +89,10 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
     <SubView
       title={L(`🤝 Collab — ${state.channelName}`, `🤝 Collab — ${state.channelName}`)}
       sub={L(`${scan.total} คลิป · อ่านเมื่อ ${new Date(scan.date).toLocaleString(locale())} · YouTube ไม่ส่งคำเชิญให้เอง หลังเชิญเสร็จต้องส่งลิงก์คำเชิญให้อีกฝ่ายเปิดแล้วกดยอมรับ (ช่องละลิงก์เดียว ใช้ได้กับทุกคลิป)`, `${scan.total} videos · read ${new Date(scan.date).toLocaleString(locale())} · YouTube doesn't send the invite itself: after inviting, send the invite link to the other channel to open and accept (one link per channel, covers every video)`)}
-      onClose={onClose}
       footer={<>
-        <Button size="sm" onClick={() => { onClose(); void send('claims:scan', 'collab').catch(notConnected); }}>{L('↻ อ่านรายการใหม่', '↻ Reload list')}</Button>
+        <Button size="sm" disabled={!idle} onClick={() => void send('claims:scan', 'collab').catch(notConnected)}>{L('↻ อ่านรายการใหม่', '↻ Reload list')}</Button>
         <span className="flex-1" />
-        <Button variant="go" size="sm" disabled={!picked.size} onClick={go}>{L(`🤝 เชิญ (${picked.size} คลิป)`, `🤝 Invite (${picked.size} videos)`)}</Button>
+        <Button variant="go" size="sm" disabled={!picked.size || busy} onClick={go}>{L(`🤝 เชิญ (${picked.size} คลิป)`, `🤝 Invite (${picked.size} videos)`)}</Button>
       </>}
     >
       <div className="flex flex-col gap-1.5">

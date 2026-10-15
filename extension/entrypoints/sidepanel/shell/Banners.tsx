@@ -62,7 +62,7 @@ export function Banners() {
         </Banner>
       )}
       {!elsewhere && busyElsewhere && runner && (
-        <Banner icon="shield" text={L('แท็บ Studio อื่นกำลังทำงานด้านลิขสิทธิ์อยู่ — รอให้เสร็จ หรือกดหยุดในแท็บลิขสิทธิ์', 'Another Studio tab is busy with copyright work — wait for it, or press Stop in the Copyright tab')}>
+        <Banner icon="shield" text={L('แท็บ Studio อื่นกำลังทำงานด้านลิขสิทธิ์อยู่ — รอให้เสร็จ หรือกดหยุดในแท็บเครื่องมือ', 'Another Studio tab is busy with copyright work — wait for it, or press Stop in the Tools tab')}>
           <Button size="sm" onClick={goToRunner}>{L('ไปที่แท็บนั้น', 'Go to that tab')}</Button>
         </Banner>
       )}

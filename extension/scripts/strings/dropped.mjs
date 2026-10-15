@@ -41,4 +41,12 @@ export default [
   { th: 'อัปขึ้นไปเป็นฉบับร่างแล้ว (${}) ถ้าลองใหม่จะได้คลิปซ้ำ\nลบฉบับร่างในหน้า Content ก่อน แล้วค่อยอัปใหม่', en: 'It was already uploaded as a draft (${}). Retrying will create a duplicate.\nDelete the draft in Content first, then upload again.', why: 'Retry on a video that is a draft now goes on in that draft; the question offers "Resume draft" and "Upload again" (extension-only)' },
   { th: 'ลบแล้ว อัปใหม่', en: 'Deleted it, upload again', why: 'that question\'s only answer; replaced by "Resume draft" and "Upload again"' },
   { th: 'เปิดฉบับร่างที่ค้างใน Studio (แท็บใหม่) เพื่อลบก่อนลองใหม่', en: 'Open the leftover draft in Studio (new tab) to delete it before retrying', why: 'the draft need not be deleted before a retry any more; the tooltip without its last words is in extension-only' },
+  // THAIB-1: the Copyright tab became the Tools tab; its home buttons and modals' Close became sub-tabs
+  { th: 'ลิขสิทธิ์', en: 'Copyright', why: 'THAIB-1: the panel tab is "Tools" (เครื่องมือ)' },
+  { th: 'ปิด', en: 'Close', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab: a tool is left by picking another sub-tab' },
+  { th: 'เปลี่ยนได้ที่ ⚙ ตั้งค่าลิขสิทธิ์ → "ตัดอัตโนมัติทั้งหมด"', en: 'Change this in ⚙ Copyright settings → "Fully automatic trim"', why: 'THAIB-1: the settings are the Tools tab\'s Options sub-tab; replaced in extension-only' },
+  { th: 'โฆษณาปิดอยู่', en: 'Ads off', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Ads" / "Check for ads off")' },
+  { th: 'โฆษณาปิดอยู่ (${})', en: 'Ads off (${})', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Ads (n)")' },
+  { th: 'เพลงที่เคยโดน (${})', en: 'Claimed songs (${})', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab ("Songs (n)")' },
+  { th: 'เพลงและศิลปินที่เคยโดน claim ทุกช่อง', en: 'Songs and artists that have been claimed across all channels', why: 'THAIB-1: the home buttons became sub-tabs of the Tools tab: that button\'s tooltip; the sub-tab opens the view, whose title says it' },
 ];

@@ -55,6 +55,23 @@ describe('the Copyright tab data', () => {
     off();
   });
 
+  // THAIB-1 review 3: the settings form tells a stored-cfg change by the object, not by serialising it.
+  it('keeps the same cfg object until the cfg key itself changes', async () => {
+    await browser.storage.local.set({ cfg: { ownNames: 'Me' } });
+    const fn = vi.fn();
+    const off = watchClaims('UC1', fn);
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(1));
+    const first = fn.mock.calls[0]![0].cfg;
+    await browser.storage.local.set({ 'trimQueue:UC1': ['v:c'] });
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(2));
+    expect(fn.mock.calls[1]![0].cfg).toBe(first);
+    await browser.storage.local.set({ cfg: { ownNames: 'You' } });
+    await vi.waitFor(() => expect(fn).toHaveBeenCalledTimes(3));
+    expect(fn.mock.calls[2]![0].cfg).not.toBe(first);
+    expect(fn.mock.calls[2]![0].cfg.ownNames).toBe('You');
+    off();
+  });
+
   it('a change that lands before the first read answers is not lost', async () => {
     let answer!: (v: Record<string, unknown>) => void;
     const get = vi.spyOn(browser.storage.local, 'get').mockReturnValue(new Promise((ok) => { answer = ok; }) as never);
