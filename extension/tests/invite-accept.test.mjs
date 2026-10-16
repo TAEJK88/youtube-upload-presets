@@ -145,7 +145,7 @@ test('the round counter advances so the loop is bounded', () => {
 });
 
 test('the round limit stops the loop', () => {
-  const store = { inviteAcceptRound: { n: 15, at: Date.now() } };
+  const store = { inviteAcceptRound: { n: 15, at: Date.now(), me: 'UCcpMHMjwVRDTH1Bg7DWeYvA', inviter: 'UCSd21ggmlMhbvaMT5IGxajA' } };
   const r = run({ titles: ['Video A'], skipList: true }, 40, store);
   assert.deepEqual(r.nav, [], 'must not reopen the link once the limit is reached');
   assert.equal(store.inviteAcceptRound, null);
@@ -238,14 +238,64 @@ test('a card closed without a v in its URL notes nothing', () => {
   assert.equal(store.inviteAccepted, undefined);
 });
 
+const round = (extra = {}) => ({ n: 1, at: Date.now(), me: ME, inviter: INVITER, ...extra });
+
 test('a reopened link that brings no request gives up after 60 s and notes that none is left', () => {
-  const store = { inviteAcceptRound: { n: 1, at: Date.now() } };
+  const store = { inviteAcceptRound: round() };
   const r = run({ titles: [] }, 65, store);
   assert.equal(r.alive, false, 'a reopen round with nothing must not wait 180 s');
   assert.equal(typeof store.inviteAccepted[ME][INVITER].clearedAt, 'number');
+  assert.equal(store.inviteAcceptRound, null, 'the round record goes when the watcher gives up');
 });
 
 test('a first visit with no request still waits the full 180 s', () => {
   const r = run({ titles: [] }, 65);
   assert.equal(r.alive, true);
+});
+
+test('another pair\'s round is not a reopen: the full 180 s, and the round count starts over', () => {
+  const store = { inviteAcceptRound: round({ n: 9, inviter: 'UCsJN9DLhirdKVdnfTnJyfxg' }) };
+  const r = run({ titles: [] }, 65, store);
+  assert.equal(r.alive, true);
+  const s2 = { inviteAcceptRound: round({ n: 9, inviter: 'UCsJN9DLhirdKVdnfTnJyfxg' }) };
+  run({ titles: ['Video A'], skipList: true }, 40, s2);
+  assert.deepEqual({ n: s2.inviteAcceptRound.n, inviter: s2.inviteAcceptRound.inviter }, { n: 1, inviter: INVITER });
+});
+
+test('giving up with nothing accepted on a first visit notes nothing', () => {
+  const store = {};
+  run({ titles: [] }, 185, store);
+  assert.equal(store.inviteAccepted, undefined, 'a slow or empty first visit says nothing about what waits');
+});
+
+test('a reopen round that only saw the errored request list does not note "none left"', () => {
+  const store = { inviteAcceptRound: round() };
+  run({ titles: [], deadList: true }, 65, store);
+  assert.equal(store.inviteAccepted?.[ME]?.[INVITER]?.clearedAt, undefined);
+});
+
+test('a request on the page takes back an earlier "none left"', () => {
+  const store = { inviteAccepted: { [ME]: { [INVITER]: { clearedAt: 1 } } } };
+  run({ titles: ['Video A'], skipList: true }, 3, store);
+  assert.equal(store.inviteAccepted[ME][INVITER].clearedAt, undefined);
+});
+
+test('an accept YouTube refused with an error toast is not noted', () => {
+  const store = {};
+  const r = run({ titles: ['Video A'], withV: true, refuse: 99 }, 40, store);
+  assert.ok(r.truth.refused >= 1);
+  assert.equal(store.inviteAccepted?.[ME]?.[INVITER]?.videos?.['id-VideoA'], undefined);
+});
+
+test('a refused accept that goes through on the next try is noted then', () => {
+  const store = {};
+  const r = run({ titles: ['Video A'], withV: true, refuse: 1 }, 60, store);
+  assert.deepEqual(r.truth.accepted, ['Video A']);
+  assert.equal(typeof store.inviteAccepted[ME][INVITER].videos['id-VideoA'], 'number');
+});
+
+test('a video noted accepted whose card shows again is taken back', () => {
+  const store = { inviteAccepted: { [ME]: { [INVITER]: { videos: { 'id-VideoA': 1 } } } } };
+  run({ titles: ['Video A'], withV: true, skipList: true, refuse: 99 }, 3, store);
+  assert.equal(store.inviteAccepted[ME][INVITER].videos['id-VideoA'], undefined);
 });

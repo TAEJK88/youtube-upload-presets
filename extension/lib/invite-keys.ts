@@ -5,7 +5,8 @@
 // the channel's own page, because a /collaboration/ link opened straight from the switch did not
 // bring up the requests (seen 2026-10-15 on BLXD) while the same link opened from that page did.
 export const INVITE_NEXT_KEY = 'inviteAfterSwitch';
-export interface InviteNext { at: number; channel: string; link: string }
+// token: the one the switching tab keeps in its sessionStorage (lib/invite.ts)
+export interface InviteNext { at: number; channel: string; link: string; token?: string }
 
 // invitee channel id → inviter channel id → the videos seen accepted (videoId → time) and the
 // last time a visit to the invite link found no request left (then everything invited before

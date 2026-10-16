@@ -1297,7 +1297,15 @@ export function acceptInvitesFromPanel(handle: unknown): void {
   const link = Object.entries(collabLinks()).find(([h]) => h.toLowerCase() === low)?.[1];
   const chan = loadState<{ id: string; name: string; handle?: string }[]>('channels', []).find((c) => c.handle?.toLowerCase() === low);
   if (!link || !chan) return log(L(`${handle} ไม่อยู่ในรายการช่องของคุณ — คัดลอกลิงก์คำเชิญส่งให้เจ้าของช่องแทน`, `${handle} is not one of your channels — copy the invite link and send it to its owner`), 'warn');
+  // A switch, or opening the link, leaves this page: not in the middle of a run on it.
+  if (otherJobBusy('')) return log(L('ยังมีงานตัดลิขสิทธิ์/โฆษณา/Collab อยู่ — รอให้เสร็จหรือกดหยุดก่อนแล้วค่อยไปกดยอมรับคำเชิญ', 'A trim/ads/Collab job is still running — wait for it or press Stop before accepting the invite'), 'warn');
   if (uploadBusy()) return log(L('คิวอัปโหลดยังวิ่งอยู่ — ยังไม่สลับช่องไปกดยอมรับคำเชิญ', 'Upload queue is running — not switching channels to accept the invite yet'), 'warn');
+  // Already on the invited channel: no switch, the link opens here.
+  if (chan.id === currentChannel()) {
+    log(L(`เปิดลิงก์คำเชิญของ ${handle}…`, `Opening ${handle}'s invite link…`), 'ok');
+    location.href = link;
+    return;
+  }
   log(L(`สลับไปช่อง ${handle} เพื่อกดยอมรับคำเชิญ…`, `Switching to ${handle} to accept the invite…`), 'ok');
   switchToChannel({ handle, name: chan.name }, link);
 }

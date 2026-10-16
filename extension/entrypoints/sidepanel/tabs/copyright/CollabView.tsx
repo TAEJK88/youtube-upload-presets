@@ -82,6 +82,9 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
   };
   const links = Object.entries(data.collabLinks);
   const waiting = waitingByHandle(data.ch, data.collabResults, data.collabLinks, data.inviteAccepted);
+  // by lowercase handle, on the first link row of that handle only (two runs may have spelled it differently)
+  const waitingOn = (hd: string, i: number) =>
+    links.findIndex(([h]) => h.toLowerCase() === hd.toLowerCase()) === i ? waiting[hd.toLowerCase()] ?? 0 : 0;
   const accept = (hd: string) => {
     onClose();
     void send('claims:acceptInvites', hd).catch(notConnected);
@@ -106,13 +109,13 @@ export function CollabView({ data, state, onClose }: { data: ClaimsData; state: 
       {links.length > 0 && (
         <div className="rounded-[12px] bg-tint/5 p-2.5 text-[13px]">
           <b className="font-medium">{L('ลิงก์คำเชิญ (ส่งให้อีกฝ่าย)', 'Invite links (send to the other channel)')}</b>
-          {links.map(([hd, link]) => (
+          {links.map(([hd, link], i) => (
             <div key={hd} className="mt-1 flex flex-wrap items-center gap-1.5">
               <span className="min-w-0 flex-1 truncate">{`${hd}: ${link}`}</span>
               <Button size="sm" onClick={() => void copy(hd, link)}>{L('คัดลอก', 'Copy')}</Button>
-              {waiting[hd] ? (
+              {waitingOn(hd, i) ? (
                 <div className="flex w-full items-center gap-1.5 text-xs">
-                  <span className="flex-1 text-fg3">{L(`⏳ รอ ${hd} กดยอมรับ ${waiting[hd]} คลิป`, `⏳ ${waiting[hd]} video(s) waiting for ${hd} to accept`)}</span>
+                  <span className="flex-1 text-fg3">{L(`⏳ รอ ${hd} กดยอมรับ ${waitingOn(hd, i)} คลิป`, `⏳ ${waitingOn(hd, i)} video(s) waiting for ${hd} to accept`)}</span>
                   <Button size="sm" onClick={() => accept(hd)}>{L('ไปกดยอมรับ', 'Accept now')}</Button>
                 </div>
               ) : null}

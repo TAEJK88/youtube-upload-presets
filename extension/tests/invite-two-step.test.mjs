@@ -9,7 +9,7 @@ import { makeDocument } from './fake-dom.mjs';
 // channel's page, and the link is opened from there.
 const LINK = 'https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA/collaboration/UCsJN9DLhirdKVdnfTnJyfxg';
 
-function setup(href, store = {}, body = '') {
+function setup(href, store = {}, body = '', session) {
   const doc = makeDocument();
   doc.body.textContent = body;
   const u = new URL(href);
@@ -21,7 +21,7 @@ function setup(href, store = {}, body = '') {
     document: doc, location, getComputedStyle: () => ({ visibility: 'visible' }),
     setInterval: (fn) => { const t = { fn, dead: false }; timers.push(t); return t; },
     clearInterval: (t) => { if (t) t.dead = true; },
-    setTimeout: () => 0, console: { info() {} },
+    setTimeout: () => 0, console: { info() {} }, session,
     getValue: (k, d) => (k in store ? store[k] : d), setValue: (k, v) => { store[k] = v; },
   });
   const tick = (n) => { for (let i = 0; i < n; i++) timers.filter((t) => !t.dead).forEach((t) => t.fn()); };
@@ -45,7 +45,15 @@ test('any other destination is passed through unchanged', () => {
   assert.equal(store.inviteAfterSwitch, undefined);
 });
 
-const pending = () => ({ inviteAfterSwitch: { at: Date.now(), channel: 'UCcpMHMjwVRDTH1Bg7DWeYvA', link: LINK } });
+// the switcher picked the channel (channelSwitchedAt) after the link was left pending
+const pending = (extra = {}) => ({
+  inviteAfterSwitch: { at: Date.now() - 1000, channel: 'UCcpMHMjwVRDTH1Bg7DWeYvA', link: LINK, ...extra },
+  channelSwitchedAt: { at: Date.now(), tries: 0, next: '' },
+});
+const tab = (init = {}) => {
+  const m = new Map(Object.entries(init));
+  return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
+};
 
 test('on the new channel page the link is opened after the page has settled', () => {
   const s = setup('https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA', pending());
@@ -73,8 +81,51 @@ test('not on another channel', () => {
 });
 
 test('an old pending link is ignored', () => {
-  const s = setup('https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA', { inviteAfterSwitch: { at: Date.now() - 600000, channel: 'UCcpMHMjwVRDTH1Bg7DWeYvA', link: LINK } });
+  const s = setup('https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA', pending({ at: Date.now() - 600000 }));
   s.w.openAfterSwitch();
   s.tick(10);
   assert.deepEqual(s.nav, []);
+});
+
+test('the switching tab keeps a token; only that tab opens the link', () => {
+  const session = tab();
+  const { w, store } = setup('https://studio.youtube.com/channel/UCsJN9DLhirdKVdnfTnJyfxg/videos', {}, '', session);
+  w.switchThenOpen({ switchToChannel() {} }, { handle: '@BLXDofficial' }, LINK);
+  assert.ok(store.inviteAfterSwitch.token);
+  assert.equal(session.getItem('ytup-invite-next'), store.inviteAfterSwitch.token);
+
+  const other = setup('https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA', pending({ token: 'abc' }), '', tab());
+  other.w.openAfterSwitch();
+  other.tick(10);
+  assert.deepEqual(other.nav, [], 'another Studio tab on the channel leaves it alone');
+  assert.ok(other.store.inviteAfterSwitch);
+
+  const mine = tab({ 'ytup-invite-next': 'abc' });
+  const s = setup('https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA', pending({ token: 'abc' }), '', mine);
+  s.w.openAfterSwitch();
+  s.tick(3);
+  assert.deepEqual(s.nav, [LINK]);
+  assert.equal(mine.getItem('ytup-invite-next'), null);
+});
+
+test('not when the switcher never picked the channel (a later switch by hand)', () => {
+  const store = pending();
+  store.channelSwitchedAt = null;
+  const s = setup('https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA', store);
+  s.w.openAfterSwitch();
+  s.tick(10);
+  assert.deepEqual(s.nav, []);
+  const old = pending();
+  old.channelSwitchedAt.at = old.inviteAfterSwitch.at - 5000; // an earlier switch's marker
+  const s2 = setup('https://studio.youtube.com/channel/UCcpMHMjwVRDTH1Bg7DWeYvA', old);
+  s2.w.openAfterSwitch();
+  s2.tick(10);
+  assert.deepEqual(s2.nav, []);
+});
+
+test('a switch that landed on another channel drops the pending link', () => {
+  const s = setup('https://studio.youtube.com/channel/UCsJN9DLhirdKVdnfTnJyfxg', pending());
+  s.w.openAfterSwitch();
+  s.tick(3);
+  assert.equal(s.store.inviteAfterSwitch, null);
 });

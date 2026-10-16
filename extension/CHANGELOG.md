@@ -15,8 +15,10 @@ The version is `version` in `package.json` (the manifest's version). A release i
 - **The Collab list shows what still waits.** Each invited video shows "⏳ Waiting for @… to
   accept" or "🤝 @… accepted", and each invite link shows how many videos still wait, with an
   "Accept now" button for your own channels. YouTube gives one link per channel, not per
-  video; a video counts as accepted once the extension saw it accepted, or when opening the
-  link found no request left.
+  video; a video counts as accepted once the extension saw its card close with no error and
+  no Decline, or when the link, reopened after an accept, found no request left (not when
+  the page was slow or showed YouTube's error box). "Accept now" waits while a trim, ads or
+  Collab run is going, and only the tab that switched opens the link.
 
 ## 5.0.3 — 2026-10-15
 

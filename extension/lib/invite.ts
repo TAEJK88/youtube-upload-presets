@@ -12,24 +12,107 @@ export interface InviteEnv extends SwitchEnv {
   setTimeout: (fn: () => void, ms: number) => unknown;
   // An interval that keeps its pace in a hidden tab (lib/steady-tick.ts); tests leave it out.
   steadyInterval?: (fn: () => void, ms: number) => number | ReturnType<typeof setInterval>;
+  // This tab's sessionStorage, which outlives the trip through www.youtube.com: only the tab
+  // that started a switch opens its invite link afterwards. Tests may leave it out.
+  session?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 }
-interface AcceptRound { n: number; at: number }
+const NEXT_TAB = 'ytup-invite-next'; // sessionStorage: the InviteNext token this tab is waiting for
+// me / inviter: the pair the round belongs to, so another pair's round does not count as a reopen
+interface AcceptRound { n: number; at: number; me?: string; inviter?: string }
+const ROUND_TTL = 300000;
+export const sameRound = (r: AcceptRound | null | undefined, me: string | undefined, inviter: string | undefined) =>
+  !!r && !!me && r.me === me && r.inviter === inviter && Date.now() - r.at < ROUND_TTL;
+
+// An accept that YouTube refused shows as a toast; the card closes all the same.
+const TOAST = 'tp-yt-paper-toast, ytcp-toast, yt-notification-action-renderer';
+const ACCEPT_FAILED = /went wrong|try again|couldn.?t|can.?t|unable|error|ผิดพลาด|ลองอีกครั้ง|ลองใหม่|ไม่สามารถ/i;
+const CONFIRM_POLLS = 3; // polls after the card closed with no error before the video counts as accepted
 
 export function createInviteWatcher(env: InviteEnv) {
   const { document, location, getComputedStyle, setInterval, clearInterval, setTimeout, console, getValue, setValue } = env;
   const steady = env.steadyInterval ?? setInterval;
   const oops = () => TXT.noPermission.test(document.body.innerText || '');
-  // P5-invite-two-step: what was accepted (the `v` the card's URL had), or, with no video, that a
-  // visit found no request left. The Collab list reads it to show what still waits.
-  const noteInvites = (me: string | undefined, inviter: string | undefined, videoId: string | null) => {
-    if (!me || !inviter) return;
-    if (!videoId && oops()) return; // signed in as another channel: not "none left"
+  const shown = (el: Element) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+  const toastFailed = () => [...document.querySelectorAll(TOAST)].some((t) => shown(t) && ACCEPT_FAILED.test(t.textContent || ''));
+
+  // P5-invite-two-step: what was accepted (the `v` the card's URL had), and the last visit that
+  // found no request left. The Collab list reads it to show what still waits.
+  const editPair = (me: string, inviter: string, fn: (p: { videos?: Record<string, number>; clearedAt?: number }) => void) => {
     const all = getValue<InviteAccepted>(INVITE_ACCEPTED_KEY, {}) || {};
     const pair = { ...all[me]?.[inviter] };
-    if (videoId) pair.videos = { ...pair.videos, [videoId]: Date.now() };
-    else pair.clearedAt = Date.now();
+    pair.videos = { ...pair.videos };
+    fn(pair);
     setValue(INVITE_ACCEPTED_KEY, { ...all, [me]: { ...all[me], [inviter]: pair } });
   };
+  const readPair = (me: string, inviter: string) => (getValue<InviteAccepted>(INVITE_ACCEPTED_KEY, {}) || {})[me]?.[inviter];
+
+  // A Decline clicked on the card while the watcher waits to confirm its Accept.
+  let visitNow: { declined(): void } | null = null;
+  let declineHooked = false;
+  const hookDecline = () => {
+    if (declineHooked || typeof document.addEventListener !== 'function') return;
+    declineHooked = true;
+    document.addEventListener('click', (e: Event) => {
+      const t = e.target as Element | null;
+      if (t && typeof t.closest === 'function' && t.closest(SEL.inviteDecline)) visitNow?.declined();
+    }, true);
+  };
+
+  // What one visit to an invite link saw. A video counts as accepted only once its card has
+  // closed with no error toast and no Decline for a few polls, and is taken back if its card
+  // shows again. "None left" is noted only for a reopen round of the same pair that gave up
+  // without seeing an error box: a first visit or an errored page says nothing about what waits.
+  function trackVisit(me: string | undefined, inviter: string | undefined) {
+    const reopen = sameRound(getValue<AcceptRound | null>(ACCEPT_ROUND_KEY, null), me, inviter);
+    let sawError = false;
+    let sawRequest = false;
+    let pending = '';
+    let pendingFor = 0;
+    let declined = false;
+    const say = (msg: string) => console.info('[ytup] invite: ' + msg);
+    const confirm = () => {
+      const v = pending;
+      pending = '';
+      if (!v || !me || !inviter) return;
+      if (declined || toastFailed()) return say(`not noting ${v} as accepted (${declined ? 'declined' : 'error shown'})`);
+      editPair(me, inviter, (p) => { p.videos![v] = Date.now(); });
+    };
+    const visit = {
+      giveUpAfter: () => (reopen ? 60 : 180),
+      declined: () => { if (pending) declined = true; },
+      clicked(v: string) {
+        if (pending) confirm(); // the next card came up: the last one went through
+        pending = v;
+        pendingFor = 0;
+        declined = false;
+      },
+      poll(vNow: string, card: boolean, request: boolean, dead: boolean) {
+        if (dead || toastFailed()) sawError = true;
+        if (me && inviter && (card || request)) {
+          const pair = readPair(me, inviter);
+          // a request on the page: an earlier "none left" was wrong
+          if (!sawRequest && pair?.clearedAt) editPair(me, inviter, (p) => { delete p.clearedAt; });
+          // its card again: that accept did not go through
+          if (card && vNow && vNow !== pending && pair?.videos?.[vNow]) editPair(me, inviter, (p) => { delete p.videos![vNow]; });
+          sawRequest = true;
+        }
+        if (!pending) return;
+        if (vNow === pending) { pendingFor = 0; return; }
+        if (declined || toastFailed()) { confirm(); return; }
+        if (++pendingFor >= CONFIRM_POLLS) confirm();
+      },
+      // the watcher stopped: the round record goes, so the next visit is not taken for a reopen
+      gaveUp(done: number) {
+        if (pending) confirm();
+        setValue(ACCEPT_ROUND_KEY, null);
+        if (done || !reopen || sawError || sawRequest || oops() || !me || !inviter) return;
+        editPair(me, inviter, (p) => { p.clearedAt = Date.now(); });
+      },
+    };
+    visitNow = visit;
+    hookDecline();
+    return visit;
+  }
   // @port-begin
 const inviteUrlNow = () => INVITE_URL.test(location.pathname + location.search + location.hash);
 const inviteNote = (text: string, ok = true) => {
@@ -94,7 +177,6 @@ function watchInvite() {
   let opened = 0;    // จำนวนแถวที่กดเปิด
   let idle = 0;      // รอบที่ไม่เจออะไรเลยติดต่อกัน
   let lastAction = 0;
-  let acceptingV = ''; // P5-invite-two-step: the video whose Accept was just clicked
   // P5-invite-settle: พอบัตรปิด YouTube ลบ inviterChannelId ออกจาก URL — จำไว้ตั้งแต่ตอนเริ่มเฝ้า
   // (หรือจากลิงก์ /collaboration/<ผู้เชิญ> เดิม) ไม่งั้นเปิดลิงก์ซ้ำเพื่อรับคลิปถัดไปไม่ได้
   const meAtStart = (location.pathname.match(/\/channel\/(UC[\w-]{10,})/) || [])[1];
@@ -104,9 +186,9 @@ function watchInvite() {
   const SETTLE = 3;      // รอบ (วินาที) ที่แถวเดิมต้องนิ่งก่อนกดเปิด
   const SETTLE_CARD = 5; // รอบที่บัตร Accept ต้องนิ่ง (ข้อความไม่เปลี่ยน) ก่อนกด
   const SETTLE_DEAD = 8; // กล่องรายการที่ยังไม่มีแถวอาจแค่ยังโหลดอยู่ รอนานกว่าก่อนปิด
-  // P5-invite-two-step: a reopened link that brings no request means none is left — say so sooner
-  const prevRound = getValue<AcceptRound | null>(ACCEPT_ROUND_KEY, null);
-  const GIVE_UP = prevRound && Date.now() - prevRound.at < 300000 ? 60 : 180;
+  // P5-invite-two-step: what this visit saw accepted; a reopened link that brings no request gives up sooner
+  const visit = trackVisit(meAtStart, inviterAtStart);
+  const GIVE_UP = visit.giveUpAfter();
   let seenKey = '';
   let seenFor = 0;
   // 180 วิ: ลิงก์คำเชิญมักเด้งผ่านหน้าเลือกบัญชี/ล็อกอินก่อน หน้าจริงจึงมาช้ากว่า 60 วิเดิม
@@ -130,23 +212,21 @@ function watchInvite() {
     const inviter = new URLSearchParams(location.search).get('inviterChannelId') || inviterAtStart;
     if (!me || !inviter) return false;
     const prev = getValue<AcceptRound | null>(ACCEPT_ROUND_KEY, null);
-    const n = (prev && Date.now() - prev.at < 300000 ? prev.n : 0) + 1;
+    const n = (sameRound(prev, me, inviter) ? prev!.n : 0) + 1;
     if (n > ACCEPT_ROUNDS) { setValue(ACCEPT_ROUND_KEY, null); say('reached the round limit — stopping'); return false; }
-    setValue(ACCEPT_ROUND_KEY, { n, at: Date.now() });
+    setValue(ACCEPT_ROUND_KEY, { n, at: Date.now(), me, inviter });
     say(`accepted ${done}; reopening the invite link for the next request (round ${n})`);
     location.href = `${location.origin}/channel/${me}/collaboration/${inviter}`;
     return true;
   }
   const timer = steady(() => {
     if (++tries > GIVE_UP) {
+      visit.gaveUp(done);
       stop();
       if (done) inviteNote(L(`ยอมรับไปแล้ว ${done} คลิป แต่ยังมีค้างอยู่ — ช่วยเช็กในหน้าอีกที`, `Accepted ${done}, but some may remain — please check the page`), false);
       // เงียบไป 3 นาทีโดยไม่มีอะไรเกิดขึ้น = หน้านี้ไม่มีคำเชิญให้ยอมรับ (เช่นยอมรับไปแล้ว
       // หรือเข้าผิดบัญชี) บอกไว้ใน console จะได้ไม่ต้องเดาว่าสคริปต์ทำงานไหม
-      else {
-        noteInvites(meAtStart, inviterAtStart, null);
-        say(`gave up — no collaboration request appeared in ${GIVE_UP}s (already accepted, or signed in as the wrong channel?)`);
-      }
+      else say(`gave up — no collaboration request appeared in ${GIVE_UP}s (already accepted, or signed in as the wrong channel?)`);
       return;
     }
     const dead = deadList();
@@ -157,7 +237,7 @@ function watchInvite() {
     if (key !== seenKey) { seenKey = key; seenFor = 0; }
     seenFor++;
     const vNow = new URLSearchParams(location.search).get('v') || '';
-    if (acceptingV && vNow !== acceptingV) { noteInvites(meAtStart, inviterAtStart, acceptingV); acceptingV = ''; }
+    visit.poll(vNow, !!b, !!row, !!dead);
     if (Date.now() - lastAction < 2500) return; // ให้หน้าต่างเปิด/ปิดให้เสร็จก่อนค่อยทำต่อ
 
     // 0) ปิดกล่องรายการที่ค้าง/ว่างเปล่าก่อน ไม่งั้นมันจะบังบัตรคำเชิญที่อยู่ข้างหลัง
@@ -180,7 +260,7 @@ function watchInvite() {
       idle = 0;
       lastAction = Date.now();
       say(`accepting request ${done}`, b);
-      acceptingV = vNow;
+      visit.clicked(vNow);
       // ytcp-button เป็นเปลือก — กดปุ่มจริงข้างในเหมือนที่ clickIn ทำ
       (b.querySelector('button') || b).click();
       return;
@@ -220,7 +300,9 @@ setInterval(() => {
   function switchThenOpen(sw: { switchToChannel(t: { handle?: string; name?: string }, next: string): void }, t: { handle?: string; name?: string }, next: string) {
     const m = next.match(COLLAB_LINK);
     if (!m) return sw.switchToChannel(t, next);
-    setValue(INVITE_NEXT_KEY, { at: Date.now(), channel: m[1]!, link: next } satisfies InviteNext);
+    const token = Math.random().toString(36).slice(2);
+    try { env.session?.setItem(NEXT_TAB, token); } catch { /* storage refused: any tab of the channel may open it */ }
+    setValue(INVITE_NEXT_KEY, { at: Date.now(), channel: m[1]!, link: next, token } satisfies InviteNext);
     sw.switchToChannel(t, `https://studio.youtube.com/channel/${m[1]!}`);
   }
   function openAfterSwitch() {
@@ -229,18 +311,39 @@ setInterval(() => {
       const p = getValue<InviteNext | null>(INVITE_NEXT_KEY, null);
       return p && Date.now() - (p.at || 0) < SWITCH_TTL ? p : null;
     };
-    if (!want()) return;
+    const first = want();
+    if (!first) return;
+    // Only the tab that asked for the switch (several Studio tabs reload onto the new channel)...
+    let mine = true;
+    try { mine = !env.session || !first.token || env.session.getItem(NEXT_TAB) === first.token; } catch { /* as above */ }
+    if (!mine) return;
+    // ...and only after the switcher picked the channel: a switch that never landed leaves the
+    // link pending, and a later switch by hand must not open it.
+    const picked = getValue<{ at?: number } | null>(SWITCHED_KEY, null);
+    if (!picked || (picked.at || 0) < first.at) return;
+    const done = () => {
+      setValue(INVITE_NEXT_KEY, null);
+      try { env.session?.removeItem(NEXT_TAB); } catch { /* as above */ }
+    };
     let calm = 0;
+    let elsewhere = 0;
     let tries = 0;
     const timer = steady(() => {
       const p = want();
-      if (!p || ++tries > 60) return void clearInterval(timer);
+      if (!p || p.at !== first.at || ++tries > 60) return void clearInterval(timer);
       // on the channel, past the post-switch Oops (lib/channel-switch.ts recovers that), for 3 s
       const here = (location.pathname.match(/^\/channel\/(UC[\w-]{10,})/) || [])[1];
-      calm = here === p.channel && !/[?&]sttick=/.test(location.search) && !oops() ? calm + 1 : 0;
+      const settled = !/[?&]sttick=/.test(location.search) && !oops();
+      calm = here === p.channel && settled ? calm + 1 : 0;
+      elsewhere = here && here !== p.channel && settled ? elsewhere + 1 : 0;
+      if (elsewhere >= 3) {
+        clearInterval(timer);
+        done();
+        return void console.info('[ytup] invite: the switch landed on another channel — not opening the invite link');
+      }
       if (calm < 3) return;
       clearInterval(timer);
-      setValue(INVITE_NEXT_KEY, null);
+      done();
       console.info('[ytup] invite: on the channel now — opening the invite link');
       location.href = p.link;
     }, 1000);
@@ -266,6 +369,14 @@ const pageTimers: Timers = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
 };
 
+// The getter throws where storage is blocked; then any tab of the channel may open the link.
+const tabSession = () => {
+  try {
+    return typeof sessionStorage === 'undefined' ? undefined : sessionStorage;
+  } catch {
+    return undefined;
+  }
+};
 export const browserEnv = (kv: SyncStore, timers: Timers = pageTimers): InviteEnv => ({
   document,
   location,
@@ -277,6 +388,7 @@ export const browserEnv = (kv: SyncStore, timers: Timers = pageTimers): InviteEn
   },
   steadyInterval: (fn, ms) => steadyInterval(timers.setInterval, fn, ms) as number,
   setTimeout: (fn, ms) => timers.setTimeout(fn, ms),
+  session: tabSession(),
   console,
   getValue: (key, fallback) => kv.get(key, fallback),
   setValue: (key, value) => kv.set(key, value),

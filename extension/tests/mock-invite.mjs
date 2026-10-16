@@ -6,7 +6,7 @@
 // With a single request YouTube skips the list and opens the modal directly.
 import { makeDocument } from './fake-dom.mjs';
 
-export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false, loadTicks = 0, dropQuery = false, withV = false } = {}) {
+export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = false, url, gapTicks = 0, deadList = false, loadTicks = 0, dropQuery = false, withV = false, refuse = 0 } = {}) {
   const doc = makeDocument();
   const truth = { opened: [], accepted: [], declined: [], tooEarly: 0 };
   // loadTicks: the card and the list show up before what is in them has loaded (seen
@@ -82,9 +82,24 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   };
 
   let held = 0;
+  // refuse: that many accepts fail the way YouTube shows it, a toast and the card closed,
+  // with the request still there
+  const toast = el('tp-yt-paper-toast', {}, 'Something went wrong. Try again later.');
+  toast.hidden = true;
+  doc.body.append(toast);
+  let toastFor = 0;
   acceptBtn.onclick = () => {
     if (!current) return;
     if (loading > 0) { truth.tooEarly++; return; }
+    if (refuse > 0) {
+      refuse--;
+      truth.refused = (truth.refused || 0) + 1;
+      closeModal();
+      toast.hidden = false;
+      toastFor = 3;
+      renderList();
+      return;
+    }
     truth.accepted.push(current);
     const i = remaining.indexOf(current);
     if (i >= 0) remaining.splice(i, 1);
@@ -97,6 +112,7 @@ export function mockInvitePage({ titles = ['Video A', 'Video B'], skipList = fal
   let listLoading = 0;
   truth.pump = () => {
     if (loading > 0 && --loading === 0) details.textContent = current || '';
+    if (toastFor > 0 && --toastFor === 0) toast.hidden = true;
     if (held > 0 && --held === 0) renderList();
     if (listLoading > 0 && --listLoading === 0) renderList();
   };

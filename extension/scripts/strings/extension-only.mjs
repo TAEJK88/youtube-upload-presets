@@ -225,4 +225,6 @@ export default [
   { th: '🤝 ${} ยอมรับแล้ว', en: '🤝 ${} accepted', why: 'Collab list: the invite watcher saw this video accepted (P5-invite-two-step)' },
   { th: '⏳ รอ ${} กดยอมรับ', en: '⏳ Waiting for ${} to accept', why: 'Collab list: not seen accepted yet (P5-invite-two-step)' },
   { th: '${} ไม่อยู่ในรายการช่องของคุณ — คัดลอกลิงก์คำเชิญส่งให้เจ้าของช่องแทน', en: '${} is not one of your channels — copy the invite link and send it to its owner', why: 'Accept now for a channel the extension cannot switch to (P5-invite-two-step)' },
+  { th: 'ยังมีงานตัดลิขสิทธิ์/โฆษณา/Collab อยู่ — รอให้เสร็จหรือกดหยุดก่อนแล้วค่อยไปกดยอมรับคำเชิญ', en: 'A trim/ads/Collab job is still running — wait for it or press Stop before accepting the invite', why: 'Accept now while a run is active on the page: the switch would leave it partway (P5-invite-two-step)' },
+  { th: 'เปิดลิงก์คำเชิญของ ${}…', en: 'Opening ${}\'s invite link…', why: 'Accept now while already on the invited channel: no switch, the link opens in this tab (P5-invite-two-step)' },
 ];

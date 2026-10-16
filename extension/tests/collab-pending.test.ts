@@ -34,5 +34,15 @@ describe('inviteWaits', () => {
 
 it('waitingByHandle counts what still waits per channel', () => {
   const results = { v1: done('Invited @BLXDofficial'), v2: done('Invited @BLXDofficial'), v3: { state: 'failed', msg: 'x', date: '' } };
-  expect(waitingByHandle(NJ, results, links, { [BLXD]: { [NJ]: { videos: { v1: 1 } } } })).toEqual({ '@BLXDofficial': 1 });
+  expect(waitingByHandle(NJ, results, links, { [BLXD]: { [NJ]: { videos: { v1: 1 } } } })).toEqual({ '@blxdofficial': 1 });
+});
+
+it('keeps a handle in any script whole', () => {
+  expect(invitedHandles(done('Invited @บีทไทย, @thai.beats-2'))).toEqual(['@บีทไทย', '@thai.beats-2']);
+  expect(invitedHandles(done('เชิญ @NessyJ · link copied'))).toEqual(['@NessyJ']);
+});
+
+it('waitingByHandle keys by the lowercase handle, whatever spelling the run used', () => {
+  const results = { v1: done('Invited @blxdofficial'), v2: done('Invited @BLXDofficial') };
+  expect(waitingByHandle(NJ, results, links, {})).toEqual({ '@blxdofficial': 2 });
 });
