@@ -23,9 +23,18 @@ import { StatusCard } from './copyright/StatusCard';
 import { TracklistFix } from './copyright/TracklistFix';
 
 // The drawer's "ลิขสิทธิ์" pane (buildPane 6183–6216, renderStatus 6219–6256), now the Tools tab:
-// each tool (the drawer's modals, D23) has its own sub-tab. Status and counts come from the Studio
-// tab (useClaims, D24); lists and results from storage, for the channel that tab is on.
+// three groups (Copyright, Ads off, Collab); Copyright's tools (the drawer's modals, D23) each have
+// a sub-tab. Status and counts come from the Studio tab (useClaims, D24); lists and results from
+// storage, for the channel that tab is on.
 export type ToolTab = 'claims' | 'songs' | 'tracklist' | 'ads' | 'collab' | 'settings';
+export type ToolGroup = 'copyright' | 'ads' | 'collab';
+type CopyrightTool = Exclude<ToolTab, 'ads' | 'collab'>;
+const groupOf = (t: ToolTab): ToolGroup => (t === 'ads' || t === 'collab' ? t : 'copyright');
+// Which group a job on the card belongs to, from the icon the tab already gives it (statusInfo).
+const groupOfIcon = (icon: string): ToolGroup => {
+  const e = icon.replace(/️/g, '').trim();
+  return e === '💰' ? 'ads' : e === '🤝' ? 'collab' : 'copyright';
+};
 
 export function useClaimsData(ch: string | null): ClaimsData | null {
   const [data, setData] = useState<ClaimsData | null>(null);
@@ -73,7 +82,12 @@ export function CopyrightTab() {
   const ch = kept.current.ch ?? state?.channel ?? null;
   const data = useClaimsData(ch);
   const stored = useClaimsGlobals();
-  const [tool, setTool] = useState<ToolTab>('claims');
+  const [tool, setToolState] = useState<ToolTab>('claims');
+  const [lastCopyright, setLastCopyright] = useState<CopyrightTool>('claims'); // where the Copyright group opens again
+  const setTool = (t: ToolTab) => {
+    setToolState(t);
+    if (groupOf(t) === 'copyright') setLastCopyright(t as CopyrightTool);
+  };
   const [videoId, setVideoId] = useState(''); // the tracklist being fixed; '' shows the picker
   const [from, setFrom] = useState(''); // the video the editor was left by Back: the picker focuses it
   const [openLog, setOpenLog] = useState<boolean | null>(null);
@@ -86,6 +100,7 @@ export function CopyrightTab() {
   const ready = !!data && !!shown;
   // Only Claims shows without the channel's data: a tool picked before it went shows Claims meanwhile.
   const current = ready ? tool : 'claims';
+  const group = groupOf(current);
 
   // Each tool opens with the sub-tab bar in sight (the pane scrolls: App's [data-pane-scroll]): a pane
   // scrolled past the bar comes back to it; one that shows the bar stays where it is, so the bar
@@ -145,14 +160,22 @@ export function CopyrightTab() {
       <Button variant="go" onClick={() => scan(what)} disabled={!idle || !here}><Icon name="scan" size={16} />{label}</Button>
     </div>
   );
-  const tools: [ToolTab, string, string][] = [
-    ['claims', n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list'), 'shield'],
-    ['songs', L(`เพลง (${n?.songs ?? stored.songs})`, `Songs (${n?.songs ?? stored.songs})`), 'music'],
-    ['tracklist', L('แก้ tracklist', 'Fix tracklist'), 'note'],
-    ['ads', n?.hasAdsScan ? L(`โฆษณา (${n.adsTodo})`, `Ads (${n.adsTodo})`) : L('โฆษณา', 'Ads'), 'paid'],
-    ['collab', 'Collab', 'collab'],
-    ['settings', L('ตัวเลือก', 'Options'), 'sliders'],
+  // The group a job on the card belongs to: the card says so, and that group's button shows a dot.
+  const runIn = s && (s.busyRun || s.busyScan) ? groupOfIcon(s.status.icon) : null;
+  const groupName: Record<ToolGroup, string> = { copyright: L('ลิขสิทธิ์', 'Copyright'), ads: 'Ads off', collab: 'Collab' };
+  const groups: [ToolGroup, string, string][] = [
+    ['copyright', 'shield', n?.hasScan ? L(`${n.claims} claim`, `${n.claims} claims`) : ''],
+    ['ads', 'paid', n?.hasAdsScan ? L(`${n.adsTodo} คลิป`, `${n.adsTodo} videos`) : ''],
+    ['collab', 'collab', data?.collabScan ? L(`${data.collabScan.total} คลิป`, `${data.collabScan.total} videos`) : ''],
   ];
+  const tools: [CopyrightTool, string][] = [
+    ['claims', n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list')],
+    ['songs', L(`เพลง (${n?.songs ?? stored.songs})`, `Songs (${n?.songs ?? stored.songs})`)],
+    ['tracklist', L('แก้ tracklist', 'Fix tracklist')],
+    ['settings', L('ตัวเลือก', 'Options')],
+  ];
+  // forceMount keeps Radix from unmounting an inactive panel; `hidden` takes it out of sight and of the accessibility tree.
+  const groupPane = (g: ToolGroup) => ({ value: g, forceMount: true as const, hidden: group !== g });
   return (
     <div ref={root}>
       {shown && !shown.english && (
@@ -160,42 +183,59 @@ export function CopyrightTab() {
           {L('⚠ Studio ตั้งเป็นภาษาไทยอยู่ — ส่วนตัด claim / เปิดโฆษณาอัตโนมัติต้องใช้ Studio ภาษาอังกฤษ (รูปโปรไฟล์ → Language → English) การสแกนใช้ได้ทุกภาษา', '⚠ Studio is set to Thai — auto claim trimming / ads need Studio in English (profile picture → Language → English). Scanning works in any language')}
         </div>
       )}
-      <Section title={L('สถานะ', 'Status')} icon="shield">
-        {s && <StatusCard s={s.status} />}
+      <Section title={L('สถานะ', 'Status')} icon="info">
+        {s && <StatusCard s={s.status} tag={runIn ? groupName[runIn] : undefined} />}
         {stoppable && <Button variant="danger" className="mt-2.5 w-full" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
       </Section>
-      <Tabs className="@container mt-[22px]" value={current} onValueChange={(v) => setTool(v as ToolTab)}>
-        {/* Six tools: three rows of two in a narrow panel, two rows of three from 448px of bar.
-            The longest label, "รายการ claim (999)", needs ~143px a tab; at 320px a third of the bar is ~89. */}
-        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-2 @min-[448px]:grid-cols-3">
-          {tools.map(([k, label, icon]) => (
-            <TabsTrigger key={k} value={k} disabled={k !== 'claims' && !ready} className="min-w-0 px-1 text-[12.5px] disabled:cursor-default disabled:opacity-50">
-              <Icon name={icon} size={14} /><span className="truncate">{label}</span>
+      <Tabs className="@container mt-[22px]" value={group} onValueChange={(v) => setTool(v === 'copyright' ? lastCopyright : (v as 'ads' | 'collab'))}>
+        {/* Three groups, a third of the bar each: "ลิขสิทธิ์" with its icon needs ~80px, a third of a 320px panel is ~94. */}
+        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-3">
+          {groups.map(([g, icon, count]) => (
+            <TabsTrigger key={g} value={g} disabled={g !== 'copyright' && !ready} className="relative min-w-0 flex-col gap-0 px-1 py-1.5 disabled:cursor-default disabled:opacity-50">
+              <span className="flex max-w-full min-w-0 items-center gap-1"><Icon name={icon} size={14} /><span className="truncate">{groupName[g]}</span></span>
+              {count && <>{' '}<span className="max-w-full truncate text-xs font-normal opacity-75">{count}</span></>}
+              {runIn === g && <span data-busy="" aria-hidden="true" className="absolute top-1 right-1 size-1.5 rounded-full bg-current" />}
             </TabsTrigger>
           ))}
         </TabsList>
         {/* Kept mounted like the panel's tabs: what was typed or ticked in a tool survives a switch,
             and is the channel's only (the key starts every tool again on another channel). */}
-        <TabsContent {...pane('claims')} className="flex flex-col gap-3">
-          <Button variant="go" onClick={() => scan('claims')} disabled={!idle || !here}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>
-          {data && shown && <AutopilotSwitch data={data} state={shown} />}
-          {data && shown && <ClaimList key={ch} data={data} state={shown} busy={busy} idle={idle} onTracklist={tracklist} />}
+        <TabsContent {...groupPane('copyright')}>
+          <Tabs className="@container" value={group === 'copyright' ? current : lastCopyright} onValueChange={(v) => setTool(v as CopyrightTool)}>
+            {/* Copyright's own tools, lighter than the groups above: underlined, two to a row in a
+                narrow panel, four from 448px. The longest label, "รายการ claim (999)", needs ~130px. */}
+            <TabsList aria-label={L('เครื่องมือลิขสิทธิ์', 'Copyright tools')} className="mb-3 grid-cols-2 gap-x-3 gap-y-0 rounded-none border-b border-tint/10 bg-transparent p-0 @min-[448px]:grid-cols-4">
+              {tools.map(([k, label]) => (
+                <TabsTrigger key={k} value={k} disabled={k !== 'claims' && !ready}
+                  className="min-w-0 rounded-none px-1 py-1.5 text-[12.5px] font-normal text-fg3 hover:bg-transparent hover:text-fg disabled:cursor-default disabled:opacity-50 data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:text-fg data-[state=active]:shadow-[inset_0_-2px_0_currentColor]">
+                  <span className="truncate">{label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <TabsContent {...pane('claims')} className="flex flex-col gap-3">
+              <Button variant="go" onClick={() => scan('claims')} disabled={!idle || !here}><Icon name="scan" size={16} />{L('สแกน claim', 'Scan claims')}</Button>
+              {data && shown && <AutopilotSwitch data={data} state={shown} />}
+              {data && shown && <ClaimList key={ch} data={data} state={shown} busy={busy} idle={idle} onTracklist={tracklist} />}
+            </TabsContent>
+            {data && shown && <Fragment key={ch}>
+              <TabsContent {...pane('songs')}>{once('songs', () => <Songs data={data} />)}</TabsContent>
+              <TabsContent {...pane('tracklist')}>
+                {once('tracklist', () => <TracklistFix data={data} videoId={videoId} from={from} onPick={tracklist} onClose={() => { setFrom(videoId); setVideoId(''); }} />)}
+              </TabsContent>
+              <TabsContent {...pane('settings')}>
+                {once('settings', () => <CopyrightSettings data={data} />)}
+              </TabsContent>
+            </Fragment>}
+          </Tabs>
         </TabsContent>
         {data && shown && <Fragment key={ch}>
-          <TabsContent {...pane('songs')}>{once('songs', () => <Songs data={data} />)}</TabsContent>
-          <TabsContent {...pane('tracklist')}>
-            {once('tracklist', () => <TracklistFix data={data} videoId={videoId} from={from} onPick={tracklist} onClose={() => { setFrom(videoId); setVideoId(''); }} />)}
-          </TabsContent>
-          <TabsContent {...pane('ads')}>
-            {once('ads', () => (data.adsScan ? <AdsView data={data} state={shown} busy={busy} idle={idle} />
+          <TabsContent {...groupPane('ads')}>
+            {once('ads', () => (data.adsScan ? <AdsView data={data} state={shown} busy={busy} idle={idle} onOptions={() => setTool('settings')} />
               : scanButton('ads', L('เช็กคลิปที่ปิดโฆษณา', 'Check for ads off'), L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on'))))}
           </TabsContent>
-          <TabsContent {...pane('collab')}>
+          <TabsContent {...groupPane('collab')}>
             {once('collab', () => (data.collabScan ? <CollabView data={data} state={shown} busy={busy} idle={idle} />
               : scanButton('collab', L('อ่านรายการคลิป', 'Read video list'), L('เลือกคลิปที่อัปแล้ว แล้วเชิญช่องอื่นเป็นผู้ร่วมสร้าง', 'Pick uploaded videos and invite other channels as collaborators'))))}
-          </TabsContent>
-          <TabsContent {...pane('settings')}>
-            {once('settings', () => <CopyrightSettings data={data} />)}
           </TabsContent>
         </Fragment>}
       </Tabs>

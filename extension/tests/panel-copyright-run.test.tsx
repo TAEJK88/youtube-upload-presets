@@ -23,9 +23,10 @@ const trimming = claimsStateWith({ busyRun: true, status: { icon: '✂️', kind
 const RELOAD = ['This tab is not connected to the extension yet — reload this tab', { id: 'not-connected' }] as const;
 const deaf = () => fakePanel({ send: vi.fn(async () => { throw new Error('no receiver'); }) as never });
 const tab = (name: RegExp | string) => screen.getByRole('tab', { name }) as HTMLButtonElement;
-// The sub-tab in sight: the others stay mounted, hidden (THAIB-1 review), and text queries see them.
-const pane = () => within(screen.getByRole('tabpanel'));
-const ready = () => vi.waitFor(() => expect(tab(/Songs/).disabled).toBe(false));
+// The tool in sight: the innermost open panel (a Tools group, or Copyright's sub-tab inside it).
+// The others stay mounted, hidden (THAIB-1 review), and text queries see them.
+const pane = () => within(screen.getAllByRole('tabpanel').at(-1)!);
+const ready = () => vi.waitFor(() => expect((screen.getByRole('tab', { name: /Songs/, hidden: true }) as HTMLButtonElement).disabled).toBe(false));
 beforeEach(() => {
   fakeBrowser.reset();
   vi.mocked(toast).mockClear();
@@ -311,7 +312,7 @@ describe('Tools tab, the Ads, Collab and Options sub-tabs', () => {
       const api2 = fakePanel();
       renderPanel(<CopyrightTab />, api2, undefined, fakeClaims({ state: claimsStateWith({ counts: { ...counts, hasAdsScan: true, adsTodo: 3 } }) }));
       await ready();
-      if (what === 'ads') expect(tab('Ads (3)')).toBeTruthy();
+      if (what === 'ads') expect(tab('Ads off 3 videos')).toBeTruthy();
       fireEvent.mouseDown(tab(label));
       expect(await screen.findByRole('heading', { name: title })).toBeTruthy();
       expect(api2.send).not.toHaveBeenCalled();
