@@ -86,8 +86,13 @@ const button = (name: string | RegExp) => screen.getByRole('button', { name }) a
 describe('Ads view', () => {
   it('lists the videos with ads off, the eligible ones ticked, and says what was turned on or failed', () => {
     renderPanel(<AdsView data={adsData({ 'adsResults:UC1': { b: { state: 'on', msg: '', date: '' }, c: { state: 'failed', msg: 'No switch', date: '' } } })} state={state} busy={false} idle />);
-    expect(screen.getByRole('heading', { name: '💰 Videos with ads off — Mine' })).toBeTruthy();
-    expect(screen.getByText(/^3 of 9 videos · 2 only turned off in settings · checked /)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Videos with ads off — Mine' })).toBeTruthy();
+    expect(screen.getByText(/^Finds videos with ads off and turns them on · 3 of 9 videos · checked /)).toBeTruthy();
+    // The scan in three numbers: off, only off in settings, ineligible.
+    for (const [n, label] of [['3', 'Off'], ['2', 'Only off in settings'], ['1', 'YouTube says ineligible']] as const) {
+      expect(screen.getByText(label, { selector: 'span' }).previousElementSibling!.textContent).toBe(n);
+    }
+    expect(screen.getByText('Auto-pilot also turns on ads: off')).toBeTruthy();
     expect([box('A').checked, box('B').checked, box('C').checked]).toEqual([true, false, false]);
     expect(screen.getByText('⚠ YouTube says ineligible')).toBeTruthy();
     expect(screen.getAllByText('Ads off (setting)').length).toBe(2);
@@ -158,7 +163,7 @@ describe('Ads view', () => {
   it('in Thai', () => {
     setLang('th');
     renderPanel(<AdsView data={adsData()} state={state} busy={false} idle />);
-    expect(screen.getByRole('heading', { name: '💰 คลิปที่ปิดโฆษณา — Mine' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'คลิปที่ปิดโฆษณาอยู่ — Mine' })).toBeTruthy();
     expect(button('💰 เปิดโฆษณา (2)')).toBeTruthy();
     expect(button('↻ เช็กใหม่')).toBeTruthy();
   });
@@ -193,8 +198,11 @@ describe('Collab view', () => {
       collabHandles: '@a, @b', 'collabLinks:UC1': { '@a': 'https://studio.youtube.com/invite/1' },
       'collabResults:UC1': { x: { state: 'done', msg: 'Invited @a', date: '' }, y: { state: 'failed', msg: 'No dialog', date: '' } },
     })} state={state} busy={false} idle />);
-    expect(screen.getByRole('heading', { name: '🤝 Collab — Mine' })).toBeTruthy();
-    expect(screen.getByText(/^2 videos · read .* covers every video\)$/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Collab — Mine' })).toBeTruthy();
+    expect(screen.getByText(/^Invite other channels as collaborators · 2 videos · read /)).toBeTruthy();
+    // Three steps in the order the work is done; the invite link's explanation sits with step 3.
+    expect(screen.getAllByRole('heading', { level: 4 }).map((h) => h.textContent)).toEqual(['1Channels to invite', '2Pick videos (0)', '3Send the invite link']);
+    expect(screen.getByText(/^YouTube doesn't send the invite itself: .* covers every video\)$/)).toBeTruthy();
     expect(handles().value).toBe('@a, @b');
     expect([box('Lofi Mix').checked, box('Jazz').checked]).toEqual([false, false]);
     expect(screen.getByText('@a: https://studio.youtube.com/invite/1')).toBeTruthy();

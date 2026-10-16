@@ -60,8 +60,9 @@ const LATIN_OK = new Set([
 ]);
 // Literals the userscript shows the same in both languages (no L()): its language picker
 // (4496, 4500), Studio's own option names (4518, 4530), the CSV download buttons (4931, 5248),
-// the Collab view's handles placeholder (5491), the Collab button (6195) and Auto-pilot (6210).
-const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above', '⬇ CSV', 'Collab', 'Auto-pilot', '@handle1, @handle2']);
+// the Collab view's handles placeholder (5491), the Collab button (6195) and Auto-pilot (6210);
+// and the Tools tab's "Ads off" group, named the same in both languages by choice.
+const SAME_IN_BOTH = new Set(['Language / ภาษา', 'English', 'Paid promotion', 'None of the above', '⬇ CSV', 'Collab', 'Auto-pilot', '@handle1, @handle2', 'Ads off']);
 const LATIN_IGNORE: RegExp[] = [
   /\{[a-z_0-9]+\}/g, // template variables: {n}, {title}, {track1}
   /\.(mp4|mov|txt|jpg|png|json)\b/gi, // file extensions
@@ -160,7 +161,8 @@ async function renderThai(api: ReturnType<typeof fakePanel>, live = fakeLive({ s
 const click = (name: string | RegExp) => act(async () => fireEvent.click(screen.getAllByRole('button', { name }).at(-1)!));
 const dialog = () => screen.getByRole('dialog');
 // The Tools tab's sub-tab in sight: the others stay mounted, hidden (THAIB-1 review).
-const shownTool = () => document.querySelector('[role=tabpanel][id$=claims] [role=tabpanel]:not([hidden])')!;
+// The tool that shows: the innermost open panel (a Tools group, or Copyright's sub-tab inside it).
+const shownTool = () => [...document.querySelectorAll('[role=tabpanel][id$=claims] [role=tabpanel]:not([hidden])')].at(-1)!;
 const cancel = () => act(async () => fireEvent.keyDown(dialog(), { key: 'Escape' }));
 
 describe('the panel in Thai', () => {
@@ -367,21 +369,21 @@ describe('the panel in Thai', () => {
     clean(document.body);
     await cancel();
 
-    await tool(/โฆษณา/);
-    expect(pane().textContent).toContain('💰 คลิปที่ปิดโฆษณา — ช่องฉัน');
+    await tool(/Ads off/);
+    expect(pane().textContent).toContain('คลิปที่ปิดโฆษณาอยู่ — ช่องฉัน');
     for (const t of ['4 จาก 9 คลิป', '⚠ YouTube แจ้งว่าไม่มีสิทธิ์', 'ปิดโฆษณาไว้ (ตั้งค่า)', '✅ เปิดแล้ว', '❌ บันทึกไม่ได้', '💰 เปิดโฆษณา (']) expect(pane().textContent).toContain(t);
     clean(document.body);
     await act(async () => { await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date, total: 9, rows: [] } }); });
-    await tool(/โฆษณา/);
+    await tool(/Ads off/);
     await vi.waitFor(() => expect(pane().textContent).toContain('🎉 ทุกคลิปเปิดโฆษณาแล้ว'));
     clean(document.body);
 
-    await tool('Collab');
-    expect(pane().textContent).toContain('🤝 Collab — ช่องฉัน');
+    await tool(/Collab/);
+    expect(pane().textContent).toContain('Collab — ช่องฉัน');
     for (const t of ['ช่องที่จะเชิญ', 'ลิงก์คำเชิญ (ส่งให้อีกฝ่าย)', '@เพื่อน: https://', '✅ เชิญแล้ว', '❌ หาช่องไม่เจอ', '🤝 เชิญ (0 คลิป)']) expect(pane().textContent).toContain(t);
     clean(document.body);
     await act(async () => { await fakeBrowser.storage.local.set({ 'collabScan:UC1': { date, total: 0, rows: [] } }); });
-    await tool('Collab');
+    await tool(/Collab/);
     await vi.waitFor(() => expect(pane().textContent).toContain('ช่องนี้ยังไม่มีคลิป'));
     clean(document.body);
 

@@ -8,9 +8,10 @@ import { Icon } from '../../Icon';
 // number: indeterminate), and the steps of a run with the current one marked. The kind colours
 // the card's edge and its icon (.tbx-card.busy … and its .sti, 2822–2823, 3069–3070).
 // Not a live region: during a scan the detail changes about every 0.8 s.
+// `tag`: the Tools group the job on the card belongs to (Copyright, Ads off, Collab), while one runs.
 const TONE: Record<string, string> = { busy: 'border-info/35', wait: 'border-warn/35', err: 'border-err/35', ok: 'border-ok/35', idle: '' };
 const ICON_TONE: Record<string, string> = { busy: 'text-info', wait: 'text-warn', err: 'text-err', ok: 'text-ok' };
-export function StatusCard({ s }: { s: ClaimsStatus }) {
+export function StatusCard({ s, tag }: { s: ClaimsStatus; tag?: string }) {
   const ic = emojiIconName(s.icon);
   const idx = s.stepIdx ?? -1;
   return (
@@ -18,6 +19,7 @@ export function StatusCard({ s }: { s: ClaimsStatus }) {
       <div className="flex items-center gap-2 text-[13px] font-medium">
         <span className={cn('grid w-5 shrink-0 place-items-center', ICON_TONE[s.kind] ?? 'text-fg2')}>{ic ? <Icon name={ic} size={17} /> : s.icon}</span>
         <span className="min-w-0 flex-1 break-words">{s.title}</span>
+        {tag && <span className="shrink-0 rounded-full border border-tint/15 px-2 text-xs font-normal text-fg2">{tag}</span>}
       </div>
       {s.detail && <div className="mt-1 text-xs break-words whitespace-pre-line text-fg2">{s.detail}</div>}
       {s.progress !== undefined && <Progress value={s.progress === null ? null : Math.round(s.progress * 100)} className="mt-2" />}

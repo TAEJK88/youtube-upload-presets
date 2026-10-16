@@ -31,18 +31,58 @@ const scanning = claimsStateWith({ busyScan: true,
 const tab = (name: RegExp | string) => screen.getByRole('tab', { name }) as HTMLButtonElement;
 const pick = (name: RegExp | string) => fireEvent.mouseDown(tab(name));
 const active = (name: RegExp | string) => tab(name).getAttribute('data-state') === 'active';
-// The sub-tab in sight: the others stay mounted, hidden, and text queries see them.
-const pane = () => within(screen.getByRole('tabpanel'));
-// The tools other than Claims open once the channel's data is read.
-const ready = () => waitFor(() => expect(tab(/Songs/).disabled).toBe(false));
+// The tool in sight: the innermost open panel (a Tools group, or Copyright's sub-tab inside it).
+// The others stay mounted, hidden, and text queries see them.
+const pane = () => within(screen.getAllByRole('tabpanel').at(-1)!);
+// The tools other than Claims open once the channel's data is read (Songs is hidden while Ads off or Collab shows).
+const ready = () => waitFor(() => expect((screen.getByRole('tab', { name: /Songs/, hidden: true }) as HTMLButtonElement).disabled).toBe(false));
 
 describe('Tools tab', () => {
-  it('shows the status card, Scan, and a sub-tab per tool, with counts', async () => {
+  it('shows the status card, Scan, the three groups and a sub-tab per Copyright tool, with counts', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }) }));
     expect(screen.getByText('Ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Claim list (4)', 'Songs (9)', 'Fix tracklist', 'Ads', 'Collab', 'Options']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Copyright 4 claims', 'Ads off', 'Collab', 'Claim list (4)', 'Songs (9)', 'Fix tracklist', 'Options']);
+    expect(active(/Copyright/)).toBe(true);
     expect(active('Claim list (4)')).toBe(true);
+  });
+
+  it('a job on the card names its group, and that group shows a dot', async () => {
+    const ads = claimsStateWith({ busyRun: true, status: { icon: '💰', kind: 'busy', title: 'Turning on ads: video 1 of 2', detail: '' } });
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: ads }));
+    await ready();
+    expect(screen.getByText('Turning on ads: video 1 of 2').nextElementSibling!.textContent).toBe('Ads off');
+    const dots = screen.getAllByRole('tab').filter((t) => t.querySelector('[data-busy]')).map((t) => t.textContent);
+    expect(dots).toEqual(['Ads off']);
+  });
+
+  it('nothing running: no group tag, no dot', async () => {
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }) }));
+    await ready();
+    expect(document.querySelector('[data-busy]')).toBe(null);
+    expect(screen.getByText('Ready').nextElementSibling).toBe(null);
+  });
+
+  it('Copyright opens again on the tool it was left on', async () => {
+    await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date: '2026-01-01', total: 0, rows: [] } });
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    pick(/Songs/);
+    pick(/Ads off/);
+    expect(active(/Ads off/)).toBe(true);
+    expect(screen.queryByRole('tab', { name: /Songs/ })).toBe(null); // Copyright's bar hides with its group
+    pick(/Copyright/);
+    expect(active(/Songs/)).toBe(true);
+  });
+
+  it("Ads off's Change in Options opens Copyright → Options", async () => {
+    await fakeBrowser.storage.local.set({ 'adsScan:UC1': { date: '2026-01-01', total: 0, rows: [] } });
+    renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
+    await ready();
+    pick(/Ads off/);
+    fireEvent.click(pane().getByRole('button', { name: 'Change in Options' }));
+    expect(active(/Copyright/)).toBe(true);
+    expect(active(/Options/)).toBe(true);
   });
 
   it('before a scan, Claims has no count', () => {
@@ -411,7 +451,7 @@ describe('moving between the tools', () => {
     const scroller = container.querySelector<HTMLElement>('[data-pane-scroll]')!;
     await ready();
     const BAR = 120; // the bar's offset in the pane
-    vi.spyOn(screen.getByRole('tablist'), 'getBoundingClientRect').mockImplementation(() => ({ top: BAR - scroller.scrollTop }) as DOMRect);
+    vi.spyOn(screen.getByRole('tablist', { name: 'Tools' }), 'getBoundingClientRect').mockImplementation(() => ({ top: BAR - scroller.scrollTop }) as DOMRect);
     const at = (from: number, go: () => void) => { scroller.scrollTop = from; go(); return scroller.scrollTop; };
     const click = (name: RegExp | string) => () => fireEvent.click(pane().getAllByRole('button', { name })[0]!);
     expect(at(50, () => pick(/Songs/))).toBe(50); // the bar was in sight: nothing jumps
@@ -432,7 +472,7 @@ describe('moving between the tools', () => {
     const { container } = renderPanel(<div data-pane-scroll=""><CopyrightTab /></div>, fakePanel(), undefined, fakeClaims({ shown: { view: 'ads', n: 1 } }));
     const scroller = container.querySelector<HTMLElement>('[data-pane-scroll]')!;
     const BAR = 120;
-    vi.spyOn(screen.getByRole('tablist'), 'getBoundingClientRect').mockImplementation(() => ({ top: BAR - scroller.scrollTop }) as DOMRect);
+    vi.spyOn(screen.getByRole('tablist', { name: 'Tools' }), 'getBoundingClientRect').mockImplementation(() => ({ top: BAR - scroller.scrollTop }) as DOMRect);
     await act(async () => {});
     scroller.scrollTop = 300; // scrolled down the claim list while the data loads
     await act(async () => { land(); });
@@ -1120,22 +1160,25 @@ describe('Tools tab review fixes', () => {
     const moved = claimsStateWith({ channel: 'UC2', channelName: 'Second' });
     r.rerender(wrap({ ...claims, state: moved, live: moved }));
     expect(active(/Claim list/)).toBe(true);
-    expect(screen.getByRole('tabpanel').contains(screen.getByRole('button', { name: /Scan claims/ }))).toBe(true);
+    expect(screen.getAllByRole('tabpanel').at(-1)!.contains(screen.getByRole('button', { name: /Scan claims/ }))).toBe(true);
     expect(screen.queryByRole('heading', { name: /Previously claimed songs/ })).toBe(null);
   });
   // At Chrome's narrowest panel (320px) three tabs a row cut "Claim list (3)" to "Claim lis…" and
-  // the Thai labels lost their counts (measured in Chrome). The bar's box is a size container: two
-  // tabs a row, three from 448px of it. happy-dom has no layout or container queries, so this pins
-  // the classes; the widths are in the comment by the bar.
-  it('the sub-tab bar is two tabs a row when narrow, three from 448px of bar', async () => {
+  // the Thai labels lost their counts (measured in Chrome). The groups take a third of the bar each;
+  // Copyright's tools sit in a size container: two a row, four from 448px of it. happy-dom has no
+  // layout or container queries, so this pins the classes; the widths are in the comments by the bars.
+  it("three groups a row; Copyright's tools two a row when narrow, four from 448px of bar", async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
-    const bar = screen.getByRole('tablist', { name: 'Tools' });
+    const groups = screen.getByRole('tablist', { name: 'Tools' });
+    expect(groups.classList.contains('grid-cols-3')).toBe(true);
+    expect(within(groups).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Copyright', 'Ads off', 'Collab']);
+    const bar = screen.getByRole('tablist', { name: 'Copyright tools' });
     expect(bar.parentElement!.classList.contains('@container')).toBe(true);
     expect(bar.classList.contains('grid-cols-2')).toBe(true);
-    expect(bar.classList.contains('@min-[448px]:grid-cols-3')).toBe(true);
+    expect(bar.classList.contains('@min-[448px]:grid-cols-4')).toBe(true);
     expect([...bar.classList].filter((c) => /^grid-cols-/.test(c))).toEqual(['grid-cols-2']); // no unconditional 3 or 4
-    expect(within(bar).getAllByRole('tab')).toHaveLength(6);
+    expect(within(bar).getAllByRole('tab')).toHaveLength(4);
   });
 
   // THAIB-1 review 3: a new channel remounts every tool, so only what shows there is built again.
