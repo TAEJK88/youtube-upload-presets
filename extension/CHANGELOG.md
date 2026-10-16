@@ -3,6 +3,23 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.2.0 — 2026-10-16
+
+The Tools tab in three groups, so Ads and Collab no longer look like copyright tools. To
+update, follow README, "Update"; the extension ID stays `cllefnlbgkbdnmifojjflfcpholhniio`, so
+presets, settings and history stay.
+
+- **Three groups.** Under the status card, the Tools tab opens on three buttons: **Copyright**,
+  **Ads off** and **Collab**, each with its count (claims, videos with ads off, videos read).
+  Copyright keeps its four tools (Claim list, Songs, Fix tracklist, Options) in an underlined
+  bar below, and opens again on the one it was left on.
+- **Ads off** shows its scan in three numbers (off, only off in settings, ineligible) and says
+  whether Auto-pilot turns ads on too, with a button to change it in Options.
+- **Collab** is laid out as three steps: the channels to invite, the videos to pick, and the
+  invite link to send.
+- **Which group is working.** While a scan or run goes on, the status card names its group and
+  that group's button shows a dot.
+
 ## 5.1.1 — 2026-10-15
 
 Apply a preset to drafts already in Studio, and Tools sub-tabs that fit a narrow panel. To
