@@ -120,7 +120,7 @@ export function CollabView({ data, state, busy, idle }: { data: ClaimsData; stat
           {chip('none', L('ไม่เลือก', 'None'))}
         </div>
         {scan.rows.length ? (
-          <VideoList total={scan.rows.length} count={shown.length} picked={picked.size}>
+          <VideoList key={scan.date} total={scan.rows.length} count={shown.length} picked={picked.size} query={q}>
             {(compact) => shown.map((r) => {
               const res = data.collabResults[r.videoId];
               const done = res?.state === 'done';

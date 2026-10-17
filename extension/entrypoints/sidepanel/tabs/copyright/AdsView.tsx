@@ -72,7 +72,7 @@ export function AdsView({ data, state, busy, idle, onOptions }: { data: ClaimsDa
         {chip('none', L('ไม่เลือก', 'None'))}
       </div>
       {scan.rows.length ? (
-        <VideoList total={scan.rows.length} count={scan.rows.length} picked={picked.size}>
+        <VideoList key={scan.date} total={scan.rows.length} count={scan.rows.length} picked={picked.size}>
           {(compact) => scan.rows.map((r) => {
             const res = data.adsResults[r.videoId];
             const notes: RowNote[] = [r.ineligible ? { text: L('⚠ YouTube แจ้งว่าไม่มีสิทธิ์', '⚠ YouTube says ineligible'), tone: 'text-warn', icon: '⚠' } : { text: L('ปิดโฆษณาไว้ (ตั้งค่า)', 'Ads off (setting)') }];

@@ -432,6 +432,25 @@ describe('the video lists fold and go compact', () => {
     expect(fold(/^Video list \(2\) · 1 picked$/)).toBeTruthy();
   });
 
+  it('a newer scan under the open view starts the fold and the row mode again from its own size', () => {
+    const v = mount((d) => <CollabView data={d} state={state} busy={false} idle />, collabData());
+    fireEvent.click(fold(/^Video list \(2\) · 0 picked$/));
+    expect(fold(/^Video list/).getAttribute('aria-expanded')).toBe('false');
+    v.to(long()); // Reload list: the stored scan, read after the view opened
+    expect(fold(/^Video list \(16\)/).getAttribute('aria-expanded')).toBe('true');
+    expect(button('▤ Full rows')).toBeTruthy();
+  });
+
+  it('a search typed with the list folded unfolds it, so the rows it finds are in sight', () => {
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    fireEvent.click(fold(/^Video list \(2\)/));
+    search('lofi');
+    expect(fold(/^Showing 1 of 2 videos/).getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(fold(/^Showing 1 of 2 videos/)); // folded again by hand: the same search leaves it so
+    fireEvent.click(box('Lofi Mix'));
+    expect(fold(/^Showing 1 of 2 videos · 1 picked$/).getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('in Thai', () => {
     setLang('th');
     renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);

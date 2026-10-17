@@ -20,15 +20,22 @@ export const tick = (videoId: string, on: boolean) => (p: Set<string>) => {
 
 // `total`: the rows the scan read, which sets the starting mode (not the search, or the rows would
 // switch as one types). `count`: the rows shown. `picked`: how many are ticked, so the bar still
-// says it with the list folded. `children` gets the row mode, for each <VideoRow compact>.
-export function VideoList({ total, count, picked, children }: { total: number; count: number; picked: number; children: (compact: boolean) => ReactNode }) {
+// says it with the list folded. `query`: the search, which unfolds the list when it changes (the
+// rows it finds would be out of sight). `children` gets the row mode, for each <VideoRow compact>.
+// Keyed by the scan's date where it is used, so a newer scan starts the fold and mode again.
+export function VideoList({ total, count, picked, query = '', children }: { total: number; count: number; picked: number; query?: string; children: (compact: boolean) => ReactNode }) {
   const id = useId();
   const [open, setOpen] = useState(true);
   const [compact, setCompact] = useState(() => total >= COMPACT_FROM);
+  const [searched, setSearched] = useState(query);
+  if (searched !== query) {
+    setSearched(query);
+    setOpen(true);
+  }
   return (
     <div className="t-acc flex flex-col" data-open={open}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" className="t-acc-head flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-[10px] py-1 text-left text-xs text-fg2 hover:text-fg"
+        <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-[10px] py-1 text-left text-xs text-fg2 hover:text-fg"
           aria-expanded={open} aria-controls={`${id}list`} onClick={() => setOpen(!open)}>
           <span className="t-acc-chevron shrink-0"><Icon name="chev" size={14} /></span>
           <span className="min-w-0 break-words">{count === total
