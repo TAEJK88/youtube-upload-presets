@@ -1,6 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { fmt } from '@/lib/claims/core';
 import type { ClaimsState } from '@/lib/claims/types';
@@ -13,11 +12,11 @@ import { usePanel } from '../../panel';
 import { notConnected, saveFailed } from '../../save-failed';
 import { SubView } from './SubView';
 import { useDropFinished } from './use-drop-finished';
+import { VideoList, VideoRow } from './VideoList';
 
 // showCollab() (5486–5546), in three steps: the channels to invite, one card per video (D23) with
 // search and pick chips, then the invite links to send; Reload list and "Invite (N videos)" below.
 // The ticks are the view's own; the bound tab starts the run from its stored scan.
-const openTab = (url: string) => void browser.tabs.create({ url });
 // The view's work in the order it is done: who to invite, which videos, then the link to send.
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
@@ -35,7 +34,6 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 // `idle`: the bound tab itself is free: a rescan takes no lock (D26), so only that gates it.
 export function CollabView({ data, state, busy, idle }: { data: ClaimsData; state: ClaimsState; busy: boolean; idle: boolean }) {
   const { send } = usePanel();
-  const id = useId();
   const scan = data.collabScan!; // the route opens this view only with a scan
   const [handles, setHandles] = useState(data.collabHandles);
   const [q, setQ] = useState('');
@@ -94,6 +92,7 @@ export function CollabView({ data, state, busy, idle }: { data: ClaimsData; stat
       toast(L('คัดลอกไม่สำเร็จ', "Couldn't copy"));
     }
   };
+  const shown = collabShown(scan.rows, q);
   const links = Object.entries(data.collabLinks);
   const invite = L('ช่องที่จะเชิญ', 'Channels to invite');
   const search = L('ค้นหาชื่อคลิป…', 'Search video titles…');
@@ -121,23 +120,17 @@ export function CollabView({ data, state, busy, idle }: { data: ClaimsData; stat
           {chip('none', L('ไม่เลือก', 'None'))}
         </div>
         {scan.rows.length ? (
-          <div className="flex flex-col gap-2">
-            {collabShown(scan.rows, q).map((r) => {
+          <VideoList count={shown.length} picked={picked.size}>
+            {(compact) => shown.map((r) => {
               const res = data.collabResults[r.videoId];
-              const url = `https://studio.youtube.com/video/${r.videoId}/edit`;
+              const done = res?.state === 'done';
               return (
-                <div key={r.videoId} className="flex gap-2.5 rounded-[14px] border border-tint/[0.09] bg-tint/5 p-3 text-[13px]">
-                  <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-fg" checked={picked.has(r.videoId)} aria-labelledby={`${id}${r.videoId}`}
-                    onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(r.videoId); else n.delete(r.videoId); return n; })} />
-                  <div className="min-w-0 flex-1 break-words">
-                    <a id={`${id}${r.videoId}`} className="font-medium underline-offset-2 hover:underline" href={url} onClick={(e) => { e.preventDefault(); openTab(url); }}>{r.video}</a>
-                    <div className="text-xs text-fg3">{`${r.privacy} · ${fmt(r.length)}`}</div>
-                    {res && <div className={res.state === 'done' ? 'text-xs text-ok' : 'text-xs text-err'}>{(res.state === 'done' ? '✅ ' : '❌ ') + res.msg}</div>}
-                  </div>
-                </div>
+                <VideoRow key={r.videoId} compact={compact} title={r.video} url={`https://studio.youtube.com/video/${r.videoId}/edit`} meta={`${r.privacy} · ${fmt(r.length)}`}
+                  notes={res ? [{ text: (done ? '✅ ' : '❌ ') + res.msg, tone: done ? 'text-ok' : 'text-err', icon: done ? '✅' : '❌' }] : []}
+                  checked={picked.has(r.videoId)} onCheck={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(r.videoId); else n.delete(r.videoId); return n; })} />
               );
             })}
-          </div>
+          </VideoList>
         ) : <div className="text-[13px] text-ok">{L('ช่องนี้ยังไม่มีคลิป', 'This channel has no videos yet')}</div>}
       </Step>
       <Step n={3} title={L('ส่งลิงก์คำเชิญให้อีกฝ่าย', 'Send the invite link')}>

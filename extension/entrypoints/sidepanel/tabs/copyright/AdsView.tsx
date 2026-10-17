@@ -1,5 +1,4 @@
-import { useId, useState } from 'react';
-import { browser } from 'wxt/browser';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { fmt } from '@/lib/claims/core';
 import type { ClaimsState } from '@/lib/claims/types';
@@ -11,10 +10,10 @@ import { usePanel } from '../../panel';
 import { notConnected } from '../../save-failed';
 import { SubView } from './SubView';
 import { useDropFinished } from './use-drop-finished';
+import { VideoList, VideoRow, type RowNote } from './VideoList';
 
 // showAds() (5289–5334): one card per video with ads off (D23), the pick chips, Recheck, Close and
 // "Turn on ads (N)". The ticks are the view's own; the bound tab starts the run from its stored scan.
-const openTab = (url: string) => void browser.tabs.create({ url });
 const tile = (n: number, label: string, tone?: string) => (
   <div className="flex min-w-0 flex-col rounded-[10px] bg-tint/5 px-2 py-1.5">
     <b className={cn('text-[15px] font-semibold tabular-nums', tone)}>{n}</b>
@@ -27,7 +26,6 @@ const tile = (n: number, label: string, tone?: string) => (
 // `idle`: the bound tab itself is free: a rescan takes no lock (D26), so only that gates it.
 export function AdsView({ data, state, busy, idle, onOptions }: { data: ClaimsData; state: ClaimsState; busy: boolean; idle: boolean; onOptions?(): void }) {
   const { send } = usePanel();
-  const id = useId();
   const scan = data.adsScan!; // the route opens this view only with a scan
   const [picked, setPicked] = useState(() => new Set(adsInitial(scan, data.adsResults)));
   // A newer scan can land under the open view (Recheck opens it before the stored scan is read):
@@ -74,24 +72,17 @@ export function AdsView({ data, state, busy, idle, onOptions }: { data: ClaimsDa
         {chip('none', L('ไม่เลือก', 'None'))}
       </div>
       {scan.rows.length ? (
-        <div className="flex flex-col gap-2">
-          {scan.rows.map((r) => {
+        <VideoList count={scan.rows.length} picked={picked.size}>
+          {(compact) => scan.rows.map((r) => {
             const res = data.adsResults[r.videoId];
-            const url = `https://studio.youtube.com/video/${r.videoId}/monetization`;
+            const notes: RowNote[] = [r.ineligible ? { text: L('⚠ YouTube แจ้งว่าไม่มีสิทธิ์', '⚠ YouTube says ineligible'), tone: 'text-warn', icon: '⚠' } : { text: L('ปิดโฆษณาไว้ (ตั้งค่า)', 'Ads off (setting)') }];
+            if (res) notes.push(res.state === 'on' ? { text: L('✅ เปิดแล้ว', '✅ Turned on'), tone: 'text-ok', icon: '✅' } : { text: '❌ ' + res.msg, tone: 'text-err', icon: '❌' });
             return (
-              <div key={r.videoId} className="flex gap-2.5 rounded-[14px] border border-tint/[0.09] bg-tint/5 p-3 text-[13px]">
-                <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-fg" checked={picked.has(r.videoId)} aria-labelledby={`${id}${r.videoId}`}
-                  onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(r.videoId); else n.delete(r.videoId); return n; })} />
-                <div className="min-w-0 flex-1 break-words">
-                  <a id={`${id}${r.videoId}`} className="font-medium underline-offset-2 hover:underline" href={url} onClick={(e) => { e.preventDefault(); openTab(url); }}>{r.video}</a>
-                  <div className="text-xs text-fg3">{`${r.privacy} · ${fmt(r.length)}`}</div>
-                  <div className="text-xs text-fg2">{r.ineligible ? <span className="text-warn">{L('⚠ YouTube แจ้งว่าไม่มีสิทธิ์', '⚠ YouTube says ineligible')}</span> : L('ปิดโฆษณาไว้ (ตั้งค่า)', 'Ads off (setting)')}</div>
-                  {res && <div className={res.state === 'on' ? 'text-xs text-ok' : 'text-xs text-err'}>{res.state === 'on' ? L('✅ เปิดแล้ว', '✅ Turned on') : '❌ ' + res.msg}</div>}
-                </div>
-              </div>
+              <VideoRow key={r.videoId} compact={compact} title={r.video} url={`https://studio.youtube.com/video/${r.videoId}/monetization`} meta={`${r.privacy} · ${fmt(r.length)}`}
+                notes={notes} checked={picked.has(r.videoId)} onCheck={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(r.videoId); else n.delete(r.videoId); return n; })} />
             );
           })}
-        </div>
+        </VideoList>
       ) : <div className="text-[13px] text-ok">{L('🎉 ทุกคลิปเปิดโฆษณาแล้ว', '🎉 All videos have ads on')}</div>}
     </SubView>
   );
