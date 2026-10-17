@@ -123,3 +123,53 @@
   select option { background: var(--popover); color: var(--fg); }
   :focus-visible { outline: 2px solid var(--fg2); outline-offset: 2px; }
 }
+
+/* Motion tokens (transitions.dev _root.css), only the ones in use. */
+:root {
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --acc-expand: var(--duration-fast);
+  --acc-collapse: var(--duration-quick); /* a fold closes quicker than it opens */
+  --acc-chevron: var(--duration-fast);
+  --acc-ease: var(--ease-smooth-out);
+}
+
+/* transitions.dev "Accordion expand" (21): the video lists' fold. grid-template-rows 0fr ↔ 1fr,
+   no height measuring; padding stays on the inner box's child, never on the track. The recipe's
+   blur is left out: the inner box holds the whole list, and blurring a layer that tall (a scan
+   can have hundreds of rows) for every frame of the fold drops frames; opacity carries the fade. */
+.t-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
+}
+.t-acc-panel-inner {
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel-inner {
+  opacity: 1;
+  transition: opacity var(--acc-expand) var(--acc-ease);
+}
+.t-acc-chevron {
+  display: inline-flex;
+  transform: scaleY(1);
+  transform-origin: center;
+  transition: transform var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-chevron {
+  transform: scaleY(-1);
+  transition: transform var(--acc-chevron) var(--acc-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-acc-panel, .t-acc-panel-inner, .t-acc-chevron {
+    transition: none !important;
+  }
+}

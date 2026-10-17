@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { browser } from 'wxt/browser';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -18,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { useAsk } from '../ask';
 import { IconButton, TextField } from '../fields';
 import { Icon } from '../Icon';
+import { openTab } from '../open-tab';
 import { useLive, usePanel } from '../panel';
 
 // One queue item: the drawer's buildCard() / updateItemUI() / renderAttachments()
@@ -59,7 +59,6 @@ function useThumbUrl(ref: FileRef | null, grantRev: number): string | null {
   return url;
 }
 
-const openTab = (url: string) => void browser.tabs.create({ url });
 const Chip = ({ children, className, ...rest }: { children: ReactNode; className?: string; title?: string; onClick?(): void }) =>
   rest.onClick
     ? <button type="button" className={cn('inline-flex cursor-pointer items-center gap-1 rounded-full border border-line2 px-2 py-0.5 text-xs text-fg2 hover:text-fg', className)} {...rest}>{children}</button>

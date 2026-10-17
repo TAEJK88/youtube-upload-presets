@@ -8,6 +8,7 @@ import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { ClaimsContext, LiveContext, PanelContext } from '../entrypoints/sidepanel/panel';
 import { AdsView } from '../entrypoints/sidepanel/tabs/copyright/AdsView';
 import { CollabView } from '../entrypoints/sidepanel/tabs/copyright/CollabView';
+import { COMPACT_FROM } from '../entrypoints/sidepanel/tabs/copyright/video-picks';
 import { setLang } from '../lib/i18n';
 import { claimsWrite, toClaimsData, type ClaimsData } from '../lib/panel/claims-data';
 import { adsInitial, adsWhere, collabWhere } from '../lib/panel/claims-runs';
@@ -364,5 +365,118 @@ describe('Collab view', () => {
     v.to(collabData({ 'collabResults:UC1': { x: { state: 'done', msg: '', date: '' }, y: { state: 'failed', msg: 'No dialog', date: '' } } }));
     expect([box('Lofi Mix').checked, box('Jazz').checked]).toEqual([false, true]);
     expect(button('🤝 Invite (1 videos)')).toBeTruthy();
+  });
+});
+
+describe('the video lists fold and go compact', () => {
+  const many = Array.from({ length: COMPACT_FROM }, (_, i) => ({ videoId: `v${i}`, video: i ? `Mix ${i}` : 'Lofi Mix', privacy: 'private', length: 1 }));
+  const long = (over: Record<string, unknown> = {}) => collabData({ 'collabScan:UC1': { date: '2026-01-01', total: many.length, rows: many }, ...over });
+  const fold = (name: RegExp) => screen.getByRole('button', { name }) as HTMLButtonElement;
+  const search = (v: string) => fireEvent.change(screen.getByRole('textbox', { name: 'Search video titles…' }), { target: { value: v } });
+
+  it('folds the whole list away and back; the ticks hold and the bar still counts them', () => {
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    fireEvent.click(box('Jazz'));
+    const head = fold(/^Video list \(2\) · 1 picked$/);
+    expect(head.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(head);
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+    const panel = document.getElementById(head.getAttribute('aria-controls')!)!;
+    expect(panel.hasAttribute('inert')).toBe(true); // folded rows are out of the tab order
+    expect(panel.closest('.t-acc')!.getAttribute('data-open')).toBe('false');
+    fireEvent.click(head);
+    expect(panel.hasAttribute('inert')).toBe(false);
+    expect(box('Jazz').checked).toBe(true);
+    expect(button('🤝 Invite (1 videos)')).toBeTruthy();
+  });
+
+  it('a short list starts with full cards; Compact rows puts each on one line, a success as an icon', () => {
+    renderPanel(<CollabView data={collabData({ 'collabResults:UC1': { x: { state: 'done', msg: 'Invited @a', date: '' } } })} state={state} busy={false} idle />);
+    expect(screen.getByText('✅ Invited @a')).toBeTruthy();
+    fireEvent.click(button('☰ Compact rows'));
+    expect(screen.queryByText('✅ Invited @a')).toBe(null);
+    expect(screen.getByRole('img', { name: '✅ Invited @a' }).textContent).toBe('✅');
+    expect(screen.getByRole('link', { name: 'Lofi Mix' }).getAttribute('title')).toBe('Lofi Mix'); // the full title on hover
+    fireEvent.click(box('Lofi Mix'));
+    expect(box('Lofi Mix').checked).toBe(true);
+    fireEvent.click(button('▤ Full rows'));
+    expect(screen.getByText('✅ Invited @a')).toBeTruthy();
+  });
+
+  it('a failure keeps its reason in words on a compact row (no hover on touch)', () => {
+    renderPanel(<AdsView data={adsData({ 'adsResults:UC1': { c: { state: 'failed', msg: 'No switch', date: '' } } })} state={state} busy={false} idle />);
+    fireEvent.click(button('☰ Compact rows'));
+    expect(screen.getByText('❌ No switch')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: '❌ No switch' })).toBe(null);
+    expect(screen.getByRole('img', { name: '⚠ YouTube says ineligible' })).toBeTruthy();
+  });
+
+  it(`a scan of ${COMPACT_FROM} or more starts compact each time the view opens, and the search does not switch it`, () => {
+    renderPanel(<CollabView data={long()} state={state} busy={false} idle />);
+    expect(button('▤ Full rows')).toBeTruthy();
+    search('lofi');
+    expect(fold(/^Showing 1 of 16 videos · 0 picked$/)).toBeTruthy();
+    expect(button('▤ Full rows')).toBeTruthy();
+    fireEvent.click(button('▤ Full rows'));
+    cleanup();
+    renderPanel(<CollabView data={long()} state={state} busy={false} idle />); // a switch lasts while the view is open
+    expect(button('▤ Full rows')).toBeTruthy();
+  });
+
+  it('with a search on, the bar says shown of all, and the ticks of every row', () => {
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    fireEvent.click(box('Jazz'));
+    search('lofi');
+    expect(fold(/^Showing 1 of 2 videos · 1 picked$/)).toBeTruthy();
+    search('');
+    expect(fold(/^Video list \(2\) · 1 picked$/)).toBeTruthy();
+  });
+
+  it('a newer scan under the open view starts the fold and the row mode again from its own size', () => {
+    const v = mount((d) => <CollabView data={d} state={state} busy={false} idle />, collabData());
+    fireEvent.click(fold(/^Video list \(2\) · 0 picked$/));
+    expect(fold(/^Video list/).getAttribute('aria-expanded')).toBe('false');
+    v.to(long()); // Reload list: the stored scan, read after the view opened
+    expect(fold(/^Video list \(16\)/).getAttribute('aria-expanded')).toBe('true');
+    expect(button('▤ Full rows')).toBeTruthy();
+  });
+
+  it('a search typed with the list folded unfolds it, so the rows it finds are in sight; clearing it does not', () => {
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    fireEvent.click(fold(/^Video list \(2\)/));
+    search('lofi');
+    expect(fold(/^Showing 1 of 2 videos/).getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(fold(/^Showing 1 of 2 videos/)); // folded by hand to reach step 3
+    fireEvent.click(button('All shown')); // a chip, above the fold, still works on the rows found
+    expect(fold(/^Showing 1 of 2 videos · 1 picked$/).getAttribute('aria-expanded')).toBe('false');
+    search(''); // clearing finds nothing new: the list stays folded
+    expect(fold(/^Video list \(2\) · 1 picked$/).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('a search that finds nothing says so', () => {
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    search('zzz');
+    expect(fold(/^Showing 0 of 2 videos · 0 picked$/)).toBeTruthy();
+    expect(screen.getByText('No videos match the search')).toBeTruthy();
+  });
+
+  it('a video title opens its Studio page; a tab the browser refuses is logged, not thrown', async () => {
+    const create = vi.spyOn(fakeBrowser.tabs, 'create').mockRejectedValue(new Error('No window'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    fireEvent.click(screen.getByRole('link', { name: 'Jazz' }));
+    expect(create).toHaveBeenCalledWith({ url: 'https://studio.youtube.com/video/y/edit' });
+    await vi.waitFor(() => expect(err).toHaveBeenCalledWith('[ytup] open tab failed', 'https://studio.youtube.com/video/y/edit', expect.any(Error)));
+  });
+
+  it('in Thai', () => {
+    setLang('th');
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    expect(fold(/^รายการคลิป \(2\) · เลือกแล้ว 0$/)).toBeTruthy();
+    expect(button('☰ แถวย่อ')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'ค้นหาชื่อคลิป…' }), { target: { value: 'jazz' } });
+    expect(fold(/^แสดง 1 จาก 2 คลิป · เลือกแล้ว 0$/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'ค้นหาชื่อคลิป…' }), { target: { value: 'zzz' } });
+    expect(screen.getByText('ไม่พบคลิปที่ตรงกับคำค้น')).toBeTruthy();
   });
 });
