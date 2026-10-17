@@ -1,5 +1,4 @@
 import { useEffect, useId } from 'react';
-import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { claimsCsvRows, fmt } from '@/lib/claims/core';
 import { chKey } from '@/lib/claims/keys';
@@ -12,6 +11,7 @@ import { fmtWhen } from '@/lib/panel/format';
 import { cn } from '@/lib/utils';
 import { useAsk } from '../../ask';
 import { usePanel } from '../../panel';
+import { openTab } from '../../open-tab';
 import { notConnected, saveFailed } from '../../save-failed';
 import { SubView } from './SubView';
 
@@ -22,7 +22,6 @@ const TRIM_LABEL = (): Record<string, string> => ({
   skipped: L('⏭ ข้าม', '⏭ Skipped'), later: L('⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ', '⏳ Queued — will trim after the previous trim on this video finishes'),
 });
 const STATE_TONE: Record<string, string> = { saved: 'text-ok', gone: 'text-ok', failed: 'text-err', skipped: 'text-warn', later: 'text-warn' };
-const openTab = (url: string) => void browser.tabs.create({ url });
 
 // `busy`: a scan or run is on (here, or another tab's run): no trim from this (maybe outgoing) list until it
 // ends. `idle`: the bound tab itself is free: a rescan takes no lock (D26), so only that gates it.

@@ -156,7 +156,7 @@
 }
 .t-acc[data-open="true"] .t-acc-panel-inner {
   opacity: 1;
-  filter: blur(0);
+  filter: none; /* not blur(0): a long list would stay on its own filtered layer while open */
   transition:
     opacity var(--acc-expand) var(--acc-ease),
     filter var(--acc-expand) var(--acc-ease);

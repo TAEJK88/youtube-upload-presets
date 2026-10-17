@@ -10,7 +10,7 @@ import { usePanel } from '../../panel';
 import { notConnected } from '../../save-failed';
 import { SubView } from './SubView';
 import { useDropFinished } from './use-drop-finished';
-import { VideoList, VideoRow, type RowNote } from './VideoList';
+import { tick, VideoList, VideoRow, type RowNote } from './VideoList';
 
 // showAds() (5289–5334): one card per video with ads off (D23), the pick chips, Recheck, Close and
 // "Turn on ads (N)". The ticks are the view's own; the bound tab starts the run from its stored scan.
@@ -72,14 +72,14 @@ export function AdsView({ data, state, busy, idle, onOptions }: { data: ClaimsDa
         {chip('none', L('ไม่เลือก', 'None'))}
       </div>
       {scan.rows.length ? (
-        <VideoList count={scan.rows.length} picked={picked.size}>
+        <VideoList total={scan.rows.length} count={scan.rows.length} picked={picked.size}>
           {(compact) => scan.rows.map((r) => {
             const res = data.adsResults[r.videoId];
             const notes: RowNote[] = [r.ineligible ? { text: L('⚠ YouTube แจ้งว่าไม่มีสิทธิ์', '⚠ YouTube says ineligible'), tone: 'text-warn', icon: '⚠' } : { text: L('ปิดโฆษณาไว้ (ตั้งค่า)', 'Ads off (setting)') }];
-            if (res) notes.push(res.state === 'on' ? { text: L('✅ เปิดแล้ว', '✅ Turned on'), tone: 'text-ok', icon: '✅' } : { text: '❌ ' + res.msg, tone: 'text-err', icon: '❌' });
+            if (res) notes.push(res.state === 'on' ? { text: L('✅ เปิดแล้ว', '✅ Turned on'), tone: 'text-ok', icon: '✅' } : { text: '❌ ' + res.msg, tone: 'text-err', icon: '❌', keep: true });
             return (
               <VideoRow key={r.videoId} compact={compact} title={r.video} url={`https://studio.youtube.com/video/${r.videoId}/monetization`} meta={`${r.privacy} · ${fmt(r.length)}`}
-                notes={notes} checked={picked.has(r.videoId)} onCheck={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(r.videoId); else n.delete(r.videoId); return n; })} />
+                notes={notes} checked={picked.has(r.videoId)} onCheck={(on) => setPicked(tick(r.videoId, on))} />
             );
           })}
         </VideoList>

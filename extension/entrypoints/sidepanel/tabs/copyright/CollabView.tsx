@@ -12,7 +12,7 @@ import { usePanel } from '../../panel';
 import { notConnected, saveFailed } from '../../save-failed';
 import { SubView } from './SubView';
 import { useDropFinished } from './use-drop-finished';
-import { VideoList, VideoRow } from './VideoList';
+import { tick, VideoList, VideoRow } from './VideoList';
 
 // showCollab() (5486–5546), in three steps: the channels to invite, one card per video (D23) with
 // search and pick chips, then the invite links to send; Reload list and "Invite (N videos)" below.
@@ -120,14 +120,14 @@ export function CollabView({ data, state, busy, idle }: { data: ClaimsData; stat
           {chip('none', L('ไม่เลือก', 'None'))}
         </div>
         {scan.rows.length ? (
-          <VideoList count={shown.length} picked={picked.size}>
+          <VideoList total={scan.rows.length} count={shown.length} picked={picked.size}>
             {(compact) => shown.map((r) => {
               const res = data.collabResults[r.videoId];
               const done = res?.state === 'done';
               return (
                 <VideoRow key={r.videoId} compact={compact} title={r.video} url={`https://studio.youtube.com/video/${r.videoId}/edit`} meta={`${r.privacy} · ${fmt(r.length)}`}
-                  notes={res ? [{ text: (done ? '✅ ' : '❌ ') + res.msg, tone: done ? 'text-ok' : 'text-err', icon: done ? '✅' : '❌' }] : []}
-                  checked={picked.has(r.videoId)} onCheck={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(r.videoId); else n.delete(r.videoId); return n; })} />
+                  notes={res ? [{ text: (done ? '✅ ' : '❌ ') + res.msg, tone: done ? 'text-ok' : 'text-err', icon: done ? '✅' : '❌', keep: !done }] : []}
+                  checked={picked.has(r.videoId)} onCheck={(on) => setPicked(tick(r.videoId, on))} />
               );
             })}
           </VideoList>

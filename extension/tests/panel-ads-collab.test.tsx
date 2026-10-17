@@ -8,7 +8,7 @@ import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { ClaimsContext, LiveContext, PanelContext } from '../entrypoints/sidepanel/panel';
 import { AdsView } from '../entrypoints/sidepanel/tabs/copyright/AdsView';
 import { CollabView } from '../entrypoints/sidepanel/tabs/copyright/CollabView';
-import { COMPACT_FROM, COMPACT_KEY } from '../entrypoints/sidepanel/tabs/copyright/VideoList';
+import { COMPACT_FROM } from '../entrypoints/sidepanel/tabs/copyright/VideoList';
 import { setLang } from '../lib/i18n';
 import { claimsWrite, toClaimsData, type ClaimsData } from '../lib/panel/claims-data';
 import { adsInitial, adsWhere, collabWhere } from '../lib/panel/claims-runs';
@@ -369,9 +369,10 @@ describe('Collab view', () => {
 });
 
 describe('the video lists fold and go compact', () => {
-  beforeEach(() => localStorage.clear());
-  const many = Array.from({ length: COMPACT_FROM }, (_, i) => ({ videoId: `v${i}`, video: `Mix ${i}`, privacy: 'private', length: 1 }));
+  const many = Array.from({ length: COMPACT_FROM }, (_, i) => ({ videoId: `v${i}`, video: i ? `Mix ${i}` : 'Lofi Mix', privacy: 'private', length: 1 }));
+  const long = (over: Record<string, unknown> = {}) => collabData({ 'collabScan:UC1': { date: '2026-01-01', total: many.length, rows: many }, ...over });
   const fold = (name: RegExp) => screen.getByRole('button', { name }) as HTMLButtonElement;
+  const search = (v: string) => fireEvent.change(screen.getByRole('textbox', { name: 'Search video titles…' }), { target: { value: v } });
 
   it('folds the whole list away and back; the ticks hold and the bar still counts them', () => {
     renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
@@ -389,7 +390,7 @@ describe('the video lists fold and go compact', () => {
     expect(button('🤝 Invite (1 videos)')).toBeTruthy();
   });
 
-  it('a short list starts with full cards; Compact rows puts each on one line, results as icons, and is remembered', () => {
+  it('a short list starts with full cards; Compact rows puts each on one line, a success as an icon', () => {
     renderPanel(<CollabView data={collabData({ 'collabResults:UC1': { x: { state: 'done', msg: 'Invited @a', date: '' } } })} state={state} busy={false} idle />);
     expect(screen.getByText('✅ Invited @a')).toBeTruthy();
     fireEvent.click(button('☰ Compact rows'));
@@ -398,35 +399,45 @@ describe('the video lists fold and go compact', () => {
     expect(screen.getByRole('link', { name: 'Lofi Mix' }).getAttribute('title')).toBe('Lofi Mix'); // the full title on hover
     fireEvent.click(box('Lofi Mix'));
     expect(box('Lofi Mix').checked).toBe(true);
-    expect(localStorage.getItem(COMPACT_KEY)).toBe('1');
-    cleanup();
-    renderPanel(<AdsView data={adsData()} state={state} busy={false} idle />); // the choice is the panel's, not one list's
-    expect(button('▤ Full rows')).toBeTruthy();
-    expect(screen.getByRole('img', { name: '⚠ YouTube says ineligible' })).toBeTruthy();
     fireEvent.click(button('▤ Full rows'));
-    expect(screen.getByText('⚠ YouTube says ineligible')).toBeTruthy();
-    expect(localStorage.getItem(COMPACT_KEY)).toBe('0');
+    expect(screen.getByText('✅ Invited @a')).toBeTruthy();
   });
 
-  it(`a list of ${COMPACT_FROM} or more starts compact, until a choice is made`, () => {
-    renderPanel(<CollabView data={collabData({ 'collabScan:UC1': { date: '2026-01-01', total: many.length, rows: many } })} state={state} busy={false} idle />);
+  it('a failure keeps its reason in words on a compact row (no hover on touch)', () => {
+    renderPanel(<AdsView data={adsData({ 'adsResults:UC1': { c: { state: 'failed', msg: 'No switch', date: '' } } })} state={state} busy={false} idle />);
+    fireEvent.click(button('☰ Compact rows'));
+    expect(screen.getByText('❌ No switch')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: '❌ No switch' })).toBe(null);
+    expect(screen.getByRole('img', { name: '⚠ YouTube says ineligible' })).toBeTruthy();
+  });
+
+  it(`a scan of ${COMPACT_FROM} or more starts compact each time the view opens, and the search does not switch it`, () => {
+    renderPanel(<CollabView data={long()} state={state} busy={false} idle />);
     expect(button('▤ Full rows')).toBeTruthy();
+    search('lofi');
+    expect(fold(/^Showing 1 of 16 videos · 0 picked$/)).toBeTruthy();
+    expect(button('▤ Full rows')).toBeTruthy();
+    fireEvent.click(button('▤ Full rows'));
     cleanup();
-    localStorage.setItem(COMPACT_KEY, '0');
-    renderPanel(<CollabView data={collabData({ 'collabScan:UC1': { date: '2026-01-01', total: many.length, rows: many } })} state={state} busy={false} idle />);
-    expect(button('☰ Compact rows')).toBeTruthy();
+    renderPanel(<CollabView data={long()} state={state} busy={false} idle />); // a switch lasts while the view is open
+    expect(button('▤ Full rows')).toBeTruthy();
   });
 
-  it('the bar counts the rows the search shows', () => {
+  it('with a search on, the bar says shown of all, and the ticks of every row', () => {
     renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search video titles…' }), { target: { value: 'lofi' } });
-    expect(fold(/^Video list \(1\) · 0 picked$/)).toBeTruthy();
+    fireEvent.click(box('Jazz'));
+    search('lofi');
+    expect(fold(/^Showing 1 of 2 videos · 1 picked$/)).toBeTruthy();
+    search('');
+    expect(fold(/^Video list \(2\) · 1 picked$/)).toBeTruthy();
   });
 
   it('in Thai', () => {
     setLang('th');
-    renderPanel(<AdsView data={adsData()} state={state} busy={false} idle />);
-    expect(fold(/^รายการคลิป \(3\) · เลือกแล้ว 2$/)).toBeTruthy();
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    expect(fold(/^รายการคลิป \(2\) · เลือกแล้ว 0$/)).toBeTruthy();
     expect(button('☰ แถวย่อ')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'ค้นหาชื่อคลิป…' }), { target: { value: 'jazz' } });
+    expect(fold(/^แสดง 1 จาก 2 คลิป · เลือกแล้ว 0$/)).toBeTruthy();
   });
 });
