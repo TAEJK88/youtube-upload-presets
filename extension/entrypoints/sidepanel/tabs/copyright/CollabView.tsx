@@ -12,7 +12,8 @@ import { usePanel } from '../../panel';
 import { notConnected, saveFailed } from '../../save-failed';
 import { SubView } from './SubView';
 import { useDropFinished } from './use-drop-finished';
-import { tick, VideoList, VideoRow } from './VideoList';
+import { VideoList, VideoRow } from './VideoList';
+import { tick } from './video-picks';
 
 // showCollab() (5486–5546), in three steps: the channels to invite, one card per video (D23) with
 // search and pick chips, then the invite links to send; Reload list and "Invite (N videos)" below.

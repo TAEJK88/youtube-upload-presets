@@ -10,7 +10,8 @@ import { usePanel } from '../../panel';
 import { notConnected } from '../../save-failed';
 import { SubView } from './SubView';
 import { useDropFinished } from './use-drop-finished';
-import { tick, VideoList, VideoRow, type RowNote } from './VideoList';
+import { VideoList, VideoRow, type RowNote } from './VideoList';
+import { tick } from './video-picks';
 
 // showAds() (5289–5334): one card per video with ads off (D23), the pick chips, Recheck, Close and
 // "Turn on ads (N)". The ticks are the view's own; the bound tab starts the run from its stored scan.

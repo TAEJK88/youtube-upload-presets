@@ -8,7 +8,7 @@ import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { ClaimsContext, LiveContext, PanelContext } from '../entrypoints/sidepanel/panel';
 import { AdsView } from '../entrypoints/sidepanel/tabs/copyright/AdsView';
 import { CollabView } from '../entrypoints/sidepanel/tabs/copyright/CollabView';
-import { COMPACT_FROM } from '../entrypoints/sidepanel/tabs/copyright/VideoList';
+import { COMPACT_FROM } from '../entrypoints/sidepanel/tabs/copyright/video-picks';
 import { setLang } from '../lib/i18n';
 import { claimsWrite, toClaimsData, type ClaimsData } from '../lib/panel/claims-data';
 import { adsInitial, adsWhere, collabWhere } from '../lib/panel/claims-runs';
@@ -441,14 +441,32 @@ describe('the video lists fold and go compact', () => {
     expect(button('▤ Full rows')).toBeTruthy();
   });
 
-  it('a search typed with the list folded unfolds it, so the rows it finds are in sight', () => {
+  it('a search typed with the list folded unfolds it, so the rows it finds are in sight; clearing it does not', () => {
     renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
     fireEvent.click(fold(/^Video list \(2\)/));
     search('lofi');
     expect(fold(/^Showing 1 of 2 videos/).getAttribute('aria-expanded')).toBe('true');
-    fireEvent.click(fold(/^Showing 1 of 2 videos/)); // folded again by hand: the same search leaves it so
-    fireEvent.click(box('Lofi Mix'));
+    fireEvent.click(fold(/^Showing 1 of 2 videos/)); // folded by hand to reach step 3
+    fireEvent.click(button('All shown')); // a chip, above the fold, still works on the rows found
     expect(fold(/^Showing 1 of 2 videos · 1 picked$/).getAttribute('aria-expanded')).toBe('false');
+    search(''); // clearing finds nothing new: the list stays folded
+    expect(fold(/^Video list \(2\) · 1 picked$/).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('a search that finds nothing says so', () => {
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    search('zzz');
+    expect(fold(/^Showing 0 of 2 videos · 0 picked$/)).toBeTruthy();
+    expect(screen.getByText('No videos match the search')).toBeTruthy();
+  });
+
+  it('a video title opens its Studio page; a tab the browser refuses is logged, not thrown', async () => {
+    const create = vi.spyOn(fakeBrowser.tabs, 'create').mockRejectedValue(new Error('No window'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderPanel(<CollabView data={collabData()} state={state} busy={false} idle />);
+    fireEvent.click(screen.getByRole('link', { name: 'Jazz' }));
+    expect(create).toHaveBeenCalledWith({ url: 'https://studio.youtube.com/video/y/edit' });
+    await vi.waitFor(() => expect(err).toHaveBeenCalledWith('[ytup] open tab failed', 'https://studio.youtube.com/video/y/edit', expect.any(Error)));
   });
 
   it('in Thai', () => {
@@ -458,5 +476,7 @@ describe('the video lists fold and go compact', () => {
     expect(button('☰ แถวย่อ')).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', { name: 'ค้นหาชื่อคลิป…' }), { target: { value: 'jazz' } });
     expect(fold(/^แสดง 1 จาก 2 คลิป · เลือกแล้ว 0$/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'ค้นหาชื่อคลิป…' }), { target: { value: 'zzz' } });
+    expect(screen.getByText('ไม่พบคลิปที่ตรงกับคำค้น')).toBeTruthy();
   });
 });
