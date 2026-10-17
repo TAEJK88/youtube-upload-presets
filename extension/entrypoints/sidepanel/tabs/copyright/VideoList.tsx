@@ -56,7 +56,9 @@ export function VideoList({ total, count, picked, query = '', rows = 'videos', c
 // hover, unless `keep`: a failure's reason stays readable there too (no hover on touch or keyboard).
 // `detail` follows the text after a dash, in its own text node (the text can then be a whole L()
 // pair, which the Thai check matches). `compact`: shown on a compact row only (the full card says it otherwise).
-export type RowNote = { text: string; detail?: string; tone?: string; icon?: string; keep?: boolean; compact?: boolean };
+// `top`: on a full card, right under the meta, above `children`; the other notes follow them.
+// `tone: ''` keeps the row's own text colour (the default is the dimmer text-fg2).
+export type RowNote = { text: string; detail?: string; tone?: string; icon?: string; keep?: boolean; compact?: boolean; top?: boolean };
 const said = (n: RowNote) => (n.detail ? `${n.text} — ${n.detail}` : n.text);
 const line = (n: RowNote) => <>{n.text}{n.detail ? ' — ' : ''}{n.detail}</>;
 
@@ -103,8 +105,9 @@ export function VideoRow({ compact, title, url, meta, notes, checked, onCheck, b
       <div className="min-w-0 flex-1 break-words">
         {link}
         <div className="text-xs text-fg3">{meta}</div>
+        {notes.map((n, i) => n.top && !n.compact && <div key={i} className={cn('text-xs', n.tone ?? 'text-fg2')}>{line(n)}</div>)}
         {children}
-        {notes.map((n, i) => !n.compact && <div key={i} className={cn('text-xs', n.tone ?? 'text-fg2')}>{line(n)}</div>)}
+        {notes.map((n, i) => !n.top && !n.compact && <div key={i} className={cn('text-xs', n.tone ?? 'text-fg2')}>{line(n)}</div>)}
         {action}
       </div>
     </div>

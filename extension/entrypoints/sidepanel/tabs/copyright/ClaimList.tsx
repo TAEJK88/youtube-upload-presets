@@ -17,30 +17,36 @@ import { VideoList, VideoRow, type RowNote } from './VideoList';
 // showClaims() (4860–4936): one card per claim (D23), the pick chips, CSV, Rescan, Trim selected,
 // Close. Ticking writes this channel's trimQueue through the background (claims:op list, D20).
 // A trim result: its label, the icon a compact row shows for it, its tone. `ok`: a success, which a
-// compact row shows as its icon alone; any other result keeps its reason in words there.
-type TrimState = { label: string; icon: string; tone?: string; ok?: boolean };
+// compact row shows as its icon alone; any other result keeps its reason in words there. `words`:
+// the label is itself the reason (queued behind this video's last trim, ⏳ like pending), so it stays in words.
+type TrimState = { label: string; icon: string; tone?: string; ok?: boolean; words?: boolean };
 const TRIM_STATE = (): Record<string, TrimState> => ({
   pending: { label: L('⏳ รอ', '⏳ Pending'), icon: '⏳' },
   saved: { label: L('✅ ตัดแล้ว', '✅ Trimmed'), icon: '✅', tone: 'text-ok', ok: true },
   gone: { label: L('✅ claim หายไปแล้ว', '✅ Claim gone'), icon: '✅', tone: 'text-ok', ok: true },
   failed: { label: L('❌ ไม่สำเร็จ', '❌ Failed'), icon: '❌', tone: 'text-err' },
   skipped: { label: L('⏭ ข้าม', '⏭ Skipped'), icon: '⏭', tone: 'text-warn' },
-  later: { label: L('⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ', '⏳ Queued — will trim after the previous trim on this video finishes'), icon: '⏳', tone: 'text-warn' },
+  later: { label: L('⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ', '⏳ Queued — will trim after the previous trim on this video finishes'), icon: '⏳', tone: 'text-warn', words: true },
 });
+
+const OWN_SONG = () => L('★ เพลงของคุณเอง', '★ Your own song');
 
 // The notes of one claim's row, the same in both row modes (a compact row shows what has an icon
 // as that icon). A trim result with no reason, or a success, is an icon alone on a compact row; a
 // reason, or a state this panel has no label for, stays in words (no hover on touch or keyboard).
-function claimNotes(r: ClaimRow, res: ResultEntry | undefined): RowNote[] {
+// `states`: TRIM_STATE(), built once per render. The full card keeps its order: the release time
+// under the meta, the own-song star beside the claimant (there, not as a note).
+function claimNotes(r: ClaimRow, res: ResultEntry | undefined, states: Record<string, TrimState>): RowNote[] {
   const notes: RowNote[] = [];
-  if (r.publishAt && r.publishAt > Date.now()) notes.push({ text: L(`⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`, `⏰ Scheduled ${fmtWhen(r.publishAt)}`), tone: 'text-warn', icon: '⏰' });
-  if (r.own) notes.push({ text: L('★ เพลงของคุณเอง', '★ Your own song'), tone: 'text-warn', icon: '★' });
+  if (r.publishAt && r.publishAt > Date.now()) notes.push({ text: L(`⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`, `⏰ Scheduled ${fmtWhen(r.publishAt)}`), tone: 'text-warn', icon: '⏰', top: true });
+  if (r.own) notes.push({ text: OWN_SONG(), tone: 'text-warn', icon: '★', compact: true });
   // The impact is what the "Affects video" pick reads, so a compact row marks it too.
   notes.push(r.impact ? { text: r.impact, icon: r.hasImpact ? '⛔' : undefined } : { text: L('ไม่มีผลกระทบ', 'No impact') });
   if (!r.canTrim) notes.push({ text: L('ไม่มีตัวเลือก Trim', 'No Trim option'), tone: 'text-fg3', keep: true });
   if (res) {
-    const t = TRIM_STATE()[res.state];
-    notes.push({ text: t?.label ?? res.state, detail: res.msg || undefined, tone: t?.tone, icon: t?.icon, keep: !t || (!t.ok && !!res.msg) || res.state === 'failed' });
+    // No tone of its own (pending, an unknown state): the row's own text colour, as before.
+    const t = states[res.state];
+    notes.push({ text: t?.label ?? res.state, detail: res.msg || undefined, tone: t?.tone ?? '', icon: t?.icon, keep: !t || t.words || (!t.ok && !!res.msg) || res.state === 'failed' });
   }
   return notes;
 }
@@ -129,7 +135,7 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
       </div>
       {rows.length ? (
         <VideoList key={scan.date} rows="claims" total={rows.length} count={rows.length} picked={pickedRows.length}>
-          {(compact) => { const seen = new Set<string>(); return rows.map((r, i) => {
+          {(compact) => { const seen = new Set<string>(); const states = TRIM_STATE(); return rows.map((r, i) => {
             const k = rowKey(r);
             const res = data.trimResults[k];
             const doneAlready = isDone(res);
@@ -140,7 +146,7 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
             const more = [r.artists, r.label].filter(Boolean).join(' · ');
             const song = <span id={`${id}s${i}`}>{r.song}{more && <span className="text-xs text-fg3">{' · ' + more}</span>}</span>;
             // Half the video or more: the full card shows it in red under the song, a compact row as its %.
-            const notes = claimNotes(r, res);
+            const notes = claimNotes(r, res, states);
             if (pct >= 50) notes.unshift({ text: share, icon: `${pct}%`, tone: 'text-err', compact: true });
             const tracklist = L('📝 tracklist หลังตัด', '📝 Tracklist after trim');
             const action = first && (compact
@@ -157,7 +163,7 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
                 onCheck={(on) => write(on ? { add: [k] } : { del: [k] })}
                 sub={<>{song}<span className="text-fg3">{' · ' + r.claimant}</span></>} action={action || undefined}>
                 <div className="mt-1.5">{song}</div>
-                <div className="text-xs text-fg2">{r.claimant}</div>
+                <div className="text-xs text-fg2">{r.claimant}{r.own && <span className="ml-1 text-warn">{OWN_SONG()}</span>}</div>
                 <div className="text-xs">
                   {(r.segments.map((sg) => fmt(sg[0]) + '–' + fmt(sg[1])).join(', ') || '?') + ' '}
                   <span className={pct >= 50 ? 'text-err' : 'text-fg3'}>{share}</span>

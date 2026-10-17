@@ -754,6 +754,26 @@ describe('claim list', () => {
     expect(screen.getByText('✅ Claim gone').className).toContain('text-ok');
   });
 
+  it('queued behind this video\'s last trim stays in words on a compact row; pending keeps the card\'s text colour', async () => {
+    await stored({ 'trimResults:UC1': { 'v2:c3': { state: 'later', msg: '', date: '' }, 'v2:c4': { state: 'pending', msg: '', date: '' } } });
+    await mockSend();
+    await open(/Claim list/);
+    expect(screen.getByText('⏳ Pending').className).not.toContain('text-fg2'); // as before: no tone of its own
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    expect(screen.getByText(/^⏳ Queued — will trim after/)).toBeTruthy(); // not a bare ⏳, which pending also shows
+    expect(screen.getByRole('img', { name: '⏳ Pending' }).textContent).toBe('⏳');
+  });
+
+  it('the full card keeps its order: the release time under the meta, the star beside the claimant', async () => {
+    await stored();
+    await open(/Claim list/);
+    const first = boxes()[0]!.closest('[data-claim]') as HTMLElement;
+    const text = first.textContent!;
+    expect(text.indexOf('⏰ Scheduled')).toBeLessThan(text.indexOf('Song c1'));
+    expect(within(first).getByText('Co').textContent).toBe('Co★ Your own song');
+    expect(within(first).getAllByText('★ Your own song')).toHaveLength(1);
+  });
+
   it(`a scan of ${COMPACT_FROM} claims or more starts compact`, async () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf(Array.from({ length: COMPACT_FROM }, (_, i) => row('v' + i, 'c' + i))) });
     await open(/Claim list/);
