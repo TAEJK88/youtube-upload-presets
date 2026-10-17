@@ -3,6 +3,23 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.2.1 — 2026-10-17
+
+Long video lists in Collab and Ads off fold away and shrink to one line per video, so the step
+under them is in reach without a long scroll. To update, follow README, "Update"; the extension ID
+stays `cllefnlbgkbdnmifojjflfcpholhniio`, so presets, settings and history stay.
+
+- **Fold the list.** Above the videos in Collab (step 2) and Ads off, a bar reads
+  `▾ Video list (40) · 3 picked`. Press it to fold the whole list away and press again to bring it
+  back; the ticks stay. With a search on it reads `Showing 1 of 40 videos · 3 picked`, a search
+  typed while the list is folded opens it, and a search that finds nothing says so.
+- **Compact rows.** `☰ Compact rows` / `▤ Full rows` puts each video on one line: the tick, the
+  title (the full title on hover), ✅ / ⚠ as icons (their text on hover) and privacy · length.
+  A failure keeps its reason in words under the line. A scan of 16 videos or more opens compact,
+  a shorter one opens with full cards; a newer scan starts again from its own size.
+- **Video titles** in Collab, Ads off, the Claim list and the upload queue open Studio through
+  one helper, which now logs a tab the browser refuses instead of failing silently.
+
 ## 5.2.0 — 2026-10-16
 
 The Tools tab in three groups, so Ads and Collab no longer look like copyright tools. To
