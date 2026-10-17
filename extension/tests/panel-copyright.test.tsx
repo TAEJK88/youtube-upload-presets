@@ -7,6 +7,7 @@ import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { ClaimsContext, LiveContext, PanelContext, type ClaimsApi } from '../entrypoints/sidepanel/panel';
 import { PaneBoundary } from '../entrypoints/sidepanel/PaneBoundary';
 import { CopyrightTab } from '../entrypoints/sidepanel/tabs/CopyrightTab';
+import { COMPACT_FROM } from '../entrypoints/sidepanel/tabs/copyright/video-picks';
 import { SONGS_CSV_MAX } from '../lib/claims/ops';
 import { downloadCsv } from '../lib/panel/download';
 import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel } from './panel-fake';
@@ -689,6 +690,48 @@ describe('claim list', () => {
     fireEvent.click(buttons[1]!);
     expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
     expect(screen.getByText(/Mix v2 · original length 10:00/)).toBeTruthy();
+  });
+
+  it('folds away and back like the video lists; the ticks hold and the bar counts the trimmable picks', async () => {
+    await stored({ 'trimQueue:UC1': ['v2:c3'] });
+    await mockSend();
+    await open(/Claim list/);
+    const head = screen.getByRole('button', { name: /^Claims \(4\) · 1 picked$/ });
+    fireEvent.click(head);
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(document.getElementById(head.getAttribute('aria-controls')!)!.hasAttribute('inert')).toBe(true);
+    expect(screen.getByRole('button', { name: '✂ Trim selected (1)' })).toBeTruthy(); // the step under it is in reach
+    fireEvent.click(head);
+    expect(boxes()[2]!.checked).toBe(true);
+  });
+
+  it('compact rows keep the song in words, the rest as icons, and a failure\'s reason; the hooks and the box stay', async () => {
+    await stored({ 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' }, 'v2:c4': { state: 'failed', msg: 'no button', date: '' } } });
+    await mockSend();
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    const first = boxes()[0]!.closest('[data-claim]') as HTMLElement;
+    expect(first.dataset.claim).toBe('v1:c1');
+    expect(first.className).toContain('border-warn/35'); // own song: the warning edge stays
+    expect(within(first).getByRole('img', { name: /^⏰ Scheduled / })).toBeTruthy();
+    expect(within(first).getByRole('img', { name: '★ Your own song' })).toBeTruthy();
+    expect(first.textContent).toContain('Song c1 · A · Lab · Co');
+    expect(first.textContent).not.toContain('1:00–1:30'); // the range is on the full card
+    expect(screen.getByRole('img', { name: '✅ Trimmed' })).toBeTruthy();
+    expect(screen.getByText('❌ Failed — no button').className).toContain('text-err');
+    expect(screen.queryByRole('button', { name: '📝 Tracklist after trim' })).toBe(null);
+    const desc = boxes()[0]!.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)!.textContent).join(' | ');
+    expect(desc).toBe('Mix v1 | Song c1 · A · Lab');
+    expect(boxes()[1]!.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '▤ Full rows' }));
+    expect(screen.getAllByRole('button', { name: '📝 Tracklist after trim' })).toHaveLength(2);
+  });
+
+  it(`a scan of ${COMPACT_FROM} claims or more starts compact`, async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf(Array.from({ length: COMPACT_FROM }, (_, i) => row('v' + i, 'c' + i))) });
+    await open(/Claim list/);
+    expect(screen.getByRole('button', { name: '▤ Full rows' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: `Claims (${COMPACT_FROM}) · 0 picked` })).toBeTruthy();
   });
 });
 
