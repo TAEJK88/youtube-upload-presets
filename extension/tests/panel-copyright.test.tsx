@@ -705,26 +705,53 @@ describe('claim list', () => {
     expect(boxes()[2]!.checked).toBe(true);
   });
 
-  it('compact rows keep the song in words, the rest as icons, and a failure\'s reason; the hooks and the box stay', async () => {
+  it('compact rows keep what a trim is decided on: the song, the impact, a big share, no Trim option, the tracklist', async () => {
     await stored({ 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' }, 'v2:c4': { state: 'failed', msg: 'no button', date: '' } } });
     await mockSend();
     await open(/Claim list/);
     fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
-    const first = boxes()[0]!.closest('[data-claim]') as HTMLElement;
+    const rowOf = (n: number) => boxes()[n]!.closest('[data-claim]') as HTMLElement;
+    const first = rowOf(0);
     expect(first.dataset.claim).toBe('v1:c1');
     expect(first.className).toContain('border-warn/35'); // own song: the warning edge stays
     expect(within(first).getByRole('img', { name: /^⏰ Scheduled / })).toBeTruthy();
     expect(within(first).getByRole('img', { name: '★ Your own song' })).toBeTruthy();
+    expect(within(first).getByRole('img', { name: 'blocked' }).textContent).toBe('⛔'); // what "Affects video" picks by
+    const share = within(first).getByRole('img', { name: '5:30 (55% of video)' }); // half the video or more
+    expect([share.textContent, share.className.includes('text-err')]).toEqual(['55%', true]);
     expect(first.textContent).toContain('Song c1 · A · Lab · Co');
     expect(first.textContent).not.toContain('1:00–1:30'); // the range is on the full card
+    expect(within(rowOf(2)).queryByRole('img', { name: /% of video/ })).toBe(null); // a small share is not marked
+    const second = rowOf(1);
+    expect(second.textContent).toContain('No Trim option'); // in words: the disabled box's reason has no hover on touch
+    expect(within(second).queryByRole('img', { name: 'No impact' })).toBe(null);
+    expect(boxes()[1]!.disabled).toBe(true);
     expect(screen.getByRole('img', { name: '✅ Trimmed' })).toBeTruthy();
-    expect(screen.getByText('❌ Failed — no button').className).toContain('text-err');
-    expect(screen.queryByRole('button', { name: '📝 Tracklist after trim' })).toBe(null);
+    expect(screen.getByText(/❌ Failed/).textContent).toBe('❌ Failed — no button');
     const desc = boxes()[0]!.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)!.textContent).join(' | ');
     expect(desc).toBe('Mix v1 | Song c1 · A · Lab');
-    expect(boxes()[1]!.disabled).toBe(true);
+    const tracklist = screen.getAllByRole('button', { name: '📝 Tracklist after trim' }); // once per video, as on the full cards
+    expect(tracklist.map((b) => b.textContent)).toEqual(['📝', '📝']);
+    fireEvent.click(tracklist[1]!);
+    expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
+  });
+
+  it('on a compact row a success is an icon; a reason, or a state with no label, stays in words', async () => {
+    await stored({ 'trimResults:UC1': {
+      'v1:c1': { state: 'skipped', msg: 'video processing', date: '' }, 'v1:c2': { state: 'odd', msg: '', date: '' },
+      'v2:c3': { state: 'gone', msg: '', date: '' }, 'v2:c4': { state: 'skipped', msg: '', date: '' },
+    } });
+    await mockSend();
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    expect(screen.getByText(/⏭ Skipped — video processing/).className).toContain('text-warn');
+    expect(screen.getByText('odd')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: 'odd' })).toBe(null); // no letter passed off as an icon
+    expect(screen.getByRole('img', { name: '✅ Claim gone' }).textContent).toBe('✅');
+    expect(screen.getByRole('img', { name: '⏭ Skipped' }).textContent).toBe('⏭');
     fireEvent.click(screen.getByRole('button', { name: '▤ Full rows' }));
-    expect(screen.getAllByRole('button', { name: '📝 Tracklist after trim' })).toHaveLength(2);
+    expect(screen.getByText(/⏭ Skipped — video processing/)).toBeTruthy();
+    expect(screen.getByText('✅ Claim gone').className).toContain('text-ok');
   });
 
   it(`a scan of ${COMPACT_FROM} claims or more starts compact`, async () => {
