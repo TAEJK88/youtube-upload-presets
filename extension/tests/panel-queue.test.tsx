@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -314,6 +315,26 @@ describe('queue card: move, failures, accessibility', () => {
     cleanup();
     renderPanel(<QueueCard it={view.items[0]!} open onOpen={() => {}} />, fakePanel({ view }));
     expect(screen.getByRole('button', { name: 'Collapse' }).querySelector('.t-acc-chevron')!.getAttribute('data-open')).toBe('true');
+  });
+
+  it('the details fold like every fold in the panel: mounted at the first open, then kept, inert while folded (#30)', () => {
+    const view = viewWith([{ status: 'pending' }]);
+    function Card() {
+      const [open, setOpen] = useState(false);
+      return <QueueCard it={view.items[0]!} open={open} onOpen={setOpen} />;
+    }
+    renderPanel(<Card />, fakePanel({ view }));
+    expect(screen.queryByRole('textbox', { name: 'Video title' })).toBe(null); // a card never opened has no fields
+    fireEvent.click(screen.getByRole('button', { name: 'Edit details' }));
+    const title = screen.getByRole('textbox', { name: 'Video title' });
+    const track = title.closest('.t-acc-panel')!;
+    expect(track.getAttribute('data-open')).toBe('true');
+    expect(track.hasAttribute('inert')).toBe(false);
+    expect(track.firstElementChild!.className).toBe('t-acc-panel-inner'); // the padding is on the content, not the track
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse' }));
+    expect(title.isConnected).toBe(true);
+    expect(track.getAttribute('data-open')).toBe('false');
+    expect(track.hasAttribute('inert')).toBe(true);
   });
 
   it('an error message is tinted like the error card (.card.error .msg)', () => {
@@ -669,6 +690,24 @@ describe('schedule box', () => {
     cleanup();
     renderPanel(<ScheduleBox open={false} onOpen={() => {}} />, fakePanel({ data: sched({}) }));
     expect(chev().getAttribute('data-open')).toBe('false');
+  });
+
+  it('the release times fold with the header: kept once opened, inert while folded (#30)', () => {
+    function Box() {
+      const [open, setOpen] = useState(false);
+      return <ScheduleBox open={open} onOpen={setOpen} />;
+    }
+    renderPanel(<Box />, fakePanel({ data: sched({}) }));
+    expect(screen.queryByRole('group', { name: 'Release pattern' })).toBe(null);
+    const head = screen.getByRole('button', { name: /^Schedule releases/ });
+    fireEvent.click(head);
+    const pattern = screen.getByRole('group', { name: 'Release pattern' });
+    const track = pattern.closest('.t-acc-panel')!;
+    expect(track.getAttribute('data-open')).toBe('true');
+    fireEvent.click(head);
+    expect(pattern.isConnected).toBe(true);
+    expect(track.getAttribute('data-open')).toBe('false');
+    expect(track.hasAttribute('inert')).toBe(true);
   });
 });
 

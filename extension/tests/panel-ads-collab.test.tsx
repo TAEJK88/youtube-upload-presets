@@ -383,7 +383,7 @@ describe('the video lists fold and go compact', () => {
     expect(head.getAttribute('aria-expanded')).toBe('false');
     const panel = document.getElementById(head.getAttribute('aria-controls')!)!;
     expect(panel.hasAttribute('inert')).toBe(true); // folded rows are out of the tab order
-    expect(panel.closest('.t-acc')!.getAttribute('data-open')).toBe('false');
+    expect(panel.getAttribute('data-open')).toBe('false');
     fireEvent.click(head);
     expect(panel.hasAttribute('inert')).toBe(false);
     expect(box('Jazz').checked).toBe(true);

@@ -135,9 +135,10 @@
   --acc-ease: var(--ease-smooth-out);
 }
 
-/* transitions.dev "Accordion expand" (21): the video lists' fold, and the chevron of every fold in
-   the panel (one motion on one set of tokens). Every chevron takes its state as its own data-open
-   (<Chevron>), so one nested in an open fold keeps its own. The fold: grid-template-rows 0fr ↔ 1fr,
+/* transitions.dev "Accordion expand" (21): every fold in the panel (the video and claim lists, the
+   schedule box, a queue card), its body and its chevron, on one set of tokens. The body (<Fold>)
+   and the chevron (<Chevron>) each take their state as their own data-open, so one nested in an
+   open fold keeps its own. The body: grid-template-rows 0fr ↔ 1fr,
    no height measuring; padding stays on the inner box's child, never on the track. The recipe's
    blur is left out: the inner box holds the whole list, and blurring a layer that tall (a scan
    can have hundreds of rows) for every frame of the fold drops frames; opacity carries the fade. */
@@ -146,7 +147,7 @@
   grid-template-rows: 0fr;
   transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
 }
-.t-acc[data-open="true"] .t-acc-panel {
+.t-acc-panel[data-open="true"] {
   grid-template-rows: 1fr;
   transition: grid-template-rows var(--acc-expand) var(--acc-ease);
 }
@@ -155,7 +156,7 @@
   opacity: 0;
   transition: opacity var(--acc-collapse) var(--acc-ease);
 }
-.t-acc[data-open="true"] .t-acc-panel-inner {
+.t-acc-panel[data-open="true"] > .t-acc-panel-inner {
   opacity: 1;
   transition: opacity var(--acc-expand) var(--acc-ease);
 }
