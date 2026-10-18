@@ -8,6 +8,7 @@ import { updateAvailable, UPDATE_KEY, type UpdateInfo } from '@/lib/update-check
 import { cn } from '@/lib/utils';
 import { allowAlwaysLabel, openAllowPage } from '../file-access';
 import { Icon } from '../Icon';
+import { openTab } from '../open-tab';
 import { usePanel } from '../panel';
 
 // `below`: the actions get a row of their own under the text (two buttons don't fit beside it).
@@ -68,7 +69,7 @@ export function Banners() {
       )}
       {update && (
         <Banner icon="download" text={L(`มีเวอร์ชันใหม่: ${update.latest} (ที่ใช้อยู่คือ ${browser.runtime.getManifest().version})`, `Update available: version ${update.latest} (you have ${browser.runtime.getManifest().version})`)}>
-          <Button size="sm" onClick={() => void browser.tabs.create({ url: update.url }).catch((e) => console.error('[ytup] open release failed', e))}>{L('ดาวน์โหลดเวอร์ชันใหม่', 'Get the update')}</Button>
+          <Button size="sm" onClick={() => openTab(update.url)}>{L('ดาวน์โหลดเวอร์ชันใหม่', 'Get the update')}</Button>
         </Banner>
       )}
     </>

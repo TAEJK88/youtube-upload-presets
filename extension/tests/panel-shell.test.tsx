@@ -137,6 +137,15 @@ describe('channel bar', () => {
     expect(create).toHaveBeenCalledWith({ url: 'https://studio.youtube.com/channel/UC1/videos' });
   });
 
+  it('a new tab the browser refuses is logged through the shared openTab, not left unhandled', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(browser.tabs, 'create').mockRejectedValue(new Error('No window'));
+    renderPanel(<ChannelBar />, fakePanel({ data: twoChannels() }));
+    fireEvent.click(screen.getByRole('button', { name: 'Other channels · open in a new tab' }));
+    fireEvent.click(screen.getByRole('button', { name: /New tab$/ }));
+    await vi.waitFor(() => expect(err).toHaveBeenCalledWith('[ytup] open tab failed', 'https://studio.youtube.com/channel/UC1/videos', expect.any(Error)));
+  });
+
   it('says so in the panel when the switch fails', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const send = vi.fn(async () => { throw new Error('channel:switch: next must be a Studio URL'); }) as unknown as PanelApi['send'];
@@ -347,6 +356,16 @@ describe('update banner', () => {
     expect(screen.getByText('Update available: version 9.9.9 (you have 5.0.0)')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Get the update' }));
     expect(open).toHaveBeenCalledWith({ url: REL });
+  });
+  it('a release page the browser refuses to open is logged through the shared openTab', async () => {
+    vi.spyOn(browser.runtime, 'getManifest').mockReturnValue({ version: '5.0.0' } as never);
+    await browser.storage.local.set({ updateCheck: { at: 1, latest: '9.9.9', url: REL } });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(browser.tabs, 'create').mockRejectedValue(new Error('No window'));
+    renderPanel(<Banners />, fakePanel());
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Get the update' }));
+    await vi.waitFor(() => expect(err).toHaveBeenCalledWith('[ytup] open tab failed', REL, expect.any(Error)));
   });
   it('shows nothing when the stored version is not above the installed one, and follows a later check', async () => {
     vi.spyOn(browser.runtime, 'getManifest').mockReturnValue({ version: '5.0.0' } as never);

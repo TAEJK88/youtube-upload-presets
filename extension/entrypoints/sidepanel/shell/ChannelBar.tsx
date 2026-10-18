@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { L } from '@/lib/i18n';
@@ -9,6 +8,7 @@ import type { StoredChannel } from '@/lib/studio/channels';
 import { cn } from '@/lib/utils';
 import { IconButton } from '../fields';
 import { Icon } from '../Icon';
+import { openTab } from '../open-tab';
 import { useLive, usePanel } from '../panel';
 import { saveFailed } from '../save-failed';
 import { ThemeToggle } from '../ThemeToggle';
@@ -113,7 +113,7 @@ function ChannelList() {
           </div>
           {c.id === cur ? (
             <Button size="sm" title={L('เปิดช่องนี้ในแท็บใหม่', 'Open this channel in a new tab')} disabled={!target}
-              onClick={() => target && void browser.tabs.create({ url: channelUrl(target.url, c.id) })}>
+              onClick={() => target && openTab(channelUrl(target.url, c.id))}>
               <Icon name="ext" size={13} />{L('แท็บใหม่', 'New tab')}
             </Button>
           ) : (
