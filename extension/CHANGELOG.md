@@ -3,6 +3,16 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.2.3 — 2026-10-18
+
+Every fold in the panel now opens and closes the same way. To update, follow README, "Update";
+the extension ID stays `cllefnlbgkbdnmifojjflfcpholhniio`, so presets, settings and history stay.
+
+- **A queue card's details** (preset, title, release time, artists) grow open and fold away with
+  the card's chevron, instead of appearing at once. Folded, they are out of the tab order.
+- **The schedule box's release times** fold the same way under its header.
+- With "Reduce motion" on, the folds open and close at once.
+
 ## 5.2.2 — 2026-10-18
 
 The Claim list folds away and shrinks to one line per claim, like the Collab and Ads off lists.
