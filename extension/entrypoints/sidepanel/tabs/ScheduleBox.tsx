@@ -8,7 +8,7 @@ import { everyOf, newSeed, nextAt, startAt, tomorrow19, windowWith, withinHour }
 import { weekField, weekPrefs } from '@/lib/schedule-week';
 import type { Schedule } from '@/lib/settings';
 import { cn } from '@/lib/utils';
-import { Chevron, Hint, TextField } from '../fields';
+import { Chevron, Fold, Hint, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
 import { saveFailed } from '../save-failed';
@@ -119,8 +119,8 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
           <Button size="sm" className="shrink-0" onClick={() => set({ start: toLocalInput(sv.start) })}>{L('ใช้เวลานี้', 'Use this time')}</Button>
         </div>
       )}
-      {s.on && open && (
-        <div className="grid gap-2.5 px-3 pb-3">
+      {s.on && (
+        <Fold open={open} lazy className="grid gap-2.5 px-3 pb-3">
           <div role="group" aria-label={L('รูปแบบการปล่อย', 'Release pattern')} className="grid grid-cols-2 gap-1 rounded-[12px] border border-line bg-surface p-1">
             {mode('every', L('ทุก ๆ …', 'Every …'))}
             {mode('week', L('รายสัปดาห์', 'Per week'))}
@@ -172,7 +172,7 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
           </div>
           {week && <Hint icon="clock">{L('วันและเวลาจะสุ่มใหม่ทุกสัปดาห์ ไม่มีวันไหนได้เกินหนึ่งคลิป · กด "สุ่มใหม่" เพื่อเปลี่ยนทั้งชุด', 'Days and times are drawn anew each week, never two videos on one day · "Shuffle" draws a new set')}</Hint>}
           <Hint>{L('คลิปจะอัปเป็นส่วนตัว แล้วเปลี่ยนเป็นสาธารณะเองตามเวลาที่ตั้ง · แก้เวลาของแต่ละคลิปได้ในการ์ด', 'Videos upload as private, then go public at the set time · edit each video\'s time in its card')}</Hint>
-        </div>
+        </Fold>
       )}
     </div>
   );

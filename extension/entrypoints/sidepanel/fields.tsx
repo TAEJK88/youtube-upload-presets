@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -134,6 +134,32 @@ export function Hint({ icon = 'alert', children, className }: { icon?: string; c
 // The chevron of a fold, flipped while `open` (style.css, .t-acc-chevron): one motion for every fold in the panel.
 export function Chevron({ open, size = 14, className }: { open: boolean; size?: number; className?: string }) {
   return <span className={cn('t-acc-chevron', className)} data-open={open}><Icon name="chev" size={size} /></span>;
+}
+
+// A fold's body (style.css, .t-acc-panel), which grows and shrinks with its <Chevron>. Folded, it
+// stays mounted but inert (out of the tab order and the accessibility tree). `lazy`: not mounted
+// until it first opens (a queue holds a card per video). `className` goes on the content, never
+// on the grid track (padding there would leave a strip when folded).
+export function Fold({ open, lazy, id, className, children }: { open: boolean; lazy?: boolean; id?: string; className?: string; children: ReactNode }) {
+  const [seen, setSeen] = useState(open || !lazy);
+  if (open && !seen) setSeen(true);
+  // The track follows `open` one layout later, so a body mounted by this open is laid out folded
+  // first and grows like any other (a transition needs a style to start from).
+  const [shown, setShown] = useState(open && !lazy);
+  const track = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (shown === open) return;
+    void track.current?.offsetHeight;
+    setShown(open);
+  }, [open, shown]);
+  if (!seen) return null;
+  return (
+    <div ref={track} id={id} className="t-acc-panel" data-open={shown} inert={!open}>
+      <div className="t-acc-panel-inner">
+        <div className={className}>{children}</div>
+      </div>
+    </div>
+  );
 }
 
 // The drawer's iconBtn(): an icon-only button whose label is its title.

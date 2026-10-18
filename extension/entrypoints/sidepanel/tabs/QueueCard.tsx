@@ -15,7 +15,7 @@ import type { FileRef, ItemStatus } from '@/lib/studio/queue-runner';
 import type { ViewItem } from '@/lib/studio/queue-view';
 import { cn } from '@/lib/utils';
 import { useAsk } from '../ask';
-import { Chevron, IconButton, TextField } from '../fields';
+import { Chevron, Fold, IconButton, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { openTab } from '../open-tab';
 import { useLive, usePanel } from '../panel';
@@ -289,52 +289,50 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         )}
       </div>
 
-      {open && (
-        <div className="mt-3 grid gap-2.5">
-          <div>
-            <div className="mb-1 text-xs text-fg2">{L('พรีเซ็ต', 'Preset')}</div>
-            <NativeSelect aria-label={L('พรีเซ็ต', 'Preset')} className="w-full" disabled={!editable} value={p.id} onChange={(e) => edit({ op: 'preset', presetId: e.target.value })}>
-              {data.presets.map((x, i) => <option key={x.id} value={x.id}>{`${i + 1}. ${x.label}`}</option>)}
-            </NativeSelect>
-          </div>
-          <div>
-            <div className="mb-1 flex justify-between text-xs text-fg2">
-              <span>{L('ชื่อคลิป', 'Video title')}</span>
-              <span className={cn('text-fg3', it.title.length > TITLE_MAX && 'text-err')}>{`${it.title.length}/${TITLE_MAX}`}</span>
-            </div>
-            <div className="flex gap-1.5">
-              <TextField ref={titleEl} aria-label={L('ชื่อคลิป', 'Video title')} placeholder={L('ชื่อคลิป', 'Video title')} disabled={!editable}
-                value={it.title} onValue={(v) => edit({ op: 'title', title: v })} />
-              {editable && it.titleEdited && <IconButton icon="refresh" title={L('สร้างชื่อจากพรีเซ็ตใหม่', 'Regenerate title from preset')} className="border border-line" onClick={() => edit({ op: 'resetTitle' })} />}
-            </div>
-          </div>
-          {at !== null && (
-            <div>
-              <div className="mb-1 text-xs text-fg2">{L('เวลาปล่อย', 'Release time')}</div>
-              <div className={cn('flex items-center gap-1.5', bad && '[&_input]:border-warn')}>
-                <TextField type="datetime-local" aria-label={L('เวลาปล่อย', 'Release time')} disabled={!editable} value={toLocalInput(at)}
-                  onValue={(v) => edit({ op: 'publishAt', at: new Date(v).getTime() || null })} />
-                <span className={cn('inline-flex items-center gap-1 text-xs whitespace-nowrap text-fg3', bad && 'text-warn')} title={bad || ''}>
-                  <Icon name={bad ? 'alert' : 'clock'} size={12} />
-                  {bad ? L('อดีต/เร็วไป', 'Past/too soon') : it.publishEdited ? L('ตั้งเอง', 'Manual') : L('ตามคิว', 'Queue')}
-                </span>
-                {editable && it.publishEdited && <IconButton icon="refresh" title={L('ใช้เวลาตามคิว', 'Use queue time')} className="border border-line" onClick={() => edit({ op: 'publishAt', at: null })} />}
-              </div>
-            </div>
-          )}
-          {/* Not the view's usesArtists: the preset may have just changed here, before the view follows. */}
-          {`${p.title} ${p.description} ${(p.tags || []).join(' ')}`.includes('{artists}') && (
-            <div>
-              <div className="mb-1 text-xs text-fg2">
-                {L('ศิลปิน', 'Artists')}{' '}
-                <span className="text-fg3">{it.artistsEdited ? L('· พิมพ์เอง (ลบให้ว่าง = อัตโนมัติ)', '· manual (clear = auto)') : L('· อัตโนมัติ', '· auto')}</span>
-              </div>
-              <TextField aria-label={L('ศิลปิน', 'Artists')} placeholder={L('คั่นด้วย , (ว่าง = อัตโนมัติ)', 'Comma-separated (empty = auto)')} disabled={!editable}
-                value={it.artists} onValue={(v) => edit({ op: 'artists', artists: v })} />
-            </div>
-          )}
+      <Fold open={open} lazy className="grid gap-2.5 pt-3">
+        <div>
+          <div className="mb-1 text-xs text-fg2">{L('พรีเซ็ต', 'Preset')}</div>
+          <NativeSelect aria-label={L('พรีเซ็ต', 'Preset')} className="w-full" disabled={!editable} value={p.id} onChange={(e) => edit({ op: 'preset', presetId: e.target.value })}>
+            {data.presets.map((x, i) => <option key={x.id} value={x.id}>{`${i + 1}. ${x.label}`}</option>)}
+          </NativeSelect>
         </div>
-      )}
+        <div>
+          <div className="mb-1 flex justify-between text-xs text-fg2">
+            <span>{L('ชื่อคลิป', 'Video title')}</span>
+            <span className={cn('text-fg3', it.title.length > TITLE_MAX && 'text-err')}>{`${it.title.length}/${TITLE_MAX}`}</span>
+          </div>
+          <div className="flex gap-1.5">
+            <TextField ref={titleEl} aria-label={L('ชื่อคลิป', 'Video title')} placeholder={L('ชื่อคลิป', 'Video title')} disabled={!editable}
+              value={it.title} onValue={(v) => edit({ op: 'title', title: v })} />
+            {editable && it.titleEdited && <IconButton icon="refresh" title={L('สร้างชื่อจากพรีเซ็ตใหม่', 'Regenerate title from preset')} className="border border-line" onClick={() => edit({ op: 'resetTitle' })} />}
+          </div>
+        </div>
+        {at !== null && (
+          <div>
+            <div className="mb-1 text-xs text-fg2">{L('เวลาปล่อย', 'Release time')}</div>
+            <div className={cn('flex items-center gap-1.5', bad && '[&_input]:border-warn')}>
+              <TextField type="datetime-local" aria-label={L('เวลาปล่อย', 'Release time')} disabled={!editable} value={toLocalInput(at)}
+                onValue={(v) => edit({ op: 'publishAt', at: new Date(v).getTime() || null })} />
+              <span className={cn('inline-flex items-center gap-1 text-xs whitespace-nowrap text-fg3', bad && 'text-warn')} title={bad || ''}>
+                <Icon name={bad ? 'alert' : 'clock'} size={12} />
+                {bad ? L('อดีต/เร็วไป', 'Past/too soon') : it.publishEdited ? L('ตั้งเอง', 'Manual') : L('ตามคิว', 'Queue')}
+              </span>
+              {editable && it.publishEdited && <IconButton icon="refresh" title={L('ใช้เวลาตามคิว', 'Use queue time')} className="border border-line" onClick={() => edit({ op: 'publishAt', at: null })} />}
+            </div>
+          </div>
+        )}
+        {/* Not the view's usesArtists: the preset may have just changed here, before the view follows. */}
+        {`${p.title} ${p.description} ${(p.tags || []).join(' ')}`.includes('{artists}') && (
+          <div>
+            <div className="mb-1 text-xs text-fg2">
+              {L('ศิลปิน', 'Artists')}{' '}
+              <span className="text-fg3">{it.artistsEdited ? L('· พิมพ์เอง (ลบให้ว่าง = อัตโนมัติ)', '· manual (clear = auto)') : L('· อัตโนมัติ', '· auto')}</span>
+            </div>
+            <TextField aria-label={L('ศิลปิน', 'Artists')} placeholder={L('คั่นด้วย , (ว่าง = อัตโนมัติ)', 'Comma-separated (empty = auto)')} disabled={!editable}
+              value={it.artists} onValue={(v) => edit({ op: 'artists', artists: v })} />
+          </div>
+        )}
+      </Fold>
 
       {chips.length > 0 && <div className="mt-2.5 flex flex-wrap gap-1.5">{chips}</div>}
       {pct !== null && <Progress value={pct} className="mt-2.5" />}
