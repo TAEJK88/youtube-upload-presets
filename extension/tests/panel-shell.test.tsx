@@ -347,23 +347,24 @@ describe('update banner', () => {
   beforeEach(() => { fakeBrowser.reset(); });
   afterEach(() => { fakeBrowser.reset(); });
   const REL = 'https://github.com/TAEJK88/youtube-upload-presets/releases/tag/v9.9.9';
-  it('shows "Update available" with the two versions and opens the release page', async () => {
+  // Version 5.0.0 installed, 9.9.9 stored as the latest: the banner shows.
+  const showUpdate = async () => {
     vi.spyOn(browser.runtime, 'getManifest').mockReturnValue({ version: '5.0.0' } as never);
     await browser.storage.local.set({ updateCheck: { at: 1, latest: '9.9.9', url: REL } });
-    const open = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
     renderPanel(<Banners />, fakePanel());
     await flush();
+  };
+  it('shows "Update available" with the two versions and opens the release page', async () => {
+    const open = vi.spyOn(browser.tabs, 'create').mockResolvedValue({} as never);
+    await showUpdate();
     expect(screen.getByText('Update available: version 9.9.9 (you have 5.0.0)')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Get the update' }));
     expect(open).toHaveBeenCalledWith({ url: REL });
   });
   it('a release page the browser refuses to open is logged through the shared openTab', async () => {
-    vi.spyOn(browser.runtime, 'getManifest').mockReturnValue({ version: '5.0.0' } as never);
-    await browser.storage.local.set({ updateCheck: { at: 1, latest: '9.9.9', url: REL } });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(browser.tabs, 'create').mockRejectedValue(new Error('No window'));
-    renderPanel(<Banners />, fakePanel());
-    await flush();
+    await showUpdate();
     fireEvent.click(screen.getByRole('button', { name: 'Get the update' }));
     await vi.waitFor(() => expect(err).toHaveBeenCalledWith('[ytup] open tab failed', REL, expect.any(Error)));
   });
