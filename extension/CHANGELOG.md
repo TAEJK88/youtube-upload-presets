@@ -3,6 +3,25 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.2.2 — 2026-10-18
+
+The Claim list folds away and shrinks to one line per claim, like the Collab and Ads off lists.
+To update, follow README, "Update"; the extension ID stays `cllefnlbgkbdnmifojjflfcpholhniio`,
+so presets, settings and history stay.
+
+- **Fold the Claim list.** Above the claims a bar reads `▾ Claims (12) · 3 picked`. Press it to
+  fold the list away (the ticks stay) so `✂ Trim selected` is in reach; with a search on it reads
+  `Showing 2 of 12 claims · 3 picked`.
+- **Compact rows.** `☰ Compact rows` / `▤ Full rows` puts each claim on one line: the tick, the
+  video, the song and claimant under it, and as icons what a trim is decided on (⛔ an impact,
+  the share when it is half the video or more, ⏰ scheduled, ★ your own song, the trim's state), with their text on
+  hover. "No Trim option" and a failed trim's reason stay in words. A scan of 16 claims or more
+  opens compact.
+- **Tabs.** "Get the update" in the update banner and a channel in the channel bar open their tab
+  through the same helper as the lists, which logs a tab the browser refuses.
+- **One chevron.** Every fold in the panel (the lists, the schedule box, a queue card) turns its
+  chevron with the same motion, and none with "Reduce motion" on.
+
 ## 5.2.1 — 2026-10-17
 
 Long video lists in Collab and Ads off fold away and shrink to one line per video, so the step
