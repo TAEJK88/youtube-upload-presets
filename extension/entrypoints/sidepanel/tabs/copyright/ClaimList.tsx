@@ -2,26 +2,59 @@ import { useEffect, useId } from 'react';
 import { Button } from '@/components/ui/button';
 import { claimsCsvRows, fmt } from '@/lib/claims/core';
 import { chKey } from '@/lib/claims/keys';
-import type { ClaimsState } from '@/lib/claims/types';
+import type { ClaimRow, ClaimsState, ResultEntry } from '@/lib/claims/types';
 import { L, locale } from '@/lib/i18n';
 import { claimsWrite, type ClaimsData } from '@/lib/panel/claims-data';
 import { doneKeys, isDone, rowKey, selectWhere, trimSummary, type Pick } from '@/lib/panel/claims';
 import { downloadCsv } from '@/lib/panel/download';
 import { fmtWhen } from '@/lib/panel/format';
-import { cn } from '@/lib/utils';
 import { useAsk } from '../../ask';
 import { usePanel } from '../../panel';
-import { openTab } from '../../open-tab';
 import { notConnected, saveFailed } from '../../save-failed';
 import { SubView } from './SubView';
+import { VideoList, VideoRow, type RowNote } from './VideoList';
 
 // showClaims() (4860–4936): one card per claim (D23), the pick chips, CSV, Rescan, Trim selected,
 // Close. Ticking writes this channel's trimQueue through the background (claims:op list, D20).
-const TRIM_LABEL = (): Record<string, string> => ({
-  pending: L('⏳ รอ', '⏳ Pending'), saved: L('✅ ตัดแล้ว', '✅ Trimmed'), gone: L('✅ claim หายไปแล้ว', '✅ Claim gone'), failed: L('❌ ไม่สำเร็จ', '❌ Failed'),
-  skipped: L('⏭ ข้าม', '⏭ Skipped'), later: L('⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ', '⏳ Queued — will trim after the previous trim on this video finishes'),
+// A trim result: its label, the icon a compact row shows for it, its tone. `ok`: a success, which a
+// compact row shows as its icon alone; any other result keeps its reason in words there. `words`:
+// it stays in words even with no reason: a failure, and a queued one (its label is the reason, and
+// its ⏳ is pending's too).
+type TrimState = { label: string; icon: string; tone?: string; ok?: boolean; words?: boolean };
+const TRIM_STATE = (): Record<string, TrimState> => ({
+  pending: { label: L('⏳ รอ', '⏳ Pending'), icon: '⏳' },
+  saved: { label: L('✅ ตัดแล้ว', '✅ Trimmed'), icon: '✅', tone: 'text-ok', ok: true },
+  gone: { label: L('✅ claim หายไปแล้ว', '✅ Claim gone'), icon: '✅', tone: 'text-ok', ok: true },
+  failed: { label: L('❌ ไม่สำเร็จ', '❌ Failed'), icon: '❌', tone: 'text-err', words: true },
+  skipped: { label: L('⏭ ข้าม', '⏭ Skipped'), icon: '⏭', tone: 'text-warn' },
+  later: { label: L('⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ', '⏳ Queued — will trim after the previous trim on this video finishes'), icon: '⏳', tone: 'text-warn', words: true },
 });
-const STATE_TONE: Record<string, string> = { saved: 'text-ok', gone: 'text-ok', failed: 'text-err', skipped: 'text-warn', later: 'text-warn' };
+
+const OWN_SONG = () => L('★ เพลงของคุณเอง', '★ Your own song');
+// A release still to come, or ''.
+const scheduled = (r: ClaimRow) => (r.publishAt && r.publishAt > Date.now() ? L(`⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`, `⏰ Scheduled ${fmtWhen(r.publishAt)}`) : '');
+
+// The notes of one claim's row, the same in both row modes (a compact row shows what has an icon
+// as that icon). A trim result with no reason, or a success, is an icon alone on a compact row; a
+// reason, or a state this panel has no label for, stays in words (no hover on touch or keyboard).
+// `states`: TRIM_STATE(), built once per render. The full card keeps its order, so two of these are
+// compact-only notes and the card's children say them in place: the release time under the meta,
+// the own-song star beside the claimant.
+function claimNotes(r: ClaimRow, res: ResultEntry | undefined, states: Record<string, TrimState>): RowNote[] {
+  const notes: RowNote[] = [];
+  const soon = scheduled(r);
+  if (soon) notes.push({ text: soon, tone: 'text-warn', icon: '⏰', compact: true });
+  if (r.own) notes.push({ text: OWN_SONG(), tone: 'text-warn', icon: '★', compact: true });
+  // The impact is what the "Affects video" pick reads, so a compact row marks it too.
+  notes.push(r.impact ? { text: r.impact, icon: r.hasImpact ? '⛔' : undefined } : { text: L('ไม่มีผลกระทบ', 'No impact') });
+  if (!r.canTrim) notes.push({ text: L('ไม่มีตัวเลือก Trim', 'No Trim option'), tone: 'text-fg3', keep: true });
+  if (res) {
+    // No tone of its own (pending, an unknown state): the card's text colour, as before.
+    const t = states[res.state];
+    notes.push({ text: t?.label ?? res.state, detail: res.msg || undefined, tone: t?.tone ?? 'text-fg', icon: t?.icon, keep: !t || t.words || (!t.ok && !!res.msg) });
+  }
+  return notes;
+}
 
 // `busy`: a scan or run is on (here, or another tab's run): no trim from this (maybe outgoing) list until it
 // ends. `idle`: the bound tab itself is free: a rescan takes no lock (D26), so only that gates it.
@@ -49,7 +82,6 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
   const rows = scan.rows;
   const videos = new Set(rows.map((r) => r.videoId)).size;
   const ownCount = rows.filter((r) => r.own).length;
-  const seen = new Set<string>();
   const chip = (kind: Pick, label: string) => <Button key={kind} size="sm" className="h-auto min-h-8 py-1 whitespace-normal" onClick={() => write(selectWhere(kind, rows, data.trimResults))}>{label}</Button>;
   const rescan = () => void send('claims:scan', 'claims').catch(notConnected);
   // openTrimConfirm() (5672–5696): the tab starts the run from its stored scan (claims:trim, D27).
@@ -107,42 +139,46 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
         {chip('none', L('ไม่เลือก', 'None'))}
       </div>
       {rows.length ? (
-        <div className="flex flex-col gap-2">
-          {rows.map((r, i) => {
+        <VideoList key={scan.date} rows="claims" total={rows.length} count={rows.length} picked={pickedRows.length}>
+          {(compact) => { const seen = new Set<string>(); const states = TRIM_STATE(); return rows.map((r, i) => {
             const k = rowKey(r);
             const res = data.trimResults[k];
             const doneAlready = isDone(res);
             const pct = r.length ? Math.round((r.claimedSec / r.length) * 100) : 0;
+            const share = L(`${fmt(r.claimedSec)} (${pct}% ของคลิป)`, `${fmt(r.claimedSec)} (${pct}% of video)`);
             const first = !seen.has(r.videoId);
             seen.add(r.videoId);
-            const soon = r.publishAt && r.publishAt > Date.now();
-            const url = `https://studio.youtube.com/video/${r.videoId}/claims`;
             const more = [r.artists, r.label].filter(Boolean).join(' · ');
+            const soon = scheduled(r);
+            const song = <span id={`${id}s${i}`}>{r.song}{more && <span className="text-xs text-fg3">{' · ' + more}</span>}</span>;
+            // Half the video or more: the full card shows it in red under the song, a compact row as its %.
+            const notes = claimNotes(r, res, states);
+            if (pct >= 50) notes.unshift({ text: share, icon: `${pct}%`, tone: 'text-err', compact: true });
+            const tracklist = L('📝 tracklist หลังตัด', '📝 Tracklist after trim');
+            const action = first && (compact
+              ? <Button size="sm" variant="ghost" className="h-6 shrink-0 px-1.5" aria-label={tracklist} title={tracklist} onClick={() => onTracklist(r.videoId)}>📝</Button>
+              : <div><Button size="sm" className="mt-1.5" onClick={() => onTracklist(r.videoId)}>{tracklist}</Button></div>);
             return (
-              <div key={k} data-claim={k} className={cn('flex gap-2.5 rounded-[14px] border border-tint/[0.09] bg-tint/5 p-3 text-[13px]', r.own && 'border-warn/35')}>
-                {/* Named by what it does (the userscript's title), described by its video and song. */}
-                <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-fg" checked={picked.has(k) && !doneAlready} disabled={!r.canTrim || doneAlready}
-                  aria-describedby={`${id}v${i} ${id}s${i}`}
-                  title={doneAlready ? L('จัดการแล้ว', 'Already handled') : r.canTrim ? L('เพิ่มในรายการตัด', 'Add to trim list') : L('YouTube ไม่มีตัวเลือก Trim สำหรับ claim นี้', 'YouTube offers no Trim option for this claim')}
-                  onChange={(e) => write(e.target.checked ? { add: [k] } : { del: [k] })} />
-                <div className="min-w-0 flex-1 break-words">
-                  <a id={`${id}v${i}`} className="font-medium underline-offset-2 hover:underline" href={url} onClick={(e) => { e.preventDefault(); openTab(url); }}>{r.video}</a>
-                  <div className="text-xs text-fg3">{`${r.privacy} · ${fmt(r.length)}`}</div>
-                  {soon ? <div className="text-xs text-warn">{L(`⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`, `⏰ Scheduled ${fmtWhen(r.publishAt)}`)}</div> : null}
-                  <div id={`${id}s${i}`} className="mt-1.5">{r.song}{more && <span className="text-xs text-fg3">{' · ' + more}</span>}</div>
-                  <div className="text-xs text-fg2">{r.claimant}{r.own && <span className="ml-1 text-warn">{L('★ เพลงของคุณเอง', '★ Your own song')}</span>}</div>
-                  <div className="text-xs">
-                    {(r.segments.map((sg) => fmt(sg[0]) + '–' + fmt(sg[1])).join(', ') || '?') + ' '}
-                    <span className={pct >= 50 ? 'text-err' : 'text-fg3'}>{L(`${fmt(r.claimedSec)} (${pct}% ของคลิป)`, `${fmt(r.claimedSec)} (${pct}% of video)`)}</span>
-                  </div>
-                  <div className="text-xs text-fg2">{r.impact || L('ไม่มีผลกระทบ', 'No impact')}{!r.canTrim && <>{' · '}<span className="text-fg3">{L('ไม่มีตัวเลือก Trim', 'No Trim option')}</span></>}</div>
-                  {res && <div className={cn('text-xs', STATE_TONE[res.state])}>{TRIM_LABEL()[res.state] || res.state}{res.msg ? ' — ' : ''}{res.msg}</div>}
-                  {first && <Button size="sm" className="mt-1.5" onClick={() => onTracklist(r.videoId)}>{L('📝 tracklist หลังตัด', '📝 Tracklist after trim')}</Button>}
+              // Named by what it does (the userscript's title), described by its video and song.
+              <VideoRow key={k} hook={{ 'data-claim': k }} compact={compact} title={r.video} url={`https://studio.youtube.com/video/${r.videoId}/claims`} meta={`${r.privacy} · ${fmt(r.length)}`}
+                notes={notes} className={r.own ? 'border-warn/35' : undefined} checked={picked.has(k) && !doneAlready}
+                box={{
+                  title: doneAlready ? L('จัดการแล้ว', 'Already handled') : r.canTrim ? L('เพิ่มในรายการตัด', 'Add to trim list') : L('YouTube ไม่มีตัวเลือก Trim สำหรับ claim นี้', 'YouTube offers no Trim option for this claim'),
+                  'aria-describedby': `${id}s${i}`, disabled: !r.canTrim || doneAlready,
+                }}
+                onCheck={(on) => write(on ? { add: [k] } : { del: [k] })}
+                sub={<>{song}{r.claimant && <span className="text-fg3">{' · ' + r.claimant}</span>}</>} action={action || undefined}>
+                {soon && <div className="text-xs text-warn">{soon}</div>}
+                <div className="mt-1.5">{song}</div>
+                <div className="text-xs text-fg2">{r.claimant}{r.own && <span className="ml-1 text-warn">{OWN_SONG()}</span>}</div>
+                <div className="text-xs">
+                  {(r.segments.map((sg) => fmt(sg[0]) + '–' + fmt(sg[1])).join(', ') || '?') + ' '}
+                  <span className={pct >= 50 ? 'text-err' : 'text-fg3'}>{share}</span>
                 </div>
-              </div>
+              </VideoRow>
             );
-          })}
-        </div>
+          }); }}
+        </VideoList>
       ) : <div className="text-[13px] text-ok">{L('ไม่พบ claim 🎉', 'No claims found 🎉')}</div>}
     </SubView>
   );

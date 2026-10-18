@@ -7,6 +7,7 @@ import { AskProvider } from '../entrypoints/sidepanel/ask';
 import { ClaimsContext, LiveContext, PanelContext, type ClaimsApi } from '../entrypoints/sidepanel/panel';
 import { PaneBoundary } from '../entrypoints/sidepanel/PaneBoundary';
 import { CopyrightTab } from '../entrypoints/sidepanel/tabs/CopyrightTab';
+import { COMPACT_FROM } from '../entrypoints/sidepanel/tabs/copyright/video-picks';
 import { SONGS_CSV_MAX } from '../lib/claims/ops';
 import { downloadCsv } from '../lib/panel/download';
 import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel } from './panel-fake';
@@ -689,6 +690,102 @@ describe('claim list', () => {
     fireEvent.click(buttons[1]!);
     expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
     expect(screen.getByText(/Mix v2 · original length 10:00/)).toBeTruthy();
+  });
+
+  it('folds away and back like the video lists; the ticks hold and the bar counts the trimmable picks', async () => {
+    await stored({ 'trimQueue:UC1': ['v2:c3'] });
+    await mockSend();
+    await open(/Claim list/);
+    const head = screen.getByRole('button', { name: /^Claims \(4\) · 1 picked$/ });
+    fireEvent.click(head);
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(document.getElementById(head.getAttribute('aria-controls')!)!.hasAttribute('inert')).toBe(true);
+    expect(screen.getByRole('button', { name: '✂ Trim selected (1)' })).toBeTruthy(); // the step under it is in reach
+    fireEvent.click(head);
+    expect(boxes()[2]!.checked).toBe(true);
+  });
+
+  it('compact rows keep what a trim is decided on: the song, the impact, a big share, no Trim option, the tracklist', async () => {
+    await stored({ 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' }, 'v2:c4': { state: 'failed', msg: 'no button', date: '' } } });
+    await mockSend();
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    const rowOf = (n: number) => boxes()[n]!.closest('[data-claim]') as HTMLElement;
+    const first = rowOf(0);
+    expect(first.dataset.claim).toBe('v1:c1');
+    expect(first.className).toContain('border-warn/35'); // own song: the warning edge stays
+    expect(within(first).getByRole('img', { name: /^⏰ Scheduled / })).toBeTruthy();
+    expect(within(first).getByRole('img', { name: '★ Your own song' })).toBeTruthy();
+    expect(within(first).getByRole('img', { name: 'blocked' }).textContent).toBe('⛔'); // what "Affects video" picks by
+    const share = within(first).getByRole('img', { name: '5:30 (55% of video)' }); // half the video or more
+    expect([share.textContent, share.className.includes('text-err')]).toEqual(['55%', true]);
+    expect(first.textContent).toContain('Song c1 · A · Lab · Co');
+    expect(first.textContent).not.toContain('1:00–1:30'); // the range is on the full card
+    expect(within(rowOf(2)).queryByRole('img', { name: /% of video/ })).toBe(null); // a small share is not marked
+    const second = rowOf(1);
+    expect(second.textContent).toContain('No Trim option'); // in words: the disabled box's reason has no hover on touch
+    expect(within(second).queryByRole('img', { name: 'No impact' })).toBe(null);
+    expect(boxes()[1]!.disabled).toBe(true);
+    expect(screen.getByRole('img', { name: '✅ Trimmed' })).toBeTruthy();
+    expect(screen.getByText(/❌ Failed/).textContent).toBe('❌ Failed — no button');
+    const desc = boxes()[0]!.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)!.textContent).join(' | ');
+    expect(desc).toBe('Mix v1 | Song c1 · A · Lab');
+    const tracklist = screen.getAllByRole('button', { name: '📝 Tracklist after trim' }); // once per video, as on the full cards
+    expect(tracklist.map((b) => b.textContent)).toEqual(['📝', '📝']);
+    fireEvent.click(tracklist[1]!);
+    expect(screen.getByRole('heading', { name: '📝 Tracklist after copyright trim' })).toBeTruthy();
+  });
+
+  it('on a compact row a success is an icon; a reason, or a state with no label, stays in words', async () => {
+    await stored({ 'trimResults:UC1': {
+      'v1:c1': { state: 'skipped', msg: 'video processing', date: '' }, 'v1:c2': { state: 'odd', msg: '', date: '' },
+      'v2:c3': { state: 'gone', msg: '', date: '' }, 'v2:c4': { state: 'skipped', msg: '', date: '' },
+    } });
+    await mockSend();
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    expect(screen.getByText(/⏭ Skipped — video processing/).className).toContain('text-warn');
+    expect(screen.getByText('odd')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: 'odd' })).toBe(null); // no letter passed off as an icon
+    expect(screen.getByRole('img', { name: '✅ Claim gone' }).textContent).toBe('✅');
+    expect(screen.getByRole('img', { name: '⏭ Skipped' }).textContent).toBe('⏭');
+    fireEvent.click(screen.getByRole('button', { name: '▤ Full rows' }));
+    expect(screen.getByText(/⏭ Skipped — video processing/)).toBeTruthy();
+    expect(screen.getByText('✅ Claim gone').className).toContain('text-ok');
+  });
+
+  it('queued behind this video\'s last trim stays in words on a compact row; pending keeps the card\'s text colour', async () => {
+    await stored({ 'trimResults:UC1': { 'v2:c3': { state: 'later', msg: '', date: '' }, 'v2:c4': { state: 'pending', msg: '', date: '' } } });
+    await mockSend();
+    await open(/Claim list/);
+    expect(screen.getByText('⏳ Pending').className).not.toContain('text-fg2'); // as before: no tone of its own
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    expect(screen.getByText(/^⏳ Queued — will trim after/)).toBeTruthy(); // not a bare ⏳, which pending also shows
+    expect(screen.getByRole('img', { name: '⏳ Pending' }).textContent).toBe('⏳');
+  });
+
+  it('the full card keeps its order: the release time under the meta, the star beside the claimant', async () => {
+    await stored();
+    await open(/Claim list/);
+    const first = boxes()[0]!.closest('[data-claim]') as HTMLElement;
+    const text = first.textContent!;
+    expect(text.indexOf('⏰ Scheduled')).toBeLessThan(text.indexOf('Song c1'));
+    expect(within(first).getByText('Co').textContent).toBe('Co★ Your own song');
+    expect(within(first).getAllByText('★ Your own song')).toHaveLength(1);
+  });
+
+  it('a compact row with no claimant ends at the song, with no stray separator', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([row('v1', 'c1', { claimant: '' })]) });
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    expect(screen.getByText('Song c1').parentElement!.textContent).toBe('Song c1 · A · Lab');
+  });
+
+  it(`a scan of ${COMPACT_FROM} claims or more starts compact`, async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf(Array.from({ length: COMPACT_FROM }, (_, i) => row('v' + i, 'c' + i))) });
+    await open(/Claim list/);
+    expect(screen.getByRole('button', { name: '▤ Full rows' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: `Claims (${COMPACT_FROM}) · 0 picked` })).toBeTruthy();
   });
 });
 
