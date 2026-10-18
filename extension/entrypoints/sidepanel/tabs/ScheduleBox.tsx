@@ -101,7 +101,7 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
             {/* The drawer's tooltip also named each video; the view carries their times only. */}
             <small className={cn('block truncate text-xs text-tint/65', late && 'text-warn')} title={sv?.set ? sv.taken.map((at) => fmtWhen(at)).join('\n') : ''}>{summary}</small>
           </span>
-          {s.on && <Icon name="chev" size={14} className={cn('shrink-0 text-fg3 transition-transform', open && 'rotate-180')} />}
+          {s.on && <span className="t-acc-chevron shrink-0 text-fg3" data-open={open}><Icon name="chev" size={14} /></span>}
         </Head>
         <Switch aria-label={L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')} checked={!!s.on}
           onCheckedChange={(on) => {

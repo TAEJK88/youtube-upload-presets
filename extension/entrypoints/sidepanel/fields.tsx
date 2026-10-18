@@ -132,10 +132,12 @@ export function Hint({ icon = 'alert', children, className }: { icon?: string; c
 }
 
 // The drawer's iconBtn(): an icon-only button whose label is its title.
-export function IconButton({ icon, title, className, ...rest }: Omit<ComponentProps<typeof Button>, 'children'> & { icon: string; title: string }) {
+// `flipped`: the icon is a fold's chevron, flipped while the fold is open (style.css, .t-acc-chevron).
+export function IconButton({ icon, title, className, flipped, ...rest }: Omit<ComponentProps<typeof Button>, 'children'> & { icon: string; title: string; flipped?: boolean }) {
+  const glyph = <Icon name={icon} size={16} />;
   return (
     <Button variant="ghost" size="icon" title={title} aria-label={title} className={className} {...rest}>
-      <Icon name={icon} size={16} />
+      {flipped === undefined ? glyph : <span className="t-acc-chevron" data-open={flipped}>{glyph}</span>}
     </Button>
   );
 }
