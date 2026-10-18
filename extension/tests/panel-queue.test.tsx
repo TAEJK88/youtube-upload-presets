@@ -305,6 +305,17 @@ describe('queue card: move, failures, accessibility', () => {
     expect(screen.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('the expand chevron flips like every fold in the panel: its icon, not the whole button (#22)', () => {
+    const view = viewWith([{ status: 'pending' }]);
+    renderPanel(<QueueCard it={view.items[0]!} open={false} onOpen={() => {}} />, fakePanel({ view }));
+    const closed = screen.getByRole('button', { name: 'Edit details' });
+    expect(closed.className).not.toMatch(/rotate-180|transition-transform/);
+    expect(closed.querySelector('.t-acc-chevron')!.getAttribute('data-open')).toBe('false');
+    cleanup();
+    renderPanel(<QueueCard it={view.items[0]!} open onOpen={() => {}} />, fakePanel({ view }));
+    expect(screen.getByRole('button', { name: 'Collapse' }).querySelector('.t-acc-chevron')!.getAttribute('data-open')).toBe('true');
+  });
+
   it('an error message is tinted like the error card (.card.error .msg)', () => {
     one({ status: 'error', msg: 'boom' });
     expect(screen.getByText('boom').parentElement!.className).toContain('text-err');
@@ -648,6 +659,16 @@ describe('schedule box', () => {
     cleanup();
     renderPanel(<ScheduleBox open onOpen={onOpen} />, fakePanel());
     expect(screen.queryByRole('button', { name: /^Schedule releases/ })).toBe(null);
+  });
+
+  it('the header chevron flips like every fold in the panel, on its own data-open (#22)', () => {
+    renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({}) }));
+    const chev = () => screen.getByRole('button', { name: /^Schedule releases/ }).querySelector('.t-acc-chevron')!;
+    expect(chev().getAttribute('data-open')).toBe('true');
+    expect(chev().outerHTML).not.toMatch(/rotate-180|transition-transform/); // the flip is the shared class's, not its own
+    cleanup();
+    renderPanel(<ScheduleBox open={false} onOpen={() => {}} />, fakePanel({ data: sched({}) }));
+    expect(chev().getAttribute('data-open')).toBe('false');
   });
 });
 

@@ -15,7 +15,7 @@ import type { FileRef, ItemStatus } from '@/lib/studio/queue-runner';
 import type { ViewItem } from '@/lib/studio/queue-view';
 import { cn } from '@/lib/utils';
 import { useAsk } from '../ask';
-import { IconButton, TextField } from '../fields';
+import { Chevron, IconButton, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { openTab } from '../open-tab';
 import { useLive, usePanel } from '../panel';
@@ -259,7 +259,7 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
           <div className="flex items-center gap-1">
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium" title={it.file.name}>{it.file.name}</span>
-            <IconButton data-exp aria-expanded={open} icon="chev" className={cn('size-7 transition-transform', open && 'rotate-180')}
+            <IconButton data-exp aria-expanded={open} icon={<Chevron open={open} size={16} />} className="size-7"
               title={open ? L('ย่อ', 'Collapse') : editable ? L('แก้ไขรายละเอียด', 'Edit details') : L('ดูรายละเอียด', 'Show details')} />
             {removable && <IconButton icon="x" className="size-7 hover:text-err" title={L('เอาออกจากคิว', 'Remove from queue')} onClick={() => void send('queue:remove', it.id).catch(notConnected)} />}
           </div>
