@@ -18,35 +18,40 @@ import { VideoList, VideoRow, type RowNote } from './VideoList';
 // Close. Ticking writes this channel's trimQueue through the background (claims:op list, D20).
 // A trim result: its label, the icon a compact row shows for it, its tone. `ok`: a success, which a
 // compact row shows as its icon alone; any other result keeps its reason in words there. `words`:
-// the label is itself the reason (queued behind this video's last trim, ⏳ like pending), so it stays in words.
+// it stays in words even with no reason: a failure, and a queued one (its label is the reason, and
+// its ⏳ is pending's too).
 type TrimState = { label: string; icon: string; tone?: string; ok?: boolean; words?: boolean };
 const TRIM_STATE = (): Record<string, TrimState> => ({
   pending: { label: L('⏳ รอ', '⏳ Pending'), icon: '⏳' },
   saved: { label: L('✅ ตัดแล้ว', '✅ Trimmed'), icon: '✅', tone: 'text-ok', ok: true },
   gone: { label: L('✅ claim หายไปแล้ว', '✅ Claim gone'), icon: '✅', tone: 'text-ok', ok: true },
-  failed: { label: L('❌ ไม่สำเร็จ', '❌ Failed'), icon: '❌', tone: 'text-err' },
+  failed: { label: L('❌ ไม่สำเร็จ', '❌ Failed'), icon: '❌', tone: 'text-err', words: true },
   skipped: { label: L('⏭ ข้าม', '⏭ Skipped'), icon: '⏭', tone: 'text-warn' },
   later: { label: L('⏳ รอคิว — จะตัดหลังการตัดครั้งก่อนในคลิปนี้เสร็จ', '⏳ Queued — will trim after the previous trim on this video finishes'), icon: '⏳', tone: 'text-warn', words: true },
 });
 
 const OWN_SONG = () => L('★ เพลงของคุณเอง', '★ Your own song');
+// A release still to come, or ''.
+const scheduled = (r: ClaimRow) => (r.publishAt && r.publishAt > Date.now() ? L(`⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`, `⏰ Scheduled ${fmtWhen(r.publishAt)}`) : '');
 
 // The notes of one claim's row, the same in both row modes (a compact row shows what has an icon
 // as that icon). A trim result with no reason, or a success, is an icon alone on a compact row; a
 // reason, or a state this panel has no label for, stays in words (no hover on touch or keyboard).
-// `states`: TRIM_STATE(), built once per render. The full card keeps its order: the release time
-// under the meta, the own-song star beside the claimant (there, not as a note).
+// `states`: TRIM_STATE(), built once per render. The full card keeps its order, so two of these are
+// compact-only notes and the card's children say them in place: the release time under the meta,
+// the own-song star beside the claimant.
 function claimNotes(r: ClaimRow, res: ResultEntry | undefined, states: Record<string, TrimState>): RowNote[] {
   const notes: RowNote[] = [];
-  if (r.publishAt && r.publishAt > Date.now()) notes.push({ text: L(`⏰ ตั้งเวลาปล่อย ${fmtWhen(r.publishAt)}`, `⏰ Scheduled ${fmtWhen(r.publishAt)}`), tone: 'text-warn', icon: '⏰', top: true });
+  const soon = scheduled(r);
+  if (soon) notes.push({ text: soon, tone: 'text-warn', icon: '⏰', compact: true });
   if (r.own) notes.push({ text: OWN_SONG(), tone: 'text-warn', icon: '★', compact: true });
   // The impact is what the "Affects video" pick reads, so a compact row marks it too.
   notes.push(r.impact ? { text: r.impact, icon: r.hasImpact ? '⛔' : undefined } : { text: L('ไม่มีผลกระทบ', 'No impact') });
   if (!r.canTrim) notes.push({ text: L('ไม่มีตัวเลือก Trim', 'No Trim option'), tone: 'text-fg3', keep: true });
   if (res) {
-    // No tone of its own (pending, an unknown state): the row's own text colour, as before.
+    // No tone of its own (pending, an unknown state): the card's text colour, as before.
     const t = states[res.state];
-    notes.push({ text: t?.label ?? res.state, detail: res.msg || undefined, tone: t?.tone ?? '', icon: t?.icon, keep: !t || t.words || (!t.ok && !!res.msg) || res.state === 'failed' });
+    notes.push({ text: t?.label ?? res.state, detail: res.msg || undefined, tone: t?.tone ?? 'text-fg', icon: t?.icon, keep: !t || t.words || (!t.ok && !!res.msg) });
   }
   return notes;
 }
@@ -144,6 +149,7 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
             const first = !seen.has(r.videoId);
             seen.add(r.videoId);
             const more = [r.artists, r.label].filter(Boolean).join(' · ');
+            const soon = scheduled(r);
             const song = <span id={`${id}s${i}`}>{r.song}{more && <span className="text-xs text-fg3">{' · ' + more}</span>}</span>;
             // Half the video or more: the full card shows it in red under the song, a compact row as its %.
             const notes = claimNotes(r, res, states);
@@ -161,7 +167,8 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
                   'aria-describedby': `${id}s${i}`, disabled: !r.canTrim || doneAlready,
                 }}
                 onCheck={(on) => write(on ? { add: [k] } : { del: [k] })}
-                sub={<>{song}<span className="text-fg3">{' · ' + r.claimant}</span></>} action={action || undefined}>
+                sub={<>{song}{r.claimant && <span className="text-fg3">{' · ' + r.claimant}</span>}</>} action={action || undefined}>
+                {soon && <div className="text-xs text-warn">{soon}</div>}
                 <div className="mt-1.5">{song}</div>
                 <div className="text-xs text-fg2">{r.claimant}{r.own && <span className="ml-1 text-warn">{OWN_SONG()}</span>}</div>
                 <div className="text-xs">

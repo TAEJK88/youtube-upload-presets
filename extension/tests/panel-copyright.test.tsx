@@ -774,6 +774,13 @@ describe('claim list', () => {
     expect(within(first).getAllByText('★ Your own song')).toHaveLength(1);
   });
 
+  it('a compact row with no claimant ends at the song, with no stray separator', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([row('v1', 'c1', { claimant: '' })]) });
+    await open(/Claim list/);
+    fireEvent.click(screen.getByRole('button', { name: '☰ Compact rows' }));
+    expect(screen.getByText('Song c1').parentElement!.textContent).toBe('Song c1 · A · Lab');
+  });
+
   it(`a scan of ${COMPACT_FROM} claims or more starts compact`, async () => {
     await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf(Array.from({ length: COMPACT_FROM }, (_, i) => row('v' + i, 'c' + i))) });
     await open(/Claim list/);
