@@ -665,7 +665,7 @@ describe('schedule box', () => {
     renderPanel(<ScheduleBox open onOpen={() => {}} />, fakePanel({ data: sched({}) }));
     const chev = () => screen.getByRole('button', { name: /^Schedule releases/ }).querySelector('.t-acc-chevron')!;
     expect(chev().getAttribute('data-open')).toBe('true');
-    expect(chev().querySelector('svg')!.getAttribute('class')).toBe(null); // no rotate-180 / transition-transform of its own
+    expect(chev().outerHTML).not.toMatch(/rotate-180|transition-transform/); // the flip is the shared class's, not its own
     cleanup();
     renderPanel(<ScheduleBox open={false} onOpen={() => {}} />, fakePanel({ data: sched({}) }));
     expect(chev().getAttribute('data-open')).toBe('false');

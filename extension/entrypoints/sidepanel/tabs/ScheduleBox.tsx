@@ -8,7 +8,7 @@ import { everyOf, newSeed, nextAt, startAt, tomorrow19, windowWith, withinHour }
 import { weekField, weekPrefs } from '@/lib/schedule-week';
 import type { Schedule } from '@/lib/settings';
 import { cn } from '@/lib/utils';
-import { Hint, TextField } from '../fields';
+import { Chevron, Hint, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
 import { saveFailed } from '../save-failed';
@@ -101,7 +101,7 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
             {/* The drawer's tooltip also named each video; the view carries their times only. */}
             <small className={cn('block truncate text-xs text-tint/65', late && 'text-warn')} title={sv?.set ? sv.taken.map((at) => fmtWhen(at)).join('\n') : ''}>{summary}</small>
           </span>
-          {s.on && <span className="t-acc-chevron shrink-0 text-fg3" data-open={open}><Icon name="chev" size={14} /></span>}
+          {s.on && <Chevron open={open} className="shrink-0 text-fg3" />}
         </Head>
         <Switch aria-label={L('ตั้งเวลาปล่อยคลิป', 'Schedule releases')} checked={!!s.on}
           onCheckedChange={(on) => {

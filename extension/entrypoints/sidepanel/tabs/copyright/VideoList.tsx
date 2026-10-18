@@ -2,7 +2,7 @@ import { useId, useState, type InputHTMLAttributes, type ReactNode } from 'react
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { Icon } from '../../Icon';
+import { Chevron } from '../../fields';
 import { openTab } from '../../open-tab';
 import { COMPACT_FROM } from './video-picks';
 
@@ -33,7 +33,7 @@ export function VideoList({ total, count, picked, query = '', rows = 'videos', c
       <div className="flex flex-wrap items-center gap-1.5">
         <button type="button" className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-[10px] py-1 text-left text-xs text-fg2 hover:text-fg"
           aria-expanded={open} aria-controls={`${id}list`} onClick={() => setOpen(!open)}>
-          <span className="t-acc-chevron shrink-0"><Icon name="chev" size={14} /></span>
+          <Chevron open={open} className="shrink-0" />
           <span className="min-w-0 break-words">{count === total
             ? claims ? L(`claim ทั้งหมด (${total}) · เลือกแล้ว ${picked}`, `Claims (${total}) · ${picked} picked`) : L(`รายการคลิป (${total}) · เลือกแล้ว ${picked}`, `Video list (${total}) · ${picked} picked`)
             : claims ? L(`แสดง ${count} จาก ${total} claim · เลือกแล้ว ${picked}`, `Showing ${count} of ${total} claims · ${picked} picked`) : L(`แสดง ${count} จาก ${total} คลิป · เลือกแล้ว ${picked}`, `Showing ${count} of ${total} videos · ${picked} picked`)}</span>

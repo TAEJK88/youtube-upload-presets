@@ -699,6 +699,7 @@ describe('claim list', () => {
     const head = screen.getByRole('button', { name: /^Claims \(4\) · 1 picked$/ });
     fireEvent.click(head);
     expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(head.querySelector('.t-acc-chevron')!.getAttribute('data-open')).toBe('false'); // its own state, not its fold's (#22)
     expect(document.getElementById(head.getAttribute('aria-controls')!)!.hasAttribute('inert')).toBe(true);
     expect(screen.getByRole('button', { name: '✂ Trim selected (1)' })).toBeTruthy(); // the step under it is in reach
     fireEvent.click(head);

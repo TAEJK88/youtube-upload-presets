@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -131,13 +131,17 @@ export function Hint({ icon = 'alert', children, className }: { icon?: string; c
   );
 }
 
+// The chevron of a fold, flipped while `open` (style.css, .t-acc-chevron): one motion for every fold in the panel.
+export function Chevron({ open, size = 14, className }: { open: boolean; size?: number; className?: string }) {
+  return <span className={cn('t-acc-chevron', className)} data-open={open}><Icon name="chev" size={size} /></span>;
+}
+
 // The drawer's iconBtn(): an icon-only button whose label is its title.
-// `flipped`: the icon is a fold's chevron, flipped while the fold is open (style.css, .t-acc-chevron).
-export function IconButton({ icon, title, className, flipped, ...rest }: Omit<ComponentProps<typeof Button>, 'children'> & { icon: string; title: string; flipped?: boolean }) {
-  const glyph = <Icon name={icon} size={16} />;
+// `icon`: an icon's name, or an element (a <Chevron>) drawn in its place.
+export function IconButton({ icon, title, className, ...rest }: Omit<ComponentProps<typeof Button>, 'children'> & { icon: string | ReactElement; title: string }) {
   return (
     <Button variant="ghost" size="icon" title={title} aria-label={title} className={className} {...rest}>
-      {flipped === undefined ? glyph : <span className="t-acc-chevron" data-open={flipped}>{glyph}</span>}
+      {typeof icon === 'string' ? <Icon name={icon} size={16} /> : icon}
     </Button>
   );
 }
