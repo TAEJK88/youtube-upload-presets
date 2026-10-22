@@ -62,7 +62,11 @@ export function resumeDrafts(): number {
   return resumable.length;
 }
 
-export function clearDone(): void {
-  for (let i = queue.length - 1; i >= 0; i--) if (queue[i]!.status === 'done') queue.splice(i, 1);
+// The panel's Clear asks first; the run owns its items, so nothing is dropped while one goes.
+// A daily-limit pause (queue-pause.ts) has nothing left to resume, so it ends with the queue.
+export function clearAll(): void {
+  if (running) return ui.toast(L("ล้างคิวไม่ได้ขณะกำลังอัปโหลด", "Can't clear the queue while it is uploading"));
+  endPause();
+  dropFiles(queue.splice(0).flatMap(refsOf));
   ui.queue();
 }

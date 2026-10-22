@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
-import { clearDone, removeItem, resumeDrafts, retryItem, stopQueue } from '../lib/studio/queue-ops';
+import { clearAll, removeItem, resumeDrafts, retryItem, stopQueue } from '../lib/studio/queue-ops';
+import { endPause, pauseQueue, queuePause } from '../lib/studio/queue-pause';
 import * as Q from '../lib/studio/queue-runner';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
+
+// `running` is a live binding the runner owns: a getter lets a test say a run is going.
+const run = vi.hoisted(() => ({ on: false }));
+vi.mock('../lib/studio/queue-runner', async (orig) => ({
+  ...(await orig<typeof import('../lib/studio/queue-runner')>()),
+  get running() { return run.on; },
+}));
 
 const calls: string[] = [];
 const ui = {
@@ -25,6 +33,8 @@ beforeEach(() => {
   vi.stubGlobal('location', { pathname: '/' });
   setPageUi(ui);
   calls.length = 0;
+  run.on = false;
+  endPause();
   Q.queue.splice(0);
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -95,9 +105,32 @@ describe('queue ops', () => {
     });
   });
 
-  it('clear done removes finished items only', () => {
-    Q.queue.push(item('a', 'done'), item('b', 'error'), item('c', 'done'));
-    clearDone();
-    expect(Q.queue.map((i) => i.id)).toEqual(['b']);
+  it('clear all empties the queue whatever the status and lets every file go', () => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
+    Q.queue.push(item('a', 'pending', { thumb: { id: 't', src: 'bridge', name: 'a.jpg', size: 1, type: '' } }), item('b', 'error'), item('c', 'done'));
+    clearAll();
+    expect(Q.queue).toEqual([]);
+    expect(send.mock.calls).toEqual([['files:delete', ['a', 't', 'b', 'c']]]);
+    expect(calls).toEqual(['queue']);
+  });
+
+  it('clear all ends a daily-limit pause: nothing is left to resume', () => {
+    vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
+    pauseQueue({ id: 'UC1', name: 'Mine' });
+    Q.queue.push(item('a', 'pending'));
+    clearAll();
+    expect(queuePause()).toBeNull();
+  });
+
+  it('clear all leaves the queue alone while a run is going', () => {
+    const send = vi.spyOn(messages, 'sendMessage').mockResolvedValue(undefined);
+    run.on = true;
+    pauseQueue({ id: 'UC1', name: 'Mine' });
+    Q.queue.push(item('a', 'uploading'), item('b', 'pending'));
+    clearAll();
+    expect(Q.queue.map((i) => i.id)).toEqual(['a', 'b']);
+    expect(send).not.toHaveBeenCalled();
+    expect(queuePause()).not.toBeNull();
+    expect(calls).toEqual(["toast:Can't clear the queue while it is uploading"]);
   });
 });

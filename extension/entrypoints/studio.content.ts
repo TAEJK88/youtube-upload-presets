@@ -27,7 +27,7 @@ import { installDraftApply } from '@/lib/studio/draft-select';
 import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
-import { clearDone, removeItem, resumeDrafts, retryItem, stopQueue } from '@/lib/studio/queue-ops';
+import { clearAll, removeItem, resumeDrafts, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { createPauseWatch } from '@/lib/studio/queue-pause';
 import { abortRun, currentItemId, installIntercept, isStartBinding, queue, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
 import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
@@ -225,8 +225,8 @@ export default defineContentScript({
     onMessage('queue:remove', async ({ data: id }) => {
       if (typeof id === 'string' && await mayEdit()) removeItem(id);
     });
-    onMessage('queue:clearDone', async () => {
-      if (await mayEdit()) clearDone();
+    onMessage('queue:clearAll', async () => {
+      if (await mayEdit()) clearAll();
     });
     onMessage('queue:view', () => queueView(ui.state()));
     onMessage('queue:edit', ({ data }) => handleQueueEdit(data, mayEdit));

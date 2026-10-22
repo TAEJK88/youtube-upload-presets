@@ -4,7 +4,7 @@ import { createContentUi } from '../lib/studio/content-ui';
 import { setTitleMark } from '../lib/studio/page-notify';
 import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi } from '../lib/studio/page-ui';
-import { clearDone, removeItem } from '../lib/studio/queue-ops';
+import { removeItem } from '../lib/studio/queue-ops';
 import { setBridge } from '../lib/studio/queue-files';
 import { settings } from '../lib/studio/state';
 import * as Q from '../lib/studio/queue-runner';
@@ -178,7 +178,7 @@ describe('content ui', () => {
   });
 });
 
-// renderQueue() ran assignNumbers() (4026): every add, Remove and Clear done showed fresh
+// renderQueue() ran assignNumbers() (4026): every add and Remove showed fresh
 // titles and EP numbers.
 describe('ui.queue() works titles and numbers out again', () => {
   let ui: ReturnType<typeof createContentUi>;
@@ -201,14 +201,6 @@ describe('ui.queue() works titles and numbers out again', () => {
     Q.queue[1]!.title = 'stale';
     removeItem('a');
     expect(Q.queue[0]!.n).toBe(n - 1);
-    expect(Q.queue[0]!.title).not.toBe('stale');
-  });
-
-  it('after Clear done', () => {
-    Q.queue.push(item('a', { status: 'done' }), pending('b', { n: 9, title: 'stale' }));
-    clearDone();
-    expect(Q.queue.map((i) => i.id)).toEqual(['b']);
-    expect(Q.queue[0]!.n).not.toBe(9);
     expect(Q.queue[0]!.title).not.toBe('stale');
   });
 });

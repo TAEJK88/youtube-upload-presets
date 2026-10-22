@@ -810,11 +810,11 @@ describe('upload footer', () => {
     });
   });
 
-  it('Start shows the count, the schedule and the channel; Clear needs a finished video', () => {
+  it('Start shows the count, the schedule and the channel; Clear needs videos in the list', () => {
     renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }, { status: 'pending' }], { schedule: { on: true, set: true, start: 1, late: false, times: [], skipped: 0, taken: [] } }) }));
     expect(screen.getByText('Upload 2 video(s) · scheduled')).toBeTruthy();
     expect(screen.getByText('To channel Mine')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Clear finished videos from the list' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Clear the whole queue' }) as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByRole('button', { name: 'Stop after the current video' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -970,23 +970,47 @@ describe('upload footer', () => {
     expect(idle.container.querySelector('[data-go-icon]')!.className).not.toContain('animate-');
   });
 
-  it('a Clear the tab does not take says so', async () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const api = fakePanel({ view: viewWith([{ status: 'done' }]) });
-    vi.mocked(api.send).mockRejectedValue(new Error('gone'));
+  const clearButton = () => screen.getByRole('button', { name: 'Clear the whole queue' }) as HTMLButtonElement;
+  const confirmClear = (n: number) => act(async () => fireEvent.click(screen.getByRole('button', { name: `Clear ${n}` })));
+
+  it('Clear asks first, then sends queue:clearAll for the whole list', async () => {
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }, { status: 'error' }]) });
     renderPanel(<QueueFooter />, api);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Clear finished videos from the list' }));
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(toast).toHaveBeenCalledWith(RELOAD);
-    err.mockRestore();
+    await act(async () => fireEvent.click(clearButton()));
+    expect(screen.getByText('Clear 2 video(s) from the queue?')).toBeTruthy();
+    expect(api.send).not.toHaveBeenCalled();
+    await confirmClear(2);
+    expect(api.send).toHaveBeenCalledWith('queue:clearAll', undefined);
   });
 
-  it('Clear sends queue:clearDone once a video is done', () => {
-    const api = fakePanel({ view: viewWith([{ status: 'done' }]) });
+  it('Cancel in the Clear question sends nothing', async () => {
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
     renderPanel(<QueueFooter />, api);
-    fireEvent.click(screen.getByRole('button', { name: 'Clear finished videos from the list' }));
-    expect(api.send).toHaveBeenCalledWith('queue:clearDone', undefined);
+    await act(async () => fireEvent.click(clearButton()));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })));
+    expect(api.send).not.toHaveBeenCalled();
+  });
+
+  it('Clear is off with an empty list, while running, and while another tab runs', () => {
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([]) }));
+    expect(clearButton().disabled).toBe(true);
+    cleanup();
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }, { status: 'uploading' }]) }), fakeLive({ state: state({ running: true }), liveState: state({ running: true }) }));
+    expect(clearButton().disabled).toBe(true);
+    cleanup();
+    renderPanel(<QueueFooter />, fakePanel({ view: viewWith([{ status: 'pending' }]), runner: { tabId: 7, windowId: 2, title: 'Other', jobs: ['queue'] }, elsewhere: true, busyElsewhere: true }), fakeLive({ state: state(), liveState: state({ running: true }) }));
+    expect(clearButton().disabled).toBe(true);
+  });
+
+  it('a Clear the tab does not take says so', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const api = fakePanel({ view: viewWith([{ status: 'pending' }]) });
+    vi.mocked(api.send).mockRejectedValue(new Error('gone'));
+    renderPanel(<QueueFooter />, api);
+    await act(async () => fireEvent.click(clearButton()));
+    await confirmClear(1);
+    await act(async () => new Promise((r) => setTimeout(r, 0)));
+    expect(toast).toHaveBeenCalledWith(RELOAD);
+    err.mockRestore();
   });
 });

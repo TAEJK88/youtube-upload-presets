@@ -69,7 +69,7 @@ export type ProtocolMap = {
   'queue:resume'(id: string): void; // Retry on the video's draft in Studio, the file is not uploaded again
   'queue:resumeAll'(): number; // the same for every failed video with a draft; answers how many wait again
   'queue:remove'(id: string): void;
-  'queue:clearDone'(): void;
+  'queue:clearAll'(): void;
   'queue:view'(): QueueView;
   'queue:edit'(e: QueueEdit): void;
   'channel:switch'(req: SwitchRequest): void;

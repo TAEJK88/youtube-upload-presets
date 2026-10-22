@@ -151,10 +151,21 @@ export function QueueFooter() {
     stop: (tabId) => sendTo(tabId)('queue:stop', undefined),
     toast: (m) => void toast(m),
   });
-  const clear = () => void send('queue:clearDone', undefined).catch((e: unknown) => {
-    console.error('[ytup] clear done failed', e);
-    toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
-  });
+  const clear = async () => {
+    const ok = (await ask({
+      title: L(`ล้าง ${total} คลิปออกจากคิว?`, `Clear ${total} video(s) from the queue?`),
+      icon: 'clear',
+      danger: true,
+      focus: 'cancel',
+      ok: L(`ล้าง ${total}`, `Clear ${total}`),
+      body: L('คลิปทั้งหมดในรายการจะถูกลบ รวมถึงที่ยังไม่ได้อัปโหลดและที่ผิดพลาด ย้อนกลับไม่ได้', 'Every video in the list is removed, including the ones not uploaded yet and the failed ones. This cannot be undone.'),
+    })) === true;
+    if (!ok) return;
+    send('queue:clearAll', undefined).catch((e: unknown) => {
+      console.error('[ytup] clear all failed', e);
+      toast(L('แท็บนี้ยังไม่ได้เชื่อมกับส่วนขยาย — โหลดแท็บนี้ใหม่', 'This tab is not connected to the extension yet — reload this tab'));
+    });
+  };
 
   return (
     <>
@@ -192,9 +203,9 @@ export function QueueFooter() {
       <IconButton icon="stop" title={paused ? L('ยกเลิกการพักคิว', 'Cancel the pause') : L('หยุดหลังคลิปปัจจุบันเสร็จ', 'Stop after the current video')}
         className="h-auto w-12 self-stretch rounded-[14px] border border-tint/[0.16] bg-tint/[0.06] text-tint hover:text-err disabled:opacity-35"
         disabled={!(liveState?.running || elsewhere || paused)} onClick={paused && !liveState?.running && !elsewhere ? cancelPause : stop} />
-      <IconButton icon="clear" title={L('ล้างคลิปที่อัปเสร็จออกจากรายการ', 'Clear finished videos from the list')}
+      <IconButton icon="clear" title={L('ล้างคิวทั้งหมด', 'Clear the whole queue')}
         className="h-auto w-12 self-stretch rounded-[14px] border border-tint/[0.16] bg-tint/[0.06] text-tint disabled:opacity-35"
-        disabled={!done} onClick={clear} />
+        disabled={!total || running || elsewhere || busyElsewhere} onClick={() => void clear()} />
     </div>
     </>
   );
