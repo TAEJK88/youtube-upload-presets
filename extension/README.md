@@ -734,8 +734,9 @@ The panel's own console: right-click inside the panel → Inspect.
     the Studio tab, then start again"; the card stays waiting.
 27. **Stop mid-run.** Queue 3, Start, **Stop** during clip 1: "Will stop after the current video
     finishes"; clip 1 finishes Done, 2 and 3 wait; "Queue stopped (1 video(s) done)". Start works
-    again. **Clear finished videos from the list** (the footer's clear button) is disabled until a
-    video is done, then removes the Done cards.
+    again. **Clear the whole queue** (the footer's clear button) is disabled while a run goes and
+    with an empty list; otherwise it asks "Clear 3 video(s) from the queue?" first: Cancel keeps
+    every card, **Clear 3** removes them all.
 28. **Review mode.** Settings → turn off **Auto-press Save**; queue 2 and Start: details fill in,
     the card shows "Waiting for you to Save" with "Check the details in the YouTube dialog, then
     click Save to move to the next file" and no ✕; clicking Save yourself finishes it and clip 2
@@ -752,7 +753,7 @@ The panel's own console: right-click inside the panel → Inspect.
     summary open, pick 2 files in Studio's dialog, then confirm: "The queue changed after you
     confirmed — …".
 31. **Duplicate guards.** Add `Clip 1.mp4` twice: one card, toast "1 already in the queue". After
-    it uploaded, **Clear finished videos from the list** (the footer's clear button) and add it
+    it uploaded, **Clear the whole queue** (the footer's clear button, confirmed) and add it
     again: "1 already uploaded to this channel (red
     badge)", the card's red "Already uploaded …" chip opens that video in a new tab, and the
     Start summary warns "1 already uploaded to this channel — they will be duplicated".
