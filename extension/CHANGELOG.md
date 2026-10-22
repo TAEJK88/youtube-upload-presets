@@ -3,6 +3,19 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.2.4 — 2026-10-22
+
+The Upload tab's clear button now empties the whole queue, not only the finished videos. To
+update, follow README, "Update"; the extension ID stays `cllefnlbgkbdnmifojjflfcpholhniio`, so
+presets, settings and history stay.
+
+- **Clear the whole queue.** The trash button in the Upload tab's footer removes every video in
+  the list: waiting, failed and done. It asks first, "Clear 72 video(s) from the queue?", with
+  Cancel in focus; nothing is removed until you press **Clear 72**. It can't be undone; the
+  video files on your disk are not touched.
+- It is off while the queue uploads, here or in another Studio tab, and with an empty list.
+- Clearing during a daily-limit pause also ends the pause, so an empty queue does not "resume".
+
 ## 5.2.3 — 2026-10-18
 
 Every fold in the panel now opens and closes the same way. To update, follow README, "Update";
