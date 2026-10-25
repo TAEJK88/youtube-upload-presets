@@ -11,6 +11,9 @@ import { editQueue, followStoredChanges, handleQueueAdd, handleQueueEdit } from 
 import { activeId, disposeState, flushState, initState } from '../lib/studio/state';
 import { createContentUi } from '../lib/studio/content-ui';
 import { flushQueue, persistQueue, restoreQueue } from '../lib/studio/queue-store';
+
+const CH = 'UCabcdefghijklmn';
+const KEY = 'queue:' + CH; // this tab's channel's queue
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
 
@@ -165,6 +168,25 @@ describe('editQueue', () => {
   });
 });
 
+// Until the tab knows its channel the queue has no key to be saved under (queue-store).
+describe('a Start while this tab does not know its channel', () => {
+  const NO_CHANNEL = "This tab doesn't know its channel yet, so the queue isn't saved — wait a moment, then click Start again";
+  it('the summary and the Start are refused, with the reason', async () => {
+    vi.stubGlobal('location', { pathname: '/channel/UCabcdefghijklmn/videos' });
+    restoreQueue(true, '');
+    try {
+      Q.queue.push(item('a', 'pending'));
+      expect(await Q.startSummary()).toEqual({ error: NO_CHANNEL });
+      calls.length = 0;
+      await Q.startQueue({ channelId: CH, ids: ['a'], editRev: Q.getEditRev(), sig: Q.startSig(), asked: true });
+      expect(calls).toEqual([`toast:${NO_CHANNEL}`]);
+      expect(Q.queue[0]!.status).toBe('pending');
+    } finally {
+      restoreQueue(true, CH);
+    }
+  });
+});
+
 describe('an edit after the summary refuses the start', () => {
   const QUEUE_CHANGED = 'toast:The queue changed after you confirmed — click Start again to see the new summary';
   const preflight = async () => {
@@ -217,9 +239,9 @@ describe('an edit after the summary refuses the start', () => {
     const summaryAfterRestore = async (stored: Q.QueueItem[]) => {
       disposeState();
       fakeBrowser.reset();
-      await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, queue: stored });
+      await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, [KEY]: stored });
       await initState(async () => SCHEMA_VERSION);
-      restoreQueue(true);
+      restoreQueue(true, CH);
       const s = await Q.startSummary();
       if ('error' in s) throw new Error(s.error);
       return { channelId: s.channel.id, ids: s.ids, editRev: s.editRev, sig: s.sig, asked: true };
@@ -228,7 +250,7 @@ describe('an edit after the summary refuses the start', () => {
 
     it('a release time set there after the summary refuses the start', async () => {
       const seen = await summaryAfterRestore([item('a', 'pending')]);
-      await browser.storage.local.set({ queue: [item('a', 'pending', { publishAt: 1_900_000_000_000, publishEdited: true })] });
+      await browser.storage.local.set({ [KEY]: [item('a', 'pending', { publishAt: 1_900_000_000_000, publishEdited: true })] });
       await vi.waitFor(() => expect(Q.queue[0]!.publishAt).toBe(1_900_000_000_000));
       calls.length = 0;
       await Q.startQueue(seen);
@@ -245,7 +267,7 @@ describe('an edit after the summary refuses the start', () => {
     for (const [what, extra] of edits) {
       it(`${what} set there after the summary refuses the start`, async () => {
         const seen = await summaryAfterRestore([item('a', 'pending')]);
-        await browser.storage.local.set({ queue: [item('a', 'pending', extra)] });
+        await browser.storage.local.set({ [KEY]: [item('a', 'pending', extra)] });
         await vi.waitFor(() => expect(Q.queue[0]).toMatchObject(extra));
         calls.length = 0;
         await Q.startQueue(seen);
@@ -255,7 +277,7 @@ describe('an edit after the summary refuses the start', () => {
 
     it('a change the summary does not show (a finished item, a duration) does not', async () => {
       const seen = await summaryAfterRestore([item('a', 'pending'), item('b', 'done')]);
-      await browser.storage.local.set({ queue: [item('a', 'pending', { duration: 42 }), item('b', 'done', { txt: 'x', msg: 'x' })] });
+      await browser.storage.local.set({ [KEY]: [item('a', 'pending', { duration: 42 }), item('b', 'done', { txt: 'x', msg: 'x' })] });
       await vi.waitFor(() => expect(Q.queue[0]!.duration).toBe(42));
       calls.length = 0;
       await Q.startQueue(seen);
@@ -439,15 +461,15 @@ describe('followStoredChanges', () => {
     disposeState();
     fakeBrowser.reset();
     const stored = item('a', 'pending', { n: 1, title: 'old' });
-    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, queue: [stored] });
+    await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, [KEY]: [stored] });
     await initState(async () => SCHEMA_VERSION);
-    restoreQueue(true);
+    restoreQueue(true, CH);
     setPageUi(createContentUi());
     const off = followStoredChanges();
     await new Promise((r) => setTimeout(r, 400)); // the load-time requeue, and any save it makes
     await flushState();
     const writes: unknown[] = [];
-    const spy = (ch: Record<string, { newValue?: unknown }>) => { if (ch.queue) writes.push(ch.queue.newValue); };
+    const spy = (ch: Record<string, { newValue?: unknown }>) => { if (ch[KEY]) writes.push(ch[KEY].newValue); };
     browser.storage.onChanged.addListener(spy);
     try {
       const presets = defaultPresets().map((p) => (p.id === 'trapsoul' ? { ...p, title: 'NEW {n}' } : p));
@@ -455,11 +477,11 @@ describe('followStoredChanges', () => {
       await vi.waitFor(() => expect(Q.queue[0]!.title).toBe('NEW 1'));
       // Tab A's card edit reaches storage; B mirrors it.
       const edited = { ...stored, title: 'Mine', titleEdited: true };
-      await browser.storage.local.set({ queue: [edited] });
+      await browser.storage.local.set({ [KEY]: [edited] });
       await new Promise((r) => setTimeout(r, 400)); // past B's 300 ms save, had it scheduled one
       await flushState();
       expect(writes).toEqual([[edited]]); // A's write only
-      expect((await browser.storage.local.get('queue')).queue).toEqual([edited]);
+      expect((await browser.storage.local.get(KEY))[KEY]).toEqual([edited]);
       expect(Q.queue[0]!.title).toBe('Mine');
     } finally {
       browser.storage.onChanged.removeListener(spy);

@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { DEBUG_LOG_KEY, errorText, readLog, type LogCtx, type LogEntry, type LogLevel } from '../debug-log';
+import { queuedIds } from '../file-gc';
 import { getHandle, listIds } from '../file-store';
 import { sendMessage } from '../messages';
 import { SCHEMA_VERSION } from '../migrations';
@@ -97,13 +98,7 @@ export interface FileStore { listIds: () => Promise<string[]>; getHandle: (id: s
 const realFiles: FileStore = { listIds, getHandle };
 export async function storedFiles(store: FileStore = realFiles): Promise<{ count: number; files: StoredFile[] }> {
   const ids = await store.listIds();
-  const queue = (await browser.storage.local.get('queue')).queue;
-  const used = new Set<string>();
-  for (const it of Array.isArray(queue) ? queue : []) {
-    const item = it as { id?: unknown; thumb?: { id?: unknown } };
-    if (typeof item?.id === 'string') used.add(item.id);
-    if (typeof item?.thumb?.id === 'string') used.add(item.thumb.id);
-  }
+  const used = (await queuedIds()) ?? new Set<string>(); // every channel's queue
   const files: StoredFile[] = [];
   for (const id of ids) {
     try {

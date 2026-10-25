@@ -6,7 +6,7 @@ import { pageToast } from '../lib/studio/page-toast';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { setBridge } from '../lib/studio/queue-files';
 import { fakeBridge } from './bridge-fake';
-import { followOtherTab } from '../lib/studio/queue-store';
+import { followOtherTab, restoreQueue } from '../lib/studio/queue-store';
 import * as Q from '../lib/studio/queue-runner';
 import { SEL } from '../lib/studio/sel';
 import { load, save } from '../lib/studio/state';
@@ -105,7 +105,10 @@ const binding = () => ({ channelId: 'UCabcdefghijklmn', ids: Q.queue.filter((i) 
 
 // A and B pending; this tab's run is fetching A's file when the abort comes. Meanwhile the
 // other tab ran both: what it left in storage is `other`.
+const KEY = 'queue:UCabcdefghijklmn'; // this tab's channel's queue
 async function abortedMidItem() {
+  save(KEY, []); // the store outlives a test here
+  restoreQueue(true, 'UCabcdefghijklmn');
   await Q.addFiles([qfile('A.mp4'), qfile('B.mp4')]);
   const ui = createContentUi();
   setPageUi(ui);
@@ -119,8 +122,8 @@ async function abortedMidItem() {
   await settle();
   Q.abortRun(new Error(MSG));
   const other = Q.queue.map((it, i) => ({ ...it, status: i === 0 ? 'error' as const : 'done' as const }));
-  save('queue', other);
-  await browser.storage.local.set({ queue: other });
+  save(KEY, other);
+  await browser.storage.local.set({ [KEY]: other });
   return { ui, run, file, getFile, other };
 }
 
@@ -133,7 +136,7 @@ describe('a run aborted coming back from the back/forward cache', () => {
     file.resolve(new File(['x'], 'A.mp4'));
     await expect(run).rejects.toThrow(MSG);
     await settle();
-    expect(load('queue', [])).toEqual(other); // B stays done: no second upload of it
+    expect(load(KEY, [])).toEqual(other); // B stays done: no second upload of it
     await followOtherTab(false); // the next tick, with the aborted run gone
     expect(Q.queue.map((i) => i.status)).toEqual(['error', 'done']);
     expect(Q.abortedRun()).toBe(null);
@@ -160,7 +163,7 @@ describe('a run aborted coming back from the back/forward cache', () => {
     Q.queue[0]!.draftId = 'abcdefghijk';
     ui.tick();
     await settle();
-    expect(load('queue', [])).toEqual(other);
+    expect(load(KEY, [])).toEqual(other);
     file.resolve(new File(['x'], 'A.mp4'));
     await expect(run).rejects.toThrow(MSG);
   });

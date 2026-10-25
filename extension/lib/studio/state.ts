@@ -3,7 +3,7 @@ import { sendMessage } from '../messages';
 import { SCHEMA_VERSION } from '../migrations';
 import { defaultPresets, type Preset } from '../presets';
 import { applySettingsPatch, countersDiff, defaultSettings, mergeSettings, settingsDiff, type Settings } from '../settings';
-import { load as loadStored } from '../storage';
+import { load as loadStored, QUEUE_PREFIX } from '../storage';
 import type { StorePatch } from '../store-writer';
 import { createMemoryStore, createSyncStore, type SyncStore } from '../sync-store';
 
@@ -13,12 +13,14 @@ import { createMemoryStore, createSyncStore, type SyncStore } from '../sync-stor
 // in the side panel show up here without a reload, and save() writes through.
 
 // Every key the page code reads or writes with load() / save().
-export const STATE_KEYS = ['settings', 'autoApply', 'autoNext', 'presets', 'activeId', 'counters', 'queueMemo', 'uploads', 'queue', 'channels', 'fabPos', 'queuePause'];
+export const STATE_KEYS = ['settings', 'autoApply', 'autoNext', 'presets', 'activeId', 'counters', 'queueMemo', 'uploads', 'channels', 'fabPos', 'queuePause'];
 
 // In memory until initState() runs, so modules work in tests without chrome.storage.
 let kv: SyncStore = createMemoryStore();
 export const load = <T>(key: string, fallback: T): T => kv.get(key, fallback);
 export const onStored = (key: string, fn: (value: unknown) => void) => kv.onChange(key, fn);
+// Reads the key again: a write the background made may not have been heard yet.
+export const rereadStored = (key: string): Promise<void> => kv.reread(key);
 
 // settings and counters are written by the side panel too. Once initState() has run, a
 // save sends only what changed to the background (lib/store-writer.ts), and the change
@@ -161,7 +163,7 @@ async function start(ensureMigrated: () => Promise<number>, timeoutMs: number, g
   let v = await loadStored<number | null>('schemaVersion', null);
   if (v !== SCHEMA_VERSION) v = await migrated(ensureMigrated, timeoutMs);
   if (v !== SCHEMA_VERSION) throw new Error(`[ytup] storage schema is ${v}, this build expects ${SCHEMA_VERSION}`);
-  const store = await createSyncStore(STATE_KEYS);
+  const store = await createSyncStore(STATE_KEYS, [QUEUE_PREFIX]); // the queue: one key per channel
   if (gen !== generation) return void store.dispose(); // disposeState() ran while loading
   kv = store;
   patcher = patch;

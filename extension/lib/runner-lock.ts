@@ -11,6 +11,9 @@ import { isStudioUrl } from './panel-scope';
 // closes, or reloads.
 export const LOCK_KEY = 'runnerTabId';
 export const JOBS_KEY = 'runnerJobs';
+// The channel of the tab holding the lock for the queue, written with the lock: a tab on another
+// channel keeps saving its own queue while it runs (queue-store runsHere).
+export const CHANNEL_KEY = 'runnerChannel';
 export type Job = 'queue' | 'claims';
 export const isJob = (v: unknown): v is Job => v === 'queue' || v === 'claims';
 
@@ -36,7 +39,7 @@ async function holder(): Promise<Holder | null> {
   const id = got[LOCK_KEY];
   if (typeof id !== 'number') return null;
   if (!(await liveStudio(id))) {
-    await browser.storage.session.remove([LOCK_KEY, JOBS_KEY]);
+    await browser.storage.session.remove([LOCK_KEY, JOBS_KEY, CHANNEL_KEY]);
     return null;
   }
   // A lock written before jobs existed was the queue's.
@@ -44,12 +47,12 @@ async function holder(): Promise<Holder | null> {
   return { id, jobs };
 }
 
-export const acquireRunner = (tabId: number, job: Job) =>
+export const acquireRunner = (tabId: number, job: Job, channel = '') =>
   serial(async () => {
     const h = await holder();
     if (h && h.id !== tabId) return false;
     const jobs = h ? [...new Set([...h.jobs, job])] : [job];
-    await browser.storage.session.set({ [LOCK_KEY]: tabId, [JOBS_KEY]: jobs });
+    await browser.storage.session.set({ [LOCK_KEY]: tabId, [JOBS_KEY]: jobs, ...(job === 'queue' ? { [CHANNEL_KEY]: channel } : {}) });
     return true;
   });
 
@@ -59,7 +62,7 @@ export const releaseRunner = (tabId: number, job: Job | 'all') =>
     if (!h || h.id !== tabId) return;
     const jobs = job === 'all' ? [] : h.jobs.filter((j) => j !== job);
     if (jobs.length) await browser.storage.session.set({ [JOBS_KEY]: jobs });
-    else await browser.storage.session.remove([LOCK_KEY, JOBS_KEY]);
+    else await browser.storage.session.remove([LOCK_KEY, JOBS_KEY, CHANNEL_KEY]);
   });
 
 // Another tab holds the lock — for `job`, or for anything ('any').
@@ -67,6 +70,15 @@ export const runnerElsewhere = (tabId: number, job: Job | 'any') =>
   serial(async () => {
     const h = await holder();
     return !!h && h.id !== tabId && (job === 'any' || h.jobs.includes(job));
+  });
+
+// The channel of another tab holding the lock for the queue; '' when none, or not known.
+export const runnerChannel = (tabId: number) =>
+  serial(async () => {
+    const h = await holder();
+    if (!h || h.id === tabId || !h.jobs.includes('queue')) return '';
+    const ch = (await browser.storage.session.get(CHANNEL_KEY))[CHANNEL_KEY];
+    return typeof ch === 'string' ? ch : '';
   });
 
 // This tab holds the lock for `job` (a page back after its own reload asks).

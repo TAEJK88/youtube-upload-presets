@@ -5,7 +5,7 @@ import { setLang } from '../lib/i18n';
 import { applySettingsPatch, countersDiff, defaultSettings, settingsDiff } from '../lib/settings';
 import { BACKUP_SCHEMA, parseBackup } from '../lib/backup';
 import { SCHEMA_VERSION } from '../lib/migrations';
-import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '../lib/store-writer';
+import { claimsOpInOrder, ensureLang, mayWrite, moveLegacyQueueInOrder, patchStore, schemaVersionInOrder, writeBackupInOrder } from '../lib/store-writer';
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -314,5 +314,48 @@ describe('claims:op', () => {
     expect(mayWrite('claims:op', { tab: {}, url: 'https://studio.youtube.com/channel/UC1' }, ext)).toBe(true);
     expect(mayWrite('claims:op', { tab: {}, url: 'https://www.youtube.com/' }, ext)).toBe(false);
     expect(mayWrite('claims:op', { url: ext + 'file-bridge.html', tab: {} }, ext)).toBe(false);
+  });
+});
+
+// Older builds kept every channel's queue in one 'queue' key; the first Studio tab whose
+// channel is known moves it to that channel's key, one tab at a time.
+describe('moving the old queue key', () => {
+  const A = 'UCaaaaaaaaaaaaaaaaaaaaaa';
+  const B = 'UCbbbbbbbbbbbbbbbbbbbbbb';
+  const it1 = { id: 'v1', file: { name: '1.mp4' } };
+  const it2 = { id: 'v2', file: { name: '2.mp4' } };
+
+  it("moves the items ahead of the channel's own, removes the old key, and answers how many", async () => {
+    await browser.storage.local.set({ queue: [it1, it2], [`queue:${A}`]: [{ id: 'a1' }] });
+    expect(await moveLegacyQueueInOrder(A)).toBe(2);
+    const got = await browser.storage.local.get(null);
+    expect(got[`queue:${A}`]).toEqual([it1, it2, { id: 'a1' }]);
+    expect('queue' in got).toBe(false);
+  });
+
+  it('two tabs at once: the first takes the items, the other gets none, nothing doubles', async () => {
+    await browser.storage.local.set({ queue: [it1, it2] });
+    expect(await Promise.all([moveLegacyQueueInOrder(A), moveLegacyQueueInOrder(B)])).toEqual([2, 0]);
+    const got = await browser.storage.local.get(null);
+    expect(got[`queue:${A}`]).toEqual([it1, it2]);
+    expect(`queue:${B}` in got).toBe(false);
+    expect('queue' in got).toBe(false);
+  });
+
+  it('nothing to move: answers 0 and writes nothing; an empty old list is just removed', async () => {
+    const set = vi.spyOn(browser.storage.local, 'set');
+    expect(await moveLegacyQueueInOrder(A)).toBe(0);
+    await browser.storage.local.set({ queue: [] });
+    set.mockClear();
+    expect(await moveLegacyQueueInOrder(A)).toBe(0);
+    expect(set).not.toHaveBeenCalled();
+    expect('queue' in (await browser.storage.local.get(null))).toBe(false);
+    set.mockRestore();
+  });
+
+  it('an old key it does not understand is left alone', async () => {
+    await browser.storage.local.set({ queue: { not: 'a list' } });
+    expect(await moveLegacyQueueInOrder(A)).toBe(0);
+    expect((await browser.storage.local.get('queue')).queue).toEqual({ not: 'a list' });
   });
 });

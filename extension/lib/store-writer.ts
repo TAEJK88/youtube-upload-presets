@@ -5,7 +5,7 @@ import { getLang } from './i18n';
 import { isStudioUrl } from './panel-scope';
 import { weekField } from './schedule-week';
 import { applySettingsPatch, cleanLimits, defaultSettings, loadSettings, type SettingsPatch } from './settings';
-import { load } from './storage';
+import { LEGACY_QUEUE_KEY, load, queueKey } from './storage';
 import type { StoredChannel } from './studio/channels';
 import type { UploadRecord } from './studio/queue-runner';
 
@@ -112,6 +112,24 @@ export const ensureLang = () =>
     const s = (await browser.storage.local.get('settings')).settings;
     if (isObj(s) && (s.lang === 'th' || s.lang === 'en')) return;
     await applyStorePatch({ key: 'settings', patch: { lang: getLang() } });
+  });
+
+// Older builds kept every channel's queue in the one 'queue' key. The first Studio tab
+// whose channel is known asks here (queue:migrate); in the queue, so two tabs loading at once
+// can't both take the items. They go ahead of the channel's own, without an id it already has
+// (a move cut short between the write and the remove). Answers how many moved.
+export const moveLegacyQueueInOrder = (channelId: string) =>
+  serial(async () => {
+    const key = queueKey(channelId);
+    const got = await browser.storage.local.get([LEGACY_QUEUE_KEY, key]);
+    const old = got[LEGACY_QUEUE_KEY];
+    if (!Array.isArray(old)) return 0; // none, or a value this build doesn't understand: left alone
+    const own = Array.isArray(got[key]) ? (got[key] as { id?: unknown }[]) : [];
+    const ids = new Set(own.map((it) => it?.id));
+    const moved = (old as { id?: unknown }[]).filter((it) => !ids.has(it?.id));
+    if (moved.length) await browser.storage.local.set({ [key]: [...moved, ...own] });
+    await browser.storage.local.remove(LEGACY_QUEUE_KEY);
+    return moved.length;
   });
 
 // What ensureMigrated answers. An import stores BACKUP_SCHEMA and then migrates it up, so

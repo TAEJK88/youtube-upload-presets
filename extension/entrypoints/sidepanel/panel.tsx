@@ -9,6 +9,7 @@ import { readPanelData, watchPanelData, type PanelData } from '@/lib/panel/data'
 import { activeStudioTab, runnerTab, watchRunner, watchTabs, type RunnerTab, type Target } from '@/lib/panel/target';
 import { createViewSync, fetchView, type LinkStatus } from '@/lib/panel/view-sync';
 import { writes, type Writes } from '@/lib/panel/writes';
+import { isQueueKey } from '@/lib/storage';
 import type { QueueView } from '@/lib/studio/queue-view';
 import { useFileAccess, type FileAccess } from './file-access';
 
@@ -99,7 +100,8 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     const offLang = watchLang(setLangState);
     const queueChanged = (changes: Record<string, unknown>, area: string) => {
       // songHistory: the cards' "previously claimed" chips (refreshClaimWarnings, 5188)
-      if (area === 'local' && ('queue' in changes || 'songHistory' in changes)) sync.poke();
+      // queue:<channelId>: every channel's queue (the tab's view shows only its own)
+      if (area === 'local' && (Object.keys(changes).some(isQueueKey) || 'songHistory' in changes)) sync.poke();
     };
     browser.storage.onChanged.addListener(queueChanged);
     return () => {

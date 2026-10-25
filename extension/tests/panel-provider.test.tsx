@@ -110,6 +110,16 @@ describe('the queue view follows storage', () => {
     await settle();
     expect(views()).toBe(before + 1);
   });
+
+  it("is asked for again when a channel's queue key changes", async () => {
+    render(<PanelProvider><Probe /></PanelProvider>);
+    await settle();
+    await settle();
+    const before = views();
+    await act(async () => { await browser.storage.local.set({ 'queue:UCaaaaaaaaaaaaaaaaaaaaaa': [] }); });
+    await settle();
+    expect(views()).toBe(before + 1);
+  });
 });
 
 describe('the "reload this tab" banner', () => {

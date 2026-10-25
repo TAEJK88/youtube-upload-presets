@@ -8,9 +8,9 @@ import { isChannelId } from '@/lib/claims/keys';
 import { initI18n, watchLang } from '@/lib/i18n';
 import { runMigrations } from '@/lib/migrations';
 import { notifyQueueDone, openFromNotification } from '@/lib/notify';
-import { acquireRunner, claimWorker, isJob, registerRunnerLock, releaseRunner, runnerElsewhere, RUNNER_HELD, runnerHeld, runnerHolds, studioTab } from '@/lib/runner-lock';
+import { acquireRunner, claimWorker, isJob, registerRunnerLock, releaseRunner, runnerChannel, runnerElsewhere, RUNNER_HELD, runnerHeld, runnerHolds, studioTab } from '@/lib/runner-lock';
 import { deleteFiles, sweepHandles } from '@/lib/file-gc';
-import { claimsOpInOrder, ensureLang, mayWrite, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
+import { claimsOpInOrder, ensureLang, mayWrite, moveLegacyQueueInOrder, patchStore, schemaVersionInOrder, writeBackupInOrder } from '@/lib/store-writer';
 import { checkForUpdate, registerUpdateCheck } from '@/lib/update-check';
 
 export default defineBackground(() => {
@@ -69,6 +69,14 @@ export default defineBackground(() => {
     await claimsOpInOrder(data);
   });
 
+  // The old one-key queue goes to the first Studio tab whose channel is known (store-writer).
+  onMessage('queue:migrate', async ({ data, sender }) => {
+    if (!isChannelId(data)) throw new Error('queue:migrate: malformed');
+    if (studioTab(sender) === null) return 0;
+    await ready;
+    return moveLegacyQueueInOrder(data);
+  });
+
   // The page has no access to the extension's IndexedDB; it asks here to forget handles.
   onMessage('files:delete', ({ data: ids, sender }) => deleteFiles(ids, sender, ext));
   // Handles that no queue item uses (an add cut short): swept once per browser start.
@@ -91,10 +99,14 @@ export default defineBackground(() => {
   // Taking the lock or a worker lease: a Studio tab only (any other sender is refused).
   onMessage('runner:acquire', async ({ data, sender }) => {
     const id = studioTab(sender);
-    return id !== null && acquireRunner(id, isJob(data) ? data : 'queue');
+    // The queue's lock comes with the asking tab's channel ({ job, channel }); a plain job has none.
+    const d = data as { job?: unknown; channel?: unknown } | null;
+    const job = isJob(data) ? data : isJob(d?.job) ? d.job : 'queue';
+    return id !== null && acquireRunner(id, job, isChannelId(d?.channel) ? d.channel : '');
   });
   onMessage('runner:release', ({ data, sender }) => releaseRunner(tabOf(sender), isJob(data) ? data : 'all'));
   onMessage('runner:elsewhere', ({ data, sender }) => runnerElsewhere(tabOf(sender), isJob(data) ? data : 'any'));
+  onMessage('runner:channel', ({ sender }) => runnerChannel(tabOf(sender)));
   onMessage('runner:holds', ({ data, sender }) => runnerHolds(tabOf(sender), isJob(data) ? data : 'queue'));
   onMessage('runner:worker', async ({ data, sender }) => {
     const d = data as { ch?: unknown; force?: unknown } | null;

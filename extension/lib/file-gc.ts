@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { deleteHandle, listIds } from './file-store';
+import { isQueueKey } from './storage';
 import { mayWrite } from './store-writer';
 
 // The background's side of the file handles the side panel stored (lib/file-store.ts).
@@ -22,24 +23,34 @@ export async function deleteFiles(ids: unknown, sender: Sender, ext: string, del
   }
 }
 
+// The file ids stored queue items use: every channel's key (queue:<channelId>) and the old
+// one-key 'queue' until a tab moves it. An item keeps its own id's handle and its thumbnail's.
+// null when one of them holds something this build doesn't understand.
+export async function queuedIds(): Promise<Set<string> | null> {
+  const all = await browser.storage.local.get(null);
+  const used = new Set<string>();
+  for (const [key, list] of Object.entries(all)) {
+    if (!isQueueKey(key)) continue;
+    if (!Array.isArray(list)) return null;
+    for (const it of list as { id?: unknown; thumb?: { id?: unknown } | null }[]) {
+      if (typeof it?.id === 'string') used.add(it.id);
+      if (typeof it?.thumb?.id === 'string') used.add(it.thumb.id);
+    }
+  }
+  return used;
+}
+
 // Handles no stored queue item references any more: a panel closed (or an extension reload)
 // between storing the handles and the tab's queue:add answer, or a navigation during an add.
-// The stored 'queue' is the only list of items (one key, not per channel, in this phase);
-// an item keeps its own id's handle and its thumbnail's. The handles are listed before the
-// queue is read, so a handle stored and queued in between is kept; one stored before the
-// listing whose item is saved only after the read would not be, which is why this runs at
-// browser startup only, before any panel can be adding files. A stored queue this code
-// doesn't understand deletes nothing.
+// The handles are listed before the queue is read, so a handle stored and queued in between
+// is kept; one stored before the listing whose item is saved only after the read would not
+// be, which is why this runs at browser startup only, before any panel can be adding files.
+// A stored queue this code doesn't understand deletes nothing.
 export async function sweepHandles(d: { list?: () => Promise<string[]>; del?: Del } = {}): Promise<number> {
   const ids = await (d.list ?? listIds)();
   if (!ids.length) return 0;
-  const queue = (await browser.storage.local.get('queue')).queue ?? [];
-  if (!Array.isArray(queue)) return 0;
-  const used = new Set<string>();
-  for (const it of queue as { id?: unknown; thumb?: { id?: unknown } | null }[]) {
-    if (typeof it?.id === 'string') used.add(it.id);
-    if (typeof it?.thumb?.id === 'string') used.add(it.thumb.id);
-  }
+  const used = await queuedIds();
+  if (!used) return 0;
   let n = 0;
   for (const id of ids) {
     if (used.has(id)) continue;

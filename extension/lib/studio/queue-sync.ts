@@ -1,9 +1,11 @@
 import { L } from '../i18n';
 import { sendMessage } from '../messages';
+import { queueKey } from '../storage';
 import { sayRetry } from './draft-retry';
 import { ui } from './page-ui';
 import { otherTabRunning } from './queue-runner';
-import { followOtherTab, restoreQueue } from './queue-store';
+import { adoptChannel, followOtherTab, queueChannel, restoreQueue, runsHere, setRunnerChannel } from './queue-store';
+import { rereadStored } from './state';
 
 // The Studio content script's link to the runner lock (lib/runner-lock.ts, through the
 // background), kept out of the entrypoint so it can be tested.
@@ -13,7 +15,12 @@ import { followOtherTab, restoreQueue } from './queue-store';
 export const elsewhere = (): Promise<boolean> =>
   sendMessage('runner:elsewhere', 'queue')
     .catch(() => otherTabRunning()) // no answer is not "the lock is free": keep what we knew
-    .then(async (v) => (await followOtherTab(v), v));
+    .then(async (v) => {
+      // Whose queue runs: only a tab on that channel is held back (queue-store runsHere).
+      if (v) setRunnerChannel(await sendMessage('runner:channel').catch(() => ''));
+      await followOtherTab(v);
+      return v;
+    });
 
 // The lock is followed by events (runner:changed from the background, focus), with a slow poll
 // as the fallback: asking on every 0.8 s tick kept the service worker awake for good.
@@ -27,14 +34,42 @@ export function createLockFollower(d: { ask(): Promise<unknown>; everyMs?: numbe
 // first — the queue's job only: a copyright job (a trim run changes pages) keeps it (D21).
 // Then the stored queue comes back, its unfinished items cut unless another tab is the one
 // running them.
-export async function resumeQueue(): Promise<void> {
+let moveAnswered = false; // the background answered this page's ask: no need to ask again
+export async function resumeQueue(channelId = ''): Promise<void> {
   await sendMessage('runner:release', 'queue').catch(() => {});
-  restoreQueue(!(await elsewhere()));
+  moveAnswered = false;
+  if (channelId) await moveOldQueue(channelId);
+  restoreQueue(!(await elsewhere()), channelId);
 }
 
-// While another tab runs the queue, its writes would overwrite ours.
+// The one 'queue' key of older builds goes to this channel's key, in the background (one
+// tab at a time); the tab that got it says so once. Read again here: the move may not have
+// been heard yet.
+async function moveOldQueue(channelId: string): Promise<void> {
+  const n = await sendMessage('queue:migrate', channelId).catch((e) => (console.error('[ytup] queue move', e), null));
+  if (n === null) return;
+  moveAnswered = true;
+  if (!n) return;
+  await rereadStored(queueKey(channelId));
+  ui.toast(L(`ย้ายคิวจากเวอร์ชันก่อนมาไว้ที่ช่องนี้แล้ว (${n} คลิป)`, `Your queue from the older version moved to this channel (${n} videos)`));
+}
+
+// The channel became known after the page loaded (studio.content's tick): the old queue moves
+// first, once, then this tab takes on the channel's key (adoptChannel waits while it may not,
+// and the next ticks don't ask again). A tick that comes while the move is under way waits for it.
+let moving: Promise<void> | null = null;
+export async function adoptQueueChannel(channelId: string): Promise<void> {
+  if (!channelId || queueChannel()) return;
+  if (!moveAnswered) {
+    moving ??= moveOldQueue(channelId).finally(() => { moving = null; });
+    await moving;
+  }
+  adoptChannel(channelId);
+}
+
+// While another tab runs this channel's queue, its writes would overwrite ours.
 export async function mayEdit(): Promise<boolean> {
-  if (!(await elsewhere())) return true;
+  if (!(await elsewhere()) || !runsHere()) return true; // another channel's run: this one's items are saved
   ui.toast(L('แท็บ Studio อื่นกำลังอัปโหลดคิวอยู่ — แก้คิวในแท็บนั้น', 'Another Studio tab is running the queue — change the queue there'));
   return false;
 }
