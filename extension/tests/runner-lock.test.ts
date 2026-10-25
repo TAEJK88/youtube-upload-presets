@@ -1,13 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import { acquireRunner, claimWorker, JOBS_KEY, leasedTab, LOCK_KEY, registerRunnerLock, releaseRunner, runnerElsewhere, runnerHeld, runnerHolds, studioTab, workerOf, WORKERS_KEY } from '../lib/runner-lock';
+import { acquireRunner, claimWorker, JOBS_KEY, leasedTab, LOCK_KEY, registerRunnerLock, releaseRunner, runnerChannel, runnerElsewhere, runnerHeld, runnerHolds, studioTab, workerOf, WORKERS_KEY } from '../lib/runner-lock';
 
 beforeEach(() => fakeBrowser.reset());
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const tab = async () => (await browser.tabs.create({ url: 'https://studio.youtube.com/' })).id!;
 
 describe('runner lock', () => {
+  // Written with the lock, so no tab ever sees the queue held without the holder's channel.
+  it("the queue's holder channel is stored with the lock and told to other tabs", async () => {
+    const a = await tab();
+    const b = await tab();
+    const set = vi.spyOn(browser.storage.session, 'set');
+    expect(await acquireRunner(a, 'queue', 'UCaaaaaaaaaaaaaaaaaaaaaa')).toBe(true);
+    expect(set.mock.calls[0]![0]).toEqual({ [LOCK_KEY]: a, [JOBS_KEY]: ['queue'], runnerChannel: 'UCaaaaaaaaaaaaaaaaaaaaaa' });
+    expect(await runnerChannel(b)).toBe('UCaaaaaaaaaaaaaaaaaaaaaa');
+    expect(await runnerChannel(a)).toBe(''); // its own lock
+    await releaseRunner(a, 'queue');
+    expect(await runnerChannel(b)).toBe('');
+    expect(await acquireRunner(b, 'claims')).toBe(true); // a copyright job holds no queue channel
+    expect(await runnerChannel(a)).toBe('');
+  });
+
   it('a tab holds the lock for its jobs; another tab gets it only when all are gone', async () => {
     const a = await tab();
     const b = await tab();

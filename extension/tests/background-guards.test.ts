@@ -82,6 +82,24 @@ describe('the background refuses', () => {
     expect(await browser.storage.session.get(['runnerTabId', 'runnerJobs'])).toEqual({ runnerTabId: 3, runnerJobs: ['queue'] });
   });
 
+  it('runner:acquire stores the queue holder\'s channel only when it is a channel id', async () => {
+    expect(await ask('runner:acquire', { job: 'queue', channel: CH }, studio(3))).toBe(true);
+    expect((await browser.storage.session.get('runnerChannel')).runnerChannel).toBe(CH);
+    expect(await ask('runner:channel', undefined, studio(4))).toBe(CH);
+    await ask('runner:release', 'all', studio(3));
+    expect(await ask('runner:acquire', { job: 'queue', channel: '../x' }, studio(3))).toBe(true);
+    expect((await browser.storage.session.get('runnerChannel')).runnerChannel).toBe('');
+  });
+
+  it('queue:migrate for something that is not a channel id, or from a tab that is not on Studio', async () => {
+    await browser.storage.local.set({ queue: [{ id: 'v1' }] });
+    await expect(ask('queue:migrate', 'not a channel', studio(3))).rejects.toThrow('queue:migrate: malformed');
+    expect(await ask('queue:migrate', CH, watchPage(4))).toBe(0);
+    expect((await browser.storage.local.get('queue')).queue).toEqual([{ id: 'v1' }]);
+    expect(await ask('queue:migrate', CH, studio(3))).toBe(1);
+    expect((await browser.storage.local.get(`queue:${CH}`))[`queue:${CH}`]).toEqual([{ id: 'v1' }]);
+  });
+
   it('runner:worker for something that is not a channel id, or from a tab that is not on Studio', async () => {
     await expect(ask('runner:worker', { ch: 'not a channel', force: false }, studio(3))).rejects.toThrow('runner:worker: malformed');
     await expect(ask('runner:worker', null, studio(3))).rejects.toThrow('runner:worker: malformed');

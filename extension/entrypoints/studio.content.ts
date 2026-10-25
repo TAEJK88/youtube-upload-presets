@@ -30,8 +30,8 @@ import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/stud
 import { clearAll, removeItem, resumeDrafts, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { createPauseWatch } from '@/lib/studio/queue-pause';
 import { abortRun, currentItemId, installIntercept, isStartBinding, queue, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
-import { flushQueue, installUnloadGuard } from '@/lib/studio/queue-store';
-import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle, watchRunLifecycle } from '@/lib/studio/queue-sync';
+import { flushQueue, installUnloadGuard, queueChannel } from '@/lib/studio/queue-store';
+import { adoptQueueChannel, createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle, watchRunLifecycle } from '@/lib/studio/queue-sync';
 import { queueView } from '@/lib/studio/queue-view';
 import { showIfOrphaned } from '@/lib/studio/reload-banner';
 import { disposeState, initState, setPatchFailed } from '@/lib/studio/state';
@@ -150,9 +150,10 @@ export default defineContentScript({
     setPatchFailed(storeWriteFailed);
     stop.add(() => setPatchFailed(null));
     const releaseLock = () => void sendMessage('runner:release', 'queue').catch(() => {});
-    // The lock is ours: whatever the cached flag says, no other tab runs. askLock rejects when
+    // The lock is ours: whatever the cached flag says, no other tab runs. It is asked with this tab's
+    // channel, so tabs on other channels keep saving (runner-lock CHANNEL_KEY). askLock rejects when
     // the message fails (watchLockLifecycle tells that from a refusal); acquireLock says no.
-    const askLock = () => sendMessage('runner:acquire', 'queue').then((ok) => (ok && setOtherTabRuns(false), ok));
+    const askLock = () => sendMessage('runner:acquire', { job: 'queue', channel: queueChannel() }).then((ok) => (ok && setOtherTabRuns(false), ok));
     const acquireLock = () => askLock().catch((e) => (console.error('[ytup] runner lock', e), false));
     setRunnerLock({
       acquire: acquireLock,
@@ -194,7 +195,7 @@ export default defineContentScript({
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('focus', refresh);
     });
-    await resumeQueue();
+    await resumeQueue(getChannel().id);
 
     onMessage('queue:add', ({ data: ids }) => handleQueueAdd(ids, mayEdit));
     // Not while the userscript is there: an error answer, so the panel shows no summary first.
@@ -262,6 +263,7 @@ export default defineContentScript({
       // Its own try: a failure here must not stop the progress bar.
       try {
         rememberChannel(getChannel());
+        void adoptQueueChannel(getChannel().id).catch((e) => console.error('[ytup] queue channel', e));
       } catch (e) {
         console.error('[ytup] channel memory', e);
       }

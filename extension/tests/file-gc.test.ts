@@ -54,6 +54,20 @@ describe('the orphaned-handle sweep', () => {
     expect(n).toBe(2);
   });
 
+  it("keeps the handles of every channel's key and of the old one-key queue not moved yet", async () => {
+    await browser.storage.local.set({ 'queue:UCa': [item('a1', { id: 't1', src: 'bridge' })], 'queue:UCb': [item('b1')], queue: [item('old')], other: [item('x')] });
+    const del = vi.fn(async (_id: string) => {});
+    await sweepHandles({ list: async () => ['a1', 't1', 'b1', 'old', 'x', 'orphan'], del });
+    expect(del.mock.calls.map((c) => c[0])).toEqual(['x', 'orphan']);
+  });
+
+  it("one channel's key it does not understand: deletes nothing", async () => {
+    await browser.storage.local.set({ 'queue:UCa': { not: 'a list' } });
+    const del = vi.fn(async (_id: string) => {});
+    expect(await sweepHandles({ list: async () => ['x'], del })).toBe(0);
+    expect(del).not.toHaveBeenCalled();
+  });
+
   it('no stored queue: every handle is an orphan', async () => {
     const del = vi.fn(async (_id: string) => {});
     await sweepHandles({ list: async () => ['x'], del });

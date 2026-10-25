@@ -1,26 +1,44 @@
 import { browser } from 'wxt/browser';
 import { repairCascade } from '../drafts';
 import { L } from '../i18n';
+import { queueKey } from '../storage';
 import { sayRetry } from './draft-retry';
 import { mergeQueue } from './queue-merge';
-import { abortedRun, abortRun, bumpEditRev, otherTabRunning, queue, running, setOtherTabRuns, type QueueItem } from './queue-runner';
+import { abortedRun, abortRun, bumpEditRev, otherTabRunning, queue, running, setOtherTabRuns, setQueueKeyed, type QueueItem } from './queue-runner';
 import { load, onStored, save } from './state';
 
-// The queue's items live in chrome.storage.local ('queue') so they survive reloads and
-// channel switches; Files are fetched again by id when an item uploads.
-const KEY = 'queue';
+// The queue's items live in chrome.storage.local, one key per channel (queue:<channelId>), so
+// they survive reloads and a tab only ever sees its own channel's; Files are fetched again by
+// id when an item uploads. A tab whose channel isn't known yet ('') has no key: it saves
+// nothing until adoptChannel().
+let ch = '';
+export const queueChannel = (): string => ch;
 let timer: ReturnType<typeof setTimeout> | undefined;
 // What this tab last read from or wrote to storage: the base the merge compares both copies to.
 let base: QueueItem[] = [];
 const remember = (list: QueueItem[]) => { base = structuredClone(list); };
+const stored = (): QueueItem[] => (ch ? load<QueueItem[] | null>(queueKey(ch), []) ?? [] : []); // a removed key can read as null
+function write(): void {
+  if (!ch) return;
+  save(queueKey(ch), queue);
+  remember(queue);
+}
 
-// Nothing is written while another Studio tab runs the queue: that tab's copy is the one
+// The runner lock is one for every channel. The background keeps the queue holder's channel
+// with the lock (runner-lock CHANNEL_KEY), told here with each runner:elsewhere answer
+// (queue-sync elsewhere): a tab on another channel keeps saving its own items while that one runs.
+let runnerCh = '';
+export const setRunnerChannel = (channelId: string): void => { runnerCh = channelId; };
+// Another tab runs this channel's queue, or one whose channel isn't known ('').
+export const runsHere = (): boolean => otherTabRunning() && (!runnerCh || !ch || runnerCh === ch);
+
+// Nothing is written while another Studio tab runs this channel's queue: that tab's copy is the one
 // moving items along, and this tab only mirrors it (restoreQueue's onStored). The flag is
 // cached, so it can be stale when this tab wins the lock: a running tab always saves —
 // except a run aborted because another tab took the lock (abortRun): its copy is stale from
 // then on, and nothing of it is written until this tab has read the queue back
 // (followOtherTab).
-const blocked = () => abortedRun() !== null || (otherTabRunning() && !running);
+const blocked = () => abortedRun() !== null || (runsHere() && !running);
 // Said once per spell of skipped saves (a card change calls this each time; the debug log keeps 300 lines).
 let skipSaid = false;
 export function persistQueue(): void {
@@ -43,8 +61,7 @@ export function flushQueue(): void {
   clearTimeout(timer);
   timer = undefined;
   if (!blocked()) {
-    save(KEY, queue);
-    remember(queue);
+    write();
     skipSaid = false;
   }
 }
@@ -67,10 +84,31 @@ const MID_RETRY = /Retrying on the draft|ลองใหม่บนฉบับ
 const shown = (list: QueueItem[]) => JSON.stringify(list.filter((i) => i.status === 'pending')
   .map((i) => [i.id, i.presetId, i.publishEdited ? i.publishAt : 0, !!i.thumb, i.txt]));
 
+// Another tab (or the side panel) changed this channel's queue. The tab that is running keeps
+// its own copy: it is the one moving items along. While a save of ours waits, the two copies
+// are merged per item (3b M3); otherwise the stored copy replaces ours.
+let unfollow = () => {};
+function follow(): void {
+  unfollow();
+  unfollow = ch ? onStored(queueKey(ch), (v) => {
+    if (running) return;
+    const foreign = (v as QueueItem[] | undefined) ?? [];
+    const next = timer !== undefined ? mergeQueue(base, queue, foreign) : foreign;
+    const was = shown(queue);
+    queue.splice(0, queue.length, ...next);
+    if (shown(queue) !== was) bumpEditRev();
+    remember(foreign);
+  }) : () => {};
+}
+
 // markInterrupted is false while another Studio tab holds the runner lock: its item
-// really is still uploading.
-export function restoreQueue(markInterrupted: boolean): void {
-  const items = load<QueueItem[]>(KEY, []);
+// really is still uploading. `channelId` is this tab's channel ('' unknown: nothing is loaded).
+export function restoreQueue(markInterrupted: boolean, channelId = ''): void {
+  ch = channelId;
+  setQueueKeyed(() => !!ch);
+  // A run on another channel isn't uploading any of this channel's items.
+  markInterrupted ||= otherTabRunning() && !runsHere();
+  const items = stored();
   const cut = (it: QueueItem) => markInterrupted && unfinished(it);
   for (const it of items) {
     if (it.status === 'uploading' && MID_RETRY.test(it.msg)) sayRetry(`page loaded while "${it.file.name}" was mid-retry ("${it.msg}"); marked ${markInterrupted ? 'interrupted' : 'still running in another tab'}`, 'warn');
@@ -82,22 +120,27 @@ export function restoreQueue(markInterrupted: boolean): void {
   // that only mirrors a running one: that tab's copy is the queue, and it repaired its own.
   const repaired = markInterrupted ? repairCascade(queue) : { freed: 0, reworded: 0 };
   // Written back at once, so the side panel (which reads storage) shows the error too.
-  if (items.some(cut) || repaired.freed || repaired.reworded) {
-    save(KEY, queue);
-    remember(queue);
-  }
-  // Another tab (or the side panel) changed the queue. The tab that is running keeps its own
-  // copy: it is the one moving items along. While a save of ours waits, the two copies are
-  // merged per item (3b M3); otherwise the stored copy replaces ours.
-  onStored(KEY, (v) => {
-    if (running) return;
-    const foreign = (v as QueueItem[] | undefined) ?? [];
-    const next = timer !== undefined ? mergeQueue(base, queue, foreign) : foreign;
-    const was = shown(queue);
-    queue.splice(0, queue.length, ...next);
-    if (shown(queue) !== was) bumpEditRev();
-    remember(foreign);
-  });
+  if (items.some(cut) || repaired.freed || repaired.reworded) write();
+  follow();
+}
+
+// The channel became known after restoreQueue (Studio's ytcfg not read yet): its stored items
+// come first, then what this tab queued meanwhile (never saved), and the lot is saved.
+// Only once: switching channels leaves Studio (channel_switcher), so the page loads again.
+// Not mid-run, nor while this channel's queue runs elsewhere: the next tick tries again.
+export function adoptChannel(id: string): void {
+  if (ch || !id || running) return;
+  ch = id;
+  if (blocked()) return void (ch = '');
+  const items = stored();
+  const ids = new Set(items.map((it) => it.id));
+  const was = shown(queue);
+  queue.splice(0, queue.length, ...items, ...queue.filter((it) => !ids.has(it.id)));
+  if (shown(queue) !== was) bumpEditRev();
+  clearTimeout(timer);
+  timer = undefined;
+  write();
+  follow();
 }
 
 // Each runner:elsewhere answer (the content script's elsewhere()). When the other tab
@@ -111,26 +154,24 @@ export async function followOtherTab(runs: boolean): Promise<void> {
   // A read-back an aborted run still waits for counts as ended too: the next ask of the lock
   // (a lock change, focus, or the 30 s fallback: queue-sync createLockFollower) retries one
   // whose storage read failed (the mirror flag is already off by then).
-  const ended = (otherTabRunning() || (abortedRun() !== null && !running)) && !runs;
+  // A run on another channel left nothing of this tab's to cut.
+  const ended = (runsHere() || (abortedRun() !== null && !running)) && !runs;
   setOtherTabRuns(runs);
   if (!ended || running) return;
   // The running tab saved its last statuses before releasing the lock, but this tab's
-  // copy may not have heard yet: cut what storage holds now.
-  let stored: QueueItem[];
+  // copy may not have heard yet: cut what storage holds now (no channel: what this tab holds).
+  let items: QueueItem[];
   try {
-    stored = ((await browser.storage.local.get(KEY))[KEY] as QueueItem[] | undefined) ?? [];
+    items = ch ? ((await browser.storage.local.get(queueKey(ch)))[queueKey(ch)] as QueueItem[] | undefined) ?? [] : [...queue];
   } catch (e) {
     console.error('[ytup] queue read-back', e);
     return;
   }
   if (running || otherTabRunning()) return;
-  queue.splice(0, queue.length, ...stored.map((it) => (unfinished(it) ? interrupted(it) : it)));
-  remember(stored);
+  queue.splice(0, queue.length, ...items.map((it) => (unfinished(it) ? interrupted(it) : it)));
+  remember(items);
   abortRun(null); // this tab's copy is the stored one again: it may save and start
-  if (stored.some(unfinished)) {
-    save(KEY, queue);
-    remember(queue);
-  }
+  if (items.some(unfinished)) write();
 }
 
 // The userscript asked before leaving whenever the queue had files, because the Files

@@ -36,7 +36,7 @@ export interface UploadRecord {
   date: string; channel: string; channelName: string; videoId: string; title: string; file: string; size: number;
   txt: string; description: string; publishAt: number | null; visibility: string;
 }
-// A queue item as stored in chrome.storage.local ('queue'). The userscript kept the File
+// A queue item as stored in chrome.storage.local (queue:<channelId>, queue-store). The userscript kept the File
 // itself in `file` / `thumb`; here they hold name / size / type (plus the thumbnail's
 // own id), and the File is fetched by id when the item uploads.
 export interface QueueItem {
@@ -76,7 +76,13 @@ export interface ClaimsHooks { listScheduled?: () => Promise<{ videoId: string; 
 export let Claims: ClaimsHooks | null = null;
 export const setClaims = (c: ClaimsHooks | null) => { Claims = c; };
 
-// What saveMemo() keeps per file (name|size) so re-adding it restores the edits.
+// Whether queue-store has this tab's channel: until then the queue has no key and nothing of
+// a run would be saved, so no Start (queue-store sets it on restoreQueue).
+let queueKeyed = () => true;
+export const setQueueKeyed = (fn: () => boolean) => { queueKeyed = fn; };
+const NO_CHANNEL = () => L('ยังไม่รู้ว่าแท็บนี้อยู่ช่องไหน คิวจึงยังไม่ถูกบันทึก — รอสักครู่แล้วกดเริ่มอีกครั้ง', "This tab doesn't know its channel yet, so the queue isn't saved — wait a moment, then click Start again");
+
+// What saveMemo() keeps per channel and file (channel|name|size) so re-adding it there restores the edits.
 interface Memo { title?: string; artists?: string; publishAt?: number; presetId?: string; t: number }
 
 // One Studio tab runs the queue at a time (lib/runner-lock.ts, through the background).
@@ -164,11 +170,15 @@ function attachThumb(it: QueueItem, file: QFile) {
 
 // รับไฟล์ปนกันได้: คลิป + .txt + ภาพปก จับคู่ด้วยชื่อไฟล์ (ไม่รวมนามสกุล)
 // ไฟล์เก็บข้ามการรีโหลดไม่ได้ แต่ค่าที่พิมพ์แก้ไว้เก็บได้: ชื่อคลิป, ศิลปิน, เวลาปล่อยที่ตั้งเอง, พรีเซ็ต
-const memoKey = (it: QueueItem) => it.file.name + '|' + it.file.size;
+// The channel is part of the key: a file re-added on another channel starts from its presets.
+// Keys from older builds (name|size) match no channel and age out with the 200 kept. No channel
+// known yet: nothing is kept or applied ('|name|size' would be every unknown channel's).
+const memoKey = (it: QueueItem) => getChannel().id + '|' + it.file.name + '|' + it.file.size;
 let memoTimer: ReturnType<typeof setTimeout> | undefined;
 function saveMemo() {
   clearTimeout(memoTimer);
   memoTimer = setTimeout(() => {
+    if (!getChannel().id) return;
     const memo = load<Record<string, Memo>>('queueMemo', {});
     for (const it of queue) {
       const k = memoKey(it);
@@ -189,6 +199,7 @@ function saveMemo() {
   }, 600);
 }
 function restoreMemo(items: QueueItem[]): number {
+  if (!getChannel().id) return 0;
   const memo = load<Record<string, Memo>>('queueMemo', {});
   let n = 0;
   for (const it of items) {
@@ -904,6 +915,7 @@ export function startSig(): string {
   ]);
 }
 function bindingProblem(seen: StartBinding): string {
+  if (!queueKeyed()) return NO_CHANNEL();
   if (getChannel().id !== seen.channelId) return L('ช่องเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The channel changed after you confirmed — click Start again to see the new summary');
   if (pendingIds().join('\n') !== seen.ids.join('\n')) return L('คิวเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The queue changed after you confirmed — click Start again to see the new summary');
   if (seen.editRev !== editRev) return L('คิวเปลี่ยนไปหลังจากที่คุณยืนยัน — กดเริ่มอีกครั้งเพื่อดูสรุปใหม่', 'The queue changed after you confirmed — click Start again to see the new summary');
@@ -1019,6 +1031,7 @@ const uploadsSince = (channelId: string, since: number) =>
 export async function startSummary(): Promise<StartSummary | { error: string }> {
   const pendingN = queue.filter((i) => i.status === 'pending').length;
   if (!pendingN) return { error: L('ไม่มีคลิปที่รอคิว', 'No videos waiting in the queue') };
+  if (!queueKeyed()) return { error: NO_CHANNEL() };
   await freshCfg();
   const problem = channelProblem();
   if (problem) return { error: '⛔ ' + problem };

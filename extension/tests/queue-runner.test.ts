@@ -6,7 +6,7 @@ import { resetCfg } from '../lib/studio/channel';
 import { pageFiles, setBridge } from '../lib/studio/queue-files';
 import { fakeBridge } from './bridge-fake';
 import { stopQueue } from '../lib/studio/queue-ops';
-import { counters, save, settings } from '../lib/studio/state';
+import { counters, load, save, settings } from '../lib/studio/state';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { makeDocument } from './fake-dom.mjs';
 
@@ -74,7 +74,43 @@ describe('addFiles', () => {
   });
 
   it('restores edits remembered for the same file', async () => {
-    save('queueMemo', { 'Clip.mp4|1': { title: 'My title', t: Date.now() } });
+    save('queueMemo', { 'UCabcdefghijklmn|Clip.mp4|1': { title: 'My title', t: Date.now() } });
+    await Q.addFiles([qfile('Clip.mp4')]);
+    expect(Q.queue[0]).toMatchObject({ title: 'My title', titleEdited: true });
+  });
+
+  it('ignores a memo kept under the old name|size key', async () => {
+    save('queueMemo', { 'Clip.mp4|1': { title: 'Old', t: Date.now() } });
+    await Q.addFiles([qfile('Clip.mp4')]);
+    expect(Q.queue[0]).toMatchObject({ titleEdited: false });
+  });
+
+  it('neither saves nor applies a memo while the channel is not known', async () => {
+    vi.stubGlobal('location', { pathname: '/' });
+    save('queueMemo', { '|Clip.mp4|1': { title: 'Old', t: Date.now() } });
+    vi.useFakeTimers();
+    await Q.addFiles([qfile('Clip.mp4')]);
+    expect(Q.queue[0]).toMatchObject({ titleEdited: false });
+    Object.assign(Q.queue[0]!, { title: 'Mine', titleEdited: true });
+    Q.saveMemo();
+    vi.advanceTimersByTime(600);
+    vi.useRealTimers();
+    expect(Object.keys(load<Record<string, unknown>>('queueMemo', {}))).toEqual(['|Clip.mp4|1']);
+  });
+
+  it('restores edits only on the channel they were made on', async () => {
+    vi.useFakeTimers();
+    await Q.addFiles([qfile('Clip.mp4')]);
+    Object.assign(Q.queue[0]!, { title: 'My title', titleEdited: true });
+    Q.saveMemo();
+    vi.advanceTimersByTime(600);
+    vi.useRealTimers();
+    Q.queue.splice(0);
+    vi.stubGlobal('location', { pathname: '/channel/UCotherchannelxx/videos' });
+    await Q.addFiles([qfile('Clip.mp4')]);
+    expect(Q.queue[0]).toMatchObject({ titleEdited: false });
+    Q.queue.splice(0);
+    vi.stubGlobal('location', { pathname: '/channel/UCabcdefghijklmn/videos' });
     await Q.addFiles([qfile('Clip.mp4')]);
     expect(Q.queue[0]).toMatchObject({ title: 'My title', titleEdited: true });
   });

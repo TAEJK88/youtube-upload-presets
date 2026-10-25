@@ -91,6 +91,12 @@ describe('debug report sections', () => {
     });
   });
 
+  it("stored files: an item in any channel's queue key counts as queued", async () => {
+    await browser.storage.local.set({ 'queue:UCa': [{ id: 'a1', src: 'bridge' }], 'queue:UCb': [{ id: 'b1', src: 'bridge' }] });
+    const files = await storedFiles({ listIds: async () => ['a1', 'b1', 'stray'], getHandle: async () => undefined });
+    expect(files.files.map((f) => [f.id, f.queued])).toEqual([['a1', true], ['b1', true], ['stray', false]]);
+  });
+
   it('the log filter: newest first, by context and level', () => {
     const log: LogEntry[] = [
       { t: 1, ctx: 'panel', level: 'error', msg: 'a' },

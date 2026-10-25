@@ -6,7 +6,8 @@ import * as messages from '../lib/messages';
 import { SCHEMA_VERSION } from '../lib/migrations';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import { otherTabRunning, queue, setOtherTabRuns, type QueueItem } from '../lib/studio/queue-runner';
-import { createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle, watchRunLifecycle } from '../lib/studio/queue-sync';
+import { adoptQueueChannel, createLockFollower, elsewhere, mayEdit, resumeQueue, watchLockLifecycle, watchRunLifecycle } from '../lib/studio/queue-sync';
+import { moveLegacyQueueInOrder } from '../lib/store-writer';
 import { disposeState, initState } from '../lib/studio/state';
 
 // The Studio content script's startup and edit gate, without WXT's defineContentScript.
@@ -15,15 +16,19 @@ const item = (name: string, status: QueueItem['status']): QueueItem => ({
   titleEdited: false, status, msg: '', txt: '', txtName: '', thumb: null, duration: 0,
 });
 
+const CH = 'UCaaaaaaaaaaaaaaaaaaaaaa';
+const KEY = 'queue:' + CH;
 const toasts: string[] = [];
 const sent: string[] = [];
 let otherTab = false;
+let runnerCh = ''; // the lock holder's channel, as the background answers runner:channel
 beforeEach(async () => {
   disposeState();
   fakeBrowser.reset();
   queue.splice(0);
   toasts.length = 0;
   sent.length = 0;
+  runnerCh = '';
   const noop = () => {};
   setPageUi({
     item: noop, run: noop, queue: noop, schedule: noop, presetPreview: noop, openDrawer: noop, notifyDone: noop,
@@ -31,9 +36,11 @@ beforeEach(async () => {
   } satisfies PageUi);
   vi.spyOn(messages, 'sendMessage').mockImplementation((async (type: string, data: unknown) => {
     sent.push(type + ':' + JSON.stringify(data));
+    if (type === 'queue:migrate') return moveLegacyQueueInOrder(data as string); // the background's answer
+    if (type === 'runner:channel') return runnerCh;
     return type === 'runner:elsewhere' ? otherTab : undefined;
   }) as typeof messages.sendMessage);
-  await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, queue: [item('A.mp4', 'uploading'), item('B.mp4', 'pending')] });
+  await browser.storage.local.set({ schemaVersion: SCHEMA_VERSION, [KEY]: [item('A.mp4', 'uploading'), item('B.mp4', 'pending')] });
   await initState(async () => SCHEMA_VERSION);
 });
 afterEach(() => {
@@ -44,16 +51,122 @@ afterEach(() => {
 describe('startup', () => {
   it('releases a lock left by a reload first, then cuts the interrupted item', async () => {
     otherTab = false;
-    await resumeQueue();
-    expect(sent).toEqual(['runner:release:"queue"', 'runner:elsewhere:"queue"']);
+    await resumeQueue(CH);
+    expect(sent).toEqual(['runner:release:"queue"', `queue:migrate:"${CH}"`, 'runner:elsewhere:"queue"']);
     expect(queue.map((i) => i.status)).toEqual(['error', 'pending']);
+  });
+
+  // The holder's channel comes from the lock itself (written with it), not from a marker a tab writes afterwards.
+  it("a stale marker of another channel doesn't let a same-channel tab cut a live run", async () => {
+    otherTab = true;
+    runnerCh = CH;
+    await browser.storage.local.set({ queueRunner: 'UCbbbbbbbbbbbbbbbbbbbbbb' }); // what an earlier run left
+    await resumeQueue(CH);
+    expect(queue.map((i) => i.status)).toEqual(['uploading', 'pending']);
   });
 
   it("leaves another tab's running item alone (markInterrupted = !elsewhere)", async () => {
     otherTab = true;
-    await resumeQueue();
+    await resumeQueue(CH);
     expect(queue.map((i) => i.status)).toEqual(['uploading', 'pending']);
     expect(otherTabRunning()).toBe(true);
+  });
+});
+
+// Older builds kept every channel's items in one 'queue' key (store-writer moveLegacyQueueInOrder).
+describe('the old one-key queue', () => {
+  const MOVED = 'Your queue from the older version moved to this channel (2 videos)';
+  beforeEach(async () => {
+    otherTab = false;
+    await browser.storage.local.remove(KEY);
+    await browser.storage.local.set({ queue: [item('A.mp4', 'uploading'), item('B.mp4', 'pending')] });
+  });
+
+  it('moves to this channel on load, once, and says so', async () => {
+    await resumeQueue(CH);
+    expect(queue.map((i) => i.status)).toEqual(['error', 'pending']);
+    expect(toasts).toEqual([MOVED]);
+    expect('queue' in (await browser.storage.local.get(null))).toBe(false);
+    await resumeQueue(CH);
+    expect(toasts).toEqual([MOVED]);
+  });
+
+  it('stays where it is while the channel is not known, and moves once it is', async () => {
+    await resumeQueue('');
+    expect(sent).toEqual(['runner:release:"queue"', 'runner:elsewhere:"queue"']);
+    expect(queue).toEqual([]);
+    queue.push(item('C.mp4', 'pending')); // queued before the channel was known
+    await adoptQueueChannel(CH);
+    expect(queue.map((i) => i.file.name)).toEqual(['A.mp4', 'B.mp4', 'C.mp4']);
+    expect(toasts).toEqual([MOVED]);
+    await vi.waitFor(async () => expect(((await browser.storage.local.get(KEY))[KEY] as QueueItem[]).length).toBe(3));
+  });
+
+  it('two tabs loading at once: one gets the items and the toast, the other nothing', async () => {
+    const counts: number[] = [];
+    const real = vi.mocked(messages.sendMessage).getMockImplementation()!;
+    vi.mocked(messages.sendMessage).mockImplementation((async (type: string, data: unknown) => {
+      const r = await real(type as never, data as never);
+      if (type === 'queue:migrate') counts.push(r as number);
+      return r;
+    }) as typeof messages.sendMessage);
+    await Promise.all([resumeQueue(CH), resumeQueue(CH)]);
+    expect(counts.sort()).toEqual([0, 2]);
+    expect(toasts).toEqual([MOVED]);
+    expect(((await browser.storage.local.get(KEY))[KEY] as QueueItem[]).map((i) => i.file.name).sort()).toEqual(['A.mp4', 'B.mp4']);
+  });
+
+  it('the interrupted item of the old key comes back as an error, in the channel key', async () => {
+    await resumeQueue(CH);
+    await vi.waitFor(async () => {
+      const saved = (await browser.storage.local.get(KEY))[KEY] as QueueItem[];
+      expect(saved.map((i) => i.status)).toEqual(['error', 'pending']);
+    });
+  });
+
+  it('an old key this build does not understand: left alone, no toast', async () => {
+    await browser.storage.local.set({ queue: { not: 'a list' } });
+    disposeState(); // the cache of beforeEach still holds the removed channel key
+    await initState(async () => SCHEMA_VERSION);
+    await resumeQueue(CH);
+    expect((await browser.storage.local.get('queue')).queue).toEqual({ not: 'a list' });
+    expect(queue).toEqual([]);
+    expect(toasts).toEqual([]);
+  });
+
+  it('a failing move is logged and the tab still loads its own key', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await browser.storage.local.set({ [KEY]: [item('OWN.mp4', 'pending')] });
+    const real = vi.mocked(messages.sendMessage).getMockImplementation()!;
+    vi.mocked(messages.sendMessage).mockImplementation((async (type: string, data: unknown) => {
+      if (type === 'queue:migrate') throw new Error('no background');
+      return real(type as never, data as never);
+    }) as typeof messages.sendMessage);
+    await resumeQueue(CH);
+    expect(queue.map((i) => i.file.name)).toEqual(['OWN.mp4']);
+    expect(toasts).toEqual([]);
+    expect(err).toHaveBeenCalled();
+  });
+
+  it('asks for the move once: ticks while adopting must wait do not ask again', async () => {
+    await browser.storage.local.remove('queue'); // nothing to move: the answer is 0
+    otherTab = true; // a tab of unknown channel runs the queue: adopting waits
+    await resumeQueue('');
+    for (let i = 0; i < 3; i++) await adoptQueueChannel(CH);
+    expect(queue).toEqual([]);
+    setOtherTabRuns(false);
+    await adoptQueueChannel(CH);
+    expect(sent.filter((m) => m.startsWith('queue:migrate'))).toHaveLength(1);
+    expect(queue.map((i) => i.file.name)).toEqual([]);
+    expect(toasts).toEqual([]);
+  });
+
+  it('a second tick while the move is under way waits for it too', async () => {
+    await resumeQueue('');
+    queue.push(item('C.mp4', 'pending'));
+    await Promise.all([adoptQueueChannel(CH), adoptQueueChannel(CH)]);
+    expect(queue.map((i) => i.file.name)).toEqual(['A.mp4', 'B.mp4', 'C.mp4']);
+    expect(toasts).toEqual([MOVED]);
   });
 });
 
@@ -73,6 +186,15 @@ describe('mayEdit', () => {
     otherTab = true;
     expect(await mayEdit()).toBe(false);
     expect(toasts).toEqual(['Another Studio tab is running the queue — change the queue there']);
+  });
+
+  it("allows it while the running tab is on another channel; refuses on the same one", async () => {
+    otherTab = true;
+    runnerCh = 'UCaaaaaaaaaaaaaaaaaaaaaa';
+    await resumeQueue('UCbbbbbbbbbbbbbbbbbbbbbb');
+    expect(await mayEdit()).toBe(true);
+    await resumeQueue('UCaaaaaaaaaaaaaaaaaaaaaa');
+    expect(await mayEdit()).toBe(false);
   });
 
   it('allows it otherwise', async () => {

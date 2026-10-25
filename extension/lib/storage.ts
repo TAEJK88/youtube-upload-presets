@@ -8,3 +8,10 @@ export async function load<T>(key: string, fallback: T): Promise<T> {
 }
 
 export const save = (key: string, value: unknown): Promise<void> => browser.storage.local.set({ [key]: value });
+
+// The upload queue: one key per channel (queue:<channelId>). Older builds kept every
+// channel's items in the one 'queue' key; the background moves them (store-writer moveLegacyQueueInOrder).
+export const QUEUE_PREFIX = 'queue:';
+export const LEGACY_QUEUE_KEY = 'queue';
+export const queueKey = (channelId: string) => QUEUE_PREFIX + channelId;
+export const isQueueKey = (key: string) => key === LEGACY_QUEUE_KEY || key.startsWith(QUEUE_PREFIX);

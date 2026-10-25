@@ -18,7 +18,7 @@ import type { ChannelView, QueueView } from './studio/queue-view';
 export const PROTOCOL = 4;
 
 // What the side panel needs to follow a run live; the items themselves are in
-// chrome.storage.local ('queue'). `rev` goes up whenever the page changed something the
+// chrome.storage.local (queue:<channelId>). `rev` goes up whenever the page changed something the
 // panel shows (items, numbering, schedule, counters), so the panel knows to re-read.
 export interface QueueState {
   proto: number; // PROTOCOL of the tab's build
@@ -41,10 +41,13 @@ export type ProtocolMap = {
   ensureMigrated(): number;
   // forget stored file handles (the page can't reach the extension's IndexedDB)
   'files:delete'(ids: string[]): void;
+  // move the old one-key queue to this channel's key; answers how many items moved
+  'queue:migrate'(channelId: string): number;
   // "queue finished" desktop notification
   notify(n: QueueDoneNote): void;
   // the one automation lock (D21; the sender's tab is the asker)
-  'runner:acquire'(job: Job): boolean;
+  'runner:acquire'(job: Job | { job: Job; channel: string }): boolean; // the queue's comes with the tab's channel
+  'runner:channel'(): string; // the queue lock holder's channel, when another tab holds it
   'runner:release'(job: Job | 'all'): void;
   'runner:elsewhere'(job: Job | 'any'): boolean;
   'runner:holds'(job: Job): boolean;
