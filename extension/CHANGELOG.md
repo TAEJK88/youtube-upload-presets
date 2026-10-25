@@ -3,6 +3,23 @@
 The version is `version` in `package.json` (the manifest's version). A release is the tag
 `v<version>` on GitHub with the zip attached.
 
+## 5.2.5 — 2026-10-25
+
+Each YouTube channel now has its own upload queue. To update, follow README, "Update"; the
+extension ID stays `cllefnlbgkbdnmifojjflfcpholhniio`, so presets, settings and history stay.
+
+- **One queue per channel.** A Studio tab shows, saves and uploads only the videos queued for its
+  own channel.
+- **Your old queue moves once.** After updating, the queue from the older version goes to the
+  first channel you open in Studio, with the toast "Your queue from the older version moved to
+  this channel (N videos)". If those videos were meant for another channel, clear them here and
+  queue them on the right channel.
+- **Other channels keep saving.** While one channel uploads, edits on another channel's tab are
+  saved. Still only one upload runs at a time.
+- **Start waits for the channel.** If the tab does not know its channel yet, Start says "This tab
+  doesn't know its channel yet, so the queue isn't saved — wait a moment, then click Start again".
+- Title and preset edits remembered for a file now belong to its channel.
+
 ## 5.2.4 — 2026-10-22
 
 The Upload tab's clear button now empties the whole queue, not only the finished videos. To
