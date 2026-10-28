@@ -156,6 +156,13 @@ describe('intake', () => {
     expect(put.mock.calls.map(([id]) => id)).toEqual(ids);
   });
 
+  it('stores under the ids it is given (a lost item\'s own id)', async () => {
+    const put = vi.fn(async (_id: string, _h: FileSystemFileHandle) => {});
+    const a = file('a.mp4');
+    expect(await storeHandles([a], put, async () => {}, ['item-1'])).toEqual(['item-1']);
+    expect(put).toHaveBeenCalledWith('item-1', a);
+  });
+
   it('the panel keeps every handle it stored: the object from the drop or the picker, under its id', async () => {
     const [a, b] = [file('a.mp4'), file('b.mp4')];
     const ids = await storeHandles([a, b], async () => {});

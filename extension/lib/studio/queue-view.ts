@@ -30,7 +30,7 @@ export type ViewItem = QueueItem & {
   tracklist: TracklistCheck | null; // the chapter check of the description it will get
   fixChanges: string[]; // what "Fix tracklist" would change (only offered while there are errors)
   claimed: { line: string; song: string; artists: string; times: number }[]; // claimedSongsIn(txt): songs claimed before (4010)
-  lost?: boolean; // lostFile(): picked in Studio's dialog, its File gone with a reload (absent from an older tab)
+  lost?: boolean; // lostFile(): picked in Studio's dialog, its File not in this page (absent from an older tab)
 };
 
 export interface ScheduleView {

@@ -76,14 +76,14 @@ export async function forget(ids: string[], del: Del) {
   for (const id of ids) await del(id).catch(() => {});
 }
 
-// One fresh id per file. If a write fails, the ones already written are forgotten again.
+// One fresh id per file (or the ids given: lib/panel/relink.ts stores under lost items' own). If a write fails, the ones already written are forgotten again.
 // The panel keeps each handle object from here on (lib/file-handles.ts): Chrome ends the
 // read access of a file no page holds.
-export async function storeHandles(files: FileSystemFileHandle[], put: Put = putHandle, del: Del = deleteHandle): Promise<string[]> {
+export async function storeHandles(files: FileSystemFileHandle[], put: Put = putHandle, del: Del = deleteHandle, given?: string[]): Promise<string[]> {
   const ids: string[] = [];
   try {
-    for (const f of files) {
-      const id = crypto.randomUUID();
+    for (const [i, f] of files.entries()) {
+      const id = given?.[i] ?? crypto.randomUUID();
       await put(id, f);
       held.keep(id, f);
       ids.push(id);

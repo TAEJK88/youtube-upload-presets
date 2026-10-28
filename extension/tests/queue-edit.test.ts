@@ -7,7 +7,7 @@ import { defaultPresets } from '../lib/presets';
 import { setPageUi, type PageUi } from '../lib/studio/page-ui';
 import * as files from '../lib/studio/queue-files';
 import * as Q from '../lib/studio/queue-runner';
-import { editQueue, followStoredChanges, handleQueueAdd, handleQueueEdit } from '../lib/studio/queue-edit';
+import { editQueue, followStoredChanges, handleQueueAdd, handleQueueEdit, handleQueueRelink } from '../lib/studio/queue-edit';
 import { activeId, disposeState, flushState, initState } from '../lib/studio/state';
 import { createContentUi } from '../lib/studio/content-ui';
 import { flushQueue, persistQueue, restoreQueue } from '../lib/studio/queue-store';
@@ -178,7 +178,7 @@ describe('relink', () => {
       item('a', 'error', { src: 'page', msg: 'lost', presetId: 'lofi', title: 'Mine', titleEdited: true, txt: '0:00 A - One', txtName: 'a.txt', thumb, publishAt: 1_900_000_000_000, publishEdited: true }),
       item('b', 'pending', { src: 'page' }),
     );
-    await editQueue({ op: 'relink', ids: ['a', 'b'] });
+    expect(await handleQueueRelink(['a', 'b'], async () => true)).toEqual(['a', 'b']); // answers what it took
     expect(Q.queue[0]).toMatchObject({ src: 'bridge', status: 'pending', msg: '', presetId: 'lofi', title: 'Mine', titleEdited: true, txt: '0:00 A - One', txtName: 'a.txt', thumb, publishAt: 1_900_000_000_000, publishEdited: true });
     expect(Q.queue[1]).toMatchObject({ src: 'bridge', status: 'pending' });
     expect(calls).toEqual(['queue']);
@@ -188,7 +188,7 @@ describe('relink', () => {
     const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
     const [held] = files.pageFiles([new File(['v'], 'h.mp4')]);
     Q.queue.push(item('up', 'uploading', { src: 'page' }), item('br', 'error'), item(held!.qid, 'error', { src: 'page' }));
-    await editQueue({ op: 'relink', ids: ['up', 'br', held!.qid, 'gone'] });
+    expect(await handleQueueRelink(['up', 'br', held!.qid, 'gone'], async () => true)).toEqual([]);
     expect(Q.queue.map((i) => [i.src, i.status])).toEqual([['page', 'uploading'], ['bridge', 'error'], ['page', 'error']]);
     expect(drop).toHaveBeenCalledWith([{ id: 'up', src: 'bridge' }, { id: held!.qid, src: 'bridge' }, { id: 'gone', src: 'bridge' }]);
     expect(calls).toEqual([]);
@@ -361,13 +361,13 @@ describe('handleQueueEdit', () => {
     expect(Q.queue[0]!.title).toBe('');
   });
 
-  it('refused: the handles the panel stored for a relink are let go, the items stay page files', async () => {
+  it('refused relink: nothing taken, the handles are let go, the items stay page files', async () => {
     const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
-    Q.queue.push(item('a', 'error', { src: 'page' }));
-    await handleQueueEdit({ op: 'relink', ids: ['a'] }, no);
-    expect(drop).toHaveBeenCalledWith([{ id: 'a', src: 'bridge' }]);
+    Q.queue.push(item('a', 'error', { src: 'page' }), item('b', 'error'));
+    expect(await handleQueueRelink(['a', 'b'], no)).toEqual([]);
+    expect(drop).toHaveBeenCalledWith([{ id: 'a', src: 'bridge' }]); // b's handle is its own
     expect(Q.queue[0]!.src).toBe('page');
-    await handleQueueEdit({ op: 'relink', ids: 'a' }, yes); // malformed
+    expect(await handleQueueRelink('a', yes)).toEqual([]); // malformed
     expect(Q.queue[0]!.src).toBe('page');
   });
 

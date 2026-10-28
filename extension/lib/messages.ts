@@ -75,6 +75,7 @@ export type ProtocolMap = {
   'queue:clearAll'(): void;
   'queue:view'(): QueueView;
   'queue:edit'(e: QueueEdit): void;
+  'queue:relink'(ids: string[]): string[]; // lost page files picked again in the panel; answers the ids taken
   'channel:switch'(req: SwitchRequest): void;
   'fill:apply'(): void;
   'diag:dialogInfo'(): unknown;

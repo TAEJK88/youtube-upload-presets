@@ -18,13 +18,13 @@ describe('re-adding lost Studio-dialog files', () => {
     const b = pick('b.mp4', 7);
     const m = matchLost([lost('A', 'a.mp4', 5), lost('B', 'b.mp4'), lost('C', 'c.mp4', 3)], [b, pick('c.mp4', 4), a, pick('x.mp4')]);
     expect(m.pairs).toEqual([{ id: 'A', handle: a.handle }, { id: 'B', handle: b.handle }]);
-    expect(m.missing).toEqual(['c.mp4']); // same name, other size: not this video
+    // C: same name, other size: not this video
     expect(m.unused).toBe(2);
   });
 
-  it('nothing matches: no pairs, every lost item missing, every pick unused', () => {
+  it('nothing matches: no pairs, every pick unused', () => {
     const m = matchLost([lost('A', 'a.mp4')], [pick('z.mp4')]);
-    expect(m).toEqual({ pairs: [], missing: ['a.mp4'], unused: 1 });
+    expect(m).toEqual({ pairs: [], unused: 1 });
   });
 
   it('duplicate names: each picked file goes to one item, in queue order', () => {
@@ -32,29 +32,40 @@ describe('re-adding lost Studio-dialog files', () => {
     expect(matchLost([lost('A', 'mix.mp4', 9), lost('B', 'mix.mp4', 9)], [p1, p2]).pairs).toEqual([{ id: 'A', handle: p1.handle }, { id: 'B', handle: p2.handle }]);
     const one = matchLost([lost('A', 'mix.mp4'), lost('B', 'mix.mp4')], [p1]);
     expect(one.pairs).toEqual([{ id: 'A', handle: p1.handle }]);
-    expect(one.missing).toEqual(['mix.mp4']);
   });
 
-  it('stores each handle under its item id, keeps it, and sends the ids', async () => {
+  it('stores each handle under its item id, keeps it, sends the ids and answers what the tab took', async () => {
     const put = vi.fn(async (_id: string, _h: FileSystemFileHandle) => {});
-    const deliver = vi.fn(async (_ids: string[]) => {});
+    const del = vi.fn(async (_id: string) => {});
+    const deliver = vi.fn(async (_ids: string[]) => ['A']);
     const [a, b] = [pick('a.mp4').handle, pick('b.mp4').handle];
-    await relinkFiles([{ id: 'A', handle: a }, { id: 'B', handle: b }], deliver, put, async () => {});
+    expect(await relinkFiles([{ id: 'A', handle: a }, { id: 'B', handle: b }], deliver, () => false, put, del)).toEqual(['A']);
     expect(put.mock.calls).toEqual([['A', a], ['B', b]]);
     expect(deliver).toHaveBeenCalledWith(['A', 'B']);
-    expect([...handles.held()]).toEqual([['A', a], ['B', b]]);
+    expect(del.mock.calls).toEqual([['B']]); // not taken: forgotten again
+    expect([...handles.held()]).toEqual([['A', a]]);
   });
 
-  it('a tab that does not take them gets the handles forgotten again', async () => {
+  it('a tab that does not answer: the handles are forgotten, except an item the view now shows as a bridge file', async () => {
     const del = vi.fn(async (_id: string) => {});
-    await expect(relinkFiles([{ id: 'A', handle: pick('a.mp4').handle }], async () => { throw new Error('no receiver'); }, async () => {}, del)).rejects.toThrow('no receiver');
-    expect(del).toHaveBeenCalledWith('A');
-    expect(handles.held().size).toBe(0);
+    const pairs = [{ id: 'A', handle: pick('a.mp4').handle }, { id: 'B', handle: pick('b.mp4').handle }];
+    // Stale view: A turned into a bridge file (another re-add) while this one was sent.
+    await expect(relinkFiles(pairs, async () => { throw new Error('no receiver'); }, (id) => id === 'A', async () => {}, del)).rejects.toThrow('no receiver');
+    expect(del.mock.calls).toEqual([['B']]);
+    expect([...handles.held().keys()]).toEqual(['A']);
   });
 
-  it('the summary says how many matched and names what is still missing', () => {
-    expect(relinkSummary(2, 3, ['c.mp4'], 1)).toBe('Re-added 2 of 3 lost files · still missing: c.mp4 · 1 picked file(s) matched no lost video and were not added');
-    expect(relinkSummary(1, 1, [], 0)).toBe('Re-added 1 of 1 lost files');
-    expect(relinkSummary(0, 7, ['1', '2', '3', '4', '5', '6', '7'], 0)).toBe('Re-added 0 of 7 lost files · still missing: 1, 2, 3, 4, 5 and 2 more');
+  it('an answer that is not a list of ids counts as nothing taken (an older tab)', async () => {
+    const del = vi.fn(async (_id: string) => {});
+    expect(await relinkFiles([{ id: 'A', handle: pick('a.mp4').handle }], async () => undefined, () => false, async () => {}, del)).toEqual([]);
+    expect(del).toHaveBeenCalledWith('A');
+  });
+
+  it('the summary counts what the tab took and names every lost video it did not', () => {
+    const items = [lost('A', 'a.mp4'), lost('B', 'b.mp4'), lost('C', 'c.mp4')];
+    expect(relinkSummary(items, ['A', 'C'], 1)).toBe('Re-added 2 of 3 lost files · still missing: b.mp4 · 1 picked file(s) matched no lost video and were not added');
+    expect(relinkSummary(items.slice(0, 1), ['A'], 0)).toBe('Re-added 1 of 1 lost files');
+    const seven = ['1', '2', '3', '4', '5', '6', '7'].map((n) => lost(n, n));
+    expect(relinkSummary(seven, [], 0)).toBe('Re-added 0 of 7 lost files · still missing: 1, 2, 3, 4, 5 and 2 more');
   });
 });

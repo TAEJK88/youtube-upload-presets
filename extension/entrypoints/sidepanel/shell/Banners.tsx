@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
@@ -31,13 +31,16 @@ export function Banners() {
   // Videos picked in Studio's own upload dialog whose files a reload took (lib/panel/relink.ts):
   // one pick for all of them.
   const lost = lostItems(view?.items ?? []);
+  const latest = useRef(view);
+  latest.current = view; // read after the pick and the send: the queue may have changed meanwhile
+  const isBridge = (id: string) => latest.current?.items.some((it) => it.id === id && it.src === 'bridge') ?? false;
   const readd = async () => {
     try {
       const picked = await pickFiles();
       if (!picked.length) return;
       const m = matchLost(lost, await readPicked(picked));
-      if (m.pairs.length) await relinkFiles(m.pairs, (ids) => send('queue:edit', { op: 'relink', ids }));
-      toast(relinkSummary(m.pairs.length, lost.length, m.missing, m.unused));
+      const taken = m.pairs.length ? await relinkFiles(m.pairs, (ids) => send('queue:relink', ids), isBridge) : [];
+      toast(relinkSummary(lost, taken, m.unused));
     } catch (e) {
       console.error('[ytup] re-add lost files', e);
       toast(L('เพิ่มไฟล์กลับไม่ได้: ', 'Could not re-add the files: ') + ((e as Error)?.message ?? String(e)));
@@ -71,7 +74,7 @@ export function Banners() {
         </Banner>
       )}
       {lost.length > 0 && (
-        <Banner icon="upload" text={L(`${lost.length} ไฟล์หายไปเมื่อ Studio โหลดหน้าใหม่ — เป็นไฟล์ที่เลือกในหน้าต่างอัปโหลดของ Studio`, `${lost.length} files were lost when Studio reloaded — they came from Studio's own upload dialog`)}>
+        <Banner icon="upload" text={L(`แท็บ Studio นี้อ่านไฟล์ ${lost.length} ไฟล์ไม่ได้ — เลือกไว้ในหน้าต่างอัปโหลดของ Studio ในแท็บอื่น หรือหายไปเมื่อโหลดหน้าใหม่`, `${lost.length} files can't be read by this Studio tab — picked in Studio's upload dialog in another tab, or lost when the page reloaded`)}>
           <Button size="sm" onClick={() => void readd()}>{L('เพิ่มไฟล์กลับ', 'Re-add files')}</Button>
         </Banner>
       )}

@@ -26,7 +26,7 @@ import { installQuickActions } from '@/lib/studio/quick-actions';
 import { installDraftApply } from '@/lib/studio/draft-select';
 import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
-import { followStoredChanges, handleQueueAdd, handleQueueEdit } from '@/lib/studio/queue-edit';
+import { followStoredChanges, handleQueueAdd, handleQueueEdit, handleQueueRelink } from '@/lib/studio/queue-edit';
 import { clearAll, removeItem, resumeDrafts, retryItem, stopQueue } from '@/lib/studio/queue-ops';
 import { createPauseWatch } from '@/lib/studio/queue-pause';
 import { abortRun, currentItemId, installIntercept, isStartBinding, queue, requestStop, running, setCfgReader, setOtherTabRuns, setRunnerLock, startSummary } from '@/lib/studio/queue-runner';
@@ -231,6 +231,7 @@ export default defineContentScript({
     });
     onMessage('queue:view', () => queueView(ui.state()));
     onMessage('queue:edit', ({ data }) => handleQueueEdit(data, mayEdit));
+    onMessage('queue:relink', ({ data }) => handleQueueRelink(data, mayEdit));
     onMessage('channel:switch', ({ data }) => switchChannel(sw, data));
     stop.add(installShortcuts());
     stop.add(followStoredChanges());

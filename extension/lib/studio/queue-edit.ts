@@ -18,7 +18,6 @@ export type QueueEdit =
   | { op: 'move'; id: string; by: -1 | 1 }
   | { op: 'presetAll'; presetId: string }
   | { op: 'attach'; id: string; fileIds: string[] }
-  | { op: 'relink'; ids: string[] }
   | { op: 'dropTxt'; id: string }
   | { op: 'dropThumb'; id: string }
   | { op: 'fixTracklist'; id: string };
@@ -41,7 +40,6 @@ export async function editQueue(e: QueueEdit): Promise<void> {
     assignNumbers();
     return done();
   }
-  if (e.op === 'relink') return relink(e.ids);
   const it = queue.find((x) => x.id === e.id);
   if (e.op === 'attach') return attach(it, e.fileIds);
   if (!canEdit(it)) return;
@@ -146,22 +144,26 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
   done();
 }
 
-// The panel's Re-add files banner stored a handle under each of these item ids: lost page
-// files picked again. Each one still lost becomes a bridge file and waits again, as Retry
-// does, with everything else on its card kept. A handle no lost item takes is let go, unless
-// its item is already a bridge file (the handle is that item's own).
+// queue:relink. The panel's Re-add files banner stored a handle under each of these item ids:
+// lost page files picked again. Each one still lost becomes a bridge file and waits again, as
+// Retry does, with everything else on its card kept. Answers the ids it took (the panel's toast
+// counts them). A handle no lost item takes is let go, unless its item is already a bridge file
+// (the handle is that item's own). Refused (another tab runs the queue): nothing is taken.
 const notBridge = (id: string) => queue.find((x) => x.id === id)?.src !== 'bridge';
-function relink(ids: string[]): void {
-  const taken = queue.filter((it) => ids.includes(it.id) && lostFile(it) && canEdit(it));
+export async function handleQueueRelink(ids: unknown, mayEdit: () => Promise<boolean>): Promise<string[]> {
+  if (!isIds(ids)) return [];
+  const taken = (await mayEdit()) ? queue.filter((it) => ids.includes(it.id) && lostFile(it) && canEdit(it)) : [];
   for (const it of taken) {
     it.src = 'bridge';
     setItem(it, 'pending');
   }
   const left = ids.filter((id) => !taken.some((it) => it.id === id) && notBridge(id));
   if (left.length) dropFiles(left.map((id) => ({ id, src: 'bridge' as const })));
-  if (!taken.length) return;
-  assignNumbers();
-  done();
+  if (taken.length) {
+    assignNumbers();
+    done();
+  }
+  return taken.map((it) => it.id);
 }
 
 // Presets, the default preset, EP counters and settings are changed in the side panel.
@@ -216,7 +218,6 @@ function asEdit(d: unknown): QueueEdit | null {
     case 'presetAll': return isStr(e.presetId) ? (e as QueueEdit) : null;
     case 'move': return isStr(e.id) && (e.by === -1 || e.by === 1) ? (e as QueueEdit) : null;
     case 'attach': return isStr(e.id) && isIds(e.fileIds) ? (e as QueueEdit) : null;
-    case 'relink': return isIds(e.ids) ? (e as QueueEdit) : null;
     case 'resetTitle': case 'dropTxt': case 'dropThumb': case 'fixTracklist': return isStr(e.id) ? (e as QueueEdit) : null;
     default: return null;
   }
@@ -229,7 +230,6 @@ export async function handleQueueEdit(data: unknown, mayEdit: () => Promise<bool
   if (!e) return;
   if (await mayEdit()) await editQueue(e);
   else if (e.op === 'attach') dropFiles(e.fileIds.map((id) => ({ id, src: 'bridge' as const })));
-  else if (e.op === 'relink') dropFiles(e.ids.filter(notBridge).map((id) => ({ id, src: 'bridge' as const })));
 }
 
 // queue:add, with the same let-go when refused. Files that can't be read are let go too.

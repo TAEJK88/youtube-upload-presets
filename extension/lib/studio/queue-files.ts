@@ -20,8 +20,8 @@ export const pageFiles = (list: ArrayLike<File>): QFile[] =>
     return tag(f, id, 'page');
   });
 
-// A waiting or failed video picked in Studio's dialog whose File this page no longer holds (a
-// reload): the panel offers to re-add them all at once (lib/panel/relink.ts). A draft card,
+// A waiting or failed video picked in Studio's dialog whose File this page doesn't hold (a
+// reload, or it was picked in another Studio tab of the channel): the panel offers to re-add them all at once (lib/panel/relink.ts). A draft card,
 // or a video going on in its draft, reads no file.
 export const lostFile = (it: QueueItem) =>
   (it.status === 'pending' || it.status === 'error') && it.src === 'page' && !it.fromDraft && !it.draftId && !local.has(it.id);
