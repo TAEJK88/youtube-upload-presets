@@ -8,6 +8,7 @@ import {
   currentItemId, effectiveStart, itemPublishAt, itemTracklist, itemVars, queue, queueSlots, refreshChanSched,
   scheduleOn, scheduleProblem, startIsPast, takenSlots, type QueueItem,
 } from './queue-runner';
+import { lostFile } from './queue-files';
 import { presetById, settings } from './state';
 import { userscriptHere } from './userscript-here';
 
@@ -29,6 +30,7 @@ export type ViewItem = QueueItem & {
   tracklist: TracklistCheck | null; // the chapter check of the description it will get
   fixChanges: string[]; // what "Fix tracklist" would change (only offered while there are errors)
   claimed: { line: string; song: string; artists: string; times: number }[]; // claimedSongsIn(txt): songs claimed before (4010)
+  lost?: boolean; // lostFile(): picked in Studio's dialog, its File gone with a reload (absent from an older tab)
 };
 
 export interface ScheduleView {
@@ -86,6 +88,7 @@ export function queueView(state: QueueState): QueueView {
       tracklist,
       fixChanges: tracklist && tracklist.errors.length && editable ? fixChapters(it.txt).changes : [],
       claimed: it.txt ? claimedIn(it.txt) : [],
+      lost: lostFile(it),
     };
   });
   return {

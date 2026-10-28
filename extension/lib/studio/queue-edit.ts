@@ -1,8 +1,8 @@
 import { fixChapters } from '../chapters';
 import { L } from '../i18n';
 import { ui } from './page-ui';
-import { bridgeFiles, dropFiles } from './queue-files';
-import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, type FileSrc, type QFile, type QueueItem } from './queue-runner';
+import { bridgeFiles, dropFiles, lostFile } from './queue-files';
+import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, setItem, type FileSrc, type QFile, type QueueItem } from './queue-runner';
 import { activeId, onStored, presets } from './state';
 
 // The drawer's queue-card controls (UI section 3752–4024) and its "Apply to all" button,
@@ -18,6 +18,7 @@ export type QueueEdit =
   | { op: 'move'; id: string; by: -1 | 1 }
   | { op: 'presetAll'; presetId: string }
   | { op: 'attach'; id: string; fileIds: string[] }
+  | { op: 'relink'; ids: string[] }
   | { op: 'dropTxt'; id: string }
   | { op: 'dropThumb'; id: string }
   | { op: 'fixTracklist'; id: string };
@@ -40,6 +41,7 @@ export async function editQueue(e: QueueEdit): Promise<void> {
     assignNumbers();
     return done();
   }
+  if (e.op === 'relink') return relink(e.ids);
   const it = queue.find((x) => x.id === e.id);
   if (e.op === 'attach') return attach(it, e.fileIds);
   if (!canEdit(it)) return;
@@ -144,6 +146,24 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
   done();
 }
 
+// The panel's Re-add files banner stored a handle under each of these item ids: lost page
+// files picked again. Each one still lost becomes a bridge file and waits again, as Retry
+// does, with everything else on its card kept. A handle no lost item takes is let go, unless
+// its item is already a bridge file (the handle is that item's own).
+const notBridge = (id: string) => queue.find((x) => x.id === id)?.src !== 'bridge';
+function relink(ids: string[]): void {
+  const taken = queue.filter((it) => ids.includes(it.id) && lostFile(it) && canEdit(it));
+  for (const it of taken) {
+    it.src = 'bridge';
+    setItem(it, 'pending');
+  }
+  const left = ids.filter((id) => !taken.some((it) => it.id === id) && notBridge(id));
+  if (left.length) dropFiles(left.map((id) => ({ id, src: 'bridge' as const })));
+  if (!taken.length) return;
+  assignNumbers();
+  done();
+}
+
 // Presets, the default preset, EP counters and settings are changed in the side panel.
 // The drawer re-rendered the queue after each (refreshLabels / renderQueue): titles and
 // numbers follow, and items whose preset was deleted move to the default preset.
@@ -196,6 +216,7 @@ function asEdit(d: unknown): QueueEdit | null {
     case 'presetAll': return isStr(e.presetId) ? (e as QueueEdit) : null;
     case 'move': return isStr(e.id) && (e.by === -1 || e.by === 1) ? (e as QueueEdit) : null;
     case 'attach': return isStr(e.id) && isIds(e.fileIds) ? (e as QueueEdit) : null;
+    case 'relink': return isIds(e.ids) ? (e as QueueEdit) : null;
     case 'resetTitle': case 'dropTxt': case 'dropThumb': case 'fixTracklist': return isStr(e.id) ? (e as QueueEdit) : null;
     default: return null;
   }
@@ -208,6 +229,7 @@ export async function handleQueueEdit(data: unknown, mayEdit: () => Promise<bool
   if (!e) return;
   if (await mayEdit()) await editQueue(e);
   else if (e.op === 'attach') dropFiles(e.fileIds.map((id) => ({ id, src: 'bridge' as const })));
+  else if (e.op === 'relink') dropFiles(e.ids.filter(notBridge).map((id) => ({ id, src: 'bridge' as const })));
 }
 
 // queue:add, with the same let-go when refused. Files that can't be read are let go too.

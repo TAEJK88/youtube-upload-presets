@@ -12,6 +12,7 @@ import { ActivityBar } from '../entrypoints/sidepanel/shell/ActivityBar';
 import { Banners } from '../entrypoints/sidepanel/shell/Banners';
 import { ChannelBar } from '../entrypoints/sidepanel/shell/ChannelBar';
 import { QueueFooter } from '../entrypoints/sidepanel/tabs/QueueFooter';
+import * as fileStore from '../lib/file-store';
 import { setLang } from '../lib/i18n';
 import { ICONS } from '../lib/studio/dom';
 import { toPanelData } from '../lib/panel/data';
@@ -256,6 +257,28 @@ describe('banners', () => {
     expect(screen.getByText(notConnected)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Reload this tab' }));
     expect(reload).toHaveBeenCalledWith(1);
+  });
+
+  it('lost Studio-dialog files: one notice; one pick re-adds the matches and says what is missing', async () => {
+    const put = vi.spyOn(fileStore, 'putHandle').mockResolvedValue(undefined as never);
+    const handle = (name: string, size: number) => ({ kind: 'file', name, getFile: async () => ({ name, size }) }) as unknown as FileSystemFileHandle;
+    const a = handle('a.mp4', 5);
+    Object.assign(window, { showOpenFilePicker: vi.fn(async () => [a, handle('zz.mp4', 1)]) });
+    const api = fakePanel({ view: viewWith([
+      { src: 'page', status: 'error', lost: true, file: { name: 'a.mp4', size: 5, type: '' } },
+      { src: 'page', status: 'pending', lost: true, file: { name: 'b.mp4', size: 0, type: '' } },
+      { status: 'error' },
+    ]) });
+    renderPanel(<Banners />, api);
+    expect(screen.getByText("2 files were lost when Studio reloaded — they came from Studio's own upload dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Re-add files' }));
+    await flush();
+    expect(put).toHaveBeenCalledWith('i0', a);
+    expect(api.send).toHaveBeenCalledWith('queue:edit', { op: 'relink', ids: ['i0'] });
+    expect(toast).toHaveBeenCalledWith('Re-added 1 of 2 lost files · still missing: b.mp4 · 1 picked file(s) matched no lost video and were not added');
+    cleanup();
+    renderPanel(<Banners />, fakePanel({ view: viewWith([{ status: 'error' }]) }));
+    expect(screen.queryByRole('button', { name: 'Re-add files' })).toBe(null);
   });
 
   it('runner elsewhere: says so and goes to that tab', async () => {

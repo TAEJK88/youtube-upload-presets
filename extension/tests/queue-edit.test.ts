@@ -168,6 +168,33 @@ describe('editQueue', () => {
   });
 });
 
+// The panel's Re-add files banner: files picked in Studio's dialog, lost with a reload, picked
+// again in the panel; their handles now sit under the items' own ids (lib/panel/relink.ts).
+describe('relink', () => {
+  const thumb = { id: 'i', src: 'bridge' as const, name: 'a.jpg', size: 1, type: '' };
+
+  it('a lost page item becomes a bridge file and waits again, with its settings kept', async () => {
+    Q.queue.push(
+      item('a', 'error', { src: 'page', msg: 'lost', presetId: 'lofi', title: 'Mine', titleEdited: true, txt: '0:00 A - One', txtName: 'a.txt', thumb, publishAt: 1_900_000_000_000, publishEdited: true }),
+      item('b', 'pending', { src: 'page' }),
+    );
+    await editQueue({ op: 'relink', ids: ['a', 'b'] });
+    expect(Q.queue[0]).toMatchObject({ src: 'bridge', status: 'pending', msg: '', presetId: 'lofi', title: 'Mine', titleEdited: true, txt: '0:00 A - One', txtName: 'a.txt', thumb, publishAt: 1_900_000_000_000, publishEdited: true });
+    expect(Q.queue[1]).toMatchObject({ src: 'bridge', status: 'pending' });
+    expect(calls).toEqual(['queue']);
+  });
+
+  it('lets go of the handles no lost item takes; an item already a bridge file keeps its own', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    const [held] = files.pageFiles([new File(['v'], 'h.mp4')]);
+    Q.queue.push(item('up', 'uploading', { src: 'page' }), item('br', 'error'), item(held!.qid, 'error', { src: 'page' }));
+    await editQueue({ op: 'relink', ids: ['up', 'br', held!.qid, 'gone'] });
+    expect(Q.queue.map((i) => [i.src, i.status])).toEqual([['page', 'uploading'], ['bridge', 'error'], ['page', 'error']]);
+    expect(drop).toHaveBeenCalledWith([{ id: 'up', src: 'bridge' }, { id: held!.qid, src: 'bridge' }, { id: 'gone', src: 'bridge' }]);
+    expect(calls).toEqual([]);
+  });
+});
+
 // Until the tab knows its channel the queue has no key to be saved under (queue-store).
 describe('a Start while this tab does not know its channel', () => {
   const NO_CHANNEL = "This tab doesn't know its channel yet, so the queue isn't saved — wait a moment, then click Start again";
@@ -332,6 +359,16 @@ describe('handleQueueEdit', () => {
     expect(drop).toHaveBeenCalledWith([{ id: 't1', src: 'bridge' }, { id: 'i1', src: 'bridge' }]);
     await handleQueueEdit({ op: 'title', id: 'a', title: 'X' }, no);
     expect(Q.queue[0]!.title).toBe('');
+  });
+
+  it('refused: the handles the panel stored for a relink are let go, the items stay page files', async () => {
+    const drop = vi.spyOn(files, 'dropFiles').mockImplementation(() => {});
+    Q.queue.push(item('a', 'error', { src: 'page' }));
+    await handleQueueEdit({ op: 'relink', ids: ['a'] }, no);
+    expect(drop).toHaveBeenCalledWith([{ id: 'a', src: 'bridge' }]);
+    expect(Q.queue[0]!.src).toBe('page');
+    await handleQueueEdit({ op: 'relink', ids: 'a' }, yes); // malformed
+    expect(Q.queue[0]!.src).toBe('page');
   });
 
   it('applies when allowed', async () => {

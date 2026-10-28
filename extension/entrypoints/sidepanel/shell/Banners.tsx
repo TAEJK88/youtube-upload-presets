@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
+import { pickFiles } from '@/lib/panel/intake';
+import { lostItems, matchLost, readPicked, relinkFiles, relinkSummary } from '@/lib/panel/relink';
 import { focusTab } from '@/lib/panel/target';
 import { USERSCRIPT_HERE } from '@/lib/studio/userscript-here';
 import { updateAvailable, UPDATE_KEY, type UpdateInfo } from '@/lib/update-check';
@@ -24,7 +27,22 @@ function Banner({ icon, text, below, children }: { icon: string; text: string; b
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant } = usePanel();
+  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant, send } = usePanel();
+  // Videos picked in Studio's own upload dialog whose files a reload took (lib/panel/relink.ts):
+  // one pick for all of them.
+  const lost = lostItems(view?.items ?? []);
+  const readd = async () => {
+    try {
+      const picked = await pickFiles();
+      if (!picked.length) return;
+      const m = matchLost(lost, await readPicked(picked));
+      if (m.pairs.length) await relinkFiles(m.pairs, (ids) => send('queue:edit', { op: 'relink', ids }));
+      toast(relinkSummary(m.pairs.length, lost.length, m.missing, m.unused));
+    } catch (e) {
+      console.error('[ytup] re-add lost files', e);
+      toast(L('เพิ่มไฟล์กลับไม่ได้: ', 'Could not re-add the files: ') + ((e as Error)?.message ?? String(e)));
+    }
+  };
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };
@@ -50,6 +68,11 @@ export function Banners() {
             {/* Once and for all: Chrome's "Allow on every visit", asked in a tab (entrypoints/allow). */}
             <Button size="sm" onClick={openAllowPage}>{allowAlwaysLabel()}</Button>
           </div>
+        </Banner>
+      )}
+      {lost.length > 0 && (
+        <Banner icon="upload" text={L(`${lost.length} ไฟล์หายไปเมื่อ Studio โหลดหน้าใหม่ — เป็นไฟล์ที่เลือกในหน้าต่างอัปโหลดของ Studio`, `${lost.length} files were lost when Studio reloaded — they came from Studio's own upload dialog`)}>
+          <Button size="sm" onClick={() => void readd()}>{L('เพิ่มไฟล์กลับ', 'Re-add files')}</Button>
         </Banner>
       )}
       {link === 'noScript' && target && (

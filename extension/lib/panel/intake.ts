@@ -67,11 +67,11 @@ export async function expandHandles(handles: (FileSystemHandle | null)[], unread
   return out;
 }
 
-type Put = (id: string, handle: FileSystemFileHandle) => Promise<unknown>;
-type Del = (id: string) => Promise<unknown>;
+export type Put = (id: string, handle: FileSystemFileHandle) => Promise<unknown>;
+export type Del = (id: string) => Promise<unknown>;
 
 // Stored and no longer wanted: out of the store, and no longer held.
-async function forget(ids: string[], del: Del) {
+export async function forget(ids: string[], del: Del) {
   held.release(ids);
   for (const id of ids) await del(id).catch(() => {});
 }
