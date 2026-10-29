@@ -43,7 +43,9 @@ describe('copyright helpers', () => {
       type: 'audio', status: 'active', impact: 'blocked', segments: [[60, 90]], claimedSec: 30, canTrim: true, options: 'trim', own: false,
       hasImpact: true, publishAt: 0 }] } as ClaimScan;
     expect(claimsCsvRows(scan)[1]).toEqual(['Mix', 'https://studio.youtube.com/video/v1/claims', 'public', '10:00', 'S', 'A', 'L', 'Co', 'no',
-      'audio', 'active', 'blocked', '1:00-1:30', '0:30', 'yes', 'trim', 'c1']);
+      'audio', 'active', 'blocked', '1:00-1:30', '0:30', 'yes', 'trim', 'c1', '']);
+    expect(claimsCsvRows(scan)[0]!.at(-1)).toBe('tracklist_song');
+    expect(claimsCsvRows({ ...scan, rows: [{ ...scan.rows[0]!, tracklist: '00:50 Kellys Brown - I Know It All' }] })[1]!.at(-1)).toBe('00:50 Kellys Brown - I Know It All');
     expect(songsCsvRows({})[0]![0]).toBe('song');
   });
 });

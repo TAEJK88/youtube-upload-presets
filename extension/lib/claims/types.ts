@@ -5,6 +5,7 @@ export interface ClaimRow {
   videoId: string; video: string; privacy: string; length: number; claimId: string; song: string; artists: string;
   label: string; claimant: string; type: string; status: string; impact: string; segments: [number, number][];
   claimedSec: number; canTrim: boolean; options: string; own: boolean; hasImpact: boolean; publishAt: number;
+  tracklist?: string; // the video's own tracklist line where the first claimed range starts (older scans lack it)
 }
 export interface ClaimScan { date: string; total: number; rows: ClaimRow[]; channel: string; channelName: string }
 export interface AdsRow { videoId: string; video: string; privacy: string; length: number; ineligible: boolean; status: string }

@@ -10,6 +10,7 @@ import { SEL } from '../studio/sel';
 import { load as loadState, settings } from '../studio/state';
 import { TXT } from '../studio/txt';
 import { USERSCRIPT_HERE, userscriptHere } from '../studio/userscript-here';
+import { tracklistAt } from '../tracklist';
 import { claimInfo, DEFAULTS, privacyOf, short, songNorm } from './core';
 import { count, load, save, write } from './store';
 import type {
@@ -352,7 +353,7 @@ const switchToChannel: typeof switcher = (t, next) => {
     const own = cfg().ownNames.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
     try {
       log(L('สแกน: กำลังอ่านรายการวิดีโอ…', 'Scan: reading video list…'));
-      const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true, copyrightSummary: { all: true }, allRestrictions: { all: true } }, L('กำลังอ่านรายการวิดีโอ…', 'Reading video list…'));
+      const vids = await listVideos({ videoId: true, title: true, privacy: true, lengthSeconds: true, copyrightSummary: { all: true }, allRestrictions: { all: true }, description: true }, L('กำลังอ่านรายการวิดีโอ…', 'Reading video list…'));
       const claimed = vids.filter((v) =>
         +((v.copyrightSummary || {}).activeThirdPartyClaimsCount || 0) > 0 ||
         ((v.allRestrictions || {}).restrictions || []).some((r: any) => r.reason === 'VIDEO_RESTRICTION_REASON_COPYRIGHT'));
@@ -397,6 +398,8 @@ const switchToChannel: typeof switcher = (t, next) => {
             canTrim: opts.includes('trim'), options: opts.join(', '),
             own: own.some((n) => hay.includes(n)), hasImpact: !!impacts,
             publishAt: up && up.publishAt ? up.publishAt : 0,
+            // the line only: descriptions stay out of storage. Studio doesn't sort the ranges, so the earliest start
+            tracklist: tracklistAt(v.description, segs.length ? Math.min(...segs.map((sg) => sg[0])) : undefined),
           });
           await sleep(250);
         }

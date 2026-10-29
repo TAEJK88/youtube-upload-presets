@@ -565,6 +565,14 @@ describe('claim list', () => {
     expect(desc).toBe('Mix v1 | Song c1 · A · Lab');
   });
 
+  it('a claim shows the song its video\'s tracklist names at that time, under the claimed song', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([row('v1', 'c1', { tracklist: '03:36 Kellys Brown - I Know It All' }), row('v2', 'c2')]) });
+    await open(/Claim list/);
+    const [first, second] = boxes().map((b) => b.closest('[data-claim]') as HTMLElement);
+    expect(within(first!).getByText('Tracklist: 03:36 Kellys Brown - I Know It All').className).toContain('text-xs');
+    expect(second!.textContent).not.toContain('Tracklist:');
+  });
+
   it('a claim that can\'t be trimmed, or is done, can\'t be ticked, and says why', async () => {
     await stored({ 'trimQueue:UC1': ['v2:c3', 'v2:c4'], 'trimResults:UC1': { 'v2:c3': { state: 'saved', msg: '', date: '' }, 'v2:c4': { state: 'failed', msg: 'no button', date: '' } } });
     await mockSend();

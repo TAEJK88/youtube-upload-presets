@@ -87,10 +87,10 @@ export const csvText = (rows: unknown[][]): string => '﻿' + rows.map((r) => r.
 // claimsCSV() (4842–4846).
 export function claimsCsvRows(scan: ClaimScan): unknown[][] {
   const head = ['video', 'video_url', 'privacy', 'video_length', 'song', 'artists', 'label', 'claimant', 'own_music',
-    'type', 'status', 'impact', 'claimed_segments', 'claimed_total', 'can_trim', 'options', 'claim_id'];
+    'type', 'status', 'impact', 'claimed_segments', 'claimed_total', 'can_trim', 'options', 'claim_id', 'tracklist_song'];
   const lines = scan.rows.map((r) => [r.video, `https://studio.youtube.com/video/${r.videoId}/claims`, r.privacy, fmt(r.length),
     r.song, r.artists, r.label, r.claimant, r.own ? 'yes' : 'no', r.type, r.status, r.impact,
-    r.segments.map((sg) => fmt(sg[0]) + '-' + fmt(sg[1])).join(' ; '), fmt(r.claimedSec), r.canTrim ? 'yes' : 'no', r.options, r.claimId]);
+    r.segments.map((sg) => fmt(sg[0]) + '-' + fmt(sg[1])).join(' ; '), fmt(r.claimedSec), r.canTrim ? 'yes' : 'no', r.options, r.claimId, r.tracklist ?? '']);
   return [head, ...lines];
 }
 
