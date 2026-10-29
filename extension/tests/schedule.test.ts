@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatStudioDate, formatStudioTime, parseClock, setSchedule } from '../lib/studio/schedule';
+import { formatStudioDate, formatStudioTime, parseClock, sameStudioDate, setSchedule } from '../lib/studio/schedule';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { El, makeDocument } from './fake-dom.mjs';
 
@@ -52,6 +52,20 @@ describe('formatStudioDate', () => {
   it('switches to the Buddhist year when Studio shows one', () => {
     studioIn('th');
     expect(formatStudioDate(at, '2 ต.ค. 2569')).toBe('7 ต.ค. 2569');
+  });
+});
+
+describe('sameStudioDate', () => {
+  it('a day Studio pads with a zero is the date that was set', () => {
+    expect(sameStudioDate('05 Oct 2026', '5 Oct 2026')).toBe(true);
+    expect(sameStudioDate('Oct 05, 2026', 'Oct 5, 2026')).toBe(true);
+    expect(sameStudioDate('2026. 10. 05.', '2026. 10. 5.')).toBe(true);
+  });
+
+  it('a different day is still a different date', () => {
+    expect(sameStudioDate('15 Oct 2026', '5 Oct 2026')).toBe(false);
+    expect(sameStudioDate('06 Oct 2026', '5 Oct 2026')).toBe(false);
+    expect(sameStudioDate('2026. 1. 15.', '2026. 11. 5.')).toBe(false); // 15 Jan is not 5 Nov
   });
 });
 
