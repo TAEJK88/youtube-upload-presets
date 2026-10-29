@@ -32,6 +32,11 @@ describe('copyright helpers', () => {
     expect(csvText([['a', 'b "c"'], [1, null]])).toBe('﻿"a","b ""c"""\n"1",""');
   });
 
+  it('CSV text defuses third-party cells a spreadsheet would run as a formula', () => {
+    expect(csvText([['=HYPERLINK("x")', '+1', '-a', '@b', '\tc', '\rd']])).toBe('﻿"\'=HYPERLINK(""x"")","\'+1","\'-a","\'@b","\'\tc","\'\rd"');
+    expect(csvText([['Song = Title', 12, 'a-b']])).toBe('﻿"Song = Title","12","a-b"');
+  });
+
   it('the claims and songs CSVs keep the userscript columns', () => {
     const scan = { date: '2026-10-01T00:00:00Z', total: 1, channel: 'UC1', channelName: 'C', rows: [{
       videoId: 'v1', video: 'Mix', privacy: 'public', length: 600, claimId: 'c1', song: 'S', artists: 'A', label: 'L', claimant: 'Co',

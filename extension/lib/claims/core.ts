@@ -79,9 +79,10 @@ import type { ClaimScan, ClaimsCfg, Songs } from './types';
     return hits;
   }
 
-// downloadCSV()'s text (user.js 2084–2085): a BOM, every cell quoted.
-export const csvText = (rows: unknown[][]): string =>
-  '﻿' + rows.map((r) => r.map((v) => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
+// downloadCSV()'s text (user.js 2084–2085): a BOM, every cell quoted. A leading ' stops a spreadsheet running
+// a third-party name (song, label, claimant) that starts with = + - @ tab or CR as a formula.
+const csvCell = (v: unknown) => { const s = String(v ?? ''); return '"' + (/^[=+\-@\t\r]/.test(s) ? "'" + s : s).replace(/"/g, '""') + '"'; };
+export const csvText = (rows: unknown[][]): string => '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\n');
 
 // claimsCSV() (4842–4846).
 export function claimsCsvRows(scan: ClaimScan): unknown[][] {
