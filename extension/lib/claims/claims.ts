@@ -783,6 +783,8 @@ const switchToChannel: typeof switcher = (t, next) => {
   const fuCount = () => Object.values(fuGet()).reduce((a, v) => a + v.pending.length, 0);
   let fuBusy = false;
   let fuNext = 0;
+  // stopAll bumps it: a check or cycle that was awaiting YouTube when Stop came drops its stale copy and starts nothing
+  let stopGen = 0;
   async function fuCheck() {
     if (fuBusy || scanning) return;
     const run = getRun();
@@ -792,6 +794,7 @@ const switchToChannel: typeof switcher = (t, next) => {
     if (!vids.length) return;
     fuBusy = true;
     fuNext = Date.now() + Math.max(2, parseFloat(cfg().followUpMinutes) || 10) * 60e3;
+    const gen = stopGen;
     try {
       const ready: TrimPick[] = [];
       for (const videoId of vids) {
@@ -800,6 +803,7 @@ const switchToChannel: typeof switcher = (t, next) => {
         try {
           j = await yti('creator/list_creator_received_claims', { videoId, criticalRead: true, includeLicensingOptions: false, isCreatorMusicV2: true });
         } catch (e: any) { log(L(`เช็กคลิป ${v.video} ไม่สำเร็จ: ${e.message}`, `Failed to check video ${v.video}: ${e.message}`), 'warn'); continue; }
+        if (gen !== stopGen) return;
         const active: Record<string, any> = {};
         (j.receivedClaims || []).forEach((c: any) => { if (c.status === 'RECEIVED_CLAIM_STATUS_ACTIVE') active[c.claimId] = c; });
         v.pending = v.pending.filter((p) => {
@@ -819,6 +823,7 @@ const switchToChannel: typeof switcher = (t, next) => {
         if (!next) { log(L(`⏳ ${v.video}: ยังไม่มีตัวเลือก Trim — จะเช็กใหม่`, `⏳ ${v.video}: no Trim option yet — will check again`)); continue; }
         ready.push({ videoId, claimId: next.claimId, song: next.song, video: v.video });
       }
+      if (gen !== stopGen) return; // also a Stop during a call that then failed
       fuSet(fu);
       if (ready.length) {
         log(L(`▶ ${ready.length} คลิปประมวลผลเสร็จแล้ว — ตัด claim ถัดไป`, `▶ ${ready.length} videos finished processing — trimming next claim`), 'ok');
@@ -859,18 +864,20 @@ const switchToChannel: typeof switcher = (t, next) => {
     const run = getRun();
     if (run && run.active) return;
     apBusy = true;
+    const gen = stopGen;
     try {
       const hours = Math.max(0.5, parseFloat(cfg().apEveryHours) || 6);
       chMerge('autopilot', { next: Date.now() + hours * 3600e3, last: Date.now() });
       log(L(`🤖 Auto-pilot เริ่มรอบใหม่ที่ ${channelName()}`, `🤖 Auto-pilot starting a new cycle on ${channelName()}`), 'ok');
       if (!(await freshCfg())) return;
       const rows = await scanClaims({ show: false });
-      if (!rows) return;
+      if (!rows || gen !== stopGen) return;
       const pick = apPick(rows);
       if (!pick.length) {
         log(L(`🤖 ไม่มีอะไรต้องตัด เช็กครั้งถัดไป ${new Date(getAP().next).toLocaleString(locale())}`, `🤖 Nothing to trim, next check ${new Date(getAP().next).toLocaleString(locale())}`), 'ok');
         if (cfg().apAdsOn) {
           const adsRows = await scanAds({ show: false });
+          if (gen !== stopGen) return;
           const todo = (adsRows || []).filter((r) => !r.ineligible);
           if (todo.length) { log(L(`🤖 เปิดโฆษณา ${todo.length} คลิป`, `🤖 Turning on ads for ${todo.length} videos`), 'warn'); startAdsRun(todo); }
         }
@@ -1294,6 +1301,7 @@ export function collabFromPanel(d: unknown): void {
 }
 // claims:stop — UI.stopBtn (6193).
 export function stopAll(): void {
+  stopGen++;
   stopTrimRun(L('คุณกดหยุด', 'You stopped it'), true);
   stopAdsRun(L('คุณกดหยุด', 'You stopped it'));
   stopCollabRun(L('คุณกดหยุด', 'You stopped it'));
