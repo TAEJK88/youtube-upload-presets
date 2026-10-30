@@ -32,6 +32,13 @@ export interface QueueState {
   channel: ChannelView; // what the channel bar shows; a change makes the panel re-read
 }
 
+// Reschedule (Tools tab): the channel's scheduled videos, and the run one Apply started (`started`:
+// videos in it, followed through rescheduleRun:<ch>). Apply sends each ticked video with the time
+// the panel showed for it; the tab refuses when the fresh times differ.
+export interface ScheduledVideo { videoId: string; title: string; at: number }
+export type RescheduleList = { videos: ScheduledVideo[] } | { error: string };
+export type RescheduleResult = { started: number } | { error: string };
+
 export interface QueueDoneNote { title: string; text: string; focused: boolean }
 
 export type ProtocolMap = {
@@ -86,6 +93,9 @@ export type ProtocolMap = {
   'claims:ads'(videoIds: string[]): void;
   'claims:collab'(d: { videoIds: string[]; handles: string[] }): void;
   'claims:stop'(): void;
+  // side panel → content: Reschedule; the tab reads afresh and starts the run
+  'reschedule:list'(): RescheduleList;
+  'reschedule:apply'(d: { items: { videoId: string; at: number }[]; start: number }): RescheduleResult;
   // content → side panel (broadcast; nobody listens while the panel is closed)
   'queue:state'(s: QueueState): void;
   'queue:toast'(msg: string): void;

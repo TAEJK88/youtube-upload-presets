@@ -94,6 +94,44 @@ describe('a calendar that does not open', () => {
     warn.mockRestore();
   });
 
+  // A scheduled video's Visibility popup on its edit page (studio-watcher-1, 2026-10-29): the
+  // Schedule section is open already, its expand button hidden, and there is no schedule radio.
+  it('an open Schedule section is not clicked shut: it goes straight to the date field', async () => {
+    const doc = makeDocument();
+    const popup = el('ytcp-video-visibility-edit-popup', 'popup');
+    const expand = el('div', 'second-container-expand-button');
+    expand.hidden = true;
+    const trigger = el('div', 'datepicker-trigger');
+    const clicks: string[] = [];
+    expand.onclick = () => clicks.push('expand');
+    trigger.onclick = () => clicks.push('date');
+    popup.append(expand, trigger);
+    doc.body.append(popup);
+    vi.stubGlobal('document', Object.assign(doc, { visibilityState: 'visible' }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await setSchedule(new Date(2026, 9, 20, 19, 0), popup)).toBe('Could not open the calendar'); // got as far as the calendar
+    expect(clicks).toEqual(['date', 'date', 'date']);
+    warn.mockRestore();
+  });
+
+  it('the upload dialog as before: a shut Schedule section is opened first', async () => {
+    const doc = makeDocument();
+    const dlg = el('ytcp-uploads-dialog', 'dlg');
+    const radio = el('div', 'schedule-radio-button');
+    const trigger = el('div', 'datepicker-trigger');
+    trigger.hidden = true; // shown once the section opens
+    const clicks: string[] = [];
+    radio.onclick = () => { clicks.push('schedule'); trigger.hidden = false; };
+    trigger.onclick = () => clicks.push('date');
+    dlg.append(radio, trigger);
+    doc.body.append(dlg);
+    vi.stubGlobal('document', Object.assign(doc, { visibilityState: 'visible' }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await setSchedule(new Date(2026, 9, 20, 19, 0), dlg)).toBe('Could not open the calendar');
+    expect(clicks).toEqual(['schedule', 'date', 'date', 'date']);
+    warn.mockRestore();
+  });
+
   it('says when the tab was in the background', async () => {
     page('hidden');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

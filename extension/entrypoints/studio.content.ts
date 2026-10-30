@@ -24,6 +24,7 @@ import { installTitleMark, setTitleMark } from '@/lib/studio/page-notify';
 import { setPageUi } from '@/lib/studio/page-ui';
 import { installQuickActions } from '@/lib/studio/quick-actions';
 import { installDraftApply } from '@/lib/studio/draft-select';
+import { rescheduleApply, rescheduleList } from '@/lib/studio/reschedule';
 import { setBridge } from '@/lib/studio/queue-files';
 import { installShortcuts } from '@/lib/studio/shortcuts';
 import { followStoredChanges, handleQueueAdd, handleQueueEdit, handleQueueRelink } from '@/lib/studio/queue-edit';
@@ -139,6 +140,10 @@ export default defineContentScript({
     onMessage('claims:trim', ({ data }) => unlessUserscript(() => trimFromPanel(data)));
     onMessage('claims:ads', ({ data }) => unlessUserscript(() => adsFromPanel(data)));
     onMessage('claims:collab', ({ data }) => unlessUserscript(() => collabFromPanel(data)));
+    // Reschedule (Tools tab): this tab reads the channel afresh and starts the run; not while the
+    // userscript is in the page, like the other runs (its answer says so to the panel too).
+    onMessage('reschedule:list', () => rescheduleList());
+    onMessage('reschedule:apply', ({ data }) => unlessUserscript(() => rescheduleApply(data)) ?? { error: USERSCRIPT_HERE() });
     onMessage('claims:stop', () => stopAll());
     onMessage('claims:autopilot', ({ data }) => void autopilotDue(data).catch((e) => console.error('[ytup] autopilot nudge', e)));
     // The userscript's FAB: opens the side panel (needs the click's user gesture — see README), on

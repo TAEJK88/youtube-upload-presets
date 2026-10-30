@@ -13,8 +13,10 @@ export interface AdsScan { date: string; total: number; rows: AdsRow[] }
 export interface CollabRow { videoId: string; video: string; privacy: string; length: number }
 export interface CollabScan { date: string; total: number; rows: CollabRow[] }
 export interface ResultEntry { state: string; msg: string; date: string }
-export interface RunItem { videoId: string; video: string; state: string; msg: string; key?: string; claimId?: string; song?: string }
-export interface Run { active: boolean; items: RunItem[]; started: string; mode?: 'auto' | 'review'; channel?: string; handles?: string[] }
+// `at`: a Reschedule item's new release time (ms).
+export interface RunItem { videoId: string; video: string; state: string; msg: string; key?: string; claimId?: string; song?: string; at?: number }
+// `lastAt`: when a Reschedule run last finished a video (its leftover check counts from there).
+export interface Run { active: boolean; items: RunItem[]; started: string; mode?: 'auto' | 'review'; channel?: string; handles?: string[]; lastAt?: string }
 export type FollowUp = Record<string, {
   video: string; pending: { key: string; claimId: string; song: string; tries: number }[]; lastClaimId: string | null; lastSavedAt: number;
 }>;
@@ -45,7 +47,7 @@ export interface ClaimsState {
   uploadBusy: boolean; // the upload queue has work: jobs that change pages wait
   status: ClaimsStatus;
   counts: ClaimsCounts;
-  busyRun: boolean; // a trim / ads / Collab run is active
+  busyRun: boolean; // a trim / ads / Collab / Reschedule run is active
   busyScan: boolean;
   waiting: number; // fuCount(): claims waiting for a follow-up trim
   workerHere: boolean; // no other Studio tab holds the runner lock

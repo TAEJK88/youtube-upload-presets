@@ -69,14 +69,17 @@ function parseClock(text: unknown) {
 }
 
 // ตั้งเวลาปล่อยในหน้า Visibility คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
-async function setSchedule(date: Date) {
-  const dlg = getDialog()!;
-  const expand = await waitFor(() => {
-    const e = dlg.querySelector<HTMLElement>(SEL.scheduleRadio);
-    return isVisible(e) && e;
-  }, 6000);
-  if (!expand) return L('ไม่พบส่วน "กำหนดเวลา" ในหน้าการเปิดเผย', '"Schedule" section not found on the visibility page');
-  expand.click();
+// `dlg`: the upload dialog, or the edit page's Visibility dialog (Reschedule)
+async function setSchedule(date: Date, dlg: ParentNode = getDialog()!) {
+  // A scheduled video's popup has the section open already (its expand button hidden): a click would shut it.
+  if (!isVisible(dlg.querySelector(SEL.datePickerTrigger))) {
+    const expand = await waitFor(() => {
+      const e = dlg.querySelector<HTMLElement>(SEL.scheduleRadio);
+      return isVisible(e) && e;
+    }, 6000);
+    if (!expand) return L('ไม่พบส่วน "กำหนดเวลา" ในหน้าการเปิดเผย', '"Schedule" section not found on the visibility page');
+    expand.click();
+  }
 
   const trigger = await waitFor(() => {
     const t = dlg.querySelector<HTMLElement>(SEL.datePickerTrigger);

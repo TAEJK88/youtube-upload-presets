@@ -5,7 +5,8 @@ import { PROTOCOL } from '../messages';
 import { cachedCfg, chanLabel, getChannel } from '../studio/channel';
 import { clickByText, clickIn, shownDialog, sleep as sleepFor, waitFor as waitUntil } from '../studio/automation';
 import { inviteCollaborators } from '../studio/collab';
-import { otherTabRunning, queue, running, uploadOf } from '../studio/queue-runner';
+import { otherTabRunning, queue, refreshChanSched, running, scheduleProblem, uploadOf } from '../studio/queue-runner';
+import { scheduleOnEditPage } from '../studio/reschedule-page';
 import { SEL } from '../studio/sel';
 import { load as loadState, settings } from '../studio/state';
 import { TXT } from '../studio/txt';
@@ -49,6 +50,8 @@ const renderStatus = () => cui.status();
 //  - waiting and in-flight items do, as in the userscript: their upload needs the page.
 // While it holds, the status card says so ("⏸ Waiting for the upload queue…").
 const uploadBusy = () => running || (!otherTabRunning() && queue.some((i) => ['pending', 'uploading', 'review'].includes(i.status)));
+// An upload actually running, in this tab or another (Reschedule's rule: videos only waiting in the list don't count).
+const uploadRunning = () => running || otherTabRunning();
 
 // getCounts() (4646) counted the keys of a copy of the whole song history, every 3 s in every Studio tab.
 const songCount = () => count('songHistory');
@@ -164,7 +167,7 @@ async function claimLock(): Promise<boolean> {
 }
 // …or, while the Tampermonkey userscript is in the page, that the wait is for it (Phase 5 call 7).
 const lockWait = () => (userscriptHere() ? `⏸ ${USERSCRIPT_HERE()}` : L('⏸ รอแท็บ Studio อื่นทำงานเสร็จก่อน (ต้องเปลี่ยนหน้า)', '⏸ Waiting for another Studio tab to finish (page change needed)'));
-const runActive = () => [getRun(), getAdsRun(), getCollabRun()].some((r) => !!(r && r.active));
+const runActive = () => [getRun(), getAdsRun(), getCollabRun(), getReschedRun()].some((r) => !!(r && r.active));
 const holdsRun = () => lockMine && runActive();
 // After each tick: let the job go once no run needs this tab any more, and also while its run
 // can only wait for the upload queue. The lock is one for all Studio tabs: held by a waiting run
@@ -178,10 +181,12 @@ const UNKNOWN_HOLD_MS = 30_000;
 let unknownSince = 0;
 function settleLock(): void {
   if (!lockMine) return recheckLock();
-  if (trimBusy || adsBusy || collabBusy || trimStarting) return;
+  if (trimBusy || adsBusy || collabBusy || reschedBusy || trimStarting) return;
   if (currentChannel() !== 'unknown') unknownSince = 0;
   else if (Date.now() - (unknownSince ||= Date.now()) < UNKNOWN_HOLD_MS) return;
-  if (runActive() && !uploadBusy()) return;
+  // Reschedule alone goes by a running upload only (videos waiting in the list don't count, 11b).
+  const onlyResched = !!getReschedRun()?.active && ![getRun(), getAdsRun(), getCollabRun()].some((r) => r && r.active);
+  if (runActive() && !(onlyResched ? uploadRunning() : uploadBusy())) return;
   lockMine = false;
   lockUnsure = true;
   lockApi.release();
@@ -190,7 +195,7 @@ function settleLock(): void {
 // both cases the background may hold the job for this tab while the tab thinks it doesn't, until
 // the tab closes. So the tab asks once more at an idle tick; a "yes" is let go by the next one.
 function recheckLock(): void {
-  if (!lockUnsure || trimBusy || adsBusy || collabBusy) return;
+  if (!lockUnsure || trimBusy || adsBusy || collabBusy || reschedBusy) return;
   lockUnsure = false;
   void lockApi.holds().then((held) => { if (held) lockMine = true; }, () => { lockUnsure = true; });
 }
@@ -233,7 +238,7 @@ export function installBackGuard(reload: () => void = () => location.reload()): 
   // (`left` kept would end every later wait of this module in nothing: a scan stuck for good).
   const back = (e: PageTransitionEvent) => {
     if (!e.persisted) return;
-    if (lockMine || trimBusy || adsBusy || collabBusy || approving || scanning || adsScanning || collabScanning || apBusy || fuBusy) reload();
+    if (lockMine || trimBusy || adsBusy || collabBusy || reschedBusy || approving || scanning || adsScanning || collabScanning || apBusy || fuBusy) reload();
     else left = false;
   };
   window.addEventListener('pagehide', hide);
@@ -459,10 +464,11 @@ const switchToChannel: typeof switcher = (t, next) => {
     }
   }
   function otherJobBusy(except: string) {
-    const tr = getRun(), ar = getAdsRun(), cr = getCollabRun();
+    const tr = getRun(), ar = getAdsRun(), cr = getCollabRun(), rr = getReschedRun();
     return (except !== 'trim' && (trimBusy || !!(tr && tr.active))) ||
       (except !== 'ads' && (adsBusy || !!(ar && ar.active))) ||
-      (except !== 'collab' && (collabBusy || !!(cr && cr.active)));
+      (except !== 'collab' && (collabBusy || !!(cr && cr.active))) ||
+      (except !== 'reschedule' && (reschedBusy || !!(rr && rr.active)));
   }
   function startAdsRun(rows: { videoId: string; video: string }[]) {
     if (otherJobBusy('ads')) { log(L('ยังมีงานตัดลิขสิทธิ์/Collab อยู่ — รอให้เสร็จหรือกดหยุดก่อนแล้วค่อยเปิดโฆษณา', 'A trim/Collab job is still running — wait for it or press Stop before turning on ads'), 'warn'); return; }
@@ -698,6 +704,102 @@ const switchToChannel: typeof switcher = (t, next) => {
     setCollabStage(-1, L('คลิปถัดไปในไม่กี่วินาที…', 'Next video in a few seconds…'));
     await sleep(3000);
     collabBusy = false;
+  }
+  // Reschedule (Tools tab): each picked video's new release time set on its edit page, through
+  // Studio's own Visibility dialog and Save (reschedule-page.ts), one video at a time like Collab.
+  const RESCHED_STEPS = () => [L('เปิดคลิป', 'Open video'), L('ตั้งเวลา', 'Set time'), 'Save', L('ตรวจผล', 'Verify')];
+  let reschedBusy = false;
+  let reschedStage = { idx: -1, detail: '' };
+  const setReschedStage = (idx: number, detail = '') => { reschedStage = { idx, detail }; renderStatus(); };
+  const getReschedRun = (): Run | null => chGet('rescheduleRun', null);
+  // A run that can't go now is refused, never stored to start by itself later (the live test,
+  // 2026-10-29: one started while the upload queue had work would have moved 25 videos hours later).
+  const UPLOAD_RUNNING = () => L('กำลังอัปโหลดอยู่ ลองใหม่เมื่ออัปเสร็จ', 'An upload is running, try again when it finishes');
+  const TAB_BUSY = () => L('แท็บ Studio อื่นกำลังทำงานอยู่ ลองใหม่เมื่อเสร็จแล้ว', "Another Studio tab is busy, try again when it's done");
+  const RUN_MAX_AGE = 60 * 60_000; // since the last finished video: a run idle this long is a leftover, not a resume
+  // '' when started, otherwise why not.
+  async function startRescheduleRun(items: { videoId: string; video: string; at: number }[]): Promise<string> {
+    if (otherJobBusy('reschedule')) return L('ยังมีงานอื่นทำอยู่ — รอให้เสร็จหรือกดหยุดก่อน', 'Another job is still running — wait for it or press Stop first');
+    if (uploadRunning()) return UPLOAD_RUNNING();
+    if (!(await claimLock())) return TAB_BUSY();
+    isWorker(true);
+    chSet('rescheduleRun', { active: true, items: items.map((i) => ({ videoId: i.videoId, video: i.video, state: 'pending', msg: '', at: i.at })), started: new Date().toISOString() });
+    log(L(`🗓️ กำลังเลื่อนเวลา ${items.length} คลิป`, `🗓️ Rescheduling ${items.length} videos`), 'ok');
+    void reschedStep();
+    return '';
+  }
+  function stopRescheduleRun(reason = L('เลื่อนเวลาเสร็จ', 'Reschedule finished')) {
+    const run = getReschedRun();
+    if (!run || !run.active) return;
+    chMerge('rescheduleRun', { active: false });
+    reschedStage = { idx: -1, detail: '' };
+    const moved = run.items.filter((i) => i.state === 'moved').length;
+    const failed = run.items.filter((i) => i.state === 'failed').length;
+    const left = run.items.filter((i) => i.state === 'pending').length;
+    const summary = [L(`เลื่อนแล้ว ${moved}`, `Moved ${moved}`), failed ? L(`ไม่สำเร็จ ${failed}`, `Failed ${failed}`) : '', left ? L(`ยังไม่ได้ทำ ${left}`, `Not done ${left}`) : ''].filter(Boolean).join(' · ');
+    log(`${reason}: ${summary}`, 'ok');
+    flash(reason, summary, failed ? 'err' : 'ok', 15000);
+    // The queue's free slots (takenSlots / queueSlots) must go round the new times, not the old.
+    if (moved) void refreshChanSched(true);
+  }
+  function setReschedResult(item: RunItem, state: 'moved' | 'failed', msg = '') {
+    chRunItem('rescheduleRun', 'videoId', item.videoId, state, msg);
+    chMerge('rescheduleRun', { lastAt: new Date().toISOString() });
+    log(`${state === 'moved' ? '🗓️' : '❌'} ${item.video}${msg ? ': ' + msg : ''}`, state === 'moved' ? 'ok' : 'err');
+  }
+  async function reschedStep() {
+    const run = getReschedRun();
+    if (!run || !run.active || reschedBusy) return;
+    const item = run.items.find((i) => i.state === 'pending' && !isSettled(run, i));
+    if (!item) return stopRescheduleRun();
+    if (Date.now() - new Date(run.lastAt || run.started).getTime() > RUN_MAX_AGE) return stopRescheduleRun(L('การเลื่อนเวลานี้ค้างมาจากรอบก่อน — เริ่มใหม่ถ้ายังต้องการ', 'This reschedule was left from an earlier session — start it again if you still want it'));
+    reschedBusy = true;
+    // Never waits for the lock or the queue to start later by itself: the run ends, and says why.
+    if (!(await claimLock())) { reschedBusy = false; return stopRescheduleRun(TAB_BUSY()); }
+    if (!(getReschedRun() || {} as Partial<Run>).active) { reschedBusy = false; return; }
+    try {
+      // Checked again right before the video's page: the time can have become too soon, the video
+      // unscheduled, or already moved (a Save that landed before this page reloaded).
+      const late = scheduleProblem(item.at);
+      if (late) throw new Error(late);
+      const now = await listScheduled().catch(() => null);
+      if (!now) throw new Error(L('อ่านเวลาปล่อยปัจจุบันไม่ได้ ลองใหม่อีกครั้ง', "Couldn't read the current release times, try again"));
+      const cur = now.find((v) => v.videoId === item.videoId);
+      if (!cur) throw new Error(L('ไม่ได้ตั้งเวลาไว้แล้ว', 'No longer scheduled'));
+      if (Math.abs(cur.at - item.at!) < 60_000) { setReschedResult(item, 'moved', L('อยู่ที่เวลาใหม่แล้ว', 'Already at the new time')); return await reschedNext(); }
+      if (!location.pathname.startsWith(`/video/${item.videoId}/edit`)) {
+        if (uploadRunning()) { reschedBusy = false; return stopRescheduleRun(UPLOAD_RUNNING()); }
+        setReschedStage(0, L('กำลังเปิดหน้ารายละเอียดของคลิป…', 'Opening the video details page…'));
+        location.href = `/video/${item.videoId}/edit`;
+        setTimeout(() => { reschedBusy = false; }, 15000); // ถ้าเปลี่ยนหน้าไม่สำเร็จ (เช่นกด Stay ใน Leave site?) ให้ลองใหม่ได้
+        return;
+      }
+      const r = await scheduleOnEditPage(new Date(item.at!), setReschedStage, () => !!getReschedRun()?.active);
+      if (r.dirty) {
+        // Never navigate on from unsaved changes: "Leave site?" would hold the next page, and the change is half made.
+        const why = L(`${item.video} มีการแก้ไขที่ยังไม่บันทึกใน Studio — ตรวจที่นั่น`, `${item.video} has unsaved changes in Studio, check it there`);
+        setReschedResult(item, 'failed', r.error ? `${r.error} — ${why}` : why);
+        if (getReschedRun()?.active) stopRescheduleRun(why);
+        else log(why, 'err');
+        reschedBusy = false;
+        return;
+      }
+      if (!getReschedRun()?.active) { reschedBusy = false; return; } // stopped: the video stays not done
+      if (r.error) throw new Error(r.error);
+      setReschedStage(3, L('ตรวจกับ YouTube ว่าเวลาเปลี่ยนแล้ว…', 'Checking with YouTube that the time changed…'));
+      const after = (await listScheduled()) || [];
+      const kept = after.some((v) => v.videoId === item.videoId && Math.abs(v.at - item.at!) < 60_000);
+      if (!kept) throw new Error(L('บันทึกแล้ว แต่ Studio ยังไม่แสดงเวลาใหม่', "Saved, but Studio doesn't show the new time"));
+      setReschedResult(item, 'moved');
+    } catch (e: any) {
+      setReschedResult(item, 'failed', e.message);
+    }
+    await reschedNext();
+  }
+  async function reschedNext() {
+    setReschedStage(-1, L('คลิปถัดไปในไม่กี่วินาที…', 'Next video in a few seconds…'));
+    await sleep(3000);
+    reschedBusy = false;
   }
   const TRIM_LABEL = (): Record<string, string> => ({
     pending: L('⏳ รอ', '⏳ Pending'), saved: L('✅ ตัดแล้ว', '✅ Trimmed'), gone: L('✅ claim หายไปแล้ว', '✅ Claim gone'), failed: L('❌ ไม่สำเร็จ', '❌ Failed'),
@@ -1126,6 +1228,14 @@ const switchToChannel: typeof switcher = (t, next) => {
         detail: cur ? cur.video : L('กำลังจบ…', 'Finishing…'), progress: crun.items.length ? fin / crun.items.length : 0,
         steps: COLLAB_STEPS(), stepIdx: workerHere ? collabStage.idx : -1, stepDetail: workerHere ? collabStage.detail : L('↪ ทำงานอยู่ในแท็บ Studio อื่น', '↪ Running in another Studio tab') };
     }
+    const rrun = getReschedRun();
+    if (rrun && rrun.active) {
+      const fin = rrun.items.filter((i) => i.state !== 'pending').length;
+      const cur = rrun.items.find((i) => i.state === 'pending');
+      return { icon: '🗓️', kind: 'busy', title: L(`กำลังเลื่อนเวลา คลิป ${Math.min(fin + 1, rrun.items.length)} จาก ${rrun.items.length}`, `Rescheduling: video ${Math.min(fin + 1, rrun.items.length)} of ${rrun.items.length}`),
+        detail: cur ? cur.video : L('กำลังจบ…', 'Finishing…'), progress: rrun.items.length ? fin / rrun.items.length : 0,
+        steps: RESCHED_STEPS(), stepIdx: workerHere ? reschedStage.idx : -1, stepDetail: workerHere ? reschedStage.detail : L('↪ ทำงานอยู่ในแท็บ Studio อื่น', '↪ Running in another Studio tab') };
+    }
     const arun = getAdsRun();
     if (arun && arun.active) {
       const fin = arun.items.filter((i) => i.state !== 'pending').length;
@@ -1169,17 +1279,23 @@ const switchToChannel: typeof switcher = (t, next) => {
     const run = getRun();
     const running2 = !!(run && run.active);
     // แย่งสิทธิ์ทำงานเฉพาะตอนแท็บนี้กำลังทำงานที่เปลี่ยนหน้าอยู่ (การสแกนอ่านอย่างเดียว ไม่ต้องแย่งจากแท็บที่กำลังตัด)
-    const busy = trimBusy || apBusy || fuBusy || adsBusy || collabBusy;
+    const busy = trimBusy || apBusy || fuBusy || adsBusy || collabBusy || reschedBusy;
     const ready = !!ycfg('INNERTUBE_CONTEXT') && isWorker(busy);
     workerHere = ready;
     const arun = getAdsRun();
     const crun = getCollabRun();
-    const adsRunning = !!(arun && arun.active) || !!(crun && crun.active);
+    const rrun = getReschedRun();
+    const adsRunning = !!(arun && arun.active) || !!(crun && crun.active) || !!(rrun && rrun.active);
     // งานที่ต้องเปลี่ยนหน้า (ตัด / เปิดโฆษณา / Collab) รอจนคิวอัปโหลดว่าง และไม่เปลี่ยนหน้าระหว่างที่แท็บนี้กำลังสแกน
     const canNavigate = !uploadBusy() && !scanning && !adsScanning && !collabScanning;
-    if (ready && canNavigate && adsRunning && !running2 && !adsBusy && !collabBusy && !trimBusy && !trimStarting) {
+    // Reschedule goes by a running upload only (videos waiting in the list don't count), and never
+    // waits for one to start again by itself later: it ends.
+    const reschedOnly = !!(rrun && rrun.active) && !(crun && crun.active);
+    if (reschedOnly && uploadRunning() && !reschedBusy) stopRescheduleRun(UPLOAD_RUNNING());
+    const mayGo = reschedOnly ? !uploadRunning() && !scanning && !adsScanning && !collabScanning : canNavigate;
+    if (ready && mayGo && adsRunning && !running2 && !adsBusy && !collabBusy && !reschedBusy && !trimBusy && !trimStarting) {
       trimStarting = true;
-      setTimeout(() => { trimStarting = false; crun && crun.active ? collabStep() : adsStep(); }, 2500);
+      setTimeout(() => { trimStarting = false; crun && crun.active ? collabStep() : rrun && rrun.active ? reschedStep() : adsStep(); }, 2500);
     }
     const ap = getAP();
     if (ready && canNavigate && !adsRunning && !adsScanning && ap.on && !running2 && !apBusy && !scanning && Date.now() >= (ap.next || 0)) apCycle();
@@ -1308,6 +1424,7 @@ export function stopAll(): void {
   stopTrimRun(L('คุณกดหยุด', 'You stopped it'), true);
   stopAdsRun(L('คุณกดหยุด', 'You stopped it'));
   stopCollabRun(L('คุณกดหยุด', 'You stopped it'));
+  stopRescheduleRun(L('คุณกดหยุด', 'You stopped it'));
   renderStatus();
 }
 // claims:autopilot — the background's alarm for a channel (D25): the tab on it ticks now.
@@ -1372,7 +1489,7 @@ export function claimsState(): ClaimsState {
     uploadBusy: uploadBusy(),
     status: computeStatus(),
     counts: getCounts(),
-    busyRun: active(getRun()) || active(getAdsRun()) || active(getCollabRun()),
+    busyRun: active(getRun()) || active(getAdsRun()) || active(getCollabRun()) || active(getReschedRun()),
     busyScan: scanning || adsScanning || collabScanning,
     waiting: fuCount(),
     workerHere,
@@ -1403,7 +1520,7 @@ export {
   scanning, scanProg, listVideos, listScheduled, scanClaims, getSongs, adsScanning, scanAds, collabScanning, collabBusy, scanCollab,
   getRun, setRun, getAdsRun, setAdsRun, getCollabRun, setCollabRun, collabLinks, fuGet, fuSet, fuCount, fuBusy, fuNext,
   getAP, setAP, apBusy, trimStage, adsStage, collabStage, workerHere, setTrimStage, setAdsStage, setCollabStage, flash, dur,
-  computeStatus, log,
+  computeStatus, log, startRescheduleRun, reschedStep, reschedStage,
   visible, findText, isDisabled, otherJobBusy, startAdsRun, stopAdsRun, setAdsResult, adsIsOn, adsStep, adsOne, startCollabRun, stopCollabRun, chainAcceptInvites, setCollabResult,
   collabStep, setResult, startTrimRun, stopTrimRun, fuHas, fuAdd, fuOnResult, fuCheck, apPick, apCycle, installConfirmWatch, findConfirmDialog, deepAll, approveConfirm, trimStep, closeDialogs, pickRow, trimOne, tick,
 };

@@ -18,22 +18,23 @@ import { AutopilotSwitch } from './copyright/AutopilotSwitch';
 import { ClaimList } from './copyright/ClaimList';
 import { CollabView } from './copyright/CollabView';
 import { CopyrightSettings } from './copyright/CopyrightSettings';
+import { RescheduleView } from './copyright/RescheduleView';
 import { Songs } from './copyright/Songs';
 import { StatusCard } from './copyright/StatusCard';
 import { TracklistFix } from './copyright/TracklistFix';
 
 // The drawer's "ลิขสิทธิ์" pane (buildPane 6183–6216, renderStatus 6219–6256), now the Tools tab:
-// three groups (Copyright, Ads off, Collab); Copyright's tools (the drawer's modals, D23) each have
+// four groups (Copyright, Ads off, Collab, Reschedule); Copyright's tools (the drawer's modals, D23) each have
 // a sub-tab. Status and counts come from the Studio tab (useClaims, D24); lists and results from
 // storage, for the channel that tab is on.
-export type ToolTab = 'claims' | 'songs' | 'tracklist' | 'ads' | 'collab' | 'settings';
-export type ToolGroup = 'copyright' | 'ads' | 'collab';
-type CopyrightTool = Exclude<ToolTab, 'ads' | 'collab'>;
-const groupOf = (t: ToolTab): ToolGroup => (t === 'ads' || t === 'collab' ? t : 'copyright');
+export type ToolTab = 'claims' | 'songs' | 'tracklist' | 'ads' | 'collab' | 'reschedule' | 'settings';
+export type ToolGroup = 'copyright' | 'ads' | 'collab' | 'reschedule';
+type CopyrightTool = Exclude<ToolTab, ToolGroup>;
+const groupOf = (t: ToolTab): ToolGroup => (t === 'ads' || t === 'collab' || t === 'reschedule' ? t : 'copyright');
 // Which group a job on the card belongs to, from the icon the tab already gives it (statusInfo).
 const groupOfIcon = (icon: string): ToolGroup => {
   const e = icon.replace(/️/g, '').trim();
-  return e === '💰' ? 'ads' : e === '🤝' ? 'collab' : 'copyright';
+  return e === '💰' ? 'ads' : e === '🤝' ? 'collab' : e === '🗓' ? 'reschedule' : 'copyright';
 };
 
 export function useClaimsData(ch: string | null): ClaimsData | null {
@@ -162,11 +163,12 @@ export function CopyrightTab() {
   );
   // The group a job on the card belongs to: the card says so, and that group's button shows a dot.
   const runIn = s && (s.busyRun || s.busyScan) ? groupOfIcon(s.status.icon) : null;
-  const groupName: Record<ToolGroup, string> = { copyright: L('ลิขสิทธิ์', 'Copyright'), ads: 'Ads off', collab: 'Collab' };
+  const groupName: Record<ToolGroup, string> = { copyright: L('ลิขสิทธิ์', 'Copyright'), ads: 'Ads off', collab: 'Collab', reschedule: L('เลื่อนเวลา', 'Reschedule') };
   const groups: [ToolGroup, string, string][] = [
     ['copyright', 'shield', n?.hasScan ? L(`${n.claims} claim`, `${n.claims} claims`) : ''],
     ['ads', 'paid', n?.hasAdsScan ? L(`${n.adsTodo} คลิป`, `${n.adsTodo} videos`) : ''],
     ['collab', 'collab', data?.collabScan ? L(`${data.collabScan.total} คลิป`, `${data.collabScan.total} videos`) : ''],
+    ['reschedule', 'clock', ''],
   ];
   const tools: [CopyrightTool, string][] = [
     ['claims', n?.hasScan ? L(`รายการ claim (${n.claims})`, `Claim list (${n.claims})`) : L('รายการ claim', 'Claim list')],
@@ -187,9 +189,10 @@ export function CopyrightTab() {
         {s && <StatusCard s={s.status} tag={runIn ? groupName[runIn] : undefined} />}
         {stoppable && <Button variant="danger" className="mt-2.5 w-full" onClick={stop}><Icon name="stop" size={14} />{L('หยุด', 'Stop')}</Button>}
       </Section>
-      <Tabs className="@container mt-[22px]" value={group} onValueChange={(v) => setTool(v === 'copyright' ? lastCopyright : (v as 'ads' | 'collab'))}>
-        {/* Three groups, a third of the bar each: "ลิขสิทธิ์" with its icon needs ~80px, a third of a 320px panel is ~94. */}
-        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-3">
+      <Tabs className="@container mt-[22px]" value={group} onValueChange={(v) => setTool(v === 'copyright' ? lastCopyright : (v as Exclude<ToolGroup, 'copyright'>))}>
+        {/* Four groups: "ลิขสิทธิ์" or "เลื่อนเวลา" with its icon needs ~80px, so two a row in a 320px panel
+            (~284px of bar) and four from 360px of bar (the Tabs is a size container). */}
+        <TabsList ref={bar} aria-label={L('เครื่องมือ', 'Tools')} className="mb-3 grid-cols-2 @min-[360px]:grid-cols-4">
           {groups.map(([g, icon, count]) => (
             <TabsTrigger key={g} value={g} disabled={g !== 'copyright' && !ready} className="relative min-w-0 flex-col gap-0 px-1 py-1.5 disabled:cursor-default disabled:opacity-50">
               <span className="flex max-w-full min-w-0 items-center gap-1"><Icon name={icon} size={14} /><span className="truncate">{groupName[g]}</span></span>
@@ -232,6 +235,9 @@ export function CopyrightTab() {
           <TabsContent {...groupPane('ads')}>
             {once('ads', () => (data.adsScan ? <AdsView data={data} state={shown} busy={busy} idle={idle} onOptions={() => setTool('settings')} />
               : scanButton('ads', L('เช็กคลิปที่ปิดโฆษณา', 'Check for ads off'), L('หาคลิปที่ปิดโฆษณาแล้วเปิดให้', 'Find videos with ads off and turn them on'))))}
+          </TabsContent>
+          <TabsContent {...groupPane('reschedule')}>
+            {once('reschedule', () => <RescheduleView channelName={shown.channelName} data={data} busy={busy} open={group === 'reschedule'} />)}
           </TabsContent>
           <TabsContent {...groupPane('collab')}>
             {once('collab', () => (data.collabScan ? <CollabView data={data} state={shown} busy={busy} idle={idle} />

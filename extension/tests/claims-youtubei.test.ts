@@ -131,6 +131,17 @@ describe('listScheduled (the queue avoids these slots)', () => {
     expect(call.mock.calls[0]![1]).toMatchObject({ filter: { and: { operands: [{ channelIdIs: { value: 'UCaaaaaaaaaaaaaaaaaaaaaa' } }, {}] } }, pageSize: 50 });
   });
 
+  // Studio's real answer (live read, 2026-10-29, PLAYNOW®): scheduledTimeSeconds is a string of seconds
+  // (UTC epoch). 1806530400 is Apr 1, 2027 00:00 in Europe/Oslo, which Studio's Visibility dialog showed.
+  it('reads the real answer shape: string seconds, as UTC milliseconds', async () => {
+    const real = (id: string, s: string) => ({ videoId: id, title: id, scheduledPublishingDetails: { scheduledPublishings: [{ scheduledTimeSeconds: s, action: 'SCHEDULED_PUBLISHING_ACTION_SET_PUBLIC', status: 'SCHEDULED_PUBLISHING_STATUS_SCHEDULED' }] } });
+    setYoutubei(async () => ({ videos: [real('BlH3YVxVNdQ', '1806530400'), real('U5qcl8kYqVA', '1802915100')] }));
+    expect(await listScheduled()).toEqual([
+      { videoId: 'U5qcl8kYqVA', title: 'U5qcl8kYqVA', at: Date.UTC(2027, 1, 18, 1, 45) },
+      { videoId: 'BlH3YVxVNdQ', title: 'BlH3YVxVNdQ', at: Date.UTC(2027, 2, 31, 22, 0) },
+    ]);
+  });
+
   it('nothing until Studio has its context', async () => {
     resetCfg();
     expect(await listScheduled()).toBe(null);
