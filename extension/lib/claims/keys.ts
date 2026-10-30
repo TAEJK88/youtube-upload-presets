@@ -4,7 +4,7 @@
 // background's worker lease (runner-lock claimWorker, D21).
 export const CH_KEYS = [
   'claimScan', 'adsScan', 'adsResults', 'adsRun', 'collabScan', 'collabResults', 'collabRun', 'collabLinks',
-  'trimQueue', 'trimResults', 'trimRun', 'followUp', 'autopilot',
+  'trimQueue', 'trimResults', 'trimRun', 'followUp', 'autopilot', 'rescheduleRun',
 ] as const;
 export type ChKey = (typeof CH_KEYS)[number];
 export const GLOBAL_KEYS = ['cfg', 'songHistory', 'collabHandles', 'logOpen'] as const;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatStudioDate, formatStudioTime, parseClock, setSchedule } from '../lib/studio/schedule';
+import { formatStudioDate, formatStudioTime, parseClock, sameStudioDate, setSchedule } from '../lib/studio/schedule';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { El, makeDocument } from './fake-dom.mjs';
 
@@ -55,6 +55,20 @@ describe('formatStudioDate', () => {
   });
 });
 
+describe('sameStudioDate', () => {
+  it('a day Studio pads with a zero is the date that was set', () => {
+    expect(sameStudioDate('05 Oct 2026', '5 Oct 2026')).toBe(true);
+    expect(sameStudioDate('Oct 05, 2026', 'Oct 5, 2026')).toBe(true);
+    expect(sameStudioDate('2026. 10. 05.', '2026. 10. 5.')).toBe(true);
+  });
+
+  it('a different day is still a different date', () => {
+    expect(sameStudioDate('15 Oct 2026', '5 Oct 2026')).toBe(false);
+    expect(sameStudioDate('06 Oct 2026', '5 Oct 2026')).toBe(false);
+    expect(sameStudioDate('2026. 1. 15.', '2026. 11. 5.')).toBe(false); // 15 Jan is not 5 Nov
+  });
+});
+
 describe('a calendar that does not open', () => {
   const el = (tag: string, id: string) => { const e = new El(tag); e.id = id; return e; };
   const page = (visibilityState: string) => {
@@ -77,6 +91,44 @@ describe('a calendar that does not open', () => {
     expect(await setSchedule(new Date(2026, 9, 20, 19, 0))).toBe('Could not open the calendar');
     expect(clicks).toEqual(['first', 'again', 'again']);
     expect(warn).toHaveBeenCalledWith('[ytup] calendar: not open after 3 clicks · tab visible · date field was drawn again · 0 calendar input(s) in the page, none visible');
+    warn.mockRestore();
+  });
+
+  // A scheduled video's Visibility popup on its edit page (studio-watcher-1, 2026-10-29): the
+  // Schedule section is open already, its expand button hidden, and there is no schedule radio.
+  it('an open Schedule section is not clicked shut: it goes straight to the date field', async () => {
+    const doc = makeDocument();
+    const popup = el('ytcp-video-visibility-edit-popup', 'popup');
+    const expand = el('div', 'second-container-expand-button');
+    expand.hidden = true;
+    const trigger = el('div', 'datepicker-trigger');
+    const clicks: string[] = [];
+    expand.onclick = () => clicks.push('expand');
+    trigger.onclick = () => clicks.push('date');
+    popup.append(expand, trigger);
+    doc.body.append(popup);
+    vi.stubGlobal('document', Object.assign(doc, { visibilityState: 'visible' }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await setSchedule(new Date(2026, 9, 20, 19, 0), popup)).toBe('Could not open the calendar'); // got as far as the calendar
+    expect(clicks).toEqual(['date', 'date', 'date']);
+    warn.mockRestore();
+  });
+
+  it('the upload dialog as before: a shut Schedule section is opened first', async () => {
+    const doc = makeDocument();
+    const dlg = el('ytcp-uploads-dialog', 'dlg');
+    const radio = el('div', 'schedule-radio-button');
+    const trigger = el('div', 'datepicker-trigger');
+    trigger.hidden = true; // shown once the section opens
+    const clicks: string[] = [];
+    radio.onclick = () => { clicks.push('schedule'); trigger.hidden = false; };
+    trigger.onclick = () => clicks.push('date');
+    dlg.append(radio, trigger);
+    doc.body.append(dlg);
+    vi.stubGlobal('document', Object.assign(doc, { visibilityState: 'visible' }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await setSchedule(new Date(2026, 9, 20, 19, 0), dlg)).toBe('Could not open the calendar');
+    expect(clicks).toEqual(['schedule', 'date', 'date', 'date']);
     warn.mockRestore();
   });
 

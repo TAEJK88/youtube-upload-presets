@@ -1,7 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
 import { L } from '@/lib/i18n';
+import { pickFiles } from '@/lib/panel/intake';
+import { lostItems, matchLost, readPicked, relinkFiles, relinkSummary } from '@/lib/panel/relink';
 import { focusTab } from '@/lib/panel/target';
 import { USERSCRIPT_HERE } from '@/lib/studio/userscript-here';
 import { updateAvailable, UPDATE_KEY, type UpdateInfo } from '@/lib/update-check';
@@ -24,7 +27,25 @@ function Banner({ icon, text, below, children }: { icon: string; text: string; b
 
 // What the panel can't do right now, and the one action that fixes it.
 export function Banners() {
-  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant } = usePanel();
+  const { link, target, runner, elsewhere, busyElsewhere, view, refresh, noAccess, regrant, send } = usePanel();
+  // Videos picked in Studio's own upload dialog whose files a reload took (lib/panel/relink.ts):
+  // one pick for all of them.
+  const lost = lostItems(view?.items ?? []);
+  const latest = useRef(view);
+  latest.current = view; // read after the pick and the send: the queue may have changed meanwhile
+  const isBridge = (id: string) => latest.current?.items.some((it) => it.id === id && it.src === 'bridge') ?? false;
+  const readd = async () => {
+    try {
+      const picked = await pickFiles();
+      if (!picked.length) return;
+      const m = matchLost(lost, await readPicked(picked));
+      const taken = m.pairs.length ? await relinkFiles(m.pairs, (ids) => send('queue:relink', ids), isBridge) : [];
+      toast(relinkSummary(lost, taken, m.unused));
+    } catch (e) {
+      console.error('[ytup] re-add lost files', e);
+      toast(L('เพิ่มไฟล์กลับไม่ได้: ', 'Could not re-add the files: ') + ((e as Error)?.message ?? String(e)));
+    }
+  };
   const goToRunner = () => {
     if (runner) focusTab(runner).catch((e) => console.error('[ytup] go to runner tab failed', e)).finally(refresh);
   };
@@ -50,6 +71,11 @@ export function Banners() {
             {/* Once and for all: Chrome's "Allow on every visit", asked in a tab (entrypoints/allow). */}
             <Button size="sm" onClick={openAllowPage}>{allowAlwaysLabel()}</Button>
           </div>
+        </Banner>
+      )}
+      {lost.length > 0 && (
+        <Banner icon="upload" text={L(`แท็บ Studio นี้อ่านไฟล์ ${lost.length} ไฟล์ไม่ได้ — เลือกไว้ในหน้าต่างอัปโหลดของ Studio ในแท็บอื่น หรือหายไปเมื่อโหลดหน้าใหม่`, `${lost.length} files can't be read by this Studio tab — picked in Studio's upload dialog in another tab, or lost when the page reloaded`)}>
+          <Button size="sm" onClick={() => void readd()}>{L('เพิ่มไฟล์กลับ', 'Re-add files')}</Button>
         </Banner>
       )}
       {link === 'noScript' && target && (

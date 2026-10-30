@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as messages from '../lib/messages';
-import { bridgeFiles, probeBridge, dropFiles, getQueueFile, pageFiles, setBridge } from '../lib/studio/queue-files';
+import { bridgeFiles, probeBridge, dropFiles, getQueueFile, lostFile, pageFiles, setBridge } from '../lib/studio/queue-files';
+import type { QueueItem } from '../lib/studio/queue-runner';
 import { fakeBridge } from './bridge-fake';
 
 afterEach(() => { setBridge(null); vi.restoreAllMocks(); });
@@ -15,6 +16,18 @@ describe('queue files', () => {
 
   it('a page file lost to a reload says to add it again', async () => {
     await expect(getQueueFile('gone', 'page')).rejects.toThrow("Studio's own upload dialog");
+  });
+
+  it('lostFile: a waiting or failed page item this page no longer holds a file for', () => {
+    const [held] = pageFiles([new File(['v'], 'A.mp4')]);
+    const it = (extra: Partial<QueueItem>) => ({ id: 'gone', src: 'page', status: 'error', ...extra }) as QueueItem;
+    expect(lostFile(it({}))).toBe(true);
+    expect(lostFile(it({ status: 'pending' }))).toBe(true);
+    expect(lostFile(it({ id: held!.qid }))).toBe(false);
+    expect(lostFile(it({ src: 'bridge' }))).toBe(false);
+    expect(lostFile(it({ status: 'done' }))).toBe(false);
+    expect(lostFile(it({ fromDraft: true }))).toBe(false); // a draft card has no file
+    expect(lostFile(it({ draftId: 'v1' }))).toBe(false); // goes on in its draft without the file
   });
 
   it('bridge files come through the bridge by id', async () => {

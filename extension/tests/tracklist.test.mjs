@@ -69,3 +69,19 @@ test('fixTracklist returns empty output for empty input', () => {
   assert.equal(r.text, '');
   assert.equal(r.kept, 0);
 });
+
+const DESC = 'Mix of the week\n00:00 BLXD - Just Us Two\n03:36 Kellys Brown - I Know It All\n1:02:03 Last One\nThanks for listening';
+
+test('tracklistAt: the line with the largest timestamp at or before the second', () => {
+  assert.equal(S.tracklistAt(DESC, 216), '03:36 Kellys Brown - I Know It All'); // exactly on the boundary
+  assert.equal(S.tracklistAt(DESC, 215.9), '00:00 BLXD - Just Us Two');
+  assert.equal(S.tracklistAt(DESC, 3723), '1:02:03 Last One'); // h:mm:ss, the last line
+  assert.equal(S.tracklistAt(DESC, 9999), '1:02:03 Last One');
+});
+
+test('tracklistAt: nothing before the first timestamp, without a tracklist, or without a time', () => {
+  assert.equal(S.tracklistAt('00:30 A\n01:00 B', 10), '');
+  assert.equal(S.tracklistAt('Just a description', 60), '');
+  assert.equal(S.tracklistAt(undefined, 60), '');
+  assert.equal(S.tracklistAt(DESC, undefined), '');
+});

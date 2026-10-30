@@ -39,11 +39,11 @@ const pane = () => within(screen.getAllByRole('tabpanel').at(-1)!);
 const ready = () => waitFor(() => expect((screen.getByRole('tab', { name: /Songs/, hidden: true }) as HTMLButtonElement).disabled).toBe(false));
 
 describe('Tools tab', () => {
-  it('shows the status card, Scan, the three groups and a sub-tab per Copyright tool, with counts', async () => {
+  it('shows the status card, Scan, the four groups and a sub-tab per Copyright tool, with counts', async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims({ state: claimsStateWith({ counts }) }));
     expect(screen.getByText('Ready')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Scan claims/ })).toBeTruthy();
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Copyright 4 claims', 'Ads off', 'Collab', 'Claim list (4)', 'Songs (9)', 'Fix tracklist', 'Options']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Copyright 4 claims', 'Ads off', 'Collab', 'Reschedule', 'Claim list (4)', 'Songs (9)', 'Fix tracklist', 'Options']);
     expect(active(/Copyright/)).toBe(true);
     expect(active('Claim list (4)')).toBe(true);
   });
@@ -563,6 +563,14 @@ describe('claim list', () => {
     // the checkbox is named by what it does, and described by its video and song
     const desc = boxes()[0]!.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)!.textContent).join(' | ');
     expect(desc).toBe('Mix v1 | Song c1 · A · Lab');
+  });
+
+  it('a claim shows the song its video\'s tracklist names at that time, under the claimed song', async () => {
+    await fakeBrowser.storage.local.set({ 'claimScan:UC1': scanOf([row('v1', 'c1', { tracklist: '03:36 Kellys Brown - I Know It All' }), row('v2', 'c2')]) });
+    await open(/Claim list/);
+    const [first, second] = boxes().map((b) => b.closest('[data-claim]') as HTMLElement);
+    expect(within(first!).getByText('Tracklist: 03:36 Kellys Brown - I Know It All').className).toContain('text-xs');
+    expect(second!.textContent).not.toContain('Tracklist:');
   });
 
   it('a claim that can\'t be trimmed, or is done, can\'t be ticked, and says why', async () => {
@@ -1265,12 +1273,12 @@ describe('Tools tab review fixes', () => {
   // the Thai labels lost their counts (measured in Chrome). The groups take a third of the bar each;
   // Copyright's tools sit in a size container: two a row, four from 448px of it. happy-dom has no
   // layout or container queries, so this pins the classes; the widths are in the comments by the bars.
-  it("three groups a row; Copyright's tools two a row when narrow, four from 448px of bar", async () => {
+  it("groups two a row when narrow, four from 360px of bar; Copyright's tools two a row, four from 448px", async () => {
     renderPanel(<CopyrightTab />, fakePanel(), undefined, fakeClaims());
     await ready();
     const groups = screen.getByRole('tablist', { name: 'Tools' });
-    expect(groups.classList.contains('grid-cols-3')).toBe(true);
-    expect(within(groups).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Copyright', 'Ads off', 'Collab']);
+    expect([...groups.classList].filter((c) => /grid-cols-/.test(c))).toEqual(['grid-cols-2', '@min-[360px]:grid-cols-4']);
+    expect(within(groups).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Copyright', 'Ads off', 'Collab', 'Reschedule']);
     const bar = screen.getByRole('tablist', { name: 'Copyright tools' });
     expect(bar.parentElement!.classList.contains('@container')).toBe(true);
     expect(bar.classList.contains('grid-cols-2')).toBe(true);
@@ -1351,3 +1359,17 @@ function captureDownload() {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { saved.name = this.download; });
   return saved;
 }
+
+describe('Reschedule group (Tools tab)', () => {
+  it("opens the Reschedule tool, which asks the bound Studio tab for the channel's scheduled videos", async () => {
+    const send = vi.fn(async (type: string) => (type === 'reschedule:list' ? { videos: [{ videoId: 'aaaaaaaaaaa', title: 'Late Mix', at: Date.UTC(2027, 0, 10) }] } : undefined));
+    renderPanel(<CopyrightTab />, fakePanel({ send: send as never }), undefined, fakeClaims());
+    await ready();
+    expect(send).not.toHaveBeenCalledWith('reschedule:list', undefined); // not built before it is opened
+    pick('Reschedule');
+    expect(active('Reschedule')).toBe(true);
+    expect(await pane().findByRole('heading', { name: 'Reschedule — Mine' })).toBeTruthy();
+    expect(await pane().findByRole('checkbox', { name: 'Late Mix' })).toBeTruthy();
+    expect(send).toHaveBeenCalledWith('reschedule:list', undefined);
+  });
+});

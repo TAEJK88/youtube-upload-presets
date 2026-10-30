@@ -22,6 +22,7 @@ export interface ClaimsData {
   trimRun: Run | null;
   adsRun: Run | null;
   collabRun: Run | null;
+  rescheduleRun: Run | null;
   followUp: FollowUp;
   autopilot: Autopilot;
   songs: Songs;
@@ -48,6 +49,7 @@ export function toClaimsData(ch: string, raw: Record<string, unknown>): ClaimsDa
     trimRun: obj<Run | null>(k('trimRun'), null),
     adsRun: obj<Run | null>(k('adsRun'), null),
     collabRun: obj<Run | null>(k('collabRun'), null),
+    rescheduleRun: obj<Run | null>(k('rescheduleRun'), null),
     followUp: obj(k('followUp'), {}),
     autopilot: obj<Autopilot>(k('autopilot'), { on: false, next: 0 }), // getAP() (5823)
     songs: obj(raw.songHistory, {}),

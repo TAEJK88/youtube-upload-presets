@@ -119,6 +119,9 @@ export const SEL = {
   trimDialog: 'ytcr-editing-tool-dialog',
   trimContinue: '#continue-button',
   studioSaveHost: 'ytcp-button#save',
+  // --- หน้ารายละเอียดคลิป: Visibility (Reschedule), seen live 2026-10-29 by studio-watcher-1 (English UI, ids only) ---
+  editVisibility: 'ytcp-video-metadata-visibility #select-button', // opens the popup; aria-disabled "true" when off
+  editVisibilityPopup: 'ytcp-video-visibility-edit-popup', // shown when its paperDialog has client rects; Done is dialogSave
 };
 
 // Not from the userscript (P5-draft-retry), and UNVERIFIED in Chrome: the address Studio shows

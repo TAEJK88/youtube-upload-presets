@@ -1,7 +1,7 @@
 import { L } from '../i18n';
 import { sendMessage } from '../messages';
 import type { FileBridge } from '../file-bridge-client';
-import type { FileRef, FileSrc, QFile } from './queue-runner';
+import type { FileRef, FileSrc, QFile, QueueItem } from './queue-runner';
 
 // Where a queue item's File comes from at upload time:
 //   'bridge' — dropped on the side panel; its handle sits in the extension's IndexedDB
@@ -19,6 +19,12 @@ export const pageFiles = (list: ArrayLike<File>): QFile[] =>
     local.set(id, f);
     return tag(f, id, 'page');
   });
+
+// A waiting or failed video picked in Studio's dialog whose File this page doesn't hold (a
+// reload, or it was picked in another Studio tab of the channel): the panel offers to re-add them all at once (lib/panel/relink.ts). A draft card,
+// or a video going on in its draft, reads no file.
+export const lostFile = (it: QueueItem) =>
+  (it.status === 'pending' || it.status === 'error') && it.src === 'page' && !it.fromDraft && !it.draftId && !local.has(it.id);
 
 // The side panel stored a handle per id; fetch them all, keep what could be read.
 export async function bridgeFiles(ids: string[]): Promise<{ files: QFile[]; failed: { id: string; reason: string }[] }> {

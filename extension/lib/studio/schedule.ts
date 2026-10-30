@@ -52,6 +52,10 @@ const formatStudioTime = (date: Date, sample = '') => {
   }
   return new Intl.DateTimeFormat(`${studioLang()}-u-ca-gregory`, { hour: 'numeric', minute: '2-digit' }).format(date);
 };
+// วันที่ที่ Studio แสดงตรงกับที่ตั้งไหม: ไม่สนตัวพิมพ์ เลข 0 นำหน้า ("05 Oct" = "5 Oct") และ , . ช่องว่าง
+// ตัด 0 ก่อนแล้วยุบตัวคั่นเหลือช่องว่างเดียว ("2026. 10. 05." = "2026 10 5" แต่ "2026 1 15" ≠ "2026 11 5")
+const normDate = (x: unknown) => String(x).toLowerCase().replace(/(^|\D)0+(\d)/g, '$1$2').replace(/[\s,.]+/g, ' ').trim();
+const sameStudioDate = (shown: unknown, set: unknown) => normDate(shown) === normDate(set);
 // แปลงข้อความเวลาเป็นนาทีนับจากเที่ยงคืน ("08:00" = "8:00" = "8:00 AM" = 480) คืน null ถ้าอ่านไม่ได้
 function parseClock(text: unknown) {
   const s = String(text || '').toLowerCase();
@@ -65,14 +69,17 @@ function parseClock(text: unknown) {
 }
 
 // ตั้งเวลาปล่อยในหน้า Visibility คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
-async function setSchedule(date: Date) {
-  const dlg = getDialog()!;
-  const expand = await waitFor(() => {
-    const e = dlg.querySelector<HTMLElement>(SEL.scheduleRadio);
-    return isVisible(e) && e;
-  }, 6000);
-  if (!expand) return L('ไม่พบส่วน "กำหนดเวลา" ในหน้าการเปิดเผย', '"Schedule" section not found on the visibility page');
-  expand.click();
+// `dlg`: the upload dialog, or the edit page's Visibility dialog (Reschedule)
+async function setSchedule(date: Date, dlg: ParentNode = getDialog()!) {
+  // A scheduled video's popup has the section open already (its expand button hidden): a click would shut it.
+  if (!isVisible(dlg.querySelector(SEL.datePickerTrigger))) {
+    const expand = await waitFor(() => {
+      const e = dlg.querySelector<HTMLElement>(SEL.scheduleRadio);
+      return isVisible(e) && e;
+    }, 6000);
+    if (!expand) return L('ไม่พบส่วน "กำหนดเวลา" ในหน้าการเปิดเผย', '"Schedule" section not found on the visibility page');
+    expand.click();
+  }
 
   const trigger = await waitFor(() => {
     const t = dlg.querySelector<HTMLElement>(SEL.datePickerTrigger);
@@ -105,7 +112,6 @@ async function setSchedule(date: Date) {
   if (!timeInput) return L('ไม่พบช่องเวลา', 'Time field not found');
   const timeText = formatStudioTime(date, timeInput.value);
   const wantMin = date.getHours() * 60 + date.getMinutes();
-  const norm = (x: unknown) => String(x).toLowerCase().replace(/[\s,.]/g, '');
   // ช่องเวลาของ Studio เป็นช่องเลือกจากรายการ (00:00, 00:15, …) พิมพ์อย่างเดียวค่าไม่ถูกบันทึก (รูป 6: ค้าง 00:00)
   // วิธีที่ 1: คลิกช่องแล้วเลือกเวลาจากรายการ  วิธีที่ 2 (เวลาที่ไม่อยู่ในรายการ เช่น 19:07): พิมพ์ + Enter + Tab
   const pickTime = async () => {
@@ -134,11 +140,10 @@ async function setSchedule(date: Date) {
   const shownDate = (dlg.querySelector(SEL.datePickerTrigger)?.textContent || trigger.textContent || '').trim();
   const shownTime = (dlg.querySelector<HTMLInputElement>(SEL.timeInput)?.value || '').trim();
   // วันที่: ตัดเลข 0 นำหน้าออกก่อนเทียบ ("05 Oct" = "5 Oct")  เวลา: เทียบเป็นนาที ("08:00" = "8:00")
-  const normDate = (x: unknown) => norm(x).replace(/(^|D)0+(d)/g, '$1$2');
-  if (normDate(shownDate) !== normDate(dateText) || parseClock(shownTime) !== wantMin) {
+  if (!sameStudioDate(shownDate, dateText) || parseClock(shownTime) !== wantMin) {
     return L(`Studio ไม่รับวันเวลา (ตั้ง "${dateText} ${timeText}" แต่แสดง "${shownDate} ${shownTime}")`, `Studio rejected the date/time (set "${dateText} ${timeText}" but shows "${shownDate} ${shownTime}")`);
   }
   return '';
 }
 
-export { studioLang, typeInto, formatStudioDate, formatStudioTime, parseClock, setSchedule };
+export { studioLang, typeInto, formatStudioDate, formatStudioTime, parseClock, sameStudioDate, setSchedule };
