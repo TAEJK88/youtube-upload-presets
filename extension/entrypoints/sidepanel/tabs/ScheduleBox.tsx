@@ -8,7 +8,7 @@ import { everyOf, newSeed, nextAt, onDay, soonest, startAt, tomorrow19, windowWi
 import { weekField, weekPrefs } from '@/lib/schedule-week';
 import type { Schedule } from '@/lib/settings';
 import { cn } from '@/lib/utils';
-import { Chevron, DateTimeField, Fold, Hint, TextField } from '../fields';
+import { Chevron, DateTimeField, Fold, Hint, TextField, TimeField } from '../fields';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
 import { saveFailed } from '../save-failed';
@@ -139,11 +139,11 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
               <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
                 <div>
                   <div className="mb-1 text-xs font-semibold text-fg3">{L('ตั้งแต่', 'From')}</div>
-                  <TextField type="time" aria-label={L('ตั้งแต่', 'From')} value={w.from} onValue={(v) => setWindow(v, w.to, 'from')} />
+                  <TimeField label={L('ตั้งแต่', 'From')} className="w-full" value={w.from} onValue={(v) => setWindow(v, w.to, 'from')} />
                 </div>
                 <div>
                   <div className="mb-1 text-xs font-semibold text-fg3">{L('ถึง', 'Until')}</div>
-                  <TextField type="time" aria-label={L('ถึง', 'Until')} value={w.to} onValue={(v) => setWindow(w.from, v, 'to')} />
+                  <TimeField label={L('ถึง', 'Until')} className="w-full" value={w.to} onValue={(v) => setWindow(w.from, v, 'to')} />
                 </div>
                 <Button title={L('สุ่มวันและเวลาชุดใหม่', 'Draw a new set of days and times')} onClick={() => set({ seed: newSeed() })}>{L('สุ่มใหม่', 'Shuffle')}</Button>
               </div>
@@ -166,7 +166,6 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
           )}
           <div className="flex flex-wrap gap-1.5">
             {quick(L('ตอนนี้', 'Now'), () => soonest())}
-            {quick(L('วันนี้', 'Today'), () => onDay(s.start, 0))}
             {quick(L('พรุ่งนี้', 'Tomorrow'), () => onDay(s.start, 1))}
             {quick(L('18:00 ถัดไป', 'Next 18:00'), () => nextAt(18))}
             {quick(L('20:00 ถัดไป', 'Next 20:00'), () => nextAt(20))}

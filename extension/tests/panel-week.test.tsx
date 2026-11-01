@@ -6,7 +6,7 @@ import { setLang } from '../lib/i18n';
 import { toPanelData } from '../lib/panel/data';
 import { fmtWhen, toLocalInput } from '../lib/panel/format';
 import { newSeed, windowWith } from '../lib/panel/schedule-quick';
-import { fakePanel, pickDay, renderPanel, showing, shownAt, viewWith } from './panel-fake';
+import { fakePanel, pickDay, pickTime, renderPanel, showing, shownAt, viewWith } from './panel-fake';
 
 afterEach(() => {
   cleanup();
@@ -25,6 +25,7 @@ const box = (data: ReturnType<typeof sched>, view: ReturnType<typeof viewWith> |
   return { api, last: () => vi.mocked(api.write.settings).mock.calls.at(-1)?.[0], calls: () => vi.mocked(api.write.settings).mock.calls.length };
 };
 const pressed = (name: string) => screen.getByRole('button', { name }).getAttribute('aria-pressed');
+const timeAt = (name: string) => screen.getByRole('button', { name }).textContent;
 // crypto.getRandomValues, giving `n`
 const random = (n: number) => vi.spyOn(crypto, 'getRandomValues').mockImplementation(((a: Uint32Array) => { a[0] = n; return a; }) as never);
 
@@ -59,9 +60,9 @@ describe('schedule box: the weekly schedule', () => {
     box(sched({ mode: 'week' }));
     expect(pressed('Per week')).toBe('true');
     expect((screen.getByLabelText('Videos a week') as HTMLSelectElement).value).toBe('3');
-    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('17:00');
-    expect((screen.getByLabelText('Until') as HTMLInputElement).value).toBe('21:00');
-    expect((screen.getByLabelText('From') as HTMLInputElement).type).toBe('time');
+    expect(timeAt('From')).toBe('17:00');
+    expect(timeAt('Until')).toBe('21:00');
+    expect(screen.queryByDisplayValue('17:00')).toBe(null); // a time picker, not the browser's time box
     expect(shownAt('First video releases')).toEqual(showing(START));
     expect(screen.getByRole('button', { name: 'Tomorrow' })).toBeTruthy();
     expect(screen.queryByRole('spinbutton', { name: 'Every' })).toBe(null);
@@ -73,26 +74,23 @@ describe('schedule box: the weekly schedule', () => {
   it('the fields show what is stored and write their own value', () => {
     const { last } = box(week({ perWeek: 5, from: '08:15', to: '12:00' }));
     expect((screen.getByLabelText('Videos a week') as HTMLSelectElement).value).toBe('5');
-    expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('08:15');
-    expect((screen.getByLabelText('Until') as HTMLInputElement).value).toBe('12:00');
+    expect(timeAt('From')).toBe('08:15');
+    expect(timeAt('Until')).toBe('12:00');
     expect([...(screen.getByLabelText('Videos a week') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
     fireEvent.change(screen.getByLabelText('Videos a week'), { target: { value: '7' } });
     expect(last()).toEqual({ schedule: { perWeek: 7 } });
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '09:30' } });
+    pickTime(screen.getByRole('button', { name: 'From' }), '09:30');
     expect(last()).toEqual({ schedule: { from: '09:30', to: '12:00' } });
-    fireEvent.change(screen.getByLabelText('Until'), { target: { value: '10:00' } });
+    pickTime(screen.getByRole('button', { name: 'Until' }), '10:00');
     expect(last()).toEqual({ schedule: { from: '08:15', to: '10:00' } });
   });
 
-  it('the window keeps one 15-minute step: the other end moves along; a cleared field writes nothing', () => {
-    const { last, calls } = box(week());
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '21:30' } });
+  it('the window keeps one 15-minute step: the other end moves along', () => {
+    const { last } = box(week());
+    pickTime(screen.getByRole('button', { name: 'From' }), '21:30');
     expect(last()).toEqual({ schedule: { from: '21:30', to: '21:45' } });
-    fireEvent.change(screen.getByLabelText('Until'), { target: { value: '16:00' } });
+    pickTime(screen.getByRole('button', { name: 'Until' }), '16:00');
     expect(last()).toEqual({ schedule: { from: '15:45', to: '16:00' } });
-    const n = calls();
-    fireEvent.change(screen.getByLabelText('Until'), { target: { value: '' } });
-    expect(calls()).toBe(n);
   });
 
   it('windowWith: the end being changed is taken, the day\'s edges hold', () => {

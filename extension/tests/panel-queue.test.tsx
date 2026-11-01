@@ -602,7 +602,6 @@ describe('schedule box', () => {
         return vi.mocked(api.write.settings).mock.calls.at(-1)![0];
       };
       expect(pick('Now')).toEqual({ schedule: { start: '2026-10-09T18:15' } }); // 15 minutes ahead, to the quarter
-      expect(pick('Today')).toEqual({ schedule: { start: '2026-10-09T18:15' } }); // 08:00 has gone by today
       expect(pick('Tomorrow')).toEqual({ schedule: { start: '2026-10-10T08:00' } }); // the start's time of day
       expect(pick('Next 18:00')).toEqual({ schedule: { start: '2026-10-10T18:00' } });
       expect(pick('Next 20:00')).toEqual({ schedule: { start: '2026-10-09T20:00' } });
@@ -649,8 +648,8 @@ describe('schedule box', () => {
       const api = fakePanel({ data: sched({ start: '2020-01-01T08:00' }), view: lateView(Date.now() + 86400e3) });
       vi.mocked(api.write.settings).mockRejectedValue(new Error('gone'));
       renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+      setTime('First video releases', '04:05'); // two saves: the hour, then the minute
       await act(async () => {
-        setTime('First video releases', '04:05');
         fireEvent.change(screen.getByRole('spinbutton', { name: 'Every' }), { target: { value: '3' } });
         fireEvent.change(screen.getByRole('combobox', { name: 'Every' }), { target: { value: 'hour' } });
         fireEvent.click(screen.getByRole('button', { name: 'Tomorrow' }));
@@ -658,8 +657,8 @@ describe('schedule box', () => {
         fireEvent.click(screen.getByRole('switch', { name: 'Schedule releases' }));
         await new Promise((r) => setTimeout(r, 0));
       });
-      expect(api.write.settings).toHaveBeenCalledTimes(6);
-      expect(err.mock.calls.filter(([m]) => m === '[ytup] store write failed')).toHaveLength(6);
+      expect(api.write.settings).toHaveBeenCalledTimes(7);
+      expect(err.mock.calls.filter(([m]) => m === '[ytup] store write failed')).toHaveLength(7);
     } finally {
       err.mockRestore();
     }

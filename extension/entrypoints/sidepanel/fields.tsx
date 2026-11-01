@@ -88,10 +88,53 @@ export function DateTimeField({ value, onValue, label, disabled, className }: { 
             }} />
         </PopoverContent>
       </Popover>
-      {/* Not a TextField: the box always shows the stored time, also while focused (Reschedule's Apply sends what it shows). */}
-      <Input type="time" aria-label={L('เวลา', 'Time')} disabled={disabled} className="w-[104px] shrink-0" value={time}
-        onChange={(e) => { if (e.target.value) onValue(`${date || toLocalInput(Date.now()).slice(0, 10)}T${e.target.value}`); }} />
+      {/* Shows the stored time at all times (Reschedule's Apply sends what it shows). */}
+      <TimeField label={L('เวลา', 'Time')} disabled={disabled} className="w-[92px] shrink-0" value={time}
+        onValue={(t) => onValue(`${date || toLocalInput(Date.now()).slice(0, 10)}T${t}`)} />
     </div>
+  );
+}
+
+const two = (n: number) => String(n).padStart(2, '0');
+const HOURS = Array.from({ length: 24 }, (_, i) => two(i));
+const MINUTES = Array.from({ length: 12 }, (_, i) => two(i * 5));
+// Scrolls a column so its picked entry sits in the middle (a stable ref: runs when it attaches).
+const centre = (el: HTMLElement | null) => {
+  const col = el?.parentElement;
+  if (el && col) col.scrollTop = el.offsetTop - col.clientHeight / 2 + el.clientHeight / 2;
+};
+
+// A time of day ('HH:mm', '' while unset) from an hour and a minute column in a Popover. Each
+// click saves; the minute closes it. The minutes go in fives, plus a stored one between them (a
+// time Studio set). The hour picked is kept here too, so the minute after it never pairs with the
+// stored hour before a slow save comes back.
+export function TimeField({ value, onValue, label, disabled, className }: { value: string; onValue(v: string): void; label: string; disabled?: boolean; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [hourPicked, setHourPicked] = useState<string | null>(null);
+  const [h = '', m = ''] = value.split(':');
+  const hour = hourPicked ?? h;
+  const minutes = m && !MINUTES.includes(m) ? [...MINUTES, m].sort() : MINUTES;
+  const column = (name: string, items: string[], picked: string, pick: (v: string) => void) => (
+    <div role="group" aria-label={name} className="relative flex max-h-56 flex-col gap-0.5 overflow-y-auto pr-1">
+      {items.map((v) => (
+        <button type="button" key={v} aria-pressed={v === picked} ref={v === picked ? centre : undefined} onClick={() => pick(v)}
+          className={cn('w-11 shrink-0 cursor-pointer rounded-[8px] py-1 text-center text-[13px] tabular-nums hover:bg-surface2', v === picked && 'bg-fg text-on-fg hover:bg-fg-hover')}>{v}</button>
+      ))}
+    </div>
+  );
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); setHourPicked(null); }}>
+      <PopoverTrigger asChild>
+        <Button disabled={disabled} aria-label={label} className={cn('h-9 justify-start rounded-[10px] border-line bg-surface px-2.5 font-normal tabular-nums', className)}>
+          <Icon name="clock" size={14} className="text-fg3" />
+          {value || '--:--'}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="flex gap-1 p-1.5">
+        {column(L('ชั่วโมง', 'Hour'), HOURS, hour, (v) => { setHourPicked(v); onValue(`${v}:${m || '00'}`); })}
+        {column(L('นาที', 'Minute'), minutes, m, (v) => { onValue(`${hour || '19'}:${v}`); setOpen(false); setHourPicked(null); })}
+      </PopoverContent>
+    </Popover>
   );
 }
 

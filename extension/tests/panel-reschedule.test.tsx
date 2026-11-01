@@ -135,11 +135,11 @@ describe('Reschedule (Tools tab)', () => {
       await screen.findByText('Mix A');
       fireEvent.click(box('Mix C'));
       const day = toLocalInput(A + 4 * DAY).slice(0, 10);
-      setTime(WHEN, '03:07'); // the time segment only
-      expect(when()).toEqual(showing(`${day}T03:07`));
+      setTime(WHEN, '03:05'); // the time segment only
+      expect(when()).toEqual(showing(`${day}T03:05`));
       fireEvent.click(button('Apply to 1 videos'));
       await act(async () => fireEvent.click(await screen.findByRole('button', { name: 'Move 1 videos' })));
-      expect(send).toHaveBeenCalledWith('reschedule:apply', { items: [{ videoId: 'ccccccccccc', at: A + 4 * DAY }], start: new Date(`${day}T03:07`).getTime() });
+      expect(send).toHaveBeenCalledWith('reschedule:apply', { items: [{ videoId: 'ccccccccccc', at: A + 4 * DAY }], start: new Date(`${day}T03:05`).getTime() });
     });
 
     it('a focused time box still shows the time Apply would send when the ticks change', async () => {
@@ -147,7 +147,7 @@ describe('Reschedule (Tools tab)', () => {
       await screen.findByText('Mix A');
       fireEvent.click(box('Mix C'));
       timeBox(WHEN).focus();
-      setTime(WHEN, '03:07');
+      setTime(WHEN, '03:05');
       fireEvent.click(box('Mix A')); // a new set: the typed time goes
       expect(when()).toEqual(showing(toLocalInput(A)));
     });

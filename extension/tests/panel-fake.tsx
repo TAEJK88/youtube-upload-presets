@@ -83,13 +83,22 @@ export const renderPanel = (ui: ReactElement, api: PanelApi = fakePanel(), live:
     </PanelContext.Provider>,
   );
 
-// A DateTimeField (entrypoints/sidepanel/fields.tsx), found by its label: what it shows, as
-// datetime-local text, and setting a day through its calendar and a time through its time box.
+// A TimeField (entrypoints/sidepanel/fields.tsx): a time picked as a user does, the hour, then
+// the minute.
+export function pickTime(button: HTMLElement, time: string) {
+  const [h, m] = time.split(':');
+  fireEvent.click(button);
+  fireEvent.click(within(screen.getByRole('group', { name: 'Hour' })).getByRole('button', { name: h }));
+  fireEvent.click(within(screen.getByRole('group', { name: 'Minute' })).getByRole('button', { name: m }));
+}
+
+// A DateTimeField, found by its label: what it shows, as datetime-local text, and setting a day
+// through its calendar and a time through its time picker.
 const dtGroup = (label: string) => screen.getByRole('group', { name: label });
-export const timeBox = (label: string) => within(dtGroup(label)).getByLabelText('Time') as HTMLInputElement;
+export const timeBox = (label: string) => within(dtGroup(label)).getByRole('button', { name: 'Time' });
 export const shownAt = (label: string) => {
   const day = within(dtGroup(label)).getByRole('button', { name: 'Date' }).textContent;
-  return { day, time: timeBox(label).value };
+  return { day, time: timeBox(label).textContent };
 };
 export const showing = (v: string) => ({ day: fmtDay(v.slice(0, 10)), time: v.slice(11) });
 export function pickDay(label: string, day: string) {
@@ -101,4 +110,4 @@ export function pickDay(label: string, day: string) {
   }
   fireEvent.click(cell()!);
 }
-export const setTime = (label: string, time: string) => fireEvent.change(timeBox(label), { target: { value: time } });
+export const setTime = (label: string, time: string) => pickTime(timeBox(label), time);

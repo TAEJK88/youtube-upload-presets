@@ -22,7 +22,7 @@ export function nextAt(hour: number, now = Date.now()): string {
 // "Now": the soonest time Studio takes (SCHEDULE_MIN_LEAD ahead), rounded up to the quarter.
 export const soonest = (now = Date.now()) => toLocalInput(Math.ceil((now + SCHEDULE_MIN_LEAD) / 900e3) * 900e3);
 
-// "Today" / "Tomorrow": that day at the start's time of day (19:00 while there is none), or
+// "Tomorrow" (days = 1): that day at the start's time of day (19:00 while there is none), or
 // soonest() when that has already gone by.
 export function onDay(start: string | undefined, days: number, now = Date.now()): string {
   const at = startAt(start);
