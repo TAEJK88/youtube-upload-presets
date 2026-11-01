@@ -11,7 +11,7 @@ afterEach(() => setLang('en'));
 describe('settings', () => {
   it('defaults match the userscript', () => {
     const s = defaultSettings();
-    expect(s.autoApply).toBe(true);
+    expect(s.autoApply).toBe(false);
     expect(s.autoNext).toBe(false);
     expect(s.pace).toBe('slow');
     expect(s.category).toBe('Music');
