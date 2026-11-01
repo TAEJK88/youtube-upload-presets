@@ -6,7 +6,7 @@ import { setLang } from '../lib/i18n';
 import { toPanelData } from '../lib/panel/data';
 import { fmtWhen, toLocalInput } from '../lib/panel/format';
 import { newSeed, windowWith } from '../lib/panel/schedule-quick';
-import { fakePanel, renderPanel, viewWith } from './panel-fake';
+import { fakePanel, pickDay, renderPanel, showing, shownAt, viewWith } from './panel-fake';
 
 afterEach(() => {
   cleanup();
@@ -62,8 +62,8 @@ describe('schedule box: the weekly schedule', () => {
     expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe('17:00');
     expect((screen.getByLabelText('Until') as HTMLInputElement).value).toBe('21:00');
     expect((screen.getByLabelText('From') as HTMLInputElement).type).toBe('time');
-    expect((screen.getByLabelText('First video releases') as HTMLInputElement).value).toBe(START);
-    expect(screen.getByRole('button', { name: 'Tomorrow 19:00' })).toBeTruthy();
+    expect(shownAt('First video releases')).toEqual(showing(START));
+    expect(screen.getByRole('button', { name: 'Tomorrow' })).toBeTruthy();
     expect(screen.queryByRole('spinbutton', { name: 'Every' })).toBe(null);
     expect(screen.queryByRole('combobox', { name: 'Every' })).toBe(null);
     expect(screen.getByText(/Days and times are drawn anew each week/)).toBeTruthy();
@@ -124,10 +124,10 @@ describe('schedule box: the weekly schedule', () => {
     const start = Date.now() + 2 * 86400e3;
     const { last } = box(week({ start: '2026-01-01T08:00', anchor: '2026-01-01T08:00' }),
       viewWith([{}], { schedule: { on: true, set: true, start, late: true, times: [start], skipped: 0, taken: [] } }));
-    fireEvent.change(screen.getByLabelText('First video releases'), { target: { value: '2031-02-03T04:05' } });
-    expect(last()).toEqual({ schedule: { start: '2031-02-03T04:05', anchor: '2031-02-03T04:05' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
-    expect(last()).toEqual({ schedule: { start: '2026-10-10T19:00', anchor: '2026-10-10T19:00' } });
+    pickDay('First video releases', '2031-02-03');
+    expect(last()).toEqual({ schedule: { start: '2031-02-03T08:00', anchor: '2031-02-03T08:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Tomorrow' }));
+    expect(last()).toEqual({ schedule: { start: '2026-10-10T08:00', anchor: '2026-10-10T08:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
     expect(last()).toEqual({ schedule: { start: toLocalInput(start) } });
   });

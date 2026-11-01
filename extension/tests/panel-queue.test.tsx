@@ -16,7 +16,7 @@ import { PanelContext } from '../entrypoints/sidepanel/panel';
 import { toPanelData } from '../lib/panel/data';
 import { fmtWhen, toLocalInput } from '../lib/panel/format';
 import type { QueueView, ViewItem } from '../lib/studio/queue-view';
-import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
+import { fakeLive, fakePanel, pickDay, renderPanel, setTime, showing, shownAt, state, viewWith } from './panel-fake';
 
 vi.mock('../lib/panel/intake', async (orig) => ({ ...(await orig<typeof import('../lib/panel/intake')>()), sendFiles: vi.fn(), dropHandles: vi.fn(), pickFiles: vi.fn(async () => []), pickFolder: vi.fn(async () => []) }));
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
@@ -533,8 +533,8 @@ describe('schedule box', () => {
     expect(screen.getByText(/has passed — the queue will start/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
     expect(api.write.settings).toHaveBeenCalledWith({ schedule: { start: toLocalInput(start) } });
-    fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
-    expect(vi.mocked(api.write.settings).mock.calls.at(-1)![0].schedule!.start).toMatch(/T19:00$/);
+    fireEvent.click(screen.getByRole('button', { name: 'Tomorrow' }));
+    expect(vi.mocked(api.write.settings).mock.calls.at(-1)![0].schedule!.start).toMatch(/T08:00$/); // tomorrow, at the start's time of day
   });
 
   it('on but no start yet; the channel\'s scheduled videos and skipped slots', () => {
@@ -584,9 +584,11 @@ describe('schedule box', () => {
     renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
     expect((screen.getByRole('spinbutton', { name: 'Every' }) as HTMLInputElement).value).toBe('3');
     expect((screen.getByRole('combobox', { name: 'Every' }) as HTMLSelectElement).value).toBe('hour');
-    expect((screen.getByLabelText('First video releases') as HTMLInputElement).value).toBe('2030-01-01T08:00');
-    fireEvent.change(screen.getByLabelText('First video releases'), { target: { value: '2031-02-03T04:05' } });
-    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { start: '2031-02-03T04:05' } });
+    expect(shownAt('First video releases')).toEqual(showing('2030-01-01T08:00'));
+    pickDay('First video releases', '2031-02-03'); // the day keeps the time
+    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { start: '2031-02-03T08:00' } });
+    setTime('First video releases', '04:05'); // the time keeps the (stored) day
+    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { start: '2030-01-01T04:05' } });
   });
 
   it('each quick pick writes its own time', () => {
@@ -599,7 +601,9 @@ describe('schedule box', () => {
         fireEvent.click(screen.getByRole('button', { name }));
         return vi.mocked(api.write.settings).mock.calls.at(-1)![0];
       };
-      expect(pick('Tomorrow 19:00')).toEqual({ schedule: { start: '2026-10-10T19:00' } });
+      expect(pick('Now')).toEqual({ schedule: { start: '2026-10-09T18:15' } }); // 15 minutes ahead, to the quarter
+      expect(pick('Today')).toEqual({ schedule: { start: '2026-10-09T18:15' } }); // 08:00 has gone by today
+      expect(pick('Tomorrow')).toEqual({ schedule: { start: '2026-10-10T08:00' } }); // the start's time of day
       expect(pick('Next 18:00')).toEqual({ schedule: { start: '2026-10-10T18:00' } });
       expect(pick('Next 20:00')).toEqual({ schedule: { start: '2026-10-09T20:00' } });
       expect(pick('Within 1 hr')).toEqual({ schedule: { start: '2026-10-09T19:00' } });
@@ -646,10 +650,10 @@ describe('schedule box', () => {
       vi.mocked(api.write.settings).mockRejectedValue(new Error('gone'));
       renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
       await act(async () => {
-        fireEvent.change(screen.getByLabelText('First video releases'), { target: { value: '2031-02-03T04:05' } });
+        setTime('First video releases', '04:05');
         fireEvent.change(screen.getByRole('spinbutton', { name: 'Every' }), { target: { value: '3' } });
         fireEvent.change(screen.getByRole('combobox', { name: 'Every' }), { target: { value: 'hour' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Tomorrow' }));
         fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
         fireEvent.click(screen.getByRole('switch', { name: 'Schedule releases' }));
         await new Promise((r) => setTimeout(r, 0));

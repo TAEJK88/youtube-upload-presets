@@ -19,6 +19,20 @@ export function nextAt(hour: number, now = Date.now()): string {
   return toLocalInput(d.getTime());
 }
 
+// "Now": the soonest time Studio takes (SCHEDULE_MIN_LEAD ahead), rounded up to the quarter.
+export const soonest = (now = Date.now()) => toLocalInput(Math.ceil((now + SCHEDULE_MIN_LEAD) / 900e3) * 900e3);
+
+// "Today" / "Tomorrow": that day at the start's time of day (19:00 while there is none), or
+// soonest() when that has already gone by.
+export function onDay(start: string | undefined, days: number, now = Date.now()): string {
+  const at = startAt(start);
+  const d = new Date(now);
+  d.setDate(d.getDate() + days);
+  if (at === null) d.setHours(19, 0, 0, 0);
+  else d.setHours(new Date(at).getHours(), new Date(at).getMinutes(), 0, 0);
+  return d.getTime() < now + SCHEDULE_MIN_LEAD ? soonest(now) : toLocalInput(d.getTime());
+}
+
 // An hour from now, rounded up to the quarter.
 export const withinHour = (now = Date.now()) => toLocalInput(Math.ceil((now + 3600e3) / 900e3) * 900e3);
 export const everyOf = (text: string) => Math.max(1, parseInt(text, 10) || 1);

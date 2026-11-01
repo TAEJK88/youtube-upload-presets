@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { L } from '@/lib/i18n';
 import type { RunItem } from '@/lib/claims/types';
 import type { ScheduledVideo } from '@/lib/messages';
 import type { ClaimsData } from '@/lib/panel/claims-data';
 import { fmtWhen, toLocalInput } from '@/lib/panel/format';
 import { useAsk } from '../../ask';
+import { DateTimeField } from '../../fields';
 import { usePanel } from '../../panel';
 import { notConnected } from '../../save-failed';
 import { SubView } from './SubView';
@@ -142,11 +142,11 @@ export function RescheduleView({ channelName, data, busy, open }: { channelName:
             );
           })}
         </VideoList>
-        <label className="flex flex-col gap-1 text-[13px]">
+        <div className="flex flex-col gap-1 text-[13px]">
           <span className="font-medium">{label}</span>
-          {/* Plain state, no follow-while-focused: the box always shows the time Apply sends. */}
-          <Input type="datetime-local" aria-label={label} disabled={!ticked.length} value={value} onChange={(e) => setTyped(e.target.value)} />
-        </label>
+          {/* Plain state: once the time field is left, the box shows the time Apply sends. */}
+          <DateTimeField label={label} disabled={!ticked.length} value={value} onValue={setTyped} />
+        </div>
         {preview && <div className="text-xs text-fg2">{preview}</div>}
       </> : <div className="text-[13px] text-fg3">{L('ช่องนี้ไม่มีคลิปที่ตั้งเวลาไว้', 'No scheduled videos on this channel')}</div>)}
     </SubView>

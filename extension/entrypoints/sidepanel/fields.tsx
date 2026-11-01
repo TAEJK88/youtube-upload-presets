@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
+import { L, locale } from '@/lib/i18n';
+import { toLocalInput } from '@/lib/panel/format';
 import { cn } from '@/lib/utils';
 import { Icon } from './Icon';
 
@@ -52,6 +56,42 @@ export function TextField({ value, onValue, onFocus, onBlur, ref, ...rest }: Inp
       onBlur={(e) => { f.blur(); onBlur?.(e); }}
       onChange={(e) => { f.typed(e.target.value); onValue(e.target.value); }}
     />
+  );
+}
+
+// The day a DateTimeField shows ('YYYY-MM-DD').
+export const fmtDay = (date: string) =>
+  new Intl.DateTimeFormat(locale() === 'th-TH' ? 'th-TH-u-ca-gregory' : locale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${date}T00:00`));
+
+// A datetime-local value ('' while unset) as a day from the calendar and a time of day. A day
+// picked before any time gets 19:00, the schedule's usual hour; a time before any day, today.
+export function DateTimeField({ value, onValue, label, disabled, className }: { value: string; onValue(v: string): void; label: string; disabled?: boolean; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [date = '', time = ''] = value.split('T');
+  const day = date ? new Date(`${date}T00:00`) : undefined;
+  const dayText = date ? fmtDay(date) : L('เลือกวัน', 'Pick a day');
+  return (
+    <div role="group" aria-label={label} className={cn('flex min-w-0 flex-1 gap-1.5', className)}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button disabled={disabled} aria-label={L('วันที่', 'Date')} className="h-9 min-w-0 flex-1 justify-start rounded-[10px] border-line bg-surface px-2.5 font-normal">
+            <Icon name="calendar" size={14} className="text-fg3" />
+            <span className="truncate">{dayText}</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent>
+          <Calendar mode="single" selected={day} defaultMonth={day}
+            onSelect={(d) => {
+              if (!d) return; // a click on the picked day: it stays picked
+              onValue(`${toLocalInput(d.getTime()).slice(0, 10)}T${time || '19:00'}`);
+              setOpen(false);
+            }} />
+        </PopoverContent>
+      </Popover>
+      {/* Not a TextField: the box always shows the stored time, also while focused (Reschedule's Apply sends what it shows). */}
+      <Input type="time" aria-label={L('เวลา', 'Time')} disabled={disabled} className="w-[104px] shrink-0" value={time}
+        onChange={(e) => { if (e.target.value) onValue(`${date || toLocalInput(Date.now()).slice(0, 10)}T${e.target.value}`); }} />
+    </div>
   );
 }
 

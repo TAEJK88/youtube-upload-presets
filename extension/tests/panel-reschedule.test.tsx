@@ -6,7 +6,7 @@ import { RescheduleView } from '../entrypoints/sidepanel/tabs/copyright/Reschedu
 import { toClaimsData } from '../lib/panel/claims-data';
 import { fmtWhen, toLocalInput } from '../lib/panel/format';
 import type { PanelApi } from '../entrypoints/sidepanel/panel';
-import { fakeClaims, fakeLive, fakePanel, renderPanel } from './panel-fake';
+import { fakeClaims, fakeLive, fakePanel, pickDay, renderPanel, setTime, showing, shownAt, timeBox } from './panel-fake';
 import { ClaimsContext, LiveContext, PanelContext } from '../entrypoints/sidepanel/panel';
 import { AskProvider } from '../entrypoints/sidepanel/ask';
 
@@ -29,7 +29,10 @@ const button = (name: string | RegExp) => screen.getByRole('button', { name }) a
 // The channel's stored copyright data, with the Reschedule run the bound tab writes.
 const data = (run: unknown = null) => toClaimsData('UC1', run ? { 'rescheduleRun:UC1': run } : {});
 const view = (props: { busy?: boolean; run?: unknown; open?: boolean } = {}) => <RescheduleView channelName="Mine" data={data(props.run)} busy={!!props.busy} open={props.open ?? true} />;
-const when = () => screen.getByLabelText('New time for the earliest picked video') as HTMLInputElement;
+const WHEN = 'New time for the earliest picked video';
+// The time box: a day from its calendar, then the time of day.
+const setWhen = (v: string) => { pickDay(WHEN, v.slice(0, 10)); setTime(WHEN, v.slice(11)); };
+const when = () => shownAt(WHEN);
 
 beforeEach(() => vi.mocked(toast).mockClear());
 afterEach(() => cleanup());
@@ -61,10 +64,10 @@ describe('Reschedule (Tools tab)', () => {
     await screen.findByText('Mix A');
     fireEvent.click(box('Mix C'));
     fireEvent.click(box('Mix B'));
-    expect(when().value).toBe(toLocalInput(A + 2 * DAY)); // Mix B, the earliest of the two
+    expect(when()).toEqual(showing(toLocalInput(A + 2 * DAY))); // Mix B, the earliest of the two
     expect(screen.getByText(`2 videos: ${fmtWhen(A + 2 * DAY)} – ${fmtWhen(A + 4 * DAY)} → ${fmtWhen(A + 2 * DAY)} – ${fmtWhen(A + 4 * DAY)}`)).toBeTruthy();
     const start = new Date(toLocalInput(A + 30 * DAY)).getTime();
-    fireEvent.change(when(), { target: { value: toLocalInput(start) } });
+    setWhen(toLocalInput(start));
     expect(screen.getByText(`2 videos: ${fmtWhen(A + 2 * DAY)} – ${fmtWhen(A + 4 * DAY)} → ${fmtWhen(start)} – ${fmtWhen(start + 2 * DAY)}`)).toBeTruthy();
     fireEvent.click(button('Apply to 2 videos'));
     expect(await screen.findByText(`Move 2 videos 28 days later: ${fmtWhen(A + 2 * DAY)} – ${fmtWhen(A + 4 * DAY)} → ${fmtWhen(start)} – ${fmtWhen(start + 2 * DAY)}?`)).toBeTruthy();
@@ -121,7 +124,7 @@ describe('Reschedule (Tools tab)', () => {
       await screen.findByText('Mix A');
       fireEvent.click(button('All'));
       const start = new Date(toLocalInput(A - 111 * DAY)).getTime();
-      fireEvent.change(when(), { target: { value: toLocalInput(start) } });
+      setWhen(toLocalInput(start));
       fireEvent.click(button('Apply to 3 videos'));
       expect(await screen.findByText(`Move 3 videos 111 days earlier: ${fmtWhen(A)} – ${fmtWhen(A + 4 * DAY)} → ${fmtWhen(start)} – ${fmtWhen(start + 4 * DAY)}?`)).toBeTruthy();
     });
@@ -132,8 +135,8 @@ describe('Reschedule (Tools tab)', () => {
       await screen.findByText('Mix A');
       fireEvent.click(box('Mix C'));
       const day = toLocalInput(A + 4 * DAY).slice(0, 10);
-      fireEvent.change(when(), { target: { value: `${day}T03:07` } }); // the time segment only
-      expect(when().value).toBe(`${day}T03:07`);
+      setTime(WHEN, '03:07'); // the time segment only
+      expect(when()).toEqual(showing(`${day}T03:07`));
       fireEvent.click(button('Apply to 1 videos'));
       await act(async () => fireEvent.click(await screen.findByRole('button', { name: 'Move 1 videos' })));
       expect(send).toHaveBeenCalledWith('reschedule:apply', { items: [{ videoId: 'ccccccccccc', at: A + 4 * DAY }], start: new Date(`${day}T03:07`).getTime() });
@@ -143,10 +146,10 @@ describe('Reschedule (Tools tab)', () => {
       renderPanel(view(), tab({ 'reschedule:list': () => ({ videos }) }).api);
       await screen.findByText('Mix A');
       fireEvent.click(box('Mix C'));
-      when().focus();
-      fireEvent.change(when(), { target: { value: toLocalInput(A + 30 * DAY) } });
+      timeBox(WHEN).focus();
+      setTime(WHEN, '03:07');
       fireEvent.click(box('Mix A')); // a new set: the typed time goes
-      expect(when().value).toBe(toLocalInput(A));
+      expect(when()).toEqual(showing(toLocalInput(A)));
     });
 
     it('Cancel in the question sends nothing', async () => {
@@ -171,21 +174,21 @@ describe('Reschedule (Tools tab)', () => {
       renderPanel(view(), api);
       await screen.findByText('Mix A');
       fireEvent.click(button('All'));
-      fireEvent.change(when(), { target: { value: toLocalInput(A + 30 * DAY) } });
+      setWhen(toLocalInput(A + 30 * DAY));
       fireEvent.click(button('↻ Reload list'));
       await waitFor(() => expect(send.mock.calls.filter(([t]) => t === 'reschedule:list')).toHaveLength(2));
       await waitFor(() => expect(button('Apply to 0 videos').disabled).toBe(true));
       fireEvent.click(box('Mix B'));
-      expect(when().value).toBe(toLocalInput(A + 2 * DAY)); // its own time, not the one typed before
+      expect(when()).toEqual(showing(toLocalInput(A + 2 * DAY))); // its own time, not the one typed before
     });
 
     it('a different set of ticks drops the time typed for the last set', async () => {
       renderPanel(view(), tab({ 'reschedule:list': () => ({ videos }) }).api);
       await screen.findByText('Mix A');
       fireEvent.click(box('Mix C'));
-      fireEvent.change(when(), { target: { value: toLocalInput(A + 30 * DAY) } });
+      setWhen(toLocalInput(A + 30 * DAY));
       fireEvent.click(button('All'));
-      expect(when().value).toBe(toLocalInput(A)); // the earliest of the new set
+      expect(when()).toEqual(showing(toLocalInput(A))); // the earliest of the new set
     });
 
     it('coming back to the group starts again: a fresh list, nothing ticked', async () => {

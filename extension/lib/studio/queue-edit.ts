@@ -2,6 +2,7 @@ import { fixChapters } from '../chapters';
 import { L } from '../i18n';
 import { ui } from './page-ui';
 import { bridgeFiles, dropFiles, lostFile } from './queue-files';
+import { thumbPreview } from './thumb-preview';
 import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, setItem, type FileSrc, type QFile, type QueueItem } from './queue-runner';
 import { activeId, onStored, presets } from './state';
 
@@ -111,8 +112,10 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
   // Read every .txt before touching the item: the run can take it during an await. One that
   // can't be read is a failed file like the bridge's (handleQueueAdd); the rest still attach.
   const texts = new Map<string, string>();
+  const previews = new Map<string, string | undefined>();
   const unreadable: { id: string; reason: string }[] = [];
   for (const f of files) {
+    if (isImg(f) && !isTxt(f)) previews.set(f.qid, await thumbPreview(f));
     if (!isTxt(f)) continue;
     try {
       texts.set(f.qid, await readText(f));
@@ -135,7 +138,7 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
       unused.push(f); // read: the file itself is no longer needed
     } else if (isImg(f)) {
       if (it.thumb) unused.push({ qid: it.thumb.id, src: it.thumb.src });
-      it.thumb = { id: f.qid, src: f.src, ...fileMeta(f) };
+      it.thumb = { id: f.qid, src: f.src, ...fileMeta(f), preview: previews.get(f.qid) };
     } else unused.push(f);
   }
   if (unused.length) dropFiles(unused.map((f) => ({ id: f.qid, src: f.src })));

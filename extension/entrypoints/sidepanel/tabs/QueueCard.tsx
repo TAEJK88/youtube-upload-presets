@@ -15,7 +15,7 @@ import type { FileRef, ItemStatus } from '@/lib/studio/queue-runner';
 import type { ViewItem } from '@/lib/studio/queue-view';
 import { cn } from '@/lib/utils';
 import { useAsk } from '../ask';
-import { Chevron, Fold, IconButton, TextField } from '../fields';
+import { Chevron, DateTimeField, Fold, IconButton, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { openTab } from '../open-tab';
 import { useLive, usePanel } from '../panel';
@@ -78,7 +78,8 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
   const titleEl = useRef<HTMLInputElement>(null);
   const focusTitle = useRef(false);
   const [drag, setDrag] = useState(false);
-  const thumbUrl = useThumbUrl(it.thumb, grantRev);
+  // The stored preview first; reading the file needs read access (older items have no preview).
+  const thumbUrl = useThumbUrl(it.thumb?.preview ? null : it.thumb, grantRev) ?? it.thumb?.preview ?? null;
   const current = it.id === view?.current;
   const editable = waiting(it) && !current;
   // The tab's move refuses a neighbour that can't change (queue-edit canEdit).
@@ -310,8 +311,8 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         {at !== null && (
           <div>
             <div className="mb-1 text-xs text-fg2">{L('เวลาปล่อย', 'Release time')}</div>
-            <div className={cn('flex items-center gap-1.5', bad && '[&_input]:border-warn')}>
-              <TextField type="datetime-local" aria-label={L('เวลาปล่อย', 'Release time')} disabled={!editable} value={toLocalInput(at)}
+            <div className={cn('flex items-center gap-1.5', bad && '[&_[role=group]>*]:border-warn')}>
+              <DateTimeField label={L('เวลาปล่อย', 'Release time')} disabled={!editable} value={toLocalInput(at)}
                 onValue={(v) => edit({ op: 'publishAt', at: new Date(v).getTime() || null })} />
               <span className={cn('inline-flex items-center gap-1 text-xs whitespace-nowrap text-fg3', bad && 'text-warn')} title={bad || ''}>
                 <Icon name={bad ? 'alert' : 'clock'} size={12} />
