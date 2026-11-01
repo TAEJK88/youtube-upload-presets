@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { DebugPage } from '../entrypoints/debug/DebugPage';
+import { pickOption } from './panel-fake';
 import { DEBUG_LOG_KEY } from '../lib/debug-log';
 import { setLang } from '../lib/i18n';
 
@@ -48,7 +49,8 @@ describe('debug page', () => {
     await settle();
     const log = section('Error log');
     expect([...log.querySelectorAll('li')].map((li) => li.textContent)).toEqual([expect.stringContaining('second'), expect.stringContaining('first')]);
-    await act(async () => fireEvent.change(within(log).getByRole('combobox', { name: 'Context' }), { target: { value: 'panel' } }));
+    pickOption(within(log).getByRole('combobox', { name: 'Context' }), 'panel');
+    await act(async () => {});
     expect(log.querySelectorAll('li').length).toBe(1);
     await act(async () => fireEvent.click(within(log).getByRole('button', { name: /first/ })));
     expect(log.querySelector('pre')!.textContent).toBe('at first()');

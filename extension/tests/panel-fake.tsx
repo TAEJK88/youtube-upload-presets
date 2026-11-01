@@ -83,6 +83,13 @@ export const renderPanel = (ui: ReactElement, api: PanelApi = fakePanel(), live:
     </PanelContext.Provider>,
   );
 
+// A Select (components/ui/select.tsx), its option picked as a keyboard user does: the trigger
+// opens the list, the option's click picks it.
+export function pickOption(trigger: HTMLElement, option: string | RegExp) {
+  fireEvent.keyDown(trigger, { key: 'Enter' });
+  fireEvent.click(screen.getByRole('option', { name: option }));
+}
+
 // A TimeField (entrypoints/sidepanel/fields.tsx): a time picked as a user does, the hour, then
 // the minute.
 export function pickTime(button: HTMLElement, time: string) {

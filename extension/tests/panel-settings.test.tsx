@@ -9,7 +9,7 @@ import { importBackup } from '../lib/panel/backup-io';
 import { toPanelData } from '../lib/panel/data';
 import { runnerTab } from '../lib/panel/target';
 import { RUNNER_HELD } from '../lib/runner-lock';
-import { fakeLive, fakePanel, renderPanel, state } from './panel-fake';
+import { fakeLive, fakePanel, pickOption, renderPanel, state } from './panel-fake';
 
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
 vi.mock('../lib/panel/target', async (orig) => ({ ...(await orig<typeof import('../lib/panel/target')>()), runnerTab: vi.fn(async () => null) }));
@@ -68,7 +68,7 @@ describe('settings tab', () => {
   it('language changes at once', () => {
     const api = fakePanel();
     renderPanel(<SettingsTab />, api);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Language / ภาษา' }), { target: { value: 'th' } });
+    pickOption(screen.getByRole('combobox', { name: 'Language / ภาษา' }), 'ไทย');
     expect(api.write.settings).toHaveBeenCalledWith({ lang: 'th' });
   });
 
@@ -93,13 +93,13 @@ describe('settings tab', () => {
   it('pace says which pace it is, once stored', async () => {
     const api = fakePanel();
     renderPanel(<SettingsTab />, api);
-    fireEvent.change(screen.getByRole('combobox', { name: /Pace/ }), { target: { value: 'slower' } });
+    pickOption(screen.getByRole('combobox', { name: /Pace/ }), 'Very slow (x2.5)');
     expect(api.write.settings).toHaveBeenCalledWith({ pace: 'slower' });
     await flush();
     expect(toast).toHaveBeenCalledWith('Pace: Very slow (x2.5)');
     vi.mocked(toast).mockClear();
     vi.mocked(api.write.settings).mockRejectedValueOnce(new Error('boom'));
-    fireEvent.change(screen.getByRole('combobox', { name: /Pace/ }), { target: { value: 'normal' } });
+    pickOption(screen.getByRole('combobox', { name: /Pace/ }), 'Normal (x1)');
     await flush();
     expect(toast).toHaveBeenCalledWith("Couldn't save (boom)", { id: 'save-failed' });
     expect(toast).not.toHaveBeenCalledWith('Pace: Normal (x1)');

@@ -10,7 +10,7 @@ import { CopyrightTab } from '../entrypoints/sidepanel/tabs/CopyrightTab';
 import { COMPACT_FROM } from '../entrypoints/sidepanel/tabs/copyright/video-picks';
 import { SONGS_CSV_MAX } from '../lib/claims/ops';
 import { downloadCsv } from '../lib/panel/download';
-import { claimsStateWith, fakeClaims, fakeLive, fakePanel, renderPanel } from './panel-fake';
+import { claimsStateWith, fakeClaims, fakeLive, fakePanel, pickOption, renderPanel } from './panel-fake';
 
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
 
@@ -839,7 +839,7 @@ describe('claimed songs', () => {
   it('sorts by the chosen order and searches song, artist, label and claimant', async () => {
     await stored();
     await open(/Songs/);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Sort by' }), { target: { value: 'title' } });
+    pickOption(screen.getByRole('combobox', { name: 'Sort by' }), 'Title A–Z');
     expect(titles()).toEqual(['Alpha', 'Beta']);
     fireEvent.change(screen.getByRole('textbox', { name: 'Search song, artist, label or claimant…' }), { target: { value: 'co' } });
     expect(titles()).toEqual(['Beta']);

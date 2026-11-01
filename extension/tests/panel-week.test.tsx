@@ -59,7 +59,7 @@ describe('schedule box: the weekly schedule', () => {
   it('week mode: its fields, with the defaults while nothing is stored; no interval fields', () => {
     box(sched({ mode: 'week' }));
     expect(pressed('Per week')).toBe('true');
-    expect((screen.getByLabelText('Videos a week') as HTMLSelectElement).value).toBe('3');
+    expect(screen.getByLabelText('Videos a week').textContent).toBe('3');
     expect(timeAt('From')).toBe('17:00');
     expect(timeAt('Until')).toBe('21:00');
     expect(screen.queryByDisplayValue('17:00')).toBe(null); // a time picker, not the browser's time box
@@ -73,11 +73,12 @@ describe('schedule box: the weekly schedule', () => {
 
   it('the fields show what is stored and write their own value', () => {
     const { last } = box(week({ perWeek: 5, from: '08:15', to: '12:00' }));
-    expect((screen.getByLabelText('Videos a week') as HTMLSelectElement).value).toBe('5');
+    expect(screen.getByLabelText('Videos a week').textContent).toBe('5');
     expect(timeAt('From')).toBe('08:15');
     expect(timeAt('Until')).toBe('12:00');
-    expect([...(screen.getByLabelText('Videos a week') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
-    fireEvent.change(screen.getByLabelText('Videos a week'), { target: { value: '7' } });
+    fireEvent.keyDown(screen.getByLabelText('Videos a week'), { key: 'Enter' });
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
+    fireEvent.click(screen.getByRole('option', { name: '7' }));
     expect(last()).toEqual({ schedule: { perWeek: 7 } });
     pickTime(screen.getByRole('button', { name: 'From' }), '09:30');
     expect(last()).toEqual({ schedule: { from: '09:30', to: '12:00' } });

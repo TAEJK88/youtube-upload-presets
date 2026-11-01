@@ -1,6 +1,6 @@
 import { useId, type MouseEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { L } from '@/lib/i18n';
 import { fmtWhen, toLocalInput } from '@/lib/panel/format';
@@ -131,9 +131,10 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
                 {startField}
                 <div>
                   <div id={perWeekId} className="mb-1 text-xs font-semibold text-fg3">{L('คลิปต่อสัปดาห์', 'Videos a week')}</div>
-                  <NativeSelect className="w-full" aria-labelledby={perWeekId} value={String(w.perWeek)} onChange={(e) => set({ perWeek: Number(e.target.value) })}>
-                    {[1, 2, 3, 4, 5, 6, 7].map((n) => <option key={n} value={n}>{n}</option>)}
-                  </NativeSelect>
+                  <Select value={String(w.perWeek)} onValueChange={(v) => set({ perWeek: Number(v) })}>
+                    <SelectTrigger className="w-full" aria-labelledby={perWeekId}><SelectValue /></SelectTrigger>
+                    <SelectContent>{[1, 2, 3, 4, 5, 6, 7].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
@@ -157,10 +158,13 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
             </div>
             <div>
               <div className="mb-1 text-xs">{' '}</div>
-              <NativeSelect className="w-full" aria-labelledby={everyId} value={s.unit === 'hour' ? 'hour' : 'day'} onChange={(e) => set({ unit: e.target.value as Schedule['unit'] })}>
-                <option value="day">{L('วัน', 'days')}</option>
-                <option value="hour">{L('ชั่วโมง', 'hours')}</option>
-              </NativeSelect>
+              <Select value={s.unit === 'hour' ? 'hour' : 'day'} onValueChange={(v) => set({ unit: v as Schedule['unit'] })}>
+                <SelectTrigger className="w-full" aria-labelledby={everyId}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="day">{L('วัน', 'days')}</SelectItem>
+                  <SelectItem value="hour">{L('ชั่วโมง', 'hours')}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           )}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { L } from '@/lib/i18n';
 import { dropHandles, expandHandles, hasFiles, intakeFailed, pickFiles, pickFolder, sendFiles } from '@/lib/panel/intake';
@@ -118,9 +118,10 @@ export function QueueTab() {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <NativeSelect className="min-w-0 flex-1" title={L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos')} value={data.activeId} onChange={(e) => void write.activeId(e.target.value).catch(saveFailed)}>
-          {data.presets.map((p, i) => <option key={p.id} value={p.id}>{`${i + 1}. ${p.label}`}</option>)}
-        </NativeSelect>
+        <Select value={data.activeId} onValueChange={(v) => void write.activeId(v).catch(saveFailed)}>
+          <SelectTrigger className="min-w-0 flex-1" title={L('พรีเซ็ตสำหรับคลิปที่เพิ่มใหม่', 'Preset for newly added videos')}><SelectValue /></SelectTrigger>
+          <SelectContent>{data.presets.map((p, i) => <SelectItem key={p.id} value={p.id}>{`${i + 1}. ${p.label}`}</SelectItem>)}</SelectContent>
+        </Select>
         <Button size="sm" disabled={running} title={L('เปลี่ยนพรีเซ็ตของทุกคลิปที่ยังไม่ได้อัป', 'Change the preset of all videos not yet uploaded')}
           onClick={() => void send('queue:edit', { op: 'presetAll', presetId: data.activeId }).catch(notConnected)}>
           <Icon name="layers" size={14} />{L('ใช้กับทุกคลิป', 'Apply to all')}
