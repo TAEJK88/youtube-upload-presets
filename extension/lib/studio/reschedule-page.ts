@@ -19,6 +19,10 @@ const STOPPED = () => L('หยุดแล้ว', 'Stopped');
 // The popup is in the page from the start; it shows when its paper dialog has client rects.
 const popupShown = () => [...document.querySelectorAll<HTMLElement>(SEL.editVisibilityPopup)].find((p) => isVisible(p.querySelector(SEL.paperDialog))) || null;
 const saveOn = () => { const x = shown(SEL.studioSaveHost); return !!x && !off(x); };
+// A change still in the page: the popup open, or the page's Save on.
+export const unsavedChanges = () => !!popupShown() || saveOn();
+// Studio's Save can take longer than 20 s to land (s_psnnzduEg, 2026-11-02).
+const SAVE_WAIT_MS = 60_000;
 // Escape, as many times as it takes (the first may close an open calendar): clean when the popup
 // is gone and the page's Save stayed off.
 async function closePopup(error: string): Promise<PageResult> {
@@ -26,7 +30,7 @@ async function closePopup(error: string): Promise<PageResult> {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
     await waitFor(() => !popupShown(), 1500);
   }
-  return { error, dirty: !!popupShown() || saveOn() };
+  return { error, dirty: unsavedChanges() };
 }
 
 export async function scheduleOnEditPage(date: Date, stage: (idx: number, detail: string) => void, stillOn: () => boolean): Promise<PageResult> {
@@ -49,7 +53,7 @@ export async function scheduleOnEditPage(date: Date, stage: (idx: number, detail
   const save = await waitFor(() => { const x = shown<HTMLElement>(SEL.studioSaveHost); return x && !off(x) ? x : null; }, 10000);
   if (!save) return { error: L('ปุ่ม Save ของหน้าไม่พร้อม', "The page's Save button is not ready"), dirty: true };
   (save.querySelector('button') || save).click();
-  if (!(await waitFor(() => off(document.querySelector(SEL.studioSaveHost)), 20000))) return { error: L('กด Save แล้วแต่ยังไม่บันทึก', 'Clicked Save but it did not save'), dirty: true };
+  if (!(await waitFor(() => off(document.querySelector(SEL.studioSaveHost)), SAVE_WAIT_MS))) return { error: L('กด Save แล้วแต่ยังไม่บันทึก', 'Clicked Save but it did not save'), dirty: true };
   await sleep(1500); // Studio's own write lands before the check reads it back
   return { error: '', dirty: false };
 }

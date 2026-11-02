@@ -5,7 +5,7 @@ import { load, useMemoryClaims } from '../lib/claims/store';
 import type { Run } from '../lib/claims/types';
 import { setYoutubei } from '../lib/claims/youtubei';
 import { refreshCfg, resetCfg } from '../lib/studio/channel';
-import { scheduleOnEditPage } from '../lib/studio/reschedule-page';
+import { scheduleOnEditPage, unsavedChanges } from '../lib/studio/reschedule-page';
 
 vi.mock('../lib/studio/automation', async (orig) => ({
   ...(await orig<typeof import('../lib/studio/automation')>()),
@@ -13,7 +13,7 @@ vi.mock('../lib/studio/automation', async (orig) => ({
   waitFor: async (fn: () => unknown) => fn() || null,
 }));
 // The Visibility dialog's clicks are the page module's (its own tests); here the run around it.
-vi.mock('../lib/studio/reschedule-page', () => ({ scheduleOnEditPage: vi.fn(async () => '') }));
+vi.mock('../lib/studio/reschedule-page', () => ({ scheduleOnEditPage: vi.fn(async () => ''), unsavedChanges: vi.fn(() => false) }));
 import * as C from '../lib/claims/claims';
 import * as Q from '../lib/studio/queue-runner';
 
@@ -123,6 +123,34 @@ describe('Reschedule run (the Visibility dialog, one video at a time)', () => {
     expect(ui.log).toHaveBeenCalledWith('Mix A has unsaved changes in Studio, check it there: Moved 0 · Failed 1 · Not done 1', 'ok');
     await C.reschedStep();
     expect(location.href).toBe(''); // "Leave site?" would hold the next page anyway
+  });
+
+  // s_psnnzduEg, 2026-11-02: Studio's Save landed after the wait, and the run called it failed and stopped.
+  it('a Save that lands after the wait (Studio has the new time, the page is clean) is a move, and the run goes on', async () => {
+    await started();
+    page.mockImplementationOnce(async (date: Date) => {
+      onChannel = { ...onChannel, aaaaaaaaaaa: date.getTime() };
+      return { error: 'Clicked Save but it did not save', dirty: true };
+    });
+    go('/video/aaaaaaaaaaa/edit');
+    await C.reschedStep();
+    expect(items()[0]).toEqual(['aaaaaaaaaaa', 'moved', '']);
+    expect(run()!.active).toBe(true);
+    await C.reschedStep();
+    expect(location.href).toBe('/video/bbbbbbbbbbb/edit');
+  });
+
+  it('Studio has the new time but the page still holds a change: a failure, and the run ends', async () => {
+    await started();
+    vi.mocked(unsavedChanges).mockReturnValueOnce(true);
+    page.mockImplementationOnce(async (date: Date) => {
+      onChannel = { ...onChannel, aaaaaaaaaaa: date.getTime() };
+      return { error: 'Clicked Save but it did not save', dirty: true };
+    });
+    go('/video/aaaaaaaaaaa/edit');
+    await C.reschedStep();
+    expect(items()[0]).toEqual(['aaaaaaaaaaa', 'failed', 'Clicked Save but it did not save — Mix A has unsaved changes in Studio, check it there']);
+    expect(run()!.active).toBe(false);
   });
 
   it('Stop pressed during the video (page clean): the video is left as not done', async () => {

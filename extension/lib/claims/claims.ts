@@ -6,7 +6,7 @@ import { cachedCfg, chanLabel, getChannel } from '../studio/channel';
 import { clickByText, clickIn, shownDialog, sleep as sleepFor, waitFor as waitUntil } from '../studio/automation';
 import { inviteCollaborators } from '../studio/collab';
 import { otherTabRunning, queue, refreshChanSched, running, scheduleProblem, uploadOf } from '../studio/queue-runner';
-import { scheduleOnEditPage } from '../studio/reschedule-page';
+import { scheduleOnEditPage, unsavedChanges } from '../studio/reschedule-page';
 import { SEL } from '../studio/sel';
 import { load as loadState, settings } from '../studio/state';
 import { TXT } from '../studio/txt';
@@ -747,6 +747,9 @@ const switchToChannel: typeof switcher = (t, next) => {
     chMerge('rescheduleRun', { lastAt: new Date().toISOString() });
     log(`${state === 'moved' ? '🗓️' : '❌'} ${item.video}${msg ? ': ' + msg : ''}`, state === 'moved' ? 'ok' : 'err');
   }
+  // Studio's own list has the video at its new time (to the minute).
+  const atNewTime = async (item: RunItem) =>
+    ((await listScheduled().catch(() => null)) || []).some((v) => v.videoId === item.videoId && Math.abs(v.at - item.at!) < 60_000);
   async function reschedStep() {
     const run = getReschedRun();
     if (!run || !run.active || reschedBusy) return;
@@ -775,6 +778,8 @@ const switchToChannel: typeof switcher = (t, next) => {
         return;
       }
       const r = await scheduleOnEditPage(new Date(item.at!), setReschedStage, () => !!getReschedRun()?.active);
+      // A Save that landed after the wait: Studio has the new time and nothing is left in the page.
+      if (r.dirty && !unsavedChanges() && await atNewTime(item)) { setReschedResult(item, 'moved'); return await reschedNext(); }
       if (r.dirty) {
         // Never navigate on from unsaved changes: "Leave site?" would hold the next page, and the change is half made.
         const why = L(`${item.video} มีการแก้ไขที่ยังไม่บันทึกใน Studio — ตรวจที่นั่น`, `${item.video} has unsaved changes in Studio, check it there`);
@@ -787,9 +792,7 @@ const switchToChannel: typeof switcher = (t, next) => {
       if (!getReschedRun()?.active) { reschedBusy = false; return; } // stopped: the video stays not done
       if (r.error) throw new Error(r.error);
       setReschedStage(3, L('ตรวจกับ YouTube ว่าเวลาเปลี่ยนแล้ว…', 'Checking with YouTube that the time changed…'));
-      const after = (await listScheduled()) || [];
-      const kept = after.some((v) => v.videoId === item.videoId && Math.abs(v.at - item.at!) < 60_000);
-      if (!kept) throw new Error(L('บันทึกแล้ว แต่ Studio ยังไม่แสดงเวลาใหม่', "Saved, but Studio doesn't show the new time"));
+      if (!(await atNewTime(item))) throw new Error(L('บันทึกแล้ว แต่ Studio ยังไม่แสดงเวลาใหม่', "Saved, but Studio doesn't show the new time"));
       setReschedResult(item, 'moved');
     } catch (e: any) {
       setReschedResult(item, 'failed', e.message);
