@@ -62,6 +62,11 @@ describe('queueView', () => {
     expect(queueView(state).userscript).toBe(true);
   });
 
+  it("marks the page items whose file this page lost (the panel's Re-add files banner)", () => {
+    Q.queue.push(item('a', 'error', { src: 'page' }), item('b', 'pending'));
+    expect(queueView(state).items.map((i) => i.lost)).toEqual([true, false]);
+  });
+
   it('copies the items and adds what only the runner knows', () => {
     Q.queue.push(item('a', 'pending', { txt: '0:00 A - One\n3:00 B - Two\n6:00 C - Three' }), item('b', 'done'));
     const v = queueView(state);

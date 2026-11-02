@@ -1,7 +1,8 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { vi } from 'vitest';
 import { AskProvider } from '../entrypoints/sidepanel/ask';
+import { fmtDay } from '../entrypoints/sidepanel/fields';
 import { ClaimsContext, LiveContext, PanelContext, type ClaimsApi, type LiveApi, type PanelApi } from '../entrypoints/sidepanel/panel';
 import type { ClaimsState } from '../lib/claims/types';
 import { toPanelData } from '../lib/panel/data';
@@ -81,3 +82,39 @@ export const renderPanel = (ui: ReactElement, api: PanelApi = fakePanel(), live:
       </LiveContext.Provider>
     </PanelContext.Provider>,
   );
+
+// A Select (components/ui/select.tsx), its option picked as a keyboard user does: the trigger
+// opens the list, the option's click picks it.
+export function pickOption(trigger: HTMLElement, option: string | RegExp) {
+  fireEvent.keyDown(trigger, { key: 'Enter' });
+  fireEvent.click(screen.getByRole('option', { name: option }));
+}
+
+// A TimeField (entrypoints/sidepanel/fields.tsx): a time picked as a user does, the hour, then
+// the minute.
+export function pickTime(button: HTMLElement, time: string) {
+  const [h, m] = time.split(':');
+  fireEvent.click(button);
+  fireEvent.click(within(screen.getByRole('group', { name: 'Hour' })).getByRole('button', { name: h }));
+  fireEvent.click(within(screen.getByRole('group', { name: 'Minute' })).getByRole('button', { name: m }));
+}
+
+// A DateTimeField, found by its label: what it shows, as datetime-local text, and setting a day
+// through its calendar and a time through its time picker.
+const dtGroup = (label: string) => screen.getByRole('group', { name: label });
+export const timeBox = (label: string) => within(dtGroup(label)).getByRole('button', { name: 'Time' });
+export const shownAt = (label: string) => {
+  const day = within(dtGroup(label)).getByRole('button', { name: 'Date' }).textContent;
+  return { day, time: timeBox(label).textContent };
+};
+export const showing = (v: string) => ({ day: fmtDay(v.slice(0, 10)), time: v.slice(11) });
+export function pickDay(label: string, day: string) {
+  fireEvent.click(within(dtGroup(label)).getByRole('button', { name: 'Date' }));
+  const cell = () => document.querySelector(`[data-day="${day}"] button`) as HTMLButtonElement | null;
+  for (let i = 0; i < 240 && !cell(); i++) {
+    const first = document.querySelector('[data-day]')!.getAttribute('data-day')!;
+    fireEvent.click(screen.getByRole('button', { name: first < day ? /next month/i : /previous month/i }));
+  }
+  fireEvent.click(cell()!);
+}
+export const setTime = (label: string, time: string) => pickTime(timeBox(label), time);

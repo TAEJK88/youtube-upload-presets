@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'rea
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { THUMB_MAX, TITLE_MAX } from '@/lib/constants';
 import { handles } from '@/lib/file-handles';
@@ -15,7 +15,7 @@ import type { FileRef, ItemStatus } from '@/lib/studio/queue-runner';
 import type { ViewItem } from '@/lib/studio/queue-view';
 import { cn } from '@/lib/utils';
 import { useAsk } from '../ask';
-import { Chevron, Fold, IconButton, TextField } from '../fields';
+import { Chevron, DateTimeField, Fold, IconButton, TextField } from '../fields';
 import { Icon } from '../Icon';
 import { openTab } from '../open-tab';
 import { useLive, usePanel } from '../panel';
@@ -78,7 +78,8 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
   const titleEl = useRef<HTMLInputElement>(null);
   const focusTitle = useRef(false);
   const [drag, setDrag] = useState(false);
-  const thumbUrl = useThumbUrl(it.thumb, grantRev);
+  // The stored preview first; reading the file needs read access (older items have no preview).
+  const thumbUrl = useThumbUrl(it.thumb?.preview ? null : it.thumb, grantRev) ?? it.thumb?.preview ?? null;
   const current = it.id === view?.current;
   const editable = waiting(it) && !current;
   // The tab's move refuses a neighbour that can't change (queue-edit canEdit).
@@ -292,9 +293,10 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
       <Fold open={open} lazy className="grid gap-2.5 pt-3">
         <div>
           <div className="mb-1 text-xs text-fg2">{L('พรีเซ็ต', 'Preset')}</div>
-          <NativeSelect aria-label={L('พรีเซ็ต', 'Preset')} className="w-full" disabled={!editable} value={p.id} onChange={(e) => edit({ op: 'preset', presetId: e.target.value })}>
-            {data.presets.map((x, i) => <option key={x.id} value={x.id}>{`${i + 1}. ${x.label}`}</option>)}
-          </NativeSelect>
+          <Select disabled={!editable} value={p.id} onValueChange={(v) => edit({ op: 'preset', presetId: v })}>
+            <SelectTrigger aria-label={L('พรีเซ็ต', 'Preset')} className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>{data.presets.map((x, i) => <SelectItem key={x.id} value={x.id}>{`${i + 1}. ${x.label}`}</SelectItem>)}</SelectContent>
+          </Select>
         </div>
         <div>
           <div className="mb-1 flex justify-between text-xs text-fg2">
@@ -310,8 +312,8 @@ export function QueueCard({ it, prev, next, open, onOpen }: { it: ViewItem; prev
         {at !== null && (
           <div>
             <div className="mb-1 text-xs text-fg2">{L('เวลาปล่อย', 'Release time')}</div>
-            <div className={cn('flex items-center gap-1.5', bad && '[&_input]:border-warn')}>
-              <TextField type="datetime-local" aria-label={L('เวลาปล่อย', 'Release time')} disabled={!editable} value={toLocalInput(at)}
+            <div className={cn('flex items-center gap-1.5', bad && '[&_[role=group]>*]:border-warn')}>
+              <DateTimeField label={L('เวลาปล่อย', 'Release time')} disabled={!editable} value={toLocalInput(at)}
                 onValue={(v) => edit({ op: 'publishAt', at: new Date(v).getTime() || null })} />
               <span className={cn('inline-flex items-center gap-1 text-xs whitespace-nowrap text-fg3', bad && 'text-warn')} title={bad || ''}>
                 <Icon name={bad ? 'alert' : 'clock'} size={12} />

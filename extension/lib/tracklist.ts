@@ -1,4 +1,16 @@
 export const parseTime = (t: string) => t.split(':').map(Number).reduce((a, x) => a * 60 + x, 0);
+const TRACK = /^\s*((?:\d{1,2}:)?\d{1,2}:\d{2})(\s*[-–|]?\s*)(.*)$/; // "03:36 Artist - Song", "1:02:03 | Song"
+
+// The tracklist line playing at `sec`: the one with the largest timestamp at or before it, '' when there is none.
+export function tracklistAt(text: unknown, sec: number | undefined): string {
+  let hit = '', best = -1;
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const m = line.match(TRACK);
+    const t = m ? parseTime(m[1]!) : -1;
+    if (m && sec !== undefined && t <= sec && t >= best) { best = t; hit = line.trim(); }
+  }
+  return hit;
+}
 
 // After trimming claimed segments: shift every timestamp back by what was cut before it,
 // drop tracks that lost half or more of their length, and restart the first kept track at 00:00.
@@ -13,7 +25,7 @@ export function fixTracklist(text: unknown, segments: [number, number][], videoL
   const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
   const tracks: { idx: number; start: number; sep: string; rest: string; end: number }[] = [];
   lines.forEach((line, idx) => {
-    const m = line.match(/^\s*((?:\d{1,2}:)?\d{1,2}:\d{2})(\s*[-–|]?\s*)(.*)$/);
+    const m = line.match(TRACK);
     if (m) tracks.push({ idx, start: parseTime(m[1]!), sep: m[2]!, rest: m[3]!, end: 0 });
   });
   tracks.forEach((t, i) => { t.end = i + 1 < tracks.length ? tracks[i + 1]!.start : (videoLength || t.start); });

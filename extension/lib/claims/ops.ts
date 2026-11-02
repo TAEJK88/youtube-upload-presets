@@ -32,8 +32,8 @@ export const opKey = (op: ClaimsOp): string => (op.op === 'songs' ? 'songHistory
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
-const MERGE = new Set(['cfg', 'trimResults', 'adsResults', 'collabResults', 'collabLinks', 'autopilot', 'trimRun', 'adsRun', 'collabRun']);
-const RUNS = new Set(['trimRun', 'adsRun', 'collabRun']);
+const MERGE = new Set(['cfg', 'trimResults', 'adsResults', 'collabResults', 'collabLinks', 'autopilot', 'trimRun', 'adsRun', 'collabRun', 'rescheduleRun']);
+const RUNS = new Set(['trimRun', 'adsRun', 'collabRun', 'rescheduleRun']);
 const PROTO = new Set(['__proto__', 'constructor', 'prototype']);
 // recordSongs / markSongTrimmed index `e.videos` by videoId: any name Object.prototype has
 // (__proto__, toString, …) would read and write the shared built-ins in the background.

@@ -21,11 +21,13 @@ import {
   ackNoticeDialogs, closeAfterDialogs, closeStudioUploadDialog, dialogError, goToVisibility, injectingFile,
   injectUploadFile, openFilePicker, setThumbnail, thumbUnusable, uploadProgressText,
 } from './upload-dialog';
+import { thumbPreview } from './thumb-preview';
 import { videoDuration } from './video-duration';
 
 export type FileSrc = 'bridge' | 'page';
 export interface FileMeta { name: string; size: number; type: string }
 export interface FileRef extends FileMeta { id: string; src: FileSrc }
+export interface ThumbRef extends FileRef { preview?: string } // thumb-preview.ts
 // A File handed to addFiles(), tagged with its item / file-store id and where it lives.
 export type QFile = File & { qid: string; src: FileSrc };
 export const fileMeta = (f: File): FileMeta => ({ name: f.name, size: f.size, type: f.type });
@@ -51,7 +53,7 @@ export interface QueueItem {
   msg: string;
   txt: string;
   txtName: string;
-  thumb: FileRef | null;
+  thumb: ThumbRef | null;
   duration: number;
   durState?: 'loading' | 'ok' | 'fail';
   prev?: UploadRecord | null; // the same file was uploaded to this channel before
@@ -164,8 +166,8 @@ async function attachTxt(it: QueueItem, file: File) {
   it.txt = await readText(file);
   it.txtName = file.name;
 }
-function attachThumb(it: QueueItem, file: QFile) {
-  it.thumb = { id: file.qid, src: file.src, ...fileMeta(file) };
+async function attachThumb(it: QueueItem, file: QFile) {
+  it.thumb = { id: file.qid, src: file.src, ...fileMeta(file), preview: await thumbPreview(file) };
 }
 
 // รับไฟล์ปนกันได้: คลิป + .txt + ภาพปก จับคู่ด้วยชื่อไฟล์ (ไม่รวมนามสกุล)
@@ -246,7 +248,7 @@ async function addFiles(fileList: Iterable<QFile>): Promise<void> {
     if (isTxt(f) || isImg(f)) {
       if (!it) { unmatched++; continue; }
       if (isTxt(f)) { await attachTxt(it, f); txtN++; }
-      else { attachThumb(it, f); imgN++; }
+      else { await attachThumb(it, f); imgN++; }
       it.titleEdited = false;
     } else skipped++;
   }

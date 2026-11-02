@@ -364,6 +364,33 @@ describe('follow-ups', () => {
     expect(lines.some((l) => l === 'warn:Failed to check video Mix: timed out')).toBe(true);
   });
 
+  // audit 1: Stop while a check waits on YouTube; its copy of the list must not come back and start trims
+  it('Stop during a check: the cleared list stays cleared and no trim starts', async () => {
+    useMemoryClaims({ [`followUp:${CH}`]: fu() }, async (op) => void ops.push(op));
+    let answer: (v: unknown) => void = () => {};
+    setYoutubei(() => new Promise((res) => { answer = res; }));
+    const check = C.fuCheck();
+    C.stopAll();
+    answer({ receivedClaims: [cl('c3', 'S3')] }); // would start a follow-up run
+    await check;
+    expect(load(`trimRun:${CH}`, null)).toBe(null);
+    expect(stored()).toEqual({});
+  });
+
+  it('Stop during a check whose last call fails: the cleared list stays cleared and no trim starts', async () => {
+    const v2 = { video: 'Two', pending: [{ key: 'v2:c9', claimId: 'c9', song: 'S9', tries: 0 }], lastClaimId: null, lastSavedAt: 0 };
+    useMemoryClaims({ [`followUp:${CH}`]: { ...fu(), v2 } }, async (op) => void ops.push(op));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    setYoutubei(async (_path, body) => {
+      if ((body as { videoId?: string })?.videoId === 'v1') return { receivedClaims: [cl('c3', 'S3')] }; // ready to trim
+      C.stopAll();
+      throw new Error('timed out');
+    });
+    await C.fuCheck();
+    expect(load(`trimRun:${CH}`, null)).toBe(null);
+    expect(stored()).toEqual({});
+  });
+
   it('a queued claim is added once, and found by video and claim', () => {
     useMemoryClaims({}, async (op) => void ops.push(op));
     C.fuAdd(item('c2'));

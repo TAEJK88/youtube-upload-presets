@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { movePreview } from '@/lib/backup';
 import { L, type Lang } from '@/lib/i18n';
@@ -51,16 +51,16 @@ function Pick<K extends keyof Settings>({ k, title, options, after }: { k: K; ti
   const { data } = usePanel();
   const save = useSave();
   return (
-    <NativeSelect
-      aria-label={title}
+    <Select
       value={String(data?.settings[k] ?? '')}
-      onChange={(e) => {
-        const label = e.target.selectedOptions[0]?.textContent ?? '';
-        void save({ [k]: e.target.value } as SettingsPatch).then(() => after?.(label), () => {});
+      onValueChange={(v) => {
+        const label = options.find(([o]) => o === v)?.[1] ?? '';
+        void save({ [k]: v } as SettingsPatch).then(() => after?.(label), () => {});
       }}
     >
-      {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-    </NativeSelect>
+      <SelectTrigger aria-label={title}><SelectValue /></SelectTrigger>
+      <SelectContent>{options.map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}</SelectContent>
+    </Select>
   );
 }
 
@@ -185,10 +185,13 @@ export function SettingsTab() {
 
       <Section title={L('ทั่วไป', 'General')} icon="sliders">
         <Kv title="Language / ภาษา">
-          <NativeSelect aria-label="Language / ภาษา" value={s.lang ?? 'en'} onChange={(e) => set({ lang: e.target.value as Lang })}>
-            <option value="en">English</option>
-            <option value="th">ไทย</option>
-          </NativeSelect>
+          <Select value={s.lang ?? 'en'} onValueChange={(v) => set({ lang: v as Lang })}>
+            <SelectTrigger aria-label="Language / ภาษา"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="th">ไทย</SelectItem>
+            </SelectContent>
+          </Select>
         </Kv>
         <Kv title={L('ชื่อโปรดิวเซอร์ {producer}', 'Producer name {producer}')} note={L('ใช้ในชื่อคลิป/คำอธิบาย/แท็ก เช่น "Prod. by {producer}" · เว้นว่าง = ใช้ชื่อช่องปัจจุบัน', 'Used in video title/description/tags, e.g. "Prod. by {producer}" · blank = current channel name')}>
           <TextField className="w-40" value={s.producer} placeholder={view?.channel.name || L('ชื่อช่อง', 'Channel name')} onValue={(v) => set({ producer: v.trim() })} />

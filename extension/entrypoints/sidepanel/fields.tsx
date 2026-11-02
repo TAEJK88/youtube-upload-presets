@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
+import { L, locale } from '@/lib/i18n';
+import { toLocalInput } from '@/lib/panel/format';
 import { cn } from '@/lib/utils';
 import { Icon } from './Icon';
 
@@ -52,6 +56,85 @@ export function TextField({ value, onValue, onFocus, onBlur, ref, ...rest }: Inp
       onBlur={(e) => { f.blur(); onBlur?.(e); }}
       onChange={(e) => { f.typed(e.target.value); onValue(e.target.value); }}
     />
+  );
+}
+
+// The day a DateTimeField shows ('YYYY-MM-DD').
+export const fmtDay = (date: string) =>
+  new Intl.DateTimeFormat(locale() === 'th-TH' ? 'th-TH-u-ca-gregory' : locale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${date}T00:00`));
+
+// A datetime-local value ('' while unset) as a day from the calendar and a time of day. A day
+// picked before any time gets 19:00, the schedule's usual hour; a time before any day, today.
+export function DateTimeField({ value, onValue, label, disabled, className }: { value: string; onValue(v: string): void; label: string; disabled?: boolean; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [date = '', time = ''] = value.split('T');
+  const day = date ? new Date(`${date}T00:00`) : undefined;
+  const dayText = date ? fmtDay(date) : L('เลือกวัน', 'Pick a day');
+  return (
+    <div role="group" aria-label={label} className={cn('flex min-w-0 flex-1 gap-1.5', className)}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button disabled={disabled} aria-label={L('วันที่', 'Date')} className="h-9 min-w-0 flex-1 justify-start rounded-[10px] border-line bg-surface px-2.5 font-normal">
+            <Icon name="calendar" size={14} className="text-fg3" />
+            <span className="truncate">{dayText}</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent>
+          <Calendar mode="single" selected={day} defaultMonth={day}
+            onSelect={(d) => {
+              if (!d) return; // a click on the picked day: it stays picked
+              onValue(`${toLocalInput(d.getTime()).slice(0, 10)}T${time || '19:00'}`);
+              setOpen(false);
+            }} />
+        </PopoverContent>
+      </Popover>
+      {/* Shows the stored time at all times (Reschedule's Apply sends what it shows). */}
+      <TimeField label={L('เวลา', 'Time')} disabled={disabled} className="w-[92px] shrink-0" value={time}
+        onValue={(t) => onValue(`${date || toLocalInput(Date.now()).slice(0, 10)}T${t}`)} />
+    </div>
+  );
+}
+
+const two = (n: number) => String(n).padStart(2, '0');
+const HOURS = Array.from({ length: 24 }, (_, i) => two(i));
+const MINUTES = Array.from({ length: 12 }, (_, i) => two(i * 5));
+// Scrolls a column so its picked entry sits in the middle (a stable ref: runs when it attaches).
+const centre = (el: HTMLElement | null) => {
+  const col = el?.parentElement;
+  if (el && col) col.scrollTop = el.offsetTop - col.clientHeight / 2 + el.clientHeight / 2;
+};
+
+// A time of day ('HH:mm', '' while unset) from an hour and a minute column in a Popover. Each
+// click saves; the minute closes it. The minutes go in fives, plus a stored one between them (a
+// time Studio set). The hour picked is kept here too, so the minute after it never pairs with the
+// stored hour before a slow save comes back.
+export function TimeField({ value, onValue, label, disabled, className }: { value: string; onValue(v: string): void; label: string; disabled?: boolean; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [hourPicked, setHourPicked] = useState<string | null>(null);
+  const [h = '', m = ''] = value.split(':');
+  const hour = hourPicked ?? h;
+  const minutes = m && !MINUTES.includes(m) ? [...MINUTES, m].sort() : MINUTES;
+  const column = (name: string, items: string[], picked: string, pick: (v: string) => void) => (
+    <div role="group" aria-label={name} className="relative flex max-h-56 flex-col gap-0.5 overflow-y-auto pr-1">
+      {items.map((v) => (
+        <button type="button" key={v} aria-pressed={v === picked} ref={v === picked ? centre : undefined} onClick={() => pick(v)}
+          className={cn('w-11 shrink-0 cursor-pointer rounded-[8px] py-1 text-center text-[13px] tabular-nums hover:bg-surface2', v === picked && 'bg-fg text-on-fg hover:bg-fg-hover')}>{v}</button>
+      ))}
+    </div>
+  );
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); setHourPicked(null); }}>
+      <PopoverTrigger asChild>
+        <Button disabled={disabled} aria-label={label} className={cn('h-9 justify-start rounded-[10px] border-line bg-surface px-2.5 font-normal tabular-nums', className)}>
+          <Icon name="clock" size={14} className="text-fg3" />
+          {value || '--:--'}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="flex gap-1 p-1.5">
+        {column(L('ชั่วโมง', 'Hour'), HOURS, hour, (v) => { setHourPicked(v); onValue(`${v}:${m || '00'}`); })}
+        {column(L('นาที', 'Minute'), minutes, m, (v) => { onValue(`${hour || '19'}:${v}`); setOpen(false); setHourPicked(null); })}
+      </PopoverContent>
+    </Popover>
   );
 }
 

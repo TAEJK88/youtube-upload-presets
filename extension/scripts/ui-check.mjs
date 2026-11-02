@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as babelParse } from '@babel/parser';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SKIP_TOP = new Set(['node_modules', 'scripts', 'tests']); // and every dot-directory
+const SKIP_TOP = new Set(['node_modules', 'scripts', 'tests', 'graphify-out']); // and every dot-directory
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|css|html|svg)$/;
 const SCRIPT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const I18N = 'lib/i18n.ts'; // where L is defined

@@ -16,7 +16,7 @@ import { PanelContext } from '../entrypoints/sidepanel/panel';
 import { toPanelData } from '../lib/panel/data';
 import { fmtWhen, toLocalInput } from '../lib/panel/format';
 import type { QueueView, ViewItem } from '../lib/studio/queue-view';
-import { fakeLive, fakePanel, renderPanel, state, viewWith } from './panel-fake';
+import { fakeLive, fakePanel, pickDay, pickOption, renderPanel, setTime, showing, shownAt, state, viewWith } from './panel-fake';
 
 vi.mock('../lib/panel/intake', async (orig) => ({ ...(await orig<typeof import('../lib/panel/intake')>()), sendFiles: vi.fn(), dropHandles: vi.fn(), pickFiles: vi.fn(async () => []), pickFolder: vi.fn(async () => []) }));
 vi.mock('sonner', async (orig) => ({ ...(await orig<typeof import('sonner')>()), toast: vi.fn() }));
@@ -130,7 +130,7 @@ describe('queue card', () => {
     renderPanel(<QueueCard it={view.items[0]!} open onOpen={() => {}} />, api);
     fireEvent.change(screen.getByLabelText('Video title'), { target: { value: 'Mine' } });
     expect(api.send).toHaveBeenCalledWith('queue:edit', { op: 'title', id: 'i0', title: 'Mine' });
-    fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'lofi' } });
+    pickOption(screen.getByLabelText('Preset'), /Lofi Chill/);
     expect(api.send).toHaveBeenCalledWith('queue:edit', { op: 'preset', id: 'i0', presetId: 'lofi' });
     fireEvent.change(screen.getByLabelText('Artists'), { target: { value: 'SZA' } });
     expect(api.send).toHaveBeenCalledWith('queue:edit', { op: 'artists', id: 'i0', artists: 'SZA' });
@@ -429,7 +429,8 @@ describe('upload tab', () => {
     vi.mocked(api.write.activeId).mockRejectedValue(new Error('quota'));
     vi.mocked(api.send).mockRejectedValue(new Error('Receiving end does not exist'));
     renderPanel(<QueueTab />, api);
-    await act(async () => void fireEvent.change(screen.getByTitle('Preset for newly added videos'), { target: { value: 'lofi' } }));
+    pickOption(screen.getByTitle('Preset for newly added videos'), /Lofi Chill/);
+    await act(async () => {});
     expect(toast).toHaveBeenCalledWith("Couldn't save (quota)", { id: 'save-failed' });
     await act(async () => void fireEvent.click(screen.getByRole('button', { name: /Apply to all/ })));
     expect(toast).toHaveBeenCalledWith(RELOAD);
@@ -439,7 +440,7 @@ describe('upload tab', () => {
   it('the default preset select writes activeId', () => {
     const api = fakePanel({ view: viewWith([]) });
     renderPanel(<QueueTab />, api);
-    fireEvent.change(screen.getByTitle('Preset for newly added videos'), { target: { value: 'lofi' } });
+    pickOption(screen.getByTitle('Preset for newly added videos'), /Lofi Chill/);
     expect(api.write.activeId).toHaveBeenCalledWith('lofi');
     expect(vi.mocked(api.send)).not.toHaveBeenCalled();
   });
@@ -533,8 +534,8 @@ describe('schedule box', () => {
     expect(screen.getByText(/has passed — the queue will start/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
     expect(api.write.settings).toHaveBeenCalledWith({ schedule: { start: toLocalInput(start) } });
-    fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
-    expect(vi.mocked(api.write.settings).mock.calls.at(-1)![0].schedule!.start).toMatch(/T19:00$/);
+    fireEvent.click(screen.getByRole('button', { name: 'Tomorrow' }));
+    expect(vi.mocked(api.write.settings).mock.calls.at(-1)![0].schedule!.start).toMatch(/T08:00$/); // tomorrow, at the start's time of day
   });
 
   it('on but no start yet; the channel\'s scheduled videos and skipped slots', () => {
@@ -575,7 +576,7 @@ describe('schedule box', () => {
     renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Every' }), { target: { value: '3' } });
     expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { every: 3 } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Every' }), { target: { value: 'hour' } });
+    pickOption(screen.getByRole('combobox', { name: 'Every' }), 'hours');
     expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { unit: 'hour' } });
   });
 
@@ -583,10 +584,12 @@ describe('schedule box', () => {
     const api = fakePanel({ data: sched({ every: 3, unit: 'hour' }) });
     renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
     expect((screen.getByRole('spinbutton', { name: 'Every' }) as HTMLInputElement).value).toBe('3');
-    expect((screen.getByRole('combobox', { name: 'Every' }) as HTMLSelectElement).value).toBe('hour');
-    expect((screen.getByLabelText('First video releases') as HTMLInputElement).value).toBe('2030-01-01T08:00');
-    fireEvent.change(screen.getByLabelText('First video releases'), { target: { value: '2031-02-03T04:05' } });
-    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { start: '2031-02-03T04:05' } });
+    expect(screen.getByRole('combobox', { name: 'Every' }).textContent).toBe('hours');
+    expect(shownAt('First video releases')).toEqual(showing('2030-01-01T08:00'));
+    pickDay('First video releases', '2031-02-03'); // the day keeps the time
+    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { start: '2031-02-03T08:00' } });
+    setTime('First video releases', '04:05'); // the time keeps the (stored) day
+    expect(api.write.settings).toHaveBeenLastCalledWith({ schedule: { start: '2030-01-01T04:05' } });
   });
 
   it('each quick pick writes its own time', () => {
@@ -599,7 +602,8 @@ describe('schedule box', () => {
         fireEvent.click(screen.getByRole('button', { name }));
         return vi.mocked(api.write.settings).mock.calls.at(-1)![0];
       };
-      expect(pick('Tomorrow 19:00')).toEqual({ schedule: { start: '2026-10-10T19:00' } });
+      expect(pick('Now')).toEqual({ schedule: { start: '2026-10-09T18:15' } }); // 15 minutes ahead, to the quarter
+      expect(pick('Tomorrow')).toEqual({ schedule: { start: '2026-10-10T08:00' } }); // the start's time of day
       expect(pick('Next 18:00')).toEqual({ schedule: { start: '2026-10-10T18:00' } });
       expect(pick('Next 20:00')).toEqual({ schedule: { start: '2026-10-09T20:00' } });
       expect(pick('Within 1 hr')).toEqual({ schedule: { start: '2026-10-09T19:00' } });
@@ -645,17 +649,17 @@ describe('schedule box', () => {
       const api = fakePanel({ data: sched({ start: '2020-01-01T08:00' }), view: lateView(Date.now() + 86400e3) });
       vi.mocked(api.write.settings).mockRejectedValue(new Error('gone'));
       renderPanel(<ScheduleBox open onOpen={() => {}} />, api);
+      setTime('First video releases', '04:05'); // two saves: the hour, then the minute
+      pickOption(screen.getByRole('combobox', { name: 'Every' }), 'hours');
       await act(async () => {
-        fireEvent.change(screen.getByLabelText('First video releases'), { target: { value: '2031-02-03T04:05' } });
         fireEvent.change(screen.getByRole('spinbutton', { name: 'Every' }), { target: { value: '3' } });
-        fireEvent.change(screen.getByRole('combobox', { name: 'Every' }), { target: { value: 'hour' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Tomorrow 19:00' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Tomorrow' }));
         fireEvent.click(screen.getByRole('button', { name: 'Use this time' }));
         fireEvent.click(screen.getByRole('switch', { name: 'Schedule releases' }));
         await new Promise((r) => setTimeout(r, 0));
       });
-      expect(api.write.settings).toHaveBeenCalledTimes(6);
-      expect(err.mock.calls.filter(([m]) => m === '[ytup] store write failed')).toHaveLength(6);
+      expect(api.write.settings).toHaveBeenCalledTimes(7);
+      expect(err.mock.calls.filter(([m]) => m === '[ytup] store write failed')).toHaveLength(7);
     } finally {
       err.mockRestore();
     }

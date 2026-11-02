@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { browser } from 'wxt/browser';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { clearLog, DEBUG_LOG_KEY, readLog, type LogCtx, type LogEntry, type LogLevel } from '@/lib/debug-log';
 import { L, locale } from '@/lib/i18n';
 import {
@@ -19,6 +19,7 @@ export interface DebugDeps { ping?: () => Promise<unknown>; pingTab?: (tabId: nu
 // Every context: a new one that is not listed here does not compile.
 const CTXS = Object.keys({ background: 1, panel: 1, studio: 1, 'studio-main': 1, invite: 1, bridge: 1, debug: 1, allow: 1 } satisfies Record<LogCtx, 1>) as LogCtx[];
 const LEVELS: LogLevel[] = ['error', 'warn', 'info'];
+const ALL = 'all';
 
 const failed = (e: string) => L(`โหลดส่วนนี้ไม่สำเร็จ: ${e}`, `This section failed: ${e}`);
 const Data = ({ children }: { children: ReactNode }) => <code className="font-mono text-xs break-all text-fg2">{children}</code>;
@@ -137,14 +138,21 @@ function LogSection() {
       title={L('บันทึกข้อผิดพลาด', 'Error log')}
       actions={
         <>
-          <NativeSelect aria-label={L('ที่มา', 'Context')} value={ctx} onChange={(e) => setCtx(e.target.value as LogCtx | '')}>
-            <option value="">{L('ทุกที่มา', 'All contexts')}</option>
-            {CTXS.map((c) => <option key={c} value={c}>{c}</option>)}
-          </NativeSelect>
-          <NativeSelect aria-label={L('ระดับ', 'Level')} value={level} onChange={(e) => setLevel(e.target.value as LogLevel | '')}>
-            <option value="">{L('ทุกระดับ', 'All levels')}</option>
-            {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
-          </NativeSelect>
+          {/* Select items cannot have '' as a value, so ALL stands for "no filter" */}
+          <Select value={ctx || ALL} onValueChange={(v) => setCtx(v === ALL ? '' : (v as LogCtx))}>
+            <SelectTrigger aria-label={L('ที่มา', 'Context')}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{L('ทุกที่มา', 'All contexts')}</SelectItem>
+              {CTXS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={level || ALL} onValueChange={(v) => setLevel(v === ALL ? '' : (v as LogLevel))}>
+            <SelectTrigger aria-label={L('ระดับ', 'Level')}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{L('ทุกระดับ', 'All levels')}</SelectItem>
+              {LEVELS.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Button size="sm" onClick={reload}>{L('รีเฟรช', 'Refresh')}</Button>
           <Button size="sm" variant="ghostDanger" onClick={() => void clearLog().then(reload, reload)}>{L('ล้างบันทึก', 'Clear log')}</Button>
         </>

@@ -65,6 +65,32 @@ describe('scanClaims', () => {
     expect(C.scanning).toBe(false);
   });
 
+  it('each claim keeps the tracklist line playing where its first claimed range starts, read in the same video list request', async () => {
+    const bodies: any[] = [];
+    api['creator/list_creator_videos'] = (body) => {
+      bodies.push(body);
+      return { videos: [{ ...videos[0], description: 'Tracks\n00:00 BLXD - Just Us Two\n00:50 Kellys Brown - I Know It All\n02:00 C' }] };
+    };
+    const rows = await run(C.scanClaims({ show: false }));
+    expect(bodies[0].mask.description).toBe(true);
+    expect(rows![0]!.tracklist).toBe('00:50 Kellys Brown - I Know It All'); // the range starts at 1:00
+    const set = ops.find((o) => o.op === 'set') as Extract<ClaimsOp, { op: 'set' }>;
+    expect(JSON.stringify(set.value)).not.toContain('BLXD'); // the line is stored, not the description
+  });
+
+  it('ranges Studio lists out of order: the tracklist line is the one at the earliest range', async () => {
+    api['creator/list_creator_videos'] = () => ({ videos: [{ ...videos[0], description: '00:00 A\n00:50 B\n10:00 C' }] });
+    api['copyright/get_creator_received_claim_matches'] = () => ({ matches: { claimMatches: [
+      { videoSegment: { startMillis: '600000', endMillis: '630000' } }, { videoSegment: { startMillis: '60000', endMillis: '90000' } }] } });
+    const rows = await run(C.scanClaims({ show: false }));
+    expect(rows![0]!.tracklist).toBe('00:50 B');
+  });
+
+  it('a video without a tracklist: the claim has no tracklist line', async () => {
+    const rows = await run(C.scanClaims({ show: false }));
+    expect(rows![0]!.tracklist || '').toBe('');
+  });
+
   it('reads every page: the next request carries the page token, and the total is the sum', async () => {
     const bodies: any[] = [];
     api['creator/list_creator_videos'] = (body) => {

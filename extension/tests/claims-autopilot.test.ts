@@ -61,6 +61,25 @@ describe('apCycle (5847–5873)', () => {
     expect(run.items.map((i) => i.key)).toEqual(['v1:c1']);
   });
 
+  // audit 1: Stop during the scan; the trims the cycle picked must not start
+  it('Stop during the scan: no trim run starts', async () => {
+    useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    setYoutubei(async (path) => { C.stopAll(); return studioApi(path); });
+    await C.apCycle();
+    expect(load(`trimRun:${CH}`, null)).toBe(null);
+  });
+
+  it('Stop during the scan: no ads run starts', async () => {
+    useMemoryClaims({ cfg: { apAdsOn: true }, [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));
+    setYoutubei(async (_path: string, body?: Record<string, unknown>) => {
+      if (!(body?.mask as Record<string, unknown> | undefined)?.monetization) return { videos: [] }; // no claims: the cycle goes on to ads
+      C.stopAll();
+      return { videos: [{ videoId: 'adsvideo001', title: 'A', monetization: { adMonetization: { userSetMonetization: 'X_OFF', effectiveStatus: 'X_OFF' } } }] };
+    });
+    await C.apCycle();
+    expect(load(`adsRun:${CH}`, null)).toBe(null);
+  });
+
   // 4a T6 review m7
   it('reads ytcfg again before it scans', async () => {
     useMemoryClaims({ [`autopilot:${CH}`]: { on: true, next: 0 } }, async (op) => void ops.push(op));

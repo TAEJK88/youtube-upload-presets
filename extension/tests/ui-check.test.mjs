@@ -186,6 +186,13 @@ describe('sourceFiles', () => {
       'assets/i.css', 'entrypoints/x/g.tsx', 'entrypoints/x/h.css', 'lib/a.ts', 'lib/b.js', 'lib/c.mjs', 'lib/d.jsx', 'lib/tests/f.ts', 'public/j.svg', 'public/k.html',
     ]);
   });
+
+  it('skips the generated graphify-out/ at the top', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ui-check-'));
+    const put = (p) => { mkdirSync(join(root, p, '..'), { recursive: true }); writeFileSync(join(root, p), ''); };
+    ['graphify-out/graph.html', 'lib/a.ts'].forEach(put);
+    expect(sourceFiles(root).map((f) => f.path)).toEqual(['lib/a.ts']);
+  });
 });
 
 // Round 2: holes a second review found; each of these printed `ui-check: ok`.

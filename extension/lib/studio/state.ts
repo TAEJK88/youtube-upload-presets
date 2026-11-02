@@ -97,7 +97,7 @@ function effectiveSettings(): Settings {
   let stored = load<Record<string, unknown>>('settings', {});
   for (const { p } of pending) if (p.key === 'settings') stored = applySettingsPatch(stored, p.patch);
   // Same merge as the userscript: defaults (with the pre-settings autoApply/autoNext keys) ← stored
-  return mergeSettings(stored as Partial<Settings>, { autoApply: load('autoApply', true), autoNext: load('autoNext', false) });
+  return mergeSettings(stored as Partial<Settings>, { autoApply: load('autoApply', false), autoNext: load('autoNext', false) });
 }
 function effectiveCounters(): Record<string, number> {
   let c = load<Record<string, number>>('counters', {});

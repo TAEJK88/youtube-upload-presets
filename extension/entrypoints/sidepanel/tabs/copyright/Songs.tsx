@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { songsCsvRows } from '@/lib/claims/core';
 import { SONGS_CSV_MAX } from '@/lib/claims/ops';
 import { importSongs } from '@/lib/claims/songs';
@@ -63,12 +63,15 @@ export function Songs({ data }: { data: ClaimsData }) {
     >
       <div className="flex flex-wrap items-center gap-2">
         <TextField className="min-w-40 flex-1" value={q} onValue={setQ} placeholder={search} aria-label={search} />
-        <NativeSelect aria-label={L('เรียงตาม', 'Sort by')} value={sortBy} onChange={(e) => setSortBy(e.target.value as SongSort)}>
-          <option value="count">{L('โดนบ่อยสุด', 'Most claimed')}</option>
-          <option value="recent">{L('ล่าสุด', 'Latest')}</option>
-          <option value="title">{L('ชื่อเพลง A–Z', 'Title A–Z')}</option>
-          <option value="artist">{L('ศิลปิน A–Z', 'Artist A–Z')}</option>
-        </NativeSelect>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as SongSort)}>
+          <SelectTrigger aria-label={L('เรียงตาม', 'Sort by')}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="count">{L('โดนบ่อยสุด', 'Most claimed')}</SelectItem>
+            <SelectItem value="recent">{L('ล่าสุด', 'Latest')}</SelectItem>
+            <SelectItem value="title">{L('ชื่อเพลง A–Z', 'Title A–Z')}</SelectItem>
+            <SelectItem value="artist">{L('ศิลปิน A–Z', 'Artist A–Z')}</SelectItem>
+          </SelectContent>
+        </Select>
         <span className="text-xs text-fg3">{q ? L(`${list.length} จาก ${total} เพลง`, `${list.length} of ${total} songs`) : L(`${total} เพลง`, `${total} songs`)}</span>
       </div>
       <div className="flex flex-col gap-2">

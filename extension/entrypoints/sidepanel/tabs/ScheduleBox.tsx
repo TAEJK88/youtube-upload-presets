@@ -1,14 +1,14 @@
 import { useId, type MouseEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { L } from '@/lib/i18n';
 import { fmtWhen, toLocalInput } from '@/lib/panel/format';
-import { everyOf, newSeed, nextAt, startAt, tomorrow19, windowWith, withinHour } from '@/lib/panel/schedule-quick';
+import { everyOf, newSeed, nextAt, onDay, soonest, startAt, tomorrow19, windowWith, withinHour } from '@/lib/panel/schedule-quick';
 import { weekField, weekPrefs } from '@/lib/schedule-week';
 import type { Schedule } from '@/lib/settings';
 import { cn } from '@/lib/utils';
-import { Chevron, Fold, Hint, TextField } from '../fields';
+import { Chevron, DateTimeField, Fold, Hint, TextField, TimeField } from '../fields';
 import { Icon } from '../Icon';
 import { usePanel } from '../panel';
 import { saveFailed } from '../save-failed';
@@ -78,7 +78,7 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
   const startField = (
     <div>
       <div className="mb-1 text-xs font-semibold text-fg3">{L('คลิปแรกปล่อย', 'First video releases')}</div>
-      <TextField type="datetime-local" aria-label={L('คลิปแรกปล่อย', 'First video releases')} value={s.start || ''} onValue={setStart} />
+      <DateTimeField label={L('คลิปแรกปล่อย', 'First video releases')} value={s.start || ''} onValue={setStart} />
     </div>
   );
   // The header folds the box while it is on; the switch is not part of that click.
@@ -131,19 +131,20 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
                 {startField}
                 <div>
                   <div id={perWeekId} className="mb-1 text-xs font-semibold text-fg3">{L('คลิปต่อสัปดาห์', 'Videos a week')}</div>
-                  <NativeSelect className="w-full" aria-labelledby={perWeekId} value={String(w.perWeek)} onChange={(e) => set({ perWeek: Number(e.target.value) })}>
-                    {[1, 2, 3, 4, 5, 6, 7].map((n) => <option key={n} value={n}>{n}</option>)}
-                  </NativeSelect>
+                  <Select value={String(w.perWeek)} onValueChange={(v) => set({ perWeek: Number(v) })}>
+                    <SelectTrigger className="w-full" aria-labelledby={perWeekId}><SelectValue /></SelectTrigger>
+                    <SelectContent>{[1, 2, 3, 4, 5, 6, 7].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
                 <div>
                   <div className="mb-1 text-xs font-semibold text-fg3">{L('ตั้งแต่', 'From')}</div>
-                  <TextField type="time" aria-label={L('ตั้งแต่', 'From')} value={w.from} onValue={(v) => setWindow(v, w.to, 'from')} />
+                  <TimeField label={L('ตั้งแต่', 'From')} className="w-full" value={w.from} onValue={(v) => setWindow(v, w.to, 'from')} />
                 </div>
                 <div>
                   <div className="mb-1 text-xs font-semibold text-fg3">{L('ถึง', 'Until')}</div>
-                  <TextField type="time" aria-label={L('ถึง', 'Until')} value={w.to} onValue={(v) => setWindow(w.from, v, 'to')} />
+                  <TimeField label={L('ถึง', 'Until')} className="w-full" value={w.to} onValue={(v) => setWindow(w.from, v, 'to')} />
                 </div>
                 <Button title={L('สุ่มวันและเวลาชุดใหม่', 'Draw a new set of days and times')} onClick={() => set({ seed: newSeed() })}>{L('สุ่มใหม่', 'Shuffle')}</Button>
               </div>
@@ -157,15 +158,19 @@ export function ScheduleBox({ open, onOpen }: { open: boolean; onOpen(open: bool
             </div>
             <div>
               <div className="mb-1 text-xs">{' '}</div>
-              <NativeSelect className="w-full" aria-labelledby={everyId} value={s.unit === 'hour' ? 'hour' : 'day'} onChange={(e) => set({ unit: e.target.value as Schedule['unit'] })}>
-                <option value="day">{L('วัน', 'days')}</option>
-                <option value="hour">{L('ชั่วโมง', 'hours')}</option>
-              </NativeSelect>
+              <Select value={s.unit === 'hour' ? 'hour' : 'day'} onValueChange={(v) => set({ unit: v as Schedule['unit'] })}>
+                <SelectTrigger className="w-full" aria-labelledby={everyId}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="day">{L('วัน', 'days')}</SelectItem>
+                  <SelectItem value="hour">{L('ชั่วโมง', 'hours')}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {quick(L('พรุ่งนี้ 19:00', 'Tomorrow 19:00'), () => tomorrow19())}
+            {quick(L('ตอนนี้', 'Now'), () => soonest())}
+            {quick(L('พรุ่งนี้', 'Tomorrow'), () => onDay(s.start, 1))}
             {quick(L('18:00 ถัดไป', 'Next 18:00'), () => nextAt(18))}
             {quick(L('20:00 ถัดไป', 'Next 20:00'), () => nextAt(20))}
             {quick(L('ภายใน 1 ชม.', 'Within 1 hr'), () => withinHour())}

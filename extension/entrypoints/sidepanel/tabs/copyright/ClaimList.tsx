@@ -170,6 +170,7 @@ export function ClaimList({ data, state, busy, idle, onTracklist }: {
                 sub={<>{song}{r.claimant && <span className="text-fg3">{' · ' + r.claimant}</span>}</>} action={action || undefined}>
                 {soon && <div className="text-xs text-warn">{soon}</div>}
                 <div className="mt-1.5">{song}</div>
+                {r.tracklist && <div className="text-xs text-fg3">{L(`ในแทร็กลิสต์: ${r.tracklist}`, `Tracklist: ${r.tracklist}`)}</div>}
                 <div className="text-xs text-fg2">{r.claimant}{r.own && <span className="ml-1 text-warn">{OWN_SONG()}</span>}</div>
                 <div className="text-xs">
                   {(r.segments.map((sg) => fmt(sg[0]) + '–' + fmt(sg[1])).join(', ') || '?') + ' '}

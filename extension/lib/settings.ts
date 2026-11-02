@@ -39,7 +39,7 @@ export interface Settings {
 }
 
 export const defaultSettings = (legacy: { autoApply?: boolean; autoNext?: boolean } = {}): Settings => ({
-  autoApply: legacy.autoApply ?? true,
+  autoApply: legacy.autoApply ?? false,
   autoNext: legacy.autoNext ?? false,
   autoSave: true,
   thumb: true,
@@ -86,7 +86,7 @@ export function cleanLimits<T extends object>(s: T): T {
 // only writer of settings (store:patch).
 export async function loadSettings(): Promise<Settings> {
   const [autoApply, autoNext, stored] = await Promise.all([
-    load('autoApply', true),
+    load('autoApply', false),
     load('autoNext', false),
     load<Partial<Settings>>('settings', {}),
   ]);

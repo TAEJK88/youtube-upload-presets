@@ -57,6 +57,7 @@ const CHECKS: Record<string, (a: Obj) => void> = {
       const o = obj(v, at);
       videoId(o.videoId, `${at}.videoId`);
       optStr(o.title, `${at}.title`);
+      optStr(o.description, `${at}.description`);
       optStr(o.privacy, `${at}.privacy`);
       optNum(o.lengthSeconds, `${at}.lengthSeconds`);
       const cs = optObj(o.copyrightSummary, `${at}.copyrightSummary`);

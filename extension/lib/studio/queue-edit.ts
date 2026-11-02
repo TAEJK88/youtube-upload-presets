@@ -1,8 +1,9 @@
 import { fixChapters } from '../chapters';
 import { L } from '../i18n';
 import { ui } from './page-ui';
-import { bridgeFiles, dropFiles } from './queue-files';
-import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, type FileSrc, type QFile, type QueueItem } from './queue-runner';
+import { bridgeFiles, dropFiles, lostFile } from './queue-files';
+import { thumbPreview } from './thumb-preview';
+import { addQueued, assignNumbers, bumpEditRev, currentItemId, fileMeta, isImg, isTxt, queue, readText, running, saveMemo, setItem, type FileSrc, type QFile, type QueueItem } from './queue-runner';
 import { activeId, onStored, presets } from './state';
 
 // The drawer's queue-card controls (UI section 3752–4024) and its "Apply to all" button,
@@ -111,8 +112,10 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
   // Read every .txt before touching the item: the run can take it during an await. One that
   // can't be read is a failed file like the bridge's (handleQueueAdd); the rest still attach.
   const texts = new Map<string, string>();
+  const previews = new Map<string, string | undefined>();
   const unreadable: { id: string; reason: string }[] = [];
   for (const f of files) {
+    if (isImg(f) && !isTxt(f)) previews.set(f.qid, await thumbPreview(f));
     if (!isTxt(f)) continue;
     try {
       texts.set(f.qid, await readText(f));
@@ -135,13 +138,35 @@ async function attach(it: QueueItem | undefined, ids: string[]): Promise<void> {
       unused.push(f); // read: the file itself is no longer needed
     } else if (isImg(f)) {
       if (it.thumb) unused.push({ qid: it.thumb.id, src: it.thumb.src });
-      it.thumb = { id: f.qid, src: f.src, ...fileMeta(f) };
+      it.thumb = { id: f.qid, src: f.src, ...fileMeta(f), preview: previews.get(f.qid) };
     } else unused.push(f);
   }
   if (unused.length) dropFiles(unused.map((f) => ({ id: f.qid, src: f.src })));
   it.titleEdited = false;
   assignNumbers();
   done();
+}
+
+// queue:relink. The panel's Re-add files banner stored a handle under each of these item ids:
+// lost page files picked again. Each one still lost becomes a bridge file and waits again, as
+// Retry does, with everything else on its card kept. Answers the ids it took (the panel's toast
+// counts them). A handle no lost item takes is let go, unless its item is already a bridge file
+// (the handle is that item's own). Refused (another tab runs the queue): nothing is taken.
+const notBridge = (id: string) => queue.find((x) => x.id === id)?.src !== 'bridge';
+export async function handleQueueRelink(ids: unknown, mayEdit: () => Promise<boolean>): Promise<string[]> {
+  if (!isIds(ids)) return [];
+  const taken = (await mayEdit()) ? queue.filter((it) => ids.includes(it.id) && lostFile(it) && canEdit(it)) : [];
+  for (const it of taken) {
+    it.src = 'bridge';
+    setItem(it, 'pending');
+  }
+  const left = ids.filter((id) => !taken.some((it) => it.id === id) && notBridge(id));
+  if (left.length) dropFiles(left.map((id) => ({ id, src: 'bridge' as const })));
+  if (taken.length) {
+    assignNumbers();
+    done();
+  }
+  return taken.map((it) => it.id);
 }
 
 // Presets, the default preset, EP counters and settings are changed in the side panel.
