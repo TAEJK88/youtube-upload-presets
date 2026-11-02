@@ -68,6 +68,13 @@ function parseClock(text: unknown) {
   return h * 60 + min;
 }
 
+// A click away from the time list shuts it. The edit page's Visibility popup also shuts on a click on
+// the page, taking its Done with it (seen 2026-11-02), so there the click goes to its own dialog.
+function clickAway(dlg: ParentNode) {
+  const inside = (dlg as Element).matches?.(SEL.editVisibilityPopup) ? dlg.querySelector<HTMLElement>(SEL.paperDialog) : null;
+  (inside || document.body).click();
+}
+
 // ตั้งเวลาปล่อยในหน้า Visibility คืนค่าข้อความผิดพลาด หรือ '' ถ้าสำเร็จ
 // `dlg`: the upload dialog, or the edit page's Visibility dialog (Reschedule)
 async function setSchedule(date: Date, dlg: ParentNode = getDialog()!) {
@@ -132,7 +139,7 @@ async function setSchedule(date: Date, dlg: ParentNode = getDialog()!) {
     timeInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', keyCode: 9, bubbles: true }));
   }
   timeInput.blur();
-  document.body.click();
+  clickAway(dlg);
   await sleep(1000); // ให้ Studio บันทึกค่า แล้วค่อยอ่านค่าที่แสดงจริง
 
   // ตรวจผลจากข้อความที่ Studio แสดง (หลังออกจากช่องแล้ว): วันที่และเวลาต้องตรงกับที่ตั้งทั้งหมด
@@ -146,4 +153,4 @@ async function setSchedule(date: Date, dlg: ParentNode = getDialog()!) {
   return '';
 }
 
-export { studioLang, typeInto, formatStudioDate, formatStudioTime, parseClock, sameStudioDate, setSchedule };
+export { clickAway, studioLang, typeInto, formatStudioDate, formatStudioTime, parseClock, sameStudioDate, setSchedule };

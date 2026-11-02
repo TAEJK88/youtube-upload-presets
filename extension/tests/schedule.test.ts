@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatStudioDate, formatStudioTime, parseClock, sameStudioDate, setSchedule } from '../lib/studio/schedule';
+import { clickAway, formatStudioDate, formatStudioTime, parseClock, sameStudioDate, setSchedule } from '../lib/studio/schedule';
 // @ts-expect-error -- untyped test helper shared with the ported DOM tests
 import { El, makeDocument } from './fake-dom.mjs';
 
@@ -66,6 +66,32 @@ describe('sameStudioDate', () => {
     expect(sameStudioDate('15 Oct 2026', '5 Oct 2026')).toBe(false);
     expect(sameStudioDate('06 Oct 2026', '5 Oct 2026')).toBe(false);
     expect(sameStudioDate('2026. 1. 15.', '2026. 11. 5.')).toBe(false); // 15 Jan is not 5 Nov
+  });
+});
+
+// The click that shuts the time list once a time is picked. On a video's edit page a click on the
+// page shuts the whole Visibility popup, and Done is then not there to press (seen 2026-11-02:
+// every Reschedule failed "Visibility's Done button is not ready").
+describe('clickAway', () => {
+  // The element the click lands on (it bubbles up to the page either way).
+  const target = (outer: string) => {
+    const doc = makeDocument();
+    const dlg = new El(outer);
+    dlg.append(new El('tp-yt-paper-dialog'));
+    doc.body.append(dlg);
+    vi.stubGlobal('document', doc);
+    let hit = '';
+    doc.body.onclick = (ev: { target: { tagName?: string } }) => { hit = ev.target.tagName ?? 'body'; };
+    clickAway(dlg);
+    return hit.toLowerCase();
+  };
+
+  it('the edit page popup: a click inside its own dialog, not on the page', () => {
+    expect(target('ytcp-video-visibility-edit-popup')).toBe('tp-yt-paper-dialog');
+  });
+
+  it('the upload dialog as before: a click on the page', () => {
+    expect(target('ytcp-uploads-dialog')).toBe('body');
   });
 });
 
